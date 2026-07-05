@@ -20,6 +20,7 @@ export default defineConfig({
     allowedHosts: ["yurucommu.test"],
     proxy: {
       "/api": yurucommuServerTarget,
+      "/.well-known": yurucommuServerTarget,
     },
   },
 });

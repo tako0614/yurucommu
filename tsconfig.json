@@ -14,5 +14,5 @@
     "skipLibCheck": true,
     "baseUrl": "."
   },
-  "include": ["src", "plugin.ts", "public.ts", "vite.config.ts", "shims"]
+  "include": ["src", "plugin.ts", "public.ts", "vite.config.ts", "shims", "scripts"]
 }

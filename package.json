@@ -1,7 +1,7 @@
 {
   "name": "@takosjp/yurucommu",
   "version": "2.0.0",
-  "license": "GPL-3.0-only",
+  "license": "AGPL-3.0-only",
   "type": "module",
   "private": true,
   "imports": {
@@ -15,19 +15,25 @@
   },
   "scripts": {
     "dev": "bunx vite --config vite.config.ts",
+    "dev:mock": "bun scripts/dev-mock.ts",
+    "dev:mock:api": "bun scripts/dev-mock-server.ts",
     "dev:site": "bunx serve site",
     "check": "tsc --noEmit",
     "test": "bun test src/",
-    "build": "bunx vite build --config vite.config.ts",
+    "build": "bun run build:client",
+    "build:client": "bunx vite build --config vite.config.ts",
+    "build:takos-worker": "bun scripts/build-takos-worker.ts",
+    "takosumi:release": "bun scripts/takosumi-release.ts",
     "lint": "bun run check",
-    "fmt": "bunx prettier --write index.html vite.config.ts public.ts plugin.ts src site shims",
-    "fmt:check": "bunx prettier --check index.html vite.config.ts public.ts plugin.ts src site shims"
+    "fmt": "bunx prettier --write index.html vite.config.ts public.ts plugin.ts src site shims scripts",
+    "fmt:check": "bunx prettier --check index.html vite.config.ts public.ts plugin.ts src site shims scripts"
   },
   "dependencies": {
     "@ffmpeg/ffmpeg": "^0.12.15",
     "@ffmpeg/util": "^0.12.2",
     "@solidjs/router": "^0.15.0",
-    "@takosjp/yurucommu-api": "^2.0.0",
+    "@takosjp/yurucommu-api": "^3.0.0",
+    "@takosjp/yurucommu-core": "^3.0.1",
     "html5-qrcode": "^2.3.8",
     "jotai": "^2.18.0",
     "qrcode-generator": "^2.0.4",
@@ -35,14 +41,17 @@
     "solid-js": "^1.9.0"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260420.1",
     "@tailwindcss/node": "^4.1.18",
     "@tailwindcss/oxide": "^4.1.18",
     "@tailwindcss/vite": "^4.1.18",
     "@types/bun": "latest",
     "@types/node": "^22.0.0",
     "tailwindcss": "^4.1.18",
+    "esbuild": "^0.25.12",
     "typescript": "^5.7.0",
     "vite": "^6.4.1",
-    "vite-plugin-solid": "^2.11.0"
+    "vite-plugin-solid": "^2.11.0",
+    "wrangler": "^4.103.0"
   }
 }
