@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { argv, env } from "node:process";
@@ -192,7 +193,16 @@ export function buildInstallArgs(): string[] {
 }
 
 export function coreMigrationsDir(): string {
-  return join("node_modules", "@takosjp", "yurucommu-core", "migrations");
+  const override = env.YURUCOMMU_CORE_MIGRATIONS_DIR?.trim();
+  if (override) return override;
+  const packageDir = join(
+    "node_modules",
+    "@takosjp",
+    "yurucommu-core",
+    "migrations",
+  );
+  if (existsSync(packageDir)) return packageDir;
+  return "migrations";
 }
 
 export function buildD1ExecuteTemplate(configPath: string): string[] {
