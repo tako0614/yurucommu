@@ -248,11 +248,18 @@ resource "random_id" "bootstrap_auth_token" {
 }
 
 data "http" "worker_bundle" {
-  count = local.worker_bundle_uses_url ? 1 : 0
-  url   = local.worker_bundle_url
+  count              = local.worker_bundle_uses_url ? 1 : 0
+  url                = local.worker_bundle_url
+  request_timeout_ms = 120000
 
   request_headers = {
     Accept = "application/javascript, text/javascript, application/octet-stream"
+  }
+
+  retry {
+    attempts     = 3
+    min_delay_ms = 1000
+    max_delay_ms = 10000
   }
 }
 
