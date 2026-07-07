@@ -3,6 +3,7 @@ import {
   ErrorBoundary,
   lazy,
   Match,
+  onMount,
   Show,
   Suspense,
   Switch,
@@ -37,11 +38,23 @@ const CommunityProfilePage = lazy(
 const SearchPage = lazy(() => import("./pages/SearchPage.tsx"));
 const NotFoundPage = lazy(() => import("./pages/NotFoundPage.tsx"));
 
+function LoginRoute() {
+  onMount(() => {
+    window.location.replace("/");
+  });
+  return (
+    <div class="flex h-screen items-center justify-center bg-neutral-950 text-neutral-500">
+      Loading...
+    </div>
+  );
+}
+
 function AppShell() {
   return (
     <Router>
       <Route path="/" component={AppLayout}>
         <Route path="/" component={TimelinePage} />
+        <Route path="/login" component={LoginRoute} />
         <Route path="/search" component={SearchPage} />
         <Route path="/friends" component={FriendsListPage} />
         <Route path="/friends/list" component={FriendsListPage} />
