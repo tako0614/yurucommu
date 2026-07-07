@@ -1,18 +1,12 @@
 import { createSignal, For, onMount, Show } from "solid-js";
 import type { JSX } from "solid-js";
 import { apiFetch } from "../lib/api/fetch.ts";
+import {
+  shouldAutoStartTakosumiOidc,
+  type AuthConfig,
+  type OAuthProvider,
+} from "../lib/auth-config.ts";
 import { useI18n } from "../lib/i18n.tsx";
-
-interface OAuthProvider {
-  id: string;
-  name: string;
-  icon: string;
-}
-
-interface AuthConfig {
-  providers: OAuthProvider[];
-  password_enabled: boolean;
-}
 
 interface LoginFormProps {
   onLogin: (password: string) => Promise<boolean>;
@@ -79,6 +73,10 @@ export function LoginForm(props: LoginFormProps) {
         return (await res.json()) as AuthConfig;
       })
       .then((data) => {
+        if (shouldAutoStartTakosumiOidc(data)) {
+          window.location.assign("/api/auth/login/takos");
+          return;
+        }
         setAuthConfig(data);
         setLoading(false);
       })
