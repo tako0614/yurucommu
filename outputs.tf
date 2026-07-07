@@ -89,7 +89,7 @@ output "app_deployment" {
   value = {
     contractVersion = 1
     name            = "yurucommu"
-    version         = "2.0.0"
+    version         = "2.0.1"
 
     compute = {
       web = {

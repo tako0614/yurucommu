@@ -248,11 +248,18 @@ resource "random_id" "bootstrap_auth_token" {
 }
 
 data "http" "worker_bundle" {
-  count = local.worker_bundle_uses_url ? 1 : 0
-  url   = local.worker_bundle_url
+  count              = local.worker_bundle_uses_url ? 1 : 0
+  url                = local.worker_bundle_url
+  request_timeout_ms = 120000
 
   request_headers = {
     Accept = "application/javascript, text/javascript, application/octet-stream"
+  }
+
+  retry {
+    attempts     = 3
+    min_delay_ms = 1000
+    max_delay_ms = 10000
   }
 }
 
@@ -290,7 +297,7 @@ resource "cloudflare_workers_script" "worker" {
   count               = local.cloudflare_worker_enabled ? 1 : 0
   account_id          = var.cloudflare_account_id
   script_name         = local.worker_name
-  content             = local.worker_bundle_uses_url ? local.worker_bundle_body : null
+  content             = local.worker_bundle_uses_url ? sensitive(local.worker_bundle_body) : null
   content_file        = local.worker_bundle_uses_url ? null : local.worker_bundle_local_path
   content_sha256      = local.worker_bundle_content_sha256
   main_module         = var.worker_main_module
