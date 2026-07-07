@@ -290,7 +290,7 @@ resource "cloudflare_workers_script" "worker" {
   count               = local.cloudflare_worker_enabled ? 1 : 0
   account_id          = var.cloudflare_account_id
   script_name         = local.worker_name
-  content             = local.worker_bundle_uses_url ? local.worker_bundle_body : null
+  content             = local.worker_bundle_uses_url ? sensitive(local.worker_bundle_body) : null
   content_file        = local.worker_bundle_uses_url ? null : local.worker_bundle_local_path
   content_sha256      = local.worker_bundle_content_sha256
   main_module         = var.worker_main_module
