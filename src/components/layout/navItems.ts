@@ -9,11 +9,9 @@ import {
   SearchNavIcon,
 } from "./NavIcons.tsx";
 
-// Single source of truth for the primary navigation surface. Both the desktop
-// Sidebar and the mobile BottomNav project from this list so the two stay in
-// sync (no divergent hardcoded arrays). An item is either a route link
-// (`route`) or an in-app action (`onAction`, e.g. the center Create button that
-// opens the post composer).
+// Primary navigation model. Desktop keeps the fuller app map, while mobile uses
+// a reduced X-like bottom bar and leaves compose/profile to the floating action
+// button and account menu.
 export interface NavItem {
   id: "home" | "search" | "create" | "messages" | "activity" | "profile";
   // Icons receive an `active` flag so projections can render a filled vs.
@@ -30,7 +28,6 @@ export interface NavItem {
   badge?: boolean;
 }
 
-// IG-like primary nav: Home, Search, Create (center), Activity, Profile.
 export const NAV_ITEMS: NavItem[] = [
   { id: "home", icon: HomeNavIcon, labelKey: "nav.home", route: "/" },
   {
@@ -64,5 +61,29 @@ export const NAV_ITEMS: NavItem[] = [
     icon: ProfileNavIcon,
     labelKey: "nav.profile",
     route: "/profile",
+  },
+];
+
+export const MOBILE_NAV_ITEMS: NavItem[] = [
+  { id: "home", icon: HomeNavIcon, labelKey: "nav.home", route: "/" },
+  {
+    id: "search",
+    icon: SearchNavIcon,
+    labelKey: "nav.search",
+    route: "/search",
+  },
+  {
+    id: "activity",
+    icon: ActivityNavIcon,
+    labelKey: "nav.notifications",
+    route: "/notifications",
+    badge: true,
+  },
+  {
+    id: "messages",
+    icon: MessagesNavIcon,
+    labelKey: "nav.messages",
+    route: "/dm",
+    badge: true,
   },
 ];

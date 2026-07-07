@@ -4,7 +4,7 @@
   role="img"
   aria-label="yurucommu"
 >
-  <rect width="64" height="64" rx="14" fill="#f7c948" />
+  <rect width="64" height="64" rx="14" fill="#0a0a0b" />
   <text
     x="32"
     y="34"
@@ -12,7 +12,7 @@
     dominant-baseline="central"
     font-family="'Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic',sans-serif"
     font-size="42"
-    font-weight="700"
-    fill="#16324f"
+    font-weight="800"
+    fill="#fafafa"
   >ゆ</text>
 </svg>

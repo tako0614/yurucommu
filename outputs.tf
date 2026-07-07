@@ -89,7 +89,7 @@ output "app_deployment" {
   value = {
     contractVersion = 1
     name            = "yurucommu"
-    version         = "2.0.1"
+    version         = "2.0.3"
 
     compute = {
       web = {
@@ -172,6 +172,7 @@ output "app_deployment" {
         display = {
           title       = "Yurucommu"
           description = "Self-hosted ActivityPub social app for posts, messaging, stories, and small communities."
+          icon        = "/icons/yurucommu.svg"
           category    = "social"
         }
         spec = {
@@ -265,6 +266,7 @@ output "service_exports" {
       metadata = {
         title       = "Yurucommu"
         description = "Your own self-hosted ActivityPub SNS — posts, messaging, and stories, where the communities you inhabit are your reach."
+        icon        = "/icons/yurucommu.svg"
         category    = "social"
       }
       visibility = "space"

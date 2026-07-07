@@ -25,6 +25,9 @@ import {
 import { useVideoTransform } from "../../../hooks/useVideoTransform.ts";
 import type { StoryOverlay } from "../../../types/index.ts";
 import { TextEditorModal } from "../TextEditorModal.tsx";
+import { StoryComposerOverlayLayer } from "./StoryComposerOverlayLayer.tsx";
+import { StoryOverlayEditorModal } from "./StoryOverlayEditorModal.tsx";
+import { type OverlayKind, useStoryOverlays } from "./useStoryOverlays.ts";
 import { StoryComposerCanvas } from "./StoryComposerCanvas.tsx";
 import { StoryComposerFooter } from "./StoryComposerFooter.tsx";
 import { StoryComposerHeader } from "./StoryComposerHeader.tsx";
@@ -94,8 +97,35 @@ export function StoryComposer(props: StoryComposerProps) {
   ]);
   const [gradientAngle, setGradientAngle] = createSignal(135);
 
-  // Overlay state (for interactive elements)
-  const [overlays] = createSignal<StoryOverlay[]>([]);
+  // Overlay state (interactive poll / note / link elements that federate as
+  // StoryOverlay and render over the media — not baked into the canvas image).
+  const overlayState = useStoryOverlays();
+  const [overlayEditor, setOverlayEditor] = createSignal<
+    { kind: OverlayKind; id?: string; initial?: StoryOverlay | null } | null
+  >(null);
+
+  const openOverlayCreate = (kind: OverlayKind) => {
+    setShowToolPanel(false);
+    setActiveTool(null);
+    setOverlayEditor({ kind });
+  };
+  const openOverlayEdit = (id: string) => {
+    const item = overlayState.getItem(id);
+    if (!item) return;
+    setOverlayEditor({
+      kind: item.overlay.type as OverlayKind,
+      id,
+      initial: item.overlay,
+    });
+  };
+  const handleOverlaySave = (overlay: StoryOverlay) => {
+    const editing = overlayEditor();
+    if (editing?.id) {
+      overlayState.updateOverlay(editing.id, overlay);
+    } else {
+      overlayState.addOverlay(overlay);
+    }
+  };
 
   // Snap guides state
   const [snapGuides, setSnapGuides] = createSignal<SnapGuide[]>([]);
@@ -193,7 +223,7 @@ export function StoryComposer(props: StoryComposerProps) {
       return video.ffmpegReady();
     },
     get overlays() {
-      return overlays();
+      return overlayState.overlays();
     },
     get caption() {
       return caption();
@@ -444,14 +474,17 @@ export function StoryComposer(props: StoryComposerProps) {
   const canPost = () => {
     renderKey();
     const sc = storyCanvas();
-    return !!sc && (sc.getLayers().length > 1 || !!video.videoFile());
+    return !!sc &&
+      (sc.getLayers().length > 1 || !!video.videoFile() ||
+        overlayState.overlays().length > 0);
   };
-  // Empty == only the background layer and no video: show the "tap to add
-  // text" affordance so a fresh canvas isn't a blank stage.
+  // Empty == only the background layer, no video, and no overlays: show the
+  // "tap to add text" affordance so a fresh canvas isn't a blank stage.
   const isCanvasEmpty = () => {
     renderKey();
     const sc = storyCanvas();
-    return !!sc && sc.getLayers().length <= 1 && !video.videoFile();
+    return !!sc && sc.getLayers().length <= 1 && !video.videoFile() &&
+      overlayState.overlays().length === 0;
   };
 
   // --- Render ---
@@ -500,6 +533,16 @@ export function StoryComposer(props: StoryComposerProps) {
           onVideoTouchStart={videoTransform.handleTouchStart}
           onVideoTouchMove={videoTransform.handleTouchMove}
           onVideoTouchEnd={videoTransform.handleTouchEnd}
+        />
+
+        {/* Interactive overlay layer (poll / note / link) over the canvas. */}
+        <StoryComposerOverlayLayer
+          items={overlayState.items()}
+          selectedId={overlayState.selectedId()}
+          onSelect={overlayState.setSelectedId}
+          onMove={overlayState.moveOverlay}
+          onEdit={openOverlayEdit}
+          onRemove={overlayState.removeOverlay}
         />
 
         {/* Empty-canvas affordance — only a background, nothing placed yet. */}
@@ -559,6 +602,8 @@ export function StoryComposer(props: StoryComposerProps) {
             setShowToolPanel(false);
             setActiveTool(null);
           }}
+          onAddOverlay={openOverlayCreate}
+          canAddOverlay={overlayState.canAdd}
           onClose={() => {
             setShowToolPanel(false);
             setActiveTool(null);
@@ -626,6 +671,19 @@ export function StoryComposer(props: StoryComposerProps) {
           onSave={textEditor.handleTextSave}
           initialText={textEditor.getInitialTextData()}
         />
+
+        {/* Interactive overlay editor modal */}
+        <Show when={overlayEditor()}>
+          {(editor) => (
+            <StoryOverlayEditorModal
+              open
+              kind={editor().kind}
+              initial={editor().initial ?? null}
+              onSave={handleOverlaySave}
+              onClose={() => setOverlayEditor(null)}
+            />
+          )}
+        </Show>
       </div>
     </div>
   );

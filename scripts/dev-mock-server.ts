@@ -90,6 +90,15 @@ type Message = {
   created_at: string;
 };
 
+type ActorNote = {
+  actor: PostAuthor;
+  content: string;
+  created_at: string;
+  updated_at: string;
+  expires_at: string;
+  is_mine: boolean;
+};
+
 type JsonValue =
   null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 
@@ -141,10 +150,6 @@ const me = actor("you", "You", "UI development mock account.", {
   following_count: 178,
   post_count: 42,
   is_following: true,
-  fields: [
-    { name: "Mode", value: "Mock UI dev" },
-    { name: "Server", value: "Yurucommu-compatible API" },
-  ],
 });
 const akari = actor("akari", "Akari", "Talks about small community tools.", {
   is_followed_by: true,
@@ -299,6 +304,33 @@ let communityMessages: Record<string, Message[]> = {
     },
   ],
 };
+
+let notes: ActorNote[] = [
+  {
+    actor: postAuthor(me),
+    content: "UIを詰めてる",
+    created_at: "2026-07-05T05:50:00.000Z",
+    updated_at: "2026-07-05T05:50:00.000Z",
+    expires_at: "2026-07-06T05:50:00.000Z",
+    is_mine: true,
+  },
+  {
+    actor: postAuthor(akari),
+    content: "story bar見直し中",
+    created_at: "2026-07-05T05:35:00.000Z",
+    updated_at: "2026-07-05T05:35:00.000Z",
+    expires_at: "2026-07-06T05:35:00.000Z",
+    is_mine: false,
+  },
+  {
+    actor: postAuthor(ren),
+    content: "talk-first案ある",
+    created_at: "2026-07-05T04:55:00.000Z",
+    updated_at: "2026-07-05T04:55:00.000Z",
+    expires_at: "2026-07-06T04:55:00.000Z",
+    is_mine: false,
+  },
+];
 
 function headers(request: Request, contentType = "application/json"): Headers {
   const result = new Headers({
@@ -490,6 +522,13 @@ function storiesResponse(): JsonValue {
   };
 }
 
+function notesResponse(): JsonValue {
+  const now = new Date().toISOString();
+  return {
+    notes: notes.filter((note) => note.expires_at > now),
+  };
+}
+
 function notificationsResponse(): JsonValue {
   return {
     notifications: [
@@ -535,12 +574,20 @@ function discovery(request: Request): JsonValue {
     activitypubOrigin: origin,
     mediaOrigin: apiBaseUrl,
     socialServerCapabilitiesUrl: `${apiBaseUrl}/.well-known/social-server`,
-    capabilities: ["auth.password", "timeline", "stories", "dm", "communities"],
+    capabilities: [
+      "auth.password",
+      "timeline",
+      "stories",
+      "notes",
+      "dm",
+      "communities",
+    ],
     endpoints: {
       api: `${apiBaseUrl}/api`,
       authProviders: `${apiBaseUrl}/api/auth/providers`,
       currentUser: `${apiBaseUrl}/api/auth/me`,
       timeline: `${apiBaseUrl}/api/timeline`,
+      notes: `${apiBaseUrl}/api/notes`,
       conversations: `${apiBaseUrl}/api/dm/contacts`,
       notifications: `${apiBaseUrl}/api/notifications`,
       mobilePushRegistrations: `${apiBaseUrl}/api/mobile/push/registrations`,
@@ -963,6 +1010,44 @@ async function handlePosts(
   return null;
 }
 
+async function handleNotes(
+  request: Request,
+  method: string,
+  path: string,
+): Promise<Response | null> {
+  if (method === "GET" && path === "/api/notes") {
+    return json(request, notesResponse());
+  }
+  if (method === "POST" && path === "/api/notes") {
+    const body = await readJson(request);
+    const content =
+      typeof body.content === "string" ? body.content.trim().slice(0, 80) : "";
+    if (!content) {
+      return json(
+        request,
+        { error: "content must be 1-80 characters" },
+        { status: 400 },
+      );
+    }
+    const now = new Date().toISOString();
+    const note: ActorNote = {
+      actor: postAuthor(me),
+      content,
+      created_at: now,
+      updated_at: now,
+      expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      is_mine: true,
+    };
+    notes = [note, ...notes.filter((item) => !item.is_mine)];
+    return json(request, { note }, { status: 201 });
+  }
+  if (method === "DELETE" && path === "/api/notes/me") {
+    notes = notes.filter((note) => !note.is_mine);
+    return json(request, ok());
+  }
+  return null;
+}
+
 async function handleStories(
   request: Request,
   method: string,
@@ -1155,6 +1240,9 @@ async function handleRequest(request: Request): Promise<Response> {
   const postResponse = await handlePosts(request, method, path);
   if (postResponse) return postResponse;
 
+  const noteResponse = await handleNotes(request, method, path);
+  if (noteResponse) return noteResponse;
+
   const storyResponse = await handleStories(request, method, path);
   if (storyResponse) return storyResponse;
 
@@ -1218,6 +1306,7 @@ async function runSelfTest(): Promise<void> {
     ["GET", "/.well-known/social-server", 200],
     ["GET", "/api/auth/me", 200],
     ["GET", "/api/timeline", 200],
+    ["GET", "/api/notes", 200],
     ["GET", "/api/stories", 200],
     ["GET", "/api/dm/contacts", 200],
     ["GET", "/api/communities", 200],

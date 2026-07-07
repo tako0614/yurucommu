@@ -1,13 +1,24 @@
-import { Show } from "solid-js";
+import { For, Show } from "solid-js";
 import { DrawingPanel } from "../DrawingPanel.tsx";
 import { StickerPanel } from "../StickerPanel.tsx";
 import { useI18n } from "../../../lib/i18n.tsx";
+import type { OverlayKind } from "./useStoryOverlays.ts";
 
 interface StoryComposerStickerPanelProps {
   open: boolean;
   onAddEmoji: (emoji: string) => void;
+  onAddOverlay: (kind: OverlayKind) => void;
+  canAddOverlay: (kind: OverlayKind) => boolean;
   onClose: () => void;
 }
+
+const INTERACTIVE_STICKERS = [
+  { kind: "Question", icon: "📊", labelKey: "story.overlay.poll" },
+  { kind: "Note", icon: "💬", labelKey: "story.overlay.note" },
+  { kind: "Link", icon: "🔗", labelKey: "story.overlay.link" },
+] as const satisfies ReadonlyArray<
+  { kind: OverlayKind; icon: string; labelKey: string }
+>;
 
 const CloseIcon = () => (
   <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -41,6 +52,24 @@ export function StoryComposerStickerPanel(
           >
             <CloseIcon />
           </button>
+        </div>
+        {/* Interactive stickers (poll / note / link) — federate as StoryOverlay
+            and stay editable/positionable over the media, unlike emoji which
+            bake into the image. */}
+        <div class="mb-3 grid grid-cols-3 gap-2">
+          <For each={INTERACTIVE_STICKERS}>
+            {(sticker) => (
+              <button
+                type="button"
+                disabled={!props.canAddOverlay(sticker.kind)}
+                onClick={() => props.onAddOverlay(sticker.kind)}
+                class="flex flex-col items-center gap-1 rounded-xl bg-white/10 py-3 text-white transition-colors hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <span class="text-2xl">{sticker.icon}</span>
+                <span class="text-xs">{t(sticker.labelKey)}</span>
+              </button>
+            )}
+          </For>
         </div>
         <StickerPanel onAddEmoji={props.onAddEmoji} />
       </div>

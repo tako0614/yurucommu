@@ -9,11 +9,20 @@ type NavIconProps = { active: boolean };
 export const HomeNavIcon: Component<NavIconProps> = (props) => (
   <svg
     class="w-6 h-6"
-    fill={props.active ? "currentColor" : "none"}
-    stroke="currentColor"
+    fill="none"
+    stroke={props.active ? "#fff" : "currentColor"}
     viewBox="0 0 24 24"
     aria-hidden="true"
   >
+    {props.active ? (
+      <path
+        fill="#fff"
+        fill-rule="evenodd"
+        clip-rule="evenodd"
+        stroke="none"
+        d="M5 10 12 3l7 7v10a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V10Zm5 11v-5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v5h-4Z"
+      />
+    ) : null}
     <path
       stroke-linecap="round"
       stroke-linejoin="round"

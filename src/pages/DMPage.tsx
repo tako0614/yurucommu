@@ -8,9 +8,18 @@ import {
   Show,
 } from "solid-js";
 import { useNavigate, useParams, useSearchParams } from "@solidjs/router";
-import { useSetAtom } from "solid-jotai";
+import { useAtomValue, useSetAtom } from "solid-jotai";
 import { useRequiredActor } from "../hooks/useRequiredActor.ts";
 import { refreshDmUnreadAtom } from "../atoms/dm-unread.ts";
+import {
+  actorNotesAtom,
+  deleteMyNoteAtom,
+  loadNotesAtom,
+  noteSavingAtom,
+  notesErrorAtom,
+  notesLoadingAtom,
+  saveNoteAtom,
+} from "../atoms/notes.ts";
 import {
   DMContact,
   DMRequest,
@@ -26,6 +35,7 @@ import { handleTablistKeydown } from "../lib/tablistNav.ts";
 import { useI18n } from "../lib/i18n.tsx";
 import { DMChatPanel } from "../components/dm/DMChatPanel.tsx";
 import { DMContactItem } from "../components/dm/DMContactItem.tsx";
+import { NoteBar } from "../components/notes/NoteBar.tsx";
 import { UserAvatar } from "../components/UserAvatar.tsx";
 import { PostSkeleton } from "../components/timeline/PostSkeleton.tsx";
 
@@ -133,6 +143,13 @@ export function DMPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const refreshDmUnread = useSetAtom(refreshDmUnreadAtom);
+  const actorNotes = useAtomValue(actorNotesAtom);
+  const notesLoading = useAtomValue(notesLoadingAtom);
+  const notesError = useAtomValue(notesErrorAtom);
+  const noteSaving = useAtomValue(noteSavingAtom);
+  const loadNotes = useSetAtom(loadNotesAtom);
+  const saveNote = useSetAtom(saveNoteAtom);
+  const deleteMyNote = useSetAtom(deleteMyNoteAtom);
   const [contacts, setContacts] = createSignal<DMContact[]>([]);
   const [communities, setCommunities] = createSignal<DMContact[]>([]);
   const [requests, setRequests] = createSignal<DMRequest[]>([]);
@@ -263,6 +280,7 @@ export function DMPage() {
   onMount(() => {
     setSearchQuery("");
     void loadContacts();
+    void loadNotes();
   });
 
   // Handle contact selection when URL changes (after initial load)
@@ -715,6 +733,17 @@ export function DMPage() {
                   />
                 </div>
               </header>
+
+              <NoteBar
+                actor={actor}
+                notes={actorNotes()}
+                loading={notesLoading()}
+                error={notesError()}
+                saving={noteSaving()}
+                onRetry={loadNotes}
+                onSave={saveNote}
+                onDelete={deleteMyNote}
+              />
 
               {/* Swipeable content area */}
               <div

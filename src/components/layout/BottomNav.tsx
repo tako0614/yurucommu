@@ -6,10 +6,11 @@ import { notificationUnreadAtom } from "../../atoms/notifications.ts";
 import { dmUnreadCountAtom } from "../../atoms/dm-unread.ts";
 import { showPostModalAtom } from "../../atoms/timeline.ts";
 import { NavBadge } from "./NavBadge.tsx";
-import { NAV_ITEMS, type NavItem } from "./navItems.ts";
+import { MOBILE_NAV_ITEMS, type NavItem } from "./navItems.ts";
+import { CreateNavIcon } from "./NavIcons.tsx";
 
-// Mobile projection of the single nav model (navItems.ts). The desktop Sidebar
-// projects from the same list, so the two never diverge.
+// X-like mobile bar: keep only core destinations in the bottom rail. Compose is
+// a floating action button; Profile stays in the avatar menu.
 export function BottomNav() {
   const { t } = useI18n();
   const location = useLocation();
@@ -47,33 +48,27 @@ export function BottomNav() {
     }`;
 
   return (
-    <nav class="md:hidden fixed bottom-0 left-0 right-0 h-[calc(3.5rem+env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] bg-neutral-900 border-t border-neutral-900 flex items-center justify-around z-50">
-      <For each={NAV_ITEMS}>
-        {(item) => {
-          const Icon = item.icon;
-          const badge = () => (
-            <Show when={item.badge && badgeCount(item) > 0}>
-              <span class="absolute -top-1 -right-2">
-                <NavBadge count={badgeCount(item)} label={badgeLabel(item)} />
-              </span>
-            </Show>
-          );
-          return (
-            <Show
-              when={item.route !== undefined}
-              fallback={
-                <button
-                  type="button"
-                  onClick={() => openComposer(true)}
-                  aria-label={t(item.labelKey)}
-                  class={itemClass(item)}
-                >
-                  <span class="relative inline-flex">
-                    <Icon active={false} />
-                  </span>
-                </button>
-              }
-            >
+    <>
+      <button
+        type="button"
+        onClick={() => openComposer(true)}
+        aria-label={t("posts.post")}
+        class="md:hidden fixed right-4 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-50 grid h-14 w-14 place-items-center rounded-full bg-accent text-white shadow-2xl shadow-black/40 transition-transform active:scale-95"
+      >
+        <CreateNavIcon active={false} />
+      </button>
+      <nav class="md:hidden fixed bottom-0 left-0 right-0 h-[calc(3.5rem+env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] bg-neutral-900 border-t border-neutral-900 flex items-center justify-around z-50">
+        <For each={MOBILE_NAV_ITEMS}>
+          {(item) => {
+            const Icon = item.icon;
+            const badge = () => (
+              <Show when={item.badge && badgeCount(item) > 0}>
+                <span class="absolute -top-1 -right-2">
+                  <NavBadge count={badgeCount(item)} label={badgeLabel(item)} />
+                </span>
+              </Show>
+            );
+            return (
               <A
                 href={item.route!}
                 aria-label={t(item.labelKey)}
@@ -85,10 +80,10 @@ export function BottomNav() {
                   {badge()}
                 </span>
               </A>
-            </Show>
-          );
-        }}
-      </For>
-    </nav>
+            );
+          }}
+        </For>
+      </nav>
+    </>
   );
 }
