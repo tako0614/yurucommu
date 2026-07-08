@@ -217,8 +217,8 @@ export function buildD1ExecuteTemplate(configPath: string): string[] {
     "--yes",
     "--config",
     configPath,
-    "--file",
-    "{sql_file}",
+    "--command",
+    "{sql}",
   ];
 }
 
