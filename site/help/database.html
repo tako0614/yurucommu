@@ -608,12 +608,14 @@
 
         <h2>マイグレーション</h2>
         <p>
-          マイグレーションファイルは <code>migrations/</code>
-          ディレクトリにあります。
+          マイグレーションファイルは
+          <code>@takosjp/yurucommu-core</code> package の
+          <code>migrations/</code> が正本です。deployable product repo には重複
+          copy を置きません。
         </p>
         <p>
-          ローカルの Bun サーバーは起動時に <code>MIGRATIONS_PATH</code> の SQL
-          を自動適用します。production では Capsule の Apply 後に
+          ローカルの core Bun サーバーは起動時に <code>MIGRATIONS_PATH</code>
+          の SQL を自動適用します。production では Capsule の Apply 後に
           <code>takosumi_release.post_apply</code> の <code>app:activate</code>
           コマンドを実行し、その中でアプリ側が必要な初期化を行います。 Takosumi
           はデータベース種類を解釈せず、operator 側が渡した SQL

@@ -192,8 +192,10 @@ export function buildInstallArgs(): string[] {
   return ["bun", "install", "--frozen-lockfile", "--ignore-scripts"];
 }
 
-export function coreMigrationsDir(): string {
-  const override = env.YURUCOMMU_CORE_MIGRATIONS_DIR?.trim();
+export function coreMigrationsDir(
+  sourceEnv: Record<string, string | undefined> = env,
+): string {
+  const override = sourceEnv.YURUCOMMU_CORE_MIGRATIONS_DIR?.trim();
   if (override) return override;
   const packageDir = join(
     "node_modules",
@@ -202,7 +204,9 @@ export function coreMigrationsDir(): string {
     "migrations",
   );
   if (existsSync(packageDir)) return packageDir;
-  return "migrations";
+  throw new Error(
+    "Could not find @takosjp/yurucommu-core migrations. Run bun install before activation or set YURUCOMMU_CORE_MIGRATIONS_DIR explicitly.",
+  );
 }
 
 export function buildD1ExecuteTemplate(

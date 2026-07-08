@@ -160,10 +160,8 @@
 
         <h2>ローカルBunサーバー</h2>
         <p>
-          Cloudflare を使わずにローカルで起動する場合は
-          <code>bun run dev:server</code> または
-          <code>bun run start</code> を使います。どちらも
-          <code>src/backend/server.ts</code> を起動し、起動時に
+          Cloudflare を使わずに core server をローカルで起動する場合は、
+          <code>@takosjp/yurucommu-core</code> の server を使います。起動時に
           <code>MIGRATIONS_PATH</code> の SQL を自動適用します。
         </p>
         <table class="docs-table">
@@ -198,7 +196,7 @@
             <tr>
               <td><code>MIGRATIONS_PATH</code></td>
               <td>SQL マイグレーションの配置先</td>
-              <td><code>./migrations</code></td>
+              <td><code>@takosjp/yurucommu-core/migrations</code></td>
             </tr>
             <tr>
               <td><code>APP_URL</code></td>

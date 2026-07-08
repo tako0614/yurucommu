@@ -19,7 +19,7 @@
     "dev:mock:api": "bun scripts/dev-mock-server.ts",
     "dev:site": "bunx serve site",
     "check": "tsc --noEmit",
-    "test": "bun test src/",
+    "test": "bun test src/ scripts/takosumi-release.test.ts",
     "build": "bun run build:client",
     "build:client": "bunx vite build --config vite.config.ts",
     "build:takos-worker": "bun scripts/build-takos-worker.ts",

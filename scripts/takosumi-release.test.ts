@@ -1,8 +1,11 @@
 import { expect, test } from "bun:test";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 
 import {
   buildD1ExecuteTemplate,
   cloudflareCompatApiBaseUrl,
+  coreMigrationsDir,
   d1MigrationResource,
   type YurucommuReleaseConfig,
 } from "./takosumi-release";
@@ -54,4 +57,19 @@ test("release migrations use the compat D1 query endpoint for explicit API bases
     "--sql-file",
     "{sql_file}",
   ]);
+});
+
+test("release migrations come from the authoritative core package", () => {
+  expect(
+    coreMigrationsDir({
+      YURUCOMMU_CORE_MIGRATIONS_DIR: "/operator/migrations",
+    }),
+  ).toBe("/operator/migrations");
+
+  const migrationsDir = coreMigrationsDir({});
+  expect(migrationsDir).not.toBe("migrations");
+  expect(migrationsDir).toContain(
+    join("node_modules", "@takosjp", "yurucommu-core", "migrations"),
+  );
+  expect(existsSync(join(migrationsDir, "0018_actor_notes.sql"))).toBe(true);
 });
