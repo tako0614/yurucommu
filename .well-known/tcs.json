@@ -1,0 +1,179 @@
+{
+  "schemaVersion": "tcs.repo/v1",
+  "id": "yurucommu",
+  "modulePath": ".",
+  "kind": "app",
+  "surface": "service",
+  "provider": "cloudflare",
+  "category": "social",
+  "suggestedName": "yurucommu",
+  "name": {
+    "ja": "yurucommu",
+    "en": "yurucommu"
+  },
+  "description": {
+    "ja": "自分でホストできるコミュニティアプリです。",
+    "en": "A self-hostable community app."
+  },
+  "badge": {
+    "ja": "追加候補",
+    "en": "Installable"
+  },
+  "iconUrl": "public/icons/yurucommu.svg",
+  "inputs": [
+    {
+      "name": "project_name",
+      "type": "string",
+      "format": "text",
+      "required": true,
+      "defaultValue": "service-name-with-space",
+      "label": {
+        "ja": "サービス名",
+        "en": "Service name"
+      }
+    },
+    {
+      "name": "worker_name",
+      "type": "string",
+      "format": "subdomain",
+      "required": true,
+      "defaultValue": "service-name-with-space",
+      "label": {
+        "ja": "公開サブドメイン",
+        "en": "Public subdomain"
+      },
+      "helper": {
+        "ja": "app.takos.jp の下で使う名前です。",
+        "en": "The name used under app.takos.jp."
+      }
+    },
+    {
+      "name": "app_url",
+      "type": "string",
+      "format": "url",
+      "required": true,
+      "label": {
+        "ja": "公開URL",
+        "en": "Public URL"
+      }
+    },
+    {
+      "name": "auth_password_hash",
+      "type": "string",
+      "format": "password",
+      "secret": true,
+      "label": {
+        "ja": "初期パスワード",
+        "en": "Initial password"
+      },
+      "helper": {
+        "ja": "OIDCが使えない場合の初期アクセス用です。",
+        "en": "Fallback initial access when OIDC is not available."
+      }
+    },
+    {
+      "name": "takosumi_accounts_issuer_url",
+      "type": "string",
+      "format": "url",
+      "advanced": true,
+      "label": {
+        "ja": "OIDC issuer",
+        "en": "OIDC issuer"
+      }
+    },
+    {
+      "name": "takosumi_accounts_client_id",
+      "type": "string",
+      "advanced": true,
+      "label": {
+        "ja": "OIDC client ID",
+        "en": "OIDC client ID"
+      }
+    },
+    {
+      "name": "worker_bundle_url",
+      "type": "string",
+      "format": "url",
+      "advanced": true,
+      "label": {
+        "ja": "Worker artifact URL",
+        "en": "Worker artifact URL"
+      }
+    },
+    {
+      "name": "worker_bundle_sha256",
+      "type": "string",
+      "format": "sha256",
+      "advanced": true,
+      "label": {
+        "ja": "Worker artifact SHA-256",
+        "en": "Worker artifact SHA-256"
+      }
+    }
+  ],
+  "installExperience": {
+    "projections": [
+      {
+        "kind": "service_name",
+        "variable": "project_name"
+      },
+      {
+        "kind": "public_endpoint",
+        "variables": {
+          "subdomain": "worker_name",
+          "url": "app_url",
+          "routePattern": "cloudflare_route_pattern"
+        },
+        "baseDomain": "app.takos.jp"
+      },
+      {
+        "kind": "initial_secret",
+        "variable": "auth_password_hash",
+        "secretKind": "password_or_hash",
+        "optional": true
+      },
+      {
+        "kind": "oidc_client",
+        "variables": {
+          "issuerUrl": "takosumi_accounts_issuer_url",
+          "clientId": "takosumi_accounts_client_id"
+        },
+        "callbackPath": "/api/auth/callback/takos"
+      },
+      {
+        "kind": "artifact",
+        "variables": {
+          "url": "worker_bundle_url",
+          "sha256": "worker_bundle_sha256"
+        }
+      }
+    ]
+  },
+  "outputAllowlist": [
+    {
+      "key": "launch_url",
+      "from": "launch_url",
+      "type": "url"
+    },
+    {
+      "key": "url",
+      "from": "url",
+      "type": "url"
+    },
+    {
+      "key": "app_deployment",
+      "from": "app_deployment",
+      "type": "json"
+    },
+    {
+      "key": "service_exports",
+      "from": "service_exports",
+      "type": "json"
+    },
+    {
+      "key": "takosumi_release",
+      "from": "takosumi_release",
+      "type": "json"
+    }
+  ]
+}
