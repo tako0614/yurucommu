@@ -205,7 +205,20 @@ export function coreMigrationsDir(): string {
   return "migrations";
 }
 
-export function buildD1ExecuteTemplate(configPath: string): string[] {
+export function buildD1ExecuteTemplate(
+  configPath: string,
+  sourceEnv: Record<string, string | undefined> = env,
+): string[] {
+  if (cloudflareCompatApiBaseUrl(sourceEnv)) {
+    return [
+      "bun",
+      "scripts/cloudflare-compat-d1-execute.ts",
+      "--database",
+      "{resource}",
+      "--sql-file",
+      "{sql_file}",
+    ];
+  }
   return [
     "bunx",
     "wrangler",
@@ -220,6 +233,31 @@ export function buildD1ExecuteTemplate(configPath: string): string[] {
     "--command",
     "{sql}",
   ];
+}
+
+export function d1MigrationResource(
+  config: Pick<YurucommuReleaseConfig, "d1DatabaseId" | "d1DatabaseName">,
+  sourceEnv: Record<string, string | undefined> = env,
+): string {
+  return cloudflareCompatApiBaseUrl(sourceEnv)
+    ? config.d1DatabaseId
+    : config.d1DatabaseName;
+}
+
+export function cloudflareCompatApiBaseUrl(
+  sourceEnv: Record<string, string | undefined> = env,
+): string | undefined {
+  const value = firstString(
+    sourceEnv.TAKOS_CLOUDFLARE_API_BASE_URL,
+    sourceEnv.TAKOSUMI_CLOUDFLARE_API_BASE_URL,
+    sourceEnv.CLOUDFLARE_API_BASE_URL,
+    sourceEnv.CF_API_BASE_URL,
+    sourceEnv.CLOUDFLARE_BASE_URL,
+  );
+  if (!value) return undefined;
+  const normalized = value.replace(/\/+$/u, "");
+  if (isOfficialCloudflareApiBase(normalized)) return undefined;
+  return normalized;
 }
 
 export function buildDeleteWorkerArgs(workerName: string): string[] {
@@ -347,7 +385,7 @@ async function main(args = argv.slice(2)): Promise<void> {
         );
       } else {
         await applyMigrations({
-          resource: config.d1DatabaseName,
+          resource: d1MigrationResource(config),
           migrationsDir: coreMigrationsDir(),
           sqlCommandTemplate: buildD1ExecuteTemplate(configPath),
           wrapTransactions: false,
@@ -575,6 +613,19 @@ function firstString(
   ...values: readonly (string | undefined)[]
 ): string | undefined {
   return values.find((value) => value?.trim())?.trim();
+}
+
+function isOfficialCloudflareApiBase(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === "https:" &&
+      url.hostname === "api.cloudflare.com" &&
+      url.pathname.replace(/\/+$/u, "") === "/client/v4"
+    );
+  } catch {
+    return false;
+  }
 }
 
 function tomlString(value: string): string {
