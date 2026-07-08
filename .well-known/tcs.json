@@ -2,7 +2,7 @@
   "schemaVersion": "tcs.repo/v1",
   "id": "yurucommu",
   "modulePath": ".",
-  "kind": "app",
+  "kind": "worker",
   "surface": "service",
   "provider": "cloudflare",
   "category": "social",

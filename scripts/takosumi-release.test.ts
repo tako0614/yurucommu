@@ -4,7 +4,6 @@ import { join } from "node:path";
 
 import {
   buildD1ExecuteTemplate,
-  cloudflareCompatApiBaseUrl,
   coreMigrationsDir,
   d1MigrationResource,
   type YurucommuReleaseConfig,
@@ -17,13 +16,8 @@ const CONFIG: Pick<YurucommuReleaseConfig, "d1DatabaseId" | "d1DatabaseName"> =
   };
 
 test("release migrations use wrangler for the official Cloudflare API", () => {
-  const sourceEnv = {
-    CLOUDFLARE_API_BASE_URL: "https://api.cloudflare.com/client/v4",
-  };
-
-  expect(cloudflareCompatApiBaseUrl(sourceEnv)).toBeUndefined();
-  expect(d1MigrationResource(CONFIG, sourceEnv)).toBe("db-name");
-  expect(buildD1ExecuteTemplate(".tmp/wrangler.toml", sourceEnv)).toEqual([
+  expect(d1MigrationResource(CONFIG)).toBe("db-name");
+  expect(buildD1ExecuteTemplate(".tmp/wrangler.toml")).toEqual([
     "bunx",
     "wrangler",
     "d1",
@@ -39,23 +33,25 @@ test("release migrations use wrangler for the official Cloudflare API", () => {
   ]);
 });
 
-test("release migrations use the compat D1 query endpoint for explicit API bases", () => {
-  const sourceEnv = {
-    CLOUDFLARE_API_BASE_URL:
-      "https://app.takosumi.com/compat/cloudflare/client/v4/",
-  };
-
-  expect(cloudflareCompatApiBaseUrl(sourceEnv)).toBe(
-    "https://app.takosumi.com/compat/cloudflare/client/v4",
-  );
-  expect(d1MigrationResource(CONFIG, sourceEnv)).toBe("db-id");
-  expect(buildD1ExecuteTemplate(".tmp/wrangler.toml", sourceEnv)).toEqual([
-    "bun",
-    "scripts/cloudflare-compat-d1-execute.ts",
-    "--database",
+test("release migrations stay Cloudflare-native even when a compat base env exists", () => {
+  expect(
+    buildD1ExecuteTemplate(".tmp/wrangler.toml", {
+      CLOUDFLARE_API_BASE_URL:
+        "https://app.takosumi.com/compat/cloudflare/client/v4/",
+    }),
+  ).toEqual([
+    "bunx",
+    "wrangler",
+    "d1",
+    "execute",
     "{resource}",
-    "--sql-file",
-    "{sql_file}",
+    "--remote",
+    "--json",
+    "--yes",
+    "--config",
+    ".tmp/wrangler.toml",
+    "--command",
+    "{sql}",
   ]);
 });
 

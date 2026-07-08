@@ -211,18 +211,9 @@ export function coreMigrationsDir(
 
 export function buildD1ExecuteTemplate(
   configPath: string,
-  sourceEnv: Record<string, string | undefined> = env,
+  sourceEnv?: Record<string, string | undefined>,
 ): string[] {
-  if (cloudflareCompatApiBaseUrl(sourceEnv)) {
-    return [
-      "bun",
-      "scripts/cloudflare-compat-d1-execute.ts",
-      "--database",
-      "{resource}",
-      "--sql-file",
-      "{sql_file}",
-    ];
-  }
+  void sourceEnv;
   return [
     "bunx",
     "wrangler",
@@ -241,27 +232,8 @@ export function buildD1ExecuteTemplate(
 
 export function d1MigrationResource(
   config: Pick<YurucommuReleaseConfig, "d1DatabaseId" | "d1DatabaseName">,
-  sourceEnv: Record<string, string | undefined> = env,
 ): string {
-  return cloudflareCompatApiBaseUrl(sourceEnv)
-    ? config.d1DatabaseId
-    : config.d1DatabaseName;
-}
-
-export function cloudflareCompatApiBaseUrl(
-  sourceEnv: Record<string, string | undefined> = env,
-): string | undefined {
-  const value = firstString(
-    sourceEnv.TAKOS_CLOUDFLARE_API_BASE_URL,
-    sourceEnv.TAKOSUMI_CLOUDFLARE_API_BASE_URL,
-    sourceEnv.CLOUDFLARE_API_BASE_URL,
-    sourceEnv.CF_API_BASE_URL,
-    sourceEnv.CLOUDFLARE_BASE_URL,
-  );
-  if (!value) return undefined;
-  const normalized = value.replace(/\/+$/u, "");
-  if (isOfficialCloudflareApiBase(normalized)) return undefined;
-  return normalized;
+  return config.d1DatabaseName;
 }
 
 export function buildDeleteWorkerArgs(workerName: string): string[] {
@@ -617,19 +589,6 @@ function firstString(
   ...values: readonly (string | undefined)[]
 ): string | undefined {
   return values.find((value) => value?.trim())?.trim();
-}
-
-function isOfficialCloudflareApiBase(value: string): boolean {
-  try {
-    const url = new URL(value);
-    return (
-      url.protocol === "https:" &&
-      url.hostname === "api.cloudflare.com" &&
-      url.pathname.replace(/\/+$/u, "") === "/client/v4"
-    );
-  } catch {
-    return false;
-  }
 }
 
 function tomlString(value: string): string {
