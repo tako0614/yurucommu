@@ -36,8 +36,7 @@ test("release migrations use wrangler for the official Cloudflare API", () => {
 test("release migrations stay Cloudflare-native even when a compat base env exists", () => {
   expect(
     buildD1ExecuteTemplate(".tmp/wrangler.toml", {
-      CLOUDFLARE_API_BASE_URL:
-        "https://app.takosumi.com/compat/cloudflare/client/v4/",
+      CLOUDFLARE_API_BASE_URL: "https://compat.example.test/client/v4/",
     }),
   ).toEqual([
     "bunx",
