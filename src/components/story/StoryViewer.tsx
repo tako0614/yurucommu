@@ -24,6 +24,7 @@ import { StoryViewerDeleteDialog } from "./viewer/StoryViewerDeleteDialog.tsx";
 import { StoryViewerHeader } from "./viewer/StoryViewerHeader.tsx";
 import { renderStoryOverlay } from "./viewer/StoryViewerOverlays.tsx";
 import { StoryViewerProgress } from "./viewer/StoryViewerProgress.tsx";
+import { StoryInsightsSheet } from "./viewer/StoryInsightsSheet.tsx";
 import { parseStoryDuration } from "./viewer/storyViewerUtils.ts";
 
 interface StoryViewerProps {
@@ -56,6 +57,7 @@ export function StoryViewer(props: StoryViewerProps) {
   const [videoActivityTick, setVideoActivityTick] = createSignal(0);
   const [mediaError, setMediaError] = createSignal(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = createSignal(false);
+  const [showInsights, setShowInsights] = createSignal(false);
   const [isMuted, setIsMuted] = createSignal(true);
   const [toastMessage, setToastMessage] = createSignal<string | null>(null);
   let containerRef!: HTMLDivElement;
@@ -554,46 +556,46 @@ export function StoryViewer(props: StoryViewerProps) {
   return (
     <Show when={currentActorStories() && currentStory()}>
       <div
-        class="fixed inset-0 z-51 bg-neutral-900"
+        class="fixed inset-0 z-51 flex items-center justify-center bg-black"
         role="dialog"
         aria-modal="true"
         aria-label={t("story.viewerAriaLabel")}
       >
-        <StoryViewerProgress
-          totalStories={currentActorStories()!.stories.length}
-          storyIndex={storyIndex()}
-          progress={progress()}
-        />
-
-        <StoryViewerHeader
-          actor={currentActorStories()!.actor}
-          timeLabel={formatRelativeTime(currentStory()!.published, {
-            maxDays: 1,
-            locale: language(),
-          })}
-          isVideo={isVideo()}
-          isMuted={isMuted()}
-          isOwnStory={Boolean(isOwnStory())}
-          onToggleMute={() => setIsMuted(!isMuted())}
-          onDelete={handleDeleteStory}
-          onClose={props.onClose}
-        />
-
-        {/* Main content area - vertical 9:16 container */}
+        {/* Stage = the 9:16 story card. All chrome (progress, header, action
+            bar, insights) lives INSIDE this so on desktop it aligns to the card
+            instead of spanning the whole window. Tap zones (containerRef) and
+            overlay coords (storyContainerRef) are both measured from it. */}
         <div
           ref={containerRef}
-          class="absolute inset-0 flex items-center justify-center cursor-pointer"
+          class="relative w-full h-full cursor-pointer overflow-hidden bg-neutral-900 sm:h-[calc(100vh-2rem)] sm:aspect-[9/16] sm:w-auto sm:max-h-[900px] sm:rounded-xl"
           onClick={handleClick}
           onMouseDown={handleTouchStart}
           onMouseUp={handleTouchEnd}
           onTouchStart={handleTouchStart}
           onTouchEnd={handleTouchEnd}
         >
-          {/* Vertical story container (9:16 aspect ratio) */}
-          <div
-            ref={storyContainerRef}
-            class="relative w-full h-full sm:w-auto sm:h-[calc(100vh-2rem)] sm:aspect-[9/16] sm:max-h-[900px] bg-neutral-900 overflow-hidden sm:rounded-xl"
-          >
+          <StoryViewerProgress
+            totalStories={currentActorStories()!.stories.length}
+            storyIndex={storyIndex()}
+            progress={progress()}
+          />
+
+          <StoryViewerHeader
+            actor={currentActorStories()!.actor}
+            timeLabel={formatRelativeTime(currentStory()!.published, {
+              maxDays: 1,
+              locale: language(),
+            })}
+            isVideo={isVideo()}
+            isMuted={isMuted()}
+            isOwnStory={Boolean(isOwnStory())}
+            onToggleMute={() => setIsMuted(!isMuted())}
+            onDelete={handleDeleteStory}
+            onClose={props.onClose}
+          />
+
+          {/* Media / caption / overlays — measured box for overlay coords. */}
+          <div ref={storyContainerRef} class="absolute inset-0">
             {/* Media content - directly from story.attachment */}
             <Show
               when={
@@ -685,7 +687,6 @@ export function StoryViewer(props: StoryViewerProps) {
               </div>
             </Show>
           </div>
-        </div>
 
         <Show when={toastMessage()}>
           <div
@@ -697,6 +698,26 @@ export function StoryViewer(props: StoryViewerProps) {
           </div>
         </Show>
 
+        {/* Own-story insights entry (author-only "seen by"). Opening it pauses
+            playback so the sheet isn't dismissed by auto-advance. */}
+        <Show when={isOwnStory()}>
+          <button
+            type="button"
+            class="absolute bottom-6 left-4 z-30 flex items-center gap-2 rounded-full bg-black/50 px-4 py-2 text-sm text-white backdrop-blur-sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsPaused(true);
+              setShowInsights(true);
+            }}
+          >
+            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
+            {t("story.insights.title")}
+          </button>
+        </Show>
+
         <StoryViewerActionBar
           isLiked={isLiked()}
           placeholder={t("story.replyPlaceholder")}
@@ -705,6 +726,17 @@ export function StoryViewer(props: StoryViewerProps) {
           onLike={handleLike}
           onShare={handleShare}
         />
+
+        <StoryInsightsSheet
+          open={showInsights()}
+          story={currentStory()!}
+          locale={language()}
+          onClose={() => {
+            setShowInsights(false);
+            setIsPaused(false);
+          }}
+        />
+        </div>
 
         <StoryViewerDeleteDialog
           open={showDeleteConfirm()}

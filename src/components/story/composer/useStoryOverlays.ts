@@ -18,6 +18,20 @@ export const MAX_OVERLAYS = 20;
 /** Backend requires a poll to have 2–4 options. */
 export const POLL_MIN_OPTIONS = 2;
 export const POLL_MAX_OPTIONS = 4;
+/** Normalized overlay size bounds (position fields must stay within 0–1). */
+export const OVERLAY_MIN_WIDTH = 0.2;
+export const OVERLAY_MAX_WIDTH = 0.95;
+export const OVERLAY_MIN_HEIGHT = 0.04;
+export const OVERLAY_MAX_HEIGHT = 0.6;
+
+const clamp = (value: number, min: number, max: number) =>
+  Math.min(max, Math.max(min, value));
+
+/** Keep the whole overlay on-canvas: clamp the center by its half-size. */
+function clampCenter(value: number, size: number): number {
+  const half = Math.min(size / 2, 0.5);
+  return clamp(value, half, 1 - half);
+}
 
 export interface OverlayItem {
   readonly id: string;
@@ -68,16 +82,58 @@ export function useStoryOverlays() {
     if (selectedId() === id) setSelectedId(null);
   }
 
-  /** Reposition an overlay by its normalized center; coordinates are clamped. */
+  /** Reposition an overlay by its normalized center; kept fully on-canvas. */
   function moveOverlay(id: string, x: number, y: number): void {
-    const cx = Math.min(1, Math.max(0, x));
-    const cy = Math.min(1, Math.max(0, y));
     setItems((prev) =>
-      prev.map((i) =>
-        i.id === id
-          ? { id, overlay: { ...i.overlay, position: { ...i.overlay.position, x: cx, y: cy } } }
-          : i
-      )
+      prev.map((i) => {
+        if (i.id !== id) return i;
+        const { width, height } = i.overlay.position;
+        return {
+          id,
+          overlay: {
+            ...i.overlay,
+            position: {
+              ...i.overlay.position,
+              x: clampCenter(x, width),
+              y: clampCenter(y, height),
+            },
+          },
+        };
+      })
+    );
+  }
+
+  /**
+   * Resize an overlay to a new normalized width, scaling height by the same
+   * factor to preserve aspect. Width/height are clamped and the center is
+   * re-clamped so the resized overlay stays on-canvas.
+   */
+  function resizeOverlay(id: string, nextWidth: number): void {
+    setItems((prev) =>
+      prev.map((i) => {
+        if (i.id !== id) return i;
+        const { x, y, width, height } = i.overlay.position;
+        const w = clamp(nextWidth, OVERLAY_MIN_WIDTH, OVERLAY_MAX_WIDTH);
+        const ratio = width > 0 ? w / width : 1;
+        const h = clamp(
+          height * ratio,
+          OVERLAY_MIN_HEIGHT,
+          OVERLAY_MAX_HEIGHT,
+        );
+        return {
+          id,
+          overlay: {
+            ...i.overlay,
+            position: {
+              ...i.overlay.position,
+              width: w,
+              height: h,
+              x: clampCenter(x, w),
+              y: clampCenter(y, h),
+            },
+          },
+        };
+      })
     );
   }
 
@@ -96,6 +152,7 @@ export function useStoryOverlays() {
     updateOverlay,
     removeOverlay,
     moveOverlay,
+    resizeOverlay,
     getItem,
   };
 }

@@ -49,6 +49,13 @@ export function useStoryPost(opts: UseStoryPostOptions) {
       seconds += Math.ceil(layer.content.length / 20);
     }
 
+    // Interactive overlays need time to read/tap; a poll needs the most so the
+    // viewer can actually read the question + options and vote before it
+    // auto-advances.
+    for (const overlay of opts.overlays) {
+      seconds += overlay.type === "Question" ? 4 : 2;
+    }
+
     return Math.max(3, Math.min(15, seconds));
   };
 

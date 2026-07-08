@@ -384,6 +384,9 @@ export function StoryComposer(props: StoryComposerProps) {
 
   // Custom pointer down that detects double-tap for text editing
   const handleCanvasPointerDown = (e: MouseEvent | TouchEvent) => {
+    // A tap that reaches the canvas is not on an overlay (overlays stop
+    // propagation), so clear any overlay selection / its edit toolbar.
+    overlayState.setSelectedId(null);
     const clientX = "touches" in e ? e.touches[0].clientX : e.clientX;
     const clientY = "touches" in e ? e.touches[0].clientY : e.clientY;
     const now = Date.now();
@@ -541,6 +544,7 @@ export function StoryComposer(props: StoryComposerProps) {
           selectedId={overlayState.selectedId()}
           onSelect={overlayState.setSelectedId}
           onMove={overlayState.moveOverlay}
+          onResize={overlayState.resizeOverlay}
           onEdit={openOverlayEdit}
           onRemove={overlayState.removeOverlay}
         />

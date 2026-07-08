@@ -19,6 +19,7 @@ interface StoryComposerOverlayLayerProps {
   selectedId: string | null;
   onSelect: (id: string | null) => void;
   onMove: (id: string, x: number, y: number) => void;
+  onResize: (id: string, width: number) => void;
   onEdit: (id: string) => void;
   onRemove: (id: string) => void;
 }
@@ -29,6 +30,12 @@ interface DragState {
   startY: number;
   originX: number;
   originY: number;
+}
+
+interface ResizeState {
+  id: string;
+  startX: number;
+  startWidth: number;
 }
 
 function OverlayPreview(props: { overlay: StoryOverlay }) {
@@ -70,6 +77,7 @@ export function StoryComposerOverlayLayer(
   const { t } = useI18n();
   let layerRef: HTMLDivElement | undefined;
   let drag: DragState | null = null;
+  let resize: ResizeState | null = null;
 
   const onPointerDown = (e: PointerEvent, item: OverlayItem) => {
     e.stopPropagation();
@@ -86,9 +94,17 @@ export function StoryComposerOverlayLayer(
   };
 
   const onPointerMove = (e: PointerEvent) => {
-    if (!drag || !layerRef) return;
+    if (!layerRef) return;
     const rect = layerRef.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return;
+    if (resize) {
+      // Dragging the corner moves the right edge; width is centered, so the
+      // total width changes by twice the horizontal drag.
+      const dx = ((e.clientX - resize.startX) / rect.width) * 2;
+      props.onResize(resize.id, resize.startWidth + dx);
+      return;
+    }
+    if (!drag) return;
     const dx = (e.clientX - drag.startX) / rect.width;
     const dy = (e.clientY - drag.startY) / rect.height;
     props.onMove(drag.id, drag.originX + dx, drag.originY + dy);
@@ -96,6 +112,18 @@ export function StoryComposerOverlayLayer(
 
   const endDrag = () => {
     drag = null;
+    resize = null;
+  };
+
+  const onResizeDown = (e: PointerEvent, item: OverlayItem) => {
+    e.stopPropagation();
+    e.preventDefault();
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+    resize = {
+      id: item.id,
+      startX: e.clientX,
+      startWidth: item.overlay.position.width,
+    };
   };
 
   return (
@@ -150,6 +178,20 @@ export function StoryComposerOverlayLayer(
                     {t("story.overlay.remove")}
                   </button>
                 </div>
+              </Show>
+
+              {/* Corner resize handle (adjusts normalized width; height scales
+                  to match). Federates via position.width/height. */}
+              <Show when={selected()}>
+                <div
+                  role="slider"
+                  aria-label={t("story.overlay.resize")}
+                  class="absolute -bottom-2 -right-2 h-5 w-5 cursor-nwse-resize rounded-full border-2 border-neutral-900 bg-white shadow"
+                  onPointerDown={(e) => onResizeDown(e, item)}
+                  onPointerMove={onPointerMove}
+                  onPointerUp={endDrag}
+                  onPointerCancel={endDrag}
+                />
               </Show>
             </div>
           );

@@ -465,6 +465,45 @@ function storiesResponse(): JsonValue {
   return {
     actor_stories: [
       {
+        actor: postAuthor(me),
+        has_unviewed: false,
+        stories: [
+          {
+            ap_id: `${origin}/ap/stories/story-you`,
+            author: postAuthor(me),
+            attachment: {
+              type: "Document",
+              mediaType: "image/jpeg",
+              url: mockImageUrl,
+              r2_key: "mock/story-you.jpg",
+              width: 1080,
+              height: 1920,
+            },
+            caption: "My poll story",
+            displayDuration: "PT8S",
+            overlays: [
+              {
+                type: "Question",
+                position: { x: 0.5, y: 0.4, width: 0.74, height: 0.18 },
+                name: "Best snack?",
+                oneOf: [
+                  { type: "Note", name: "Onigiri" },
+                  { type: "Note", name: "Pocky" },
+                ],
+              },
+            ],
+            published: "2026-07-05T06:00:00.000Z",
+            end_time: "2026-07-06T06:00:00.000Z",
+            viewed: true,
+            like_count: 2,
+            share_count: 3,
+            liked: false,
+            votes: { 0: 5, 1: 2 },
+            votes_total: 7,
+          },
+        ],
+      },
+      {
         actor: postAuthor(akari),
         has_unviewed: true,
         stories: [
@@ -1097,6 +1136,18 @@ async function handleStories(
   const shareId = pathBetween(path, "/api/stories/", "/share");
   if (shareId && method === "POST") {
     return json(request, { shared: true, share_count: 2 });
+  }
+
+  const viewsId = pathBetween(path, "/api/stories/", "/views");
+  if (viewsId && method === "GET") {
+    return json(request, {
+      view_count: 3,
+      viewers: [
+        { actor: postAuthor(akari), viewed_at: "2026-07-05T06:30:00.000Z" },
+        { actor: postAuthor(ren), viewed_at: "2026-07-05T06:20:00.000Z" },
+        { actor: postAuthor(me), viewed_at: "2026-07-05T06:10:00.000Z" },
+      ],
+    });
   }
 
   return null;
