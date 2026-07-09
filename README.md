@@ -40,4 +40,8 @@ modulePath    = "."
 resources. `outputs.tf` publishes `service_exports`, `service_bindings`, social
 server URLs, and a `takosumi_release` migration hook for the OpenTofu-managed
 Worker. The default Worker artifact path is `dist/yurucommu-worker.js`; build it
-with `bun run build:worker`.
+with `bun run build:worker` for local/self-host applies.
+
+Hosted installs should pass `worker_bundle_url` + `worker_bundle_sha256` from a
+Git release or CI artifact. Do not commit `dist/yurucommu-worker.js` or other
+build outputs to the repository.

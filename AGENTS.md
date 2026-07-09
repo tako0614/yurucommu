@@ -9,7 +9,8 @@ server engine は `@takosjp/yurucommu-core` library として組み込みます�
 - yurucommu 公式 web client
 - `yurucommu.com` / `yurucommu.test` の brand / help site
 - frontend plugin API
-- yurucommu Worker artifact (`dist/yurucommu-worker.js`)
+- yurucommu Worker artifact source/build pipeline (`dist/yurucommu-worker.js`
+  is generated output and must not be committed)
 - OpenTofu Capsule module (`main.tf` / `outputs.tf`)
 - app-owned Takosumi release hook / D1 migration activation
 - same-origin fullstack runtime and configured-origin development UX
@@ -29,6 +30,10 @@ bun run test
 bun run build
 bun run build:worker
 ```
+
+`dist/yurucommu-worker.js` is local/CI generated output. Hosted Takosumi installs
+must use `worker_bundle_url` + `worker_bundle_sha256` from a Git release or CI
+artifact rather than checking built bundles into Git.
 
 ## Version discipline
 
