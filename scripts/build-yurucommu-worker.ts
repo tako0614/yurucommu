@@ -9,10 +9,10 @@ type StaticAsset = {
 const rootDir = new URL("../", import.meta.url);
 const distDir = new URL("../dist/", import.meta.url);
 const tempEntryFile = new URL(
-  "../dist/takos-entry.generated.ts",
+  "../dist/yurucommu-entry.generated.ts",
   import.meta.url,
 );
-const outputFile = new URL("../dist/takos-worker.js", import.meta.url);
+const outputFile = new URL("../dist/yurucommu-worker.js", import.meta.url);
 
 const discovery = {
   product: "yurucommu",
@@ -78,8 +78,8 @@ async function collectAssets(
     }
     if (
       !entry.isFile() ||
-      relativePath === "takos-worker.js" ||
-      relativePath === "takos-entry.generated.ts"
+      relativePath === "yurucommu-worker.js" ||
+      relativePath === "yurucommu-entry.generated.ts"
     ) {
       continue;
     }

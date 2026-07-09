@@ -1,31 +1,14 @@
 output "takosumi_release" {
   value = {
-    post_apply = concat(
-      local.cloudflare_worker_enabled ? [
-        {
-          id                = "migrate"
-          executor          = "runner"
-          command           = ["bun", "run", "takosumi:release", "--", "--migrations-only"]
-          working_directory = "."
-        },
-      ] : [],
-      local.cloudflare_worker_enabled ? [] : [
-        {
-          id                = "release"
-          executor          = "operator"
-          command           = ["bun", "run", "takosumi:release"]
-          working_directory = "."
-        },
-      ],
-    )
-    pre_destroy = local.cloudflare_worker_enabled ? [] : [
+    post_apply = local.cloudflare_worker_enabled ? [
       {
-        id                = "release-destroy"
-        executor          = "operator"
-        command           = ["bun", "run", "takosumi:release", "--", "--destroy"]
+        id                = "migrate"
+        executor          = "runner"
+        command           = ["bun", "run", "takosumi:release", "--", "--migrations-only"]
         working_directory = "."
       },
-    ]
+    ] : []
+    pre_destroy = []
   }
 }
 

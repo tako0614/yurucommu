@@ -152,7 +152,7 @@ variable "enable_cloudflare_worker_script" {
 variable "worker_bundle_path" {
   description = "Local path to the prebuilt Worker module JS file used when worker_bundle_url is empty."
   type        = string
-  default     = "dist/takos-worker.js"
+  default     = "dist/yurucommu-worker.js"
 }
 
 variable "worker_bundle_url" {

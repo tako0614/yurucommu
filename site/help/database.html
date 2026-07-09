@@ -616,9 +616,9 @@
         <p>
           ローカルの core Bun サーバーは起動時に <code>MIGRATIONS_PATH</code>
           の SQL を自動適用します。production では Capsule の Apply 後に
-          <code>takosumi_release.post_apply</code> の <code>app:activate</code>
-          コマンドを実行し、その中でアプリ側が必要な初期化を行います。 Takosumi
-          はデータベース種類を解釈せず、operator 側が渡した SQL
+          <code>takosumi_release.post_apply</code> の migration hook を実行し、
+          OpenTofu が作成した D1 database にアプリ側の schema を適用します。
+          Takosumi はデータベース種類を解釈せず、OpenTofu output に含まれる
           実行コマンドをそのまま使います。
         </p>
         <pre><code>flow: Source の pinned commit を更新 -> Takosumi が Capsule を読み検証 -> Plan -> approval -> Apply

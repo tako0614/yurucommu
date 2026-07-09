@@ -116,7 +116,7 @@ export function releaseConfigFromOutputs(
 export function buildWranglerToml(config: YurucommuReleaseConfig): string {
   const lines = [
     `name = ${tomlString(config.workerName)}`,
-    `main = "../../dist/takos-worker.js"`,
+    `main = "../../dist/yurucommu-worker.js"`,
     `compatibility_date = "2026-04-01"`,
     `compatibility_flags = ["nodejs_compat", "global_fetch_strictly_public"]`,
     `workers_dev = true`,
@@ -385,7 +385,7 @@ async function main(args = argv.slice(2)): Promise<void> {
         await run(buildInstallArgs());
       }
       if (!migrationsOnly) {
-        await run(["bun", "run", "build:takos-worker"]);
+        await run(["bun", "run", "build:worker"]);
       }
       if (shouldSkipD1Migrations(env.YURUCOMMU_SKIP_D1_MIGRATIONS)) {
         console.warn(

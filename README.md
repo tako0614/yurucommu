@@ -16,7 +16,7 @@ bun run dev:mock
 bun run check
 bun run test
 bun run build
-bun run build:takos-worker
+bun run build:worker
 ```
 
 `bun run dev:mock` starts the web UI and an in-memory yurucommu-compatible mock
@@ -38,6 +38,6 @@ modulePath    = "."
 
 `main.tf` provisions the optional Cloudflare D1 / R2 / KV / Queue / Worker
 resources. `outputs.tf` publishes `service_exports`, `service_bindings`, social
-server URLs, and `takosumi_release` activation commands. The default Worker
-artifact path is `dist/takos-worker.js`; build it with `bun run
-build:takos-worker`.
+server URLs, and a `takosumi_release` migration hook for the OpenTofu-managed
+Worker. The default Worker artifact path is `dist/yurucommu-worker.js`; build it
+with `bun run build:worker`.
