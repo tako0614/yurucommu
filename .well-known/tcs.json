@@ -94,6 +94,7 @@
       "name": "worker_bundle_url",
       "type": "string",
       "format": "url",
+      "defaultValue": "https://github.com/tako0614/yurucommu/releases/download/v2.0.3/takos-worker.js",
       "advanced": true,
       "label": {
         "ja": "Worker artifact URL",
@@ -104,6 +105,7 @@
       "name": "worker_bundle_sha256",
       "type": "string",
       "format": "sha256",
+      "defaultValue": "8098bafad58deb393909512cca5129c8013931af8acf5d903b95c1fcd2818e14",
       "advanced": true,
       "label": {
         "ja": "Worker artifact SHA-256",
