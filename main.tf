@@ -51,8 +51,8 @@ variable "worker_name" {
   default     = ""
 
   validation {
-    condition     = trimspace(var.worker_name) == "" || can(regex("^[a-z][a-z0-9-]{1,50}[a-z0-9]$", var.worker_name))
-    error_message = "worker_name must be empty or 3-52 lowercase letters, numbers, or hyphens, and start/end with an alphanumeric character."
+    condition     = trimspace(var.worker_name) == "" || can(regex("^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$", var.worker_name))
+    error_message = "worker_name must be empty or a 1-63 character lowercase DNS label."
   }
 }
 
@@ -150,9 +150,20 @@ variable "enable_cloudflare_worker_script" {
 }
 
 variable "worker_bundle_path" {
-  description = "Local path to the prebuilt Worker module JS file used when worker_bundle_url is empty."
+  description = "Local path to a source-built Worker module JS file. Used only when worker_release_tag and worker_bundle_url are both empty."
   type        = string
   default     = "dist/yurucommu-worker.js"
+}
+
+variable "worker_release_tag" {
+  description = "GitHub release tag whose takosumi-artifact.json selects the default Worker bundle and SHA-256. Set empty to use worker_bundle_path."
+  type        = string
+  default     = "v2.0.5"
+
+  validation {
+    condition     = trimspace(var.worker_release_tag) == "" || can(regex("^v[0-9]+\\.[0-9]+\\.[0-9]+([-+][0-9A-Za-z.-]+)?$", trimspace(var.worker_release_tag)))
+    error_message = "worker_release_tag must be empty or a SemVer-like Git tag beginning with v."
+  }
 }
 
 variable "worker_bundle_url" {
@@ -234,13 +245,17 @@ locals {
   cloudflare_resources_enabled  = var.enable_cloudflare_resources
   cloudflare_worker_enabled     = local.cloudflare_resources_enabled && var.enable_cloudflare_worker_script
   cloudflare_route_enabled      = local.cloudflare_worker_enabled && trimspace(var.cloudflare_route_zone_id) != "" && trimspace(var.cloudflare_route_pattern) != ""
-  worker_bundle_url             = trimspace(var.worker_bundle_url)
+  worker_release_tag            = trimspace(var.worker_release_tag)
+  worker_bundle_explicit_url    = trimspace(var.worker_bundle_url)
+  worker_bundle_uses_manifest   = local.cloudflare_worker_enabled && local.worker_bundle_explicit_url == "" && local.worker_release_tag != ""
+  worker_release_manifest       = local.worker_bundle_uses_manifest ? jsondecode(data.http.worker_release_manifest[0].response_body) : null
+  worker_bundle_url             = local.worker_bundle_explicit_url != "" ? local.worker_bundle_explicit_url : try(local.worker_release_manifest.artifact.url, "")
   worker_bundle_uses_url        = local.cloudflare_worker_enabled && local.worker_bundle_url != ""
-  worker_bundle_sha256_input    = trimspace(var.worker_bundle_sha256)
+  worker_bundle_sha256_input    = trimspace(var.worker_bundle_sha256) != "" ? trimspace(var.worker_bundle_sha256) : (local.worker_bundle_uses_manifest ? try(local.worker_release_manifest.artifact.sha256, "") : "")
   worker_bundle_expected_sha256 = startswith(local.worker_bundle_sha256_input, "sha256:") ? replace(local.worker_bundle_sha256_input, "sha256:", "") : local.worker_bundle_sha256_input
   worker_bundle_local_path      = startswith(var.worker_bundle_path, "/") ? var.worker_bundle_path : "${path.module}/${var.worker_bundle_path}"
   worker_bundle_body            = local.worker_bundle_uses_url ? data.http.worker_bundle[0].response_body : null
-  worker_bundle_content_sha256  = local.cloudflare_worker_enabled ? (local.worker_bundle_uses_url ? sha256(data.http.worker_bundle[0].response_body) : filesha256(local.worker_bundle_local_path)) : null
+  worker_bundle_content_sha256  = local.cloudflare_worker_enabled ? (local.worker_bundle_uses_url ? sha256(data.http.worker_bundle[0].response_body) : (local.worker_bundle_uses_manifest ? null : filesha256(local.worker_bundle_local_path))) : null
   worker_assets_enabled         = local.cloudflare_worker_enabled && var.enable_worker_assets && !local.worker_bundle_uses_url
   resource_prefix               = var.project_name
   worker_name                   = trimspace(var.worker_name) != "" ? trimspace(var.worker_name) : local.resource_prefix
@@ -258,6 +273,22 @@ locals {
   kv_namespace_title  = "${local.resource_prefix}-kv"
   delivery_queue_name = "${local.resource_prefix}-delivery"
   delivery_dlq_name   = "${local.resource_prefix}-delivery-dlq"
+}
+
+data "http" "worker_release_manifest" {
+  count              = local.worker_bundle_uses_manifest ? 1 : 0
+  url                = "https://github.com/tako0614/yurucommu/releases/download/${local.worker_release_tag}/takosumi-artifact.json"
+  request_timeout_ms = 30000
+
+  request_headers = {
+    Accept = "application/json"
+  }
+
+  retry {
+    attempts     = 3
+    min_delay_ms = 500
+    max_delay_ms = 5000
+  }
 }
 
 resource "random_id" "encryption_key" {
@@ -422,12 +453,22 @@ resource "cloudflare_workers_script" "worker" {
 
   lifecycle {
     precondition {
+      condition = !local.worker_bundle_uses_manifest || (
+        try(local.worker_release_manifest.kind, "") == "takosumi.worker-artifact@v1" &&
+        try(local.worker_release_manifest.app, "") == "yurucommu" &&
+        try(local.worker_release_manifest.releaseTag, "") == local.worker_release_tag &&
+        local.worker_bundle_uses_url
+      )
+      error_message = "worker_release_tag must resolve to a valid yurucommu takosumi.worker-artifact@v1 manifest."
+    }
+
+    precondition {
       condition     = !local.worker_bundle_uses_url || (local.worker_bundle_expected_sha256 != "" && local.worker_bundle_expected_sha256 == local.worker_bundle_content_sha256)
       error_message = "worker_bundle_sha256 is required for worker_bundle_url and must match the downloaded artifact."
     }
 
     precondition {
-      condition     = local.worker_bundle_uses_url || local.worker_bundle_expected_sha256 == "" || local.worker_bundle_expected_sha256 == local.worker_bundle_content_sha256
+      condition     = local.worker_bundle_uses_url || local.worker_bundle_uses_manifest || local.worker_bundle_expected_sha256 == "" || local.worker_bundle_expected_sha256 == local.worker_bundle_content_sha256
       error_message = "worker_bundle_sha256 does not match worker_bundle_path."
     }
   }
