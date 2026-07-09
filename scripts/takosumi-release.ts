@@ -197,6 +197,24 @@ export function buildInstallArgs(): string[] {
   return ["bun", "install", "--frozen-lockfile", "--ignore-scripts"];
 }
 
+export function hasCoreMigrationsDir(
+  sourceEnv: Record<string, string | undefined> = env,
+): boolean {
+  try {
+    coreMigrationsDir(sourceEnv);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function shouldInstallDependenciesBeforeRelease(input: {
+  readonly migrationsOnly: boolean;
+  readonly coreMigrationsAvailable: boolean;
+}): boolean {
+  return !input.migrationsOnly || !input.coreMigrationsAvailable;
+}
+
 export function coreMigrationsDir(
   sourceEnv: Record<string, string | undefined> = env,
 ): string {
@@ -357,7 +375,16 @@ async function main(args = argv.slice(2)): Promise<void> {
 
       if (!migrationsOnly) {
         warnIfReadinessWillBeIncomplete(config);
+      }
+      if (
+        shouldInstallDependenciesBeforeRelease({
+          migrationsOnly,
+          coreMigrationsAvailable: hasCoreMigrationsDir(),
+        })
+      ) {
         await run(buildInstallArgs());
+      }
+      if (!migrationsOnly) {
         await run(["bun", "run", "build:takos-worker"]);
       }
       if (shouldSkipD1Migrations(env.YURUCOMMU_SKIP_D1_MIGRATIONS)) {

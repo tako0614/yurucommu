@@ -7,7 +7,9 @@ import {
   buildWranglerToml,
   coreMigrationsDir,
   d1MigrationResource,
+  hasCoreMigrationsDir,
   releaseConfigFromOutputs,
+  shouldInstallDependenciesBeforeRelease,
   type YurucommuReleaseConfig,
 } from "./takosumi-release";
 
@@ -69,6 +71,35 @@ test("release migrations come from the authoritative core package", () => {
     join("node_modules", "@takosjp", "yurucommu-core", "migrations"),
   );
   expect(existsSync(join(migrationsDir, "0018_actor_notes.sql"))).toBe(true);
+});
+
+test("migrations-only release can detect when dependency materialization is required", () => {
+  expect(
+    shouldInstallDependenciesBeforeRelease({
+      migrationsOnly: true,
+      coreMigrationsAvailable: false,
+    }),
+  ).toBe(true);
+  expect(
+    shouldInstallDependenciesBeforeRelease({
+      migrationsOnly: true,
+      coreMigrationsAvailable: true,
+    }),
+  ).toBe(false);
+  expect(
+    shouldInstallDependenciesBeforeRelease({
+      migrationsOnly: false,
+      coreMigrationsAvailable: true,
+    }),
+  ).toBe(true);
+
+  expect(
+    hasCoreMigrationsDir({
+      YURUCOMMU_CORE_MIGRATIONS_DIR: "/operator/migrations",
+    }),
+  ).toBe(true);
+
+  expect(hasCoreMigrationsDir({})).toBe(true);
 });
 
 test("release config projects non-secret app_deployment env into worker vars", () => {
