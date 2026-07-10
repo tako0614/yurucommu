@@ -58,7 +58,6 @@
       "type": "string",
       "format": "password",
       "secret": true,
-      "advanced": true,
       "label": {
         "ja": "追加のログインパスワード",
         "en": "Additional login password"
