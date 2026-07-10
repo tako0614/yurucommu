@@ -248,8 +248,8 @@ export function buildD1ExecuteTemplate(
     "--yes",
     "--config",
     configPath,
-    "--command",
-    "{sql}",
+    "--file",
+    "{sql_file}",
   ];
 }
 

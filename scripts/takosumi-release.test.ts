@@ -32,8 +32,8 @@ test("release migrations use wrangler for the official Cloudflare API", () => {
     "--yes",
     "--config",
     ".tmp/wrangler.toml",
-    "--command",
-    "{sql}",
+    "--file",
+    "{sql_file}",
   ]);
 });
 
@@ -53,8 +53,8 @@ test("release migrations stay Cloudflare-native even when a compat base env exis
     "--yes",
     "--config",
     ".tmp/wrangler.toml",
-    "--command",
-    "{sql}",
+    "--file",
+    "{sql_file}",
   ]);
 });
 
