@@ -52,6 +52,21 @@
       "type": "string",
       "advanced": true,
       "label": { "ja": "Cloudflare route", "en": "Cloudflare route" }
+    },
+    {
+      "name": "auth_password_hash",
+      "type": "string",
+      "format": "password",
+      "secret": true,
+      "advanced": true,
+      "label": {
+        "ja": "追加のログインパスワード",
+        "en": "Additional login password"
+      },
+      "helper": {
+        "ja": "Takosumi Accounts の自動ログインに加えてパスワードでもログインしたい場合だけ設定します。",
+        "en": "Set this only when password login should be available in addition to automatic Takosumi Accounts login."
+      }
     }
   ],
   "installExperience": {
@@ -65,6 +80,12 @@
           "routePattern": "cloudflare_route_pattern"
         },
         "baseDomain": "app.takos.jp"
+      },
+      {
+        "kind": "initial_secret",
+        "variable": "auth_password_hash",
+        "secretKind": "password_or_hash",
+        "optional": true
       },
       {
         "kind": "oidc_client",
