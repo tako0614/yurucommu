@@ -1,6 +1,6 @@
 {
   "name": "@takosjp/yurucommu",
-  "version": "2.0.8",
+  "version": "2.0.9",
   "license": "AGPL-3.0-only",
   "type": "module",
   "private": true,
@@ -19,7 +19,7 @@
     "dev:mock:api": "bun scripts/dev-mock-server.ts",
     "dev:site": "bunx serve site",
     "check": "tsc --noEmit",
-    "test": "bun test src/ scripts/takosumi-release.test.ts",
+    "test": "bun test src/ scripts/release-version.test.ts scripts/takosumi-release.test.ts",
     "build": "bun run build:client",
     "build:client": "bunx vite build --config vite.config.ts",
     "build:worker": "bun scripts/build-yurucommu-worker.ts",
