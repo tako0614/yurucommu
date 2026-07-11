@@ -16,9 +16,11 @@ const INTERACTIVE_STICKERS = [
   { kind: "Question", icon: "📊", labelKey: "story.overlay.poll" },
   { kind: "Note", icon: "💬", labelKey: "story.overlay.note" },
   { kind: "Link", icon: "🔗", labelKey: "story.overlay.link" },
-] as const satisfies ReadonlyArray<
-  { kind: OverlayKind; icon: string; labelKey: string }
->;
+] as const satisfies ReadonlyArray<{
+  kind: OverlayKind;
+  icon: string;
+  labelKey: string;
+}>;
 
 const CloseIcon = () => (
   <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">

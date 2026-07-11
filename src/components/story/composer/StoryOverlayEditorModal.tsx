@@ -68,7 +68,8 @@ export function StoryOverlayEditorModal(props: StoryOverlayEditorModalProps) {
     }
   });
 
-  const position = () => props.initial?.position ?? defaultOverlayPosition(props.kind);
+  const position = () =>
+    props.initial?.position ?? defaultOverlayPosition(props.kind);
 
   const addOption = () => {
     if (options().length >= POLL_MAX_OPTIONS) return;
@@ -86,7 +87,9 @@ export function StoryOverlayEditorModal(props: StoryOverlayEditorModalProps) {
     event.preventDefault();
     if (props.kind === "Question") {
       const name = question().trim();
-      const opts = options().map((o) => o.trim()).filter(Boolean);
+      const opts = options()
+        .map((o) => o.trim())
+        .filter(Boolean);
       if (!name) return setError(t("story.overlay.required"));
       if (opts.length < POLL_MIN_OPTIONS) {
         return setError(t("story.overlay.pollNeedsOptions"));
@@ -104,7 +107,11 @@ export function StoryOverlayEditorModal(props: StoryOverlayEditorModalProps) {
     } else {
       const href = linkUrl().trim();
       if (!isValidUrl(href)) return setError(t("story.overlay.invalidUrl"));
-      const overlay: StoryOverlay = { type: "Link", position: position(), href };
+      const overlay: StoryOverlay = {
+        type: "Link",
+        position: position(),
+        href,
+      };
       const label = linkLabel().trim();
       if (label) overlay.name = label;
       props.onSave(overlay);
@@ -116,8 +123,8 @@ export function StoryOverlayEditorModal(props: StoryOverlayEditorModalProps) {
     props.kind === "Question"
       ? t("story.overlay.poll")
       : props.kind === "Note"
-      ? t("story.overlay.note")
-      : t("story.overlay.link");
+        ? t("story.overlay.note")
+        : t("story.overlay.link");
 
   return (
     <Show when={props.open}>
@@ -227,9 +234,7 @@ export function StoryOverlayEditorModal(props: StoryOverlayEditorModalProps) {
           </Show>
 
           <Show when={error()}>
-            {(message) => (
-              <p class="mt-3 text-sm text-red-400">{message()}</p>
-            )}
+            {(message) => <p class="mt-3 text-sm text-red-400">{message()}</p>}
           </Show>
 
           <div class="mt-5 flex justify-end gap-2">

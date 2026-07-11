@@ -40,11 +40,12 @@ export interface OverlayItem {
 
 /** Default normalized size per overlay kind (center defaults to canvas middle). */
 export function defaultOverlayPosition(kind: OverlayKind) {
-  const size = kind === "Question"
-    ? { width: 0.74, height: 0.18 }
-    : kind === "Note"
-    ? { width: 0.6, height: 0.1 }
-    : { width: 0.5, height: 0.09 };
+  const size =
+    kind === "Question"
+      ? { width: 0.74, height: 0.18 }
+      : kind === "Note"
+        ? { width: 0.6, height: 0.1 }
+        : { width: 0.5, height: 0.09 };
   return { x: 0.5, y: 0.5, ...size };
 }
 
@@ -99,7 +100,7 @@ export function useStoryOverlays() {
             },
           },
         };
-      })
+      }),
     );
   }
 
@@ -115,11 +116,7 @@ export function useStoryOverlays() {
         const { x, y, width, height } = i.overlay.position;
         const w = clamp(nextWidth, OVERLAY_MIN_WIDTH, OVERLAY_MAX_WIDTH);
         const ratio = width > 0 ? w / width : 1;
-        const h = clamp(
-          height * ratio,
-          OVERLAY_MIN_HEIGHT,
-          OVERLAY_MAX_HEIGHT,
-        );
+        const h = clamp(height * ratio, OVERLAY_MIN_HEIGHT, OVERLAY_MAX_HEIGHT);
         return {
           id,
           overlay: {
@@ -133,7 +130,7 @@ export function useStoryOverlays() {
             },
           },
         };
-      })
+      }),
     );
   }
 

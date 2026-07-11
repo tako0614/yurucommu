@@ -129,7 +129,10 @@ export function StoryComposerOverlayLayer(
   return (
     // Container ignores pointer events so taps on empty space still reach the
     // canvas; each overlay re-enables them for drag/select.
-    <div ref={(el) => (layerRef = el)} class="pointer-events-none absolute inset-0 z-[6]">
+    <div
+      ref={(el) => (layerRef = el)}
+      class="pointer-events-none absolute inset-0 z-[6]"
+    >
       <For each={props.items}>
         {(item) => {
           const pos = () => item.overlay.position;
@@ -137,7 +140,9 @@ export function StoryComposerOverlayLayer(
           return (
             <div
               class="pointer-events-auto absolute flex touch-none select-none items-center justify-center"
-              classList={{ "outline outline-2 outline-white/80 rounded-xl": selected() }}
+              classList={{
+                "outline outline-2 outline-white/80 rounded-xl": selected(),
+              }}
               style={{
                 left: `${(pos().x - pos().width / 2) * 100}%`,
                 top: `${(pos().y - pos().height / 2) * 100}%`,

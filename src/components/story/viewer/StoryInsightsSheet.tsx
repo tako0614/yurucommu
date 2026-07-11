@@ -131,10 +131,12 @@ export function StoryInsightsSheet(props: StoryInsightsSheetProps) {
                   {(v) => (
                     <li class="flex items-center gap-3">
                       <img
-                        src={v.actor.icon_url ??
-                          `https://api.dicebear.com/9.x/thumbs/svg?seed=${
-                            encodeURIComponent(v.actor.preferred_username)
-                          }`}
+                        src={
+                          v.actor.icon_url ??
+                          `https://api.dicebear.com/9.x/thumbs/svg?seed=${encodeURIComponent(
+                            v.actor.preferred_username,
+                          )}`
+                        }
                         alt=""
                         class="h-8 w-8 rounded-full object-cover"
                       />

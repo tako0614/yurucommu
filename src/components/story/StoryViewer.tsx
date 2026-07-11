@@ -688,54 +688,60 @@ export function StoryViewer(props: StoryViewerProps) {
             </Show>
           </div>
 
-        <Show when={toastMessage()}>
-          <div
-            role="status"
-            aria-live="polite"
-            class="absolute bottom-24 left-1/2 z-30 -translate-x-1/2 rounded-full bg-black/80 px-4 py-2 text-sm text-white shadow-lg"
-          >
-            {toastMessage()}
-          </div>
-        </Show>
+          <Show when={toastMessage()}>
+            <div
+              role="status"
+              aria-live="polite"
+              class="absolute bottom-24 left-1/2 z-30 -translate-x-1/2 rounded-full bg-black/80 px-4 py-2 text-sm text-white shadow-lg"
+            >
+              {toastMessage()}
+            </div>
+          </Show>
 
-        {/* Own-story insights entry (author-only "seen by"). Opening it pauses
+          {/* Own-story insights entry (author-only "seen by"). Opening it pauses
             playback so the sheet isn't dismissed by auto-advance. */}
-        <Show when={isOwnStory()}>
-          <button
-            type="button"
-            class="absolute bottom-6 left-4 z-30 flex items-center gap-2 rounded-full bg-black/50 px-4 py-2 text-sm text-white backdrop-blur-sm"
-            onClick={(e) => {
-              e.stopPropagation();
-              setIsPaused(true);
-              setShowInsights(true);
+          <Show when={isOwnStory()}>
+            <button
+              type="button"
+              class="absolute bottom-6 left-4 z-30 flex items-center gap-2 rounded-full bg-black/50 px-4 py-2 text-sm text-white backdrop-blur-sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsPaused(true);
+                setShowInsights(true);
+              }}
+            >
+              <svg
+                class="h-4 w-4"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" />
+                <circle cx="12" cy="12" r="3" />
+              </svg>
+              {t("story.insights.title")}
+            </button>
+          </Show>
+
+          <StoryViewerActionBar
+            isLiked={isLiked()}
+            placeholder={t("story.replyPlaceholder")}
+            sendLabel={t("dm.send")}
+            onReply={isOwnStory() ? undefined : handleReply}
+            onLike={handleLike}
+            onShare={handleShare}
+          />
+
+          <StoryInsightsSheet
+            open={showInsights()}
+            story={currentStory()!}
+            locale={language()}
+            onClose={() => {
+              setShowInsights(false);
+              setIsPaused(false);
             }}
-          >
-            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" />
-              <circle cx="12" cy="12" r="3" />
-            </svg>
-            {t("story.insights.title")}
-          </button>
-        </Show>
-
-        <StoryViewerActionBar
-          isLiked={isLiked()}
-          placeholder={t("story.replyPlaceholder")}
-          sendLabel={t("dm.send")}
-          onReply={isOwnStory() ? undefined : handleReply}
-          onLike={handleLike}
-          onShare={handleShare}
-        />
-
-        <StoryInsightsSheet
-          open={showInsights()}
-          story={currentStory()!}
-          locale={language()}
-          onClose={() => {
-            setShowInsights(false);
-            setIsPaused(false);
-          }}
-        />
+          />
         </div>
 
         <StoryViewerDeleteDialog

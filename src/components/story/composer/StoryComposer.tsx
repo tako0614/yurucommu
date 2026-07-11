@@ -100,9 +100,11 @@ export function StoryComposer(props: StoryComposerProps) {
   // Overlay state (interactive poll / note / link elements that federate as
   // StoryOverlay and render over the media — not baked into the canvas image).
   const overlayState = useStoryOverlays();
-  const [overlayEditor, setOverlayEditor] = createSignal<
-    { kind: OverlayKind; id?: string; initial?: StoryOverlay | null } | null
-  >(null);
+  const [overlayEditor, setOverlayEditor] = createSignal<{
+    kind: OverlayKind;
+    id?: string;
+    initial?: StoryOverlay | null;
+  } | null>(null);
 
   const openOverlayCreate = (kind: OverlayKind) => {
     setShowToolPanel(false);
@@ -477,17 +479,24 @@ export function StoryComposer(props: StoryComposerProps) {
   const canPost = () => {
     renderKey();
     const sc = storyCanvas();
-    return !!sc &&
-      (sc.getLayers().length > 1 || !!video.videoFile() ||
-        overlayState.overlays().length > 0);
+    return (
+      !!sc &&
+      (sc.getLayers().length > 1 ||
+        !!video.videoFile() ||
+        overlayState.overlays().length > 0)
+    );
   };
   // Empty == only the background layer, no video, and no overlays: show the
   // "tap to add text" affordance so a fresh canvas isn't a blank stage.
   const isCanvasEmpty = () => {
     renderKey();
     const sc = storyCanvas();
-    return !!sc && sc.getLayers().length <= 1 && !video.videoFile() &&
-      overlayState.overlays().length === 0;
+    return (
+      !!sc &&
+      sc.getLayers().length <= 1 &&
+      !video.videoFile() &&
+      overlayState.overlays().length === 0
+    );
   };
 
   // --- Render ---

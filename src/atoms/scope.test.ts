@@ -188,15 +188,26 @@ const communityScope = (apId: string): InhabitedScope => ({
   member_role: "member",
 });
 
+async function withEmptyCommunityFetch(action: () => Promise<void>) {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL, _init?: RequestInit) =>
+    Response.json({
+      communities: [],
+    })) as typeof fetch;
+  try {
+    await action();
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
 // Audit #9 finding #1: leaving a community must clear the home filter if it was
 // narrowed to that community (otherwise home stays filtered to a community the
-// user is no longer in, until reload). The picker refetch fails harmlessly in
-// this test environment (no server) and is caught; the reset decision below is
-// what we assert.
+// user is no longer in, until reload).
 test("leaveCommunityScopeAtom resets the home filter when it was the left community", async () => {
   const store = createStore();
   store.set(inhabitedScopeAtom, communityScope("X"));
-  await store.set(leaveCommunityScopeAtom, "X");
+  await withEmptyCommunityFetch(() => store.set(leaveCommunityScopeAtom, "X"));
   assertEquals(store.get(inhabitedScopeAtom), PERSONAL_SCOPE);
 });
 
@@ -204,12 +215,12 @@ test("leaveCommunityScopeAtom leaves the home filter alone when a DIFFERENT comm
   const store = createStore();
   const other = communityScope("Y");
   store.set(inhabitedScopeAtom, other);
-  await store.set(leaveCommunityScopeAtom, "X");
+  await withEmptyCommunityFetch(() => store.set(leaveCommunityScopeAtom, "X"));
   assertEquals(store.get(inhabitedScopeAtom), other);
 });
 
 test("leaveCommunityScopeAtom is a no-op for the personal (unfiltered) home", async () => {
   const store = createStore();
-  await store.set(leaveCommunityScopeAtom, "X");
+  await withEmptyCommunityFetch(() => store.set(leaveCommunityScopeAtom, "X"));
   assertEquals(store.get(inhabitedScopeAtom), PERSONAL_SCOPE);
 });
