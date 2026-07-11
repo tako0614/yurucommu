@@ -8,8 +8,8 @@
         "@ffmpeg/ffmpeg": "^0.12.15",
         "@ffmpeg/util": "^0.12.2",
         "@solidjs/router": "^0.15.0",
-        "@takosjp/yurucommu-api": "^3.0.2",
-        "@takosjp/yurucommu-core": "^3.0.2",
+        "@takosjp/yurucommu-api": "^3.0.3",
+        "@takosjp/yurucommu-core": "^3.0.3",
         "html5-qrcode": "^2.3.8",
         "jotai": "^2.18.0",
         "qrcode-generator": "^2.0.4",
@@ -375,9 +375,9 @@
 
     "@tailwindcss/vite": ["@tailwindcss/vite@4.3.2", "", { "dependencies": { "@tailwindcss/node": "4.3.2", "@tailwindcss/oxide": "4.3.2", "tailwindcss": "4.3.2" }, "peerDependencies": { "vite": "^5.2.0 || ^6 || ^7 || ^8" } }, "sha512-eHpMeX4JXfVNJDEcsouTeCBubJBTcTLigeaw/NTUW6PB5ATKKXdyonnXgTBX2VuRbjz1hjfz6C5XAhr52ImQXA=="],
 
-    "@takosjp/yurucommu-api": ["@takosjp/yurucommu-api@3.0.2", "", {}, "sha512-VV0EJk0T4pM7u2C/bCvsozjEpliNoddvE54UCJ7jwwZ/dg/hkN98Fw12sSa9v2VBzBXlSV0dnPGxUwMhqTGzzA=="],
+    "@takosjp/yurucommu-api": ["@takosjp/yurucommu-api@3.0.3", "", {}, "sha512-w08V6Cw1PcDChREDZFKEf09VE7Qlh5LSrfCLzrOLp+xrT8bBZzQR+CzpTaQjgodjqMyoDgpjegy3cjfnOS04FA=="],
 
-    "@takosjp/yurucommu-core": ["@takosjp/yurucommu-core@3.0.2", "", { "dependencies": { "@aws-sdk/client-s3": "^3.971.0", "@libsql/client": "^0.17.0", "better-sqlite3": "^12.4.1", "drizzle-orm": "^0.45.1", "fdir": "^6.5.0", "hono": "^4.12.9", "picomatch": "^4.0.4", "tinyglobby": "^0.2.16" } }, "sha512-qL+AS/orb1jXYelXR+QroxM+VyKLyjsxaztlX68BNPeF9txyWa7Rp1UdFT/jeoGGljoum57KBRdt4CN/A4UztQ=="],
+    "@takosjp/yurucommu-core": ["@takosjp/yurucommu-core@3.0.3", "", { "dependencies": { "@aws-sdk/client-s3": "^3.971.0", "@libsql/client": "^0.17.0", "better-sqlite3": "^12.4.1", "drizzle-orm": "^0.45.1", "fdir": "^6.5.0", "hono": "^4.12.9", "picomatch": "^4.0.4", "tinyglobby": "^0.2.16" } }, "sha512-WuKs8xoU3G/3HZOvjQU6AcwHnGxqBMYxCVgIcUUGVVvMEc3x9wEzGXUXuaH9a/KEnWcmM1t6kXFPDOlV7a98gQ=="],
 
     "@types/babel__core": ["@types/babel__core@7.20.5", "", { "dependencies": { "@babel/parser": "^7.20.7", "@babel/types": "^7.20.7", "@types/babel__generator": "*", "@types/babel__template": "*", "@types/babel__traverse": "*" } }, "sha512-qoQprZvz5wQFJwMDqeseRXWv3rqMvhgpbXFfVyWhbx9X47POIA6i/+dXefEmZKoAgOaTdaIgNSMqMIU61yRyzA=="],
 

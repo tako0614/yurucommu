@@ -1,6 +1,6 @@
 {
   "name": "@takosjp/yurucommu",
-  "version": "2.0.7",
+  "version": "2.0.8",
   "license": "AGPL-3.0-only",
   "type": "module",
   "private": true,
@@ -32,8 +32,8 @@
     "@ffmpeg/ffmpeg": "^0.12.15",
     "@ffmpeg/util": "^0.12.2",
     "@solidjs/router": "^0.15.0",
-    "@takosjp/yurucommu-api": "^3.0.2",
-    "@takosjp/yurucommu-core": "^3.0.2",
+    "@takosjp/yurucommu-api": "^3.0.3",
+    "@takosjp/yurucommu-core": "^3.0.3",
     "html5-qrcode": "^2.3.8",
     "jotai": "^2.18.0",
     "qrcode-generator": "^2.0.4",
