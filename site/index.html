@@ -18,7 +18,31 @@
       content="自分ひとりのためのセルフホスト型 ActivityPub SNS。"
     />
     <meta property="og:type" content="website" />
-    <meta property="og:url" content="https://yurucommu.com" />
+    <meta property="og:site_name" content="yurucommu" />
+    <meta property="og:url" content="https://yurucommu.com/" />
+    <meta property="og:image" content="https://yurucommu.com/img/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="yurucommu — 自分の輪を、自分でつくる。"
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta
+      name="twitter:title"
+      content="yurucommu — 自分の輪を、自分でつくる。"
+    />
+    <meta
+      name="twitter:description"
+      content="自分ひとりのためのセルフホスト型 ActivityPub SNS。"
+    />
+    <meta name="twitter:image" content="https://yurucommu.com/img/og.png" />
+    <meta
+      name="twitter:image:alt"
+      content="yurucommu — 自分の輪を、自分でつくる。"
+    />
+    <link rel="canonical" href="https://yurucommu.com/" />
+    <meta name="theme-color" content="#0a0a0b" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -41,7 +65,8 @@
         --ink: #fafafa;
         --ink-2: #e4e4e7;
         --dim: #a1a1aa;
-        --faint: #52525b;
+        /* smallest text color — keep ≥4.5:1 on --bg (#8b8b96 ≈ 5.9:1) */
+        --faint: #8b8b96;
         --line: #27272a;
         --accent: #3b82f6;
         --w: 1100px;
@@ -232,323 +257,13 @@
         letter-spacing: 0.04em;
       }
       .browser-body {
-        display: flex;
-        justify-content: center;
-        min-height: 460px;
         background: #262626;
       }
 
-      /* Mock sidebar — matches app: aside.w-72.bg-neutral-900 */
-      .m-side {
-        width: 220px;
-        padding: 1.25rem 0 0;
-        display: flex;
-        flex-direction: column;
-        flex-shrink: 0;
-        background: #262626;
-      }
-      .m-logo {
-        font-weight: 700;
-        font-size: 1.15rem;
-        padding: 0.25rem 1rem 1.2rem;
-        color: #fff;
-      }
-      .m-nav {
-        list-style: none;
-        padding: 0 0.5rem;
-      }
-      .m-nav li {
-        padding: 0.45rem 0.7rem;
-        font-size: 0.88rem;
-        color: #a3a3a3;
-        display: flex;
-        align-items: center;
-        gap: 0.65rem;
-        border-radius: 9999px;
-        margin-bottom: 0.1rem;
-      }
-      .m-nav li.active {
-        color: #fff;
-        font-weight: 700;
-      }
-      .m-nav-icon {
-        width: 1rem;
-        height: 1rem;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        flex-shrink: 0;
-      }
-      .m-nav-icon svg {
+      .app-shot {
+        display: block;
         width: 100%;
-        height: 100%;
-      }
-      .m-create {
-        margin: auto 0.5rem 0;
-        padding: 0.45rem 0.7rem;
-        border: 1px solid #404040;
-        border-radius: 9999px;
-        display: flex;
-        align-items: center;
-        gap: 0.45rem;
-        font-size: 0.65rem;
-        color: #e5e5e5;
-      }
-      .m-create svg {
-        width: 0.78rem;
-        height: 0.78rem;
-        flex-shrink: 0;
-      }
-      .m-account {
-        margin: 0.5rem;
-        padding: 0.4rem 0.55rem;
-        display: flex;
-        align-items: center;
-        gap: 0.45rem;
-        font-size: 0.58rem;
-        color: #737373;
-      }
-      .m-account-label {
-        font-size: 0.5rem;
-        color: #737373;
-        padding: 0 0.55rem;
-        margin-bottom: 0.15rem;
-      }
-      .m-av {
-        width: 1.5rem;
-        height: 1.5rem;
-        border-radius: 50%;
-        background: #404040;
-        flex-shrink: 0;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 0.55rem;
-        color: #d4d4d4;
-      }
-      .m-account-name {
-        font-weight: 700;
-        color: #fff;
-        font-size: 0.65rem;
-      }
-
-      /* Mock timeline — matches app: max-w-[672px] with border-l/r */
-      .m-main {
-        width: 500px;
-        max-width: 500px;
-        min-width: 0;
-        display: flex;
-        flex-direction: column;
-        background: #262626;
-        border-left: 1px solid #333;
-        border-right: 1px solid #333;
-      }
-      .m-header {
-        padding: 0.45rem 0.7rem;
-        border-bottom: 1px solid #333;
-        font-size: 0.75rem;
-        font-weight: 700;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        background: rgba(38, 38, 38, 0.8);
-        backdrop-filter: blur(4px);
-        color: #fff;
-      }
-      .m-header-home {
-        display: flex;
-        align-items: center;
-        gap: 0.3rem;
-      }
-      .m-header-chevron {
-        color: #737373;
-        font-size: 0.6rem;
-      }
-      .m-header-plus {
-        width: 1.6rem;
-        height: 1.6rem;
-        border-radius: 50%;
-        background: var(--accent);
-        display: grid;
-        place-items: center;
-        color: #fff;
-      }
-      .m-header-plus svg {
-        width: 0.85rem;
-        height: 0.85rem;
-      }
-
-      /* Stories — matches app: w-16 h-16 circles with ring */
-      .m-stories {
-        display: flex;
-        gap: 0.75rem;
-        padding: 0.65rem 0.85rem;
-        border-bottom: 1px solid #262626;
-      }
-      .m-story {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 0.3rem;
-        flex-shrink: 0;
-      }
-      .m-story-ring {
-        width: 3rem;
-        height: 3rem;
-        border-radius: 50%;
-        padding: 2px;
-        position: relative;
-      }
-      .m-story-ring.unseen {
-        background: var(--accent);
-      }
-      .m-story-ring.own {
-        background: #525252;
-      }
-      .m-story-inner {
-        width: 100%;
-        height: 100%;
-        border-radius: 50%;
-        background: #262626;
-        padding: 2px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-      }
-      .m-story-av {
-        width: 100%;
-        height: 100%;
-        border-radius: 50%;
-      }
-      .m-story-plus {
-        position: absolute;
-        bottom: -2px;
-        right: -2px;
-        width: 0.85rem;
-        height: 0.85rem;
-        border-radius: 50%;
-        background: var(--accent);
-        display: grid;
-        place-items: center;
-        border: 2px solid #262626;
-      }
-      .m-story-plus svg {
-        width: 0.5rem;
-        height: 0.5rem;
-        color: #fff;
-      }
-      .m-story span {
-        font-size: 0.52rem;
-        color: #a3a3a3;
-        max-width: 3.5rem;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        text-align: center;
-        line-height: 1.3;
-      }
-
-      /* Posts — matches app: flex gap-3 px-4 py-3 with 48px avatar */
-      .m-feed {
-        flex: 1;
-        padding: 0;
-      }
-      .m-post {
-        display: flex;
-        gap: 0.55rem;
-        padding: 0.55rem 0.7rem;
-        border-bottom: 1px solid #262626;
-      }
-      .m-post-av {
-        width: 2rem;
-        height: 2rem;
-        border-radius: 50%;
-        flex-shrink: 0;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 0.7rem;
-        color: #d4d4d4;
-      }
-      .m-post-content {
-        flex: 1;
-        min-width: 0;
-      }
-      .m-post-head {
-        display: flex;
-        align-items: baseline;
-        gap: 0.35rem;
-        margin-bottom: 0.15rem;
-        flex-wrap: wrap;
-      }
-      .m-post-name {
-        font-size: 0.75rem;
-        font-weight: 700;
-        color: #fff;
-      }
-      .m-post-handle {
-        font-size: 0.65rem;
-        color: #737373;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-      .m-post-dot {
-        font-size: 0.55rem;
-        color: #737373;
-      }
-      .m-post-time {
-        font-size: 0.65rem;
-        color: #737373;
-      }
-      .m-post-body {
-        font-size: 0.72rem;
-        color: #e5e5e5;
-        line-height: 1.65;
-        margin-top: 0.1rem;
-      }
-      .m-post-body .tag {
-        color: var(--accent);
-      }
-      .m-post-actions {
-        display: flex;
-        gap: 1rem;
-        margin-top: 0.45rem;
-        color: #737373;
-      }
-      .m-post-actions span {
-        display: flex;
-        align-items: center;
-        gap: 0.25rem;
-        font-size: 0.6rem;
-      }
-      .m-post-actions svg {
-        width: 0.85rem;
-        height: 0.85rem;
-      }
-      .m-post-actions .liked {
-        color: #f43f5e;
-      }
-      .m-post-actions .liked svg {
-        fill: #f43f5e;
-      }
-
-      .m-post-more {
-        color: #525252;
-        margin-left: auto;
-        flex-shrink: 0;
-        display: flex;
-        align-items: center;
-      }
-      .m-post-more svg {
-        width: 0.85rem;
-        height: 0.85rem;
-      }
-      .m-end-msg {
-        padding: 1.25rem 0;
-        text-align: center;
-        font-size: 0.6rem;
-        color: #525252;
+        height: auto;
       }
 
       .mockup-caption {
@@ -601,7 +316,9 @@
         color: var(--accent);
         padding-top: 0.4rem;
       }
-      .princ-row h3 {
+      /* h2 (not h3): the numbered principles are the first headings after the
+         hero h1, so they must not skip a level in the document outline. */
+      .princ-row h2 {
         font-size: 1.5rem;
         font-weight: 700;
         letter-spacing: -0.01em;
@@ -664,236 +381,49 @@
         overflow: hidden;
       }
 
-      /* -- Single post mockup (feature panel) -- */
-      .fm-post {
-        display: flex;
-        gap: 0.75rem;
-        padding: 1rem 1.25rem;
-      }
-      .fm-post-av {
-        width: 2.5rem;
-        height: 2.5rem;
-        border-radius: 50%;
-        flex-shrink: 0;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 0.85rem;
-        color: #d4d4d4;
-      }
-      .fm-post-content {
-        flex: 1;
-        min-width: 0;
-      }
-      .fm-post-head {
-        display: flex;
-        align-items: baseline;
-        gap: 0.35rem;
-        margin-bottom: 0.2rem;
-      }
-      .fm-post-name {
-        font-size: 0.88rem;
-        font-weight: 700;
-        color: #fff;
-      }
-      .fm-post-handle {
-        font-size: 0.75rem;
-        color: #737373;
-      }
-      .fm-post-dot {
-        font-size: 0.6rem;
-        color: #737373;
-      }
-      .fm-post-time {
-        font-size: 0.72rem;
-        color: #737373;
-      }
-      .fm-post-body {
-        font-size: 0.88rem;
-        color: #e5e5e5;
-        line-height: 1.7;
-        margin-bottom: 0.6rem;
-      }
-      .fm-post-body .tag {
-        color: var(--accent);
-      }
-      .fm-post-actions {
-        display: flex;
-        gap: 1.25rem;
-        color: #737373;
-        font-size: 0.78rem;
-      }
-      .fm-post-actions span {
-        display: flex;
-        align-items: center;
-        gap: 0.3rem;
-      }
-      .fm-post-actions svg {
-        width: 1rem;
-        height: 1rem;
-      }
-      .fm-post-actions .liked {
-        color: #f43f5e;
-      }
-      .fm-post-actions .liked svg {
-        fill: #f43f5e;
+      .feat-shot {
+        display: block;
+        width: 100%;
+        height: auto;
       }
 
-      /* -- Story mockup (feature panel) -- */
-      .fm-stories {
-        padding: 1.25rem;
+      /* ---- Mobile ---- */
+      .mobile-sec {
+        padding: 7rem 0;
       }
-      .fm-story-bar {
-        display: flex;
-        gap: 1rem;
-        margin-bottom: 1.5rem;
-      }
-      .fm-story-item {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 0.3rem;
-      }
-      .fm-story-circle {
-        width: 3.5rem;
-        height: 3.5rem;
-        border-radius: 50%;
-        padding: 2px;
-        background: var(--accent);
-        position: relative;
-      }
-      .fm-story-circle.own {
-        background: #525252;
-      }
-      .fm-story-circle.own::after {
-        content: "+";
-        position: absolute;
-        bottom: -2px;
-        right: -2px;
-        width: 1rem;
-        height: 1rem;
-        border-radius: 50%;
-        background: var(--accent);
-        color: #fff;
-        font-size: 0.65rem;
-        font-weight: 700;
+      .mobile-grid {
         display: grid;
-        place-items: center;
-        border: 2px solid #0a0a0a;
-      }
-      .fm-story-circle-inner {
-        width: 100%;
-        height: 100%;
-        border-radius: 50%;
-        background: #0a0a0a;
-        padding: 2px;
-      }
-      .fm-story-inner {
-        width: 100%;
-        height: 100%;
-        border-radius: 50%;
-      }
-      .fm-story-name {
-        font-size: 0.6rem;
-        color: #a3a3a3;
-      }
-      .fm-viewer {
-        border-radius: 0.6rem;
-        overflow: hidden;
-        background: #171717;
-        padding: 1rem;
-        min-height: 180px;
-        display: flex;
-        flex-direction: column;
-        justify-content: space-between;
-      }
-      .fm-viewer-bar {
-        display: flex;
-        gap: 0.25rem;
-        margin-bottom: 0.75rem;
-      }
-      .fm-viewer-seg {
-        flex: 1;
-        height: 2px;
-        border-radius: 1px;
-        background: rgba(255, 255, 255, 0.2);
-      }
-      .fm-viewer-seg.active {
-        background: #fff;
-      }
-      .fm-viewer-head {
-        display: flex;
+        grid-template-columns: 1fr auto;
+        gap: 4rem;
         align-items: center;
-        gap: 0.5rem;
-        margin-bottom: auto;
       }
-      .fm-viewer-av {
-        width: 1.6rem;
-        height: 1.6rem;
-        border-radius: 50%;
-      }
-      .fm-viewer-name {
-        font-size: 0.75rem;
-        color: #fff;
-        font-weight: 500;
-      }
-      .fm-viewer-time {
-        font-size: 0.6rem;
-        color: rgba(255, 255, 255, 0.4);
-      }
-      .fm-viewer-text {
-        font-size: 1.1rem;
-        color: #fff;
+      .mobile-copy h2 {
+        font-size: clamp(1.5rem, 3.5vw, 2.2rem);
         font-weight: 700;
-        text-align: center;
-        margin: auto 0;
-        padding: 1rem 0;
+        line-height: 1.5;
+        letter-spacing: -0.01em;
+        margin: 1rem 0;
       }
-
-      /* -- Community scope mockup (feature panel) -- */
-      .fm-scope {
-        padding: 0;
+      .mobile-copy p {
+        color: var(--dim);
+        font-size: 0.975rem;
+        max-width: 24rem;
       }
-      .fm-scope-header {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        padding: 0.6rem 1.25rem;
-        border-bottom: 1px solid #262626;
-        font-size: 0.82rem;
-        font-weight: 700;
-        color: #fff;
-        background: rgba(23, 23, 23, 0.8);
+      .phone {
+        width: 268px;
+        max-width: 100%;
+        margin: 0 auto;
+        padding: 10px;
+        border-radius: 42px;
+        background: #000;
+        border: 1px solid var(--line);
+        box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
       }
-      .fm-scope-av {
-        width: 1.4rem;
-        height: 1.4rem;
-        border-radius: 50%;
-      }
-      .fm-scope-chevron {
-        color: #737373;
-        margin-left: 0.1rem;
-      }
-      .fm-scope-chevron svg {
-        width: 0.7rem;
-        height: 0.7rem;
-      }
-      .fm-scope-badge {
-        font-family: var(--mono);
-        font-size: 0.55rem;
-        color: var(--accent);
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-        margin-left: auto;
-      }
-      .fm-scope-post {
-        display: flex;
-        gap: 0.75rem;
-        padding: 0.75rem 1.25rem;
-        border-bottom: 1px solid #171717;
-      }
-      .fm-scope-post:last-child {
-        border-bottom: none;
+      .phone img {
+        display: block;
+        width: 100%;
+        height: auto;
+        border-radius: 32px;
       }
 
       /* ---- Deploy Steps ---- */
@@ -1010,7 +540,8 @@
         .hero {
           padding: 8rem 0 5rem;
         }
-        .feat-panel {
+        .feat-panel,
+        .mobile-grid {
           grid-template-columns: 1fr;
           gap: 2.5rem;
         }
@@ -1022,9 +553,6 @@
         }
         .statement {
           padding: 7rem 0;
-        }
-        .m-side {
-          display: none;
         }
         .step-row {
           grid-template-columns: 3rem 1fr;
@@ -1046,6 +574,14 @@
         }
       }
 
+      /* Very narrow screens: drop the secondary nav links so the はじめる CTA
+         never overflows (Docs / Specs stay reachable from the footer). */
+      @media (max-width: 480px) {
+        .nav-opt {
+          display: none;
+        }
+      }
+
       @media (prefers-reduced-motion: reduce) {
         .reveal {
           opacity: 1;
@@ -1064,8 +600,8 @@
       <div class="nav-in">
         <a href="/" class="brand">yurucommu</a>
         <div class="nav-links">
-          <a href="/help/" class="link">Docs</a>
-          <a href="/specs/" class="link">Specs</a>
+          <a href="/help/" class="link nav-opt">Docs</a>
+          <a href="/specs/" class="link nav-opt">Specs</a>
           <a href="https://github.com/tako0614/yurucommu" class="link"
             >GitHub</a
           >
@@ -1100,428 +636,19 @@
             <div class="browser-url">yourdomain.com</div>
           </div>
           <div class="browser-body">
-            <!-- Sidebar — mirrors app: aside.w-72.bg-neutral-900 -->
-            <div class="m-side">
-              <div class="m-logo">Yurucommu</div>
-              <ul class="m-nav">
-                <li class="active">
-                  <span class="m-nav-icon"
-                    ><svg
-                      stroke="currentColor"
-                      fill="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"
-                      /></svg
-                  ></span>
-                  ホーム
-                </li>
-                <li>
-                  <span class="m-nav-icon"
-                    ><svg stroke="currentColor" fill="none" viewBox="0 0 24 24">
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                      /></svg
-                  ></span>
-                  検索
-                </li>
-                <li>
-                  <span class="m-nav-icon"
-                    ><svg stroke="currentColor" fill="none" viewBox="0 0 24 24">
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M12 4v16m8-8H4"
-                      /></svg
-                  ></span>
-                  投稿
-                </li>
-                <li>
-                  <span class="m-nav-icon"
-                    ><svg stroke="currentColor" fill="none" viewBox="0 0 24 24">
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
-                      /></svg
-                  ></span>
-                  メッセージ
-                </li>
-                <li>
-                  <span class="m-nav-icon"
-                    ><svg stroke="currentColor" fill="none" viewBox="0 0 24 24">
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
-                      /></svg
-                  ></span>
-                  通知
-                </li>
-                <li>
-                  <span class="m-nav-icon"
-                    ><svg stroke="currentColor" fill="none" viewBox="0 0 24 24">
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
-                      /></svg
-                  ></span>
-                  プロフィール
-                </li>
-              </ul>
-              <div class="m-create">
-                <svg stroke="currentColor" fill="none" viewBox="0 0 24 24">
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M12 4v16m8-8H4"
-                  />
-                </svg>
-                コミュニティを作成
-              </div>
-              <div class="m-account-label">アカウント</div>
-              <div class="m-account">
-                <div class="m-av">T</div>
-                <div>
-                  <div class="m-account-name">tako</div>
-                  @tako
-                </div>
-              </div>
-            </div>
-
-            <!-- Timeline — mirrors app layout -->
-            <div class="m-main">
-              <div class="m-header">
-                <div class="m-header-home">
-                  ホーム
-                  <span class="m-header-chevron"
-                    ><svg
-                      width="10"
-                      height="10"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M19 9l-7 7-7-7"
-                      /></svg
-                  ></span>
-                </div>
-                <div class="m-header-plus">
-                  <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M12 4v16m8-8H4"
-                    />
-                  </svg>
-                </div>
-              </div>
-
-              <div class="m-stories">
-                <div class="m-story">
-                  <div class="m-story-ring own">
-                    <div class="m-story-inner">
-                      <div
-                        class="m-story-av"
-                        style="
-                          background: #404040;
-                          display: flex;
-                          align-items: center;
-                          justify-content: center;
-                          font-size: 0.7rem;
-                          color: #d4d4d4;
-                        "
-                      >
-                        T
-                      </div>
-                    </div>
-                    <div class="m-story-plus">
-                      <svg fill="none" stroke="#fff" viewBox="0 0 24 24">
-                        <path
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                          d="M12 4v16m8-8H4"
-                        />
-                      </svg>
-                    </div>
-                  </div>
-                  <span>あなたの<br />ストーリー</span>
-                </div>
-                <div class="m-story">
-                  <div class="m-story-ring unseen">
-                    <div class="m-story-inner">
-                      <div class="m-story-av" style="background: #6366f1"></div>
-                    </div>
-                  </div>
-                  <span>のどか</span>
-                </div>
-                <div class="m-story">
-                  <div class="m-story-ring unseen">
-                    <div class="m-story-inner">
-                      <div class="m-story-av" style="background: #ec4899"></div>
-                    </div>
-                  </div>
-                  <span>ゆき</span>
-                </div>
-                <div class="m-story">
-                  <div class="m-story-ring unseen">
-                    <div class="m-story-inner">
-                      <div class="m-story-av" style="background: #14b8a6"></div>
-                    </div>
-                  </div>
-                  <span>はる</span>
-                </div>
-              </div>
-
-              <div class="m-feed">
-                <div class="m-post">
-                  <div class="m-post-av" style="background: #6366f1">N</div>
-                  <div class="m-post-content">
-                    <div class="m-post-head">
-                      <span class="m-post-name">のどか</span>
-                      <span class="m-post-handle">@nodoka@nodoka.social</span>
-                      <span class="m-post-dot">·</span>
-                      <span class="m-post-time">2分前</span>
-                    </div>
-                    <p class="m-post-body">
-                      海の見える街に引っ越しました。ゆるく繋がれる人、この
-                      <span class="tag">#輪</span> の中だけで十分かも。
-                    </p>
-                    <div class="m-post-actions">
-                      <span
-                        ><svg
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            stroke-width="2"
-                            d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
-                          />
-                        </svg>
-                        3</span
-                      >
-                      <span
-                        ><svg
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            stroke-width="2"
-                            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                          />
-                        </svg>
-                        1</span
-                      >
-                      <span class="liked"
-                        ><svg viewBox="0 0 24 24" fill="currentColor">
-                          <path
-                            d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"
-                          />
-                        </svg>
-                        12</span
-                      >
-                      <span
-                        ><svg
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            stroke-width="2"
-                            d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"
-                          /></svg
-                      ></span>
-                      <span class="m-post-more"
-                        ><svg viewBox="0 0 24 24" fill="currentColor">
-                          <circle cx="5" cy="12" r="2" />
-                          <circle cx="12" cy="12" r="2" />
-                          <circle cx="19" cy="12" r="2" /></svg
-                      ></span>
-                    </div>
-                  </div>
-                </div>
-                <div class="m-post">
-                  <div class="m-post-av" style="background: #ec4899">Y</div>
-                  <div class="m-post-content">
-                    <div class="m-post-head">
-                      <span class="m-post-name">ゆき</span>
-                      <span class="m-post-handle">@yuki@yuki.me</span>
-                      <span class="m-post-dot">·</span>
-                      <span class="m-post-time">15分前</span>
-                    </div>
-                    <p class="m-post-body">
-                      新しいカフェ見つけた。窓際の席が最高。
-                    </p>
-                    <div class="m-post-actions">
-                      <span
-                        ><svg
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            stroke-width="2"
-                            d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
-                          />
-                        </svg>
-                        1</span
-                      >
-                      <span
-                        ><svg
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            stroke-width="2"
-                            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                          /></svg
-                      ></span>
-                      <span
-                        ><svg
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"
-                          />
-                        </svg>
-                        8</span
-                      >
-                      <span
-                        ><svg
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            stroke-width="2"
-                            d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"
-                          /></svg
-                      ></span>
-                      <span class="m-post-more"
-                        ><svg viewBox="0 0 24 24" fill="currentColor">
-                          <circle cx="5" cy="12" r="2" />
-                          <circle cx="12" cy="12" r="2" />
-                          <circle cx="19" cy="12" r="2" /></svg
-                      ></span>
-                    </div>
-                  </div>
-                </div>
-                <div class="m-post">
-                  <div class="m-post-av" style="background: #14b8a6">H</div>
-                  <div class="m-post-content">
-                    <div class="m-post-head">
-                      <span class="m-post-name">はる</span>
-                      <span class="m-post-handle">@haru@haru.town</span>
-                      <span class="m-post-dot">·</span>
-                      <span class="m-post-time">1時間前</span>
-                    </div>
-                    <p class="m-post-body">
-                      今日の夕焼けすごかった。写真じゃ伝わらないけど。
-                    </p>
-                    <div class="m-post-actions">
-                      <span
-                        ><svg
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            stroke-width="2"
-                            d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
-                          />
-                        </svg>
-                        5</span
-                      >
-                      <span
-                        ><svg
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            stroke-width="2"
-                            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                          />
-                        </svg>
-                        2</span
-                      >
-                      <span class="liked"
-                        ><svg viewBox="0 0 24 24" fill="currentColor">
-                          <path
-                            d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"
-                          />
-                        </svg>
-                        24</span
-                      >
-                      <span
-                        ><svg
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            stroke-width="2"
-                            d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"
-                          /></svg
-                      ></span>
-                      <span class="m-post-more"
-                        ><svg viewBox="0 0 24 24" fill="currentColor">
-                          <circle cx="5" cy="12" r="2" />
-                          <circle cx="12" cy="12" r="2" />
-                          <circle cx="19" cy="12" r="2" /></svg
-                      ></span>
-                    </div>
-                  </div>
-                </div>
-                <div class="m-end-msg">これ以上の投稿はありません</div>
-              </div>
-            </div>
+            <img
+              class="app-shot"
+              src="./assets/shots/yurucommu-home.webp"
+              width="2560"
+              height="1600"
+              alt="yurucommuのホームタイムライン。ダークな UI に、自分のサーバーでフォローした相手の投稿・ストーリー・おすすめユーザーが並ぶ。"
+              loading="lazy"
+              decoding="async"
+            />
           </div>
         </div>
         <p class="mockup-caption">
-          あなたのドメインで動く、あなただけのタイムライン。
+          あなたのドメインで動く、あなただけのタイムラインです。
         </p>
       </div>
     </section>
@@ -1533,7 +660,7 @@
       <div class="wrap">
         <p>
           届く範囲は、<br />自分が広げた輪の中だけで、<span class="soft"
-            >いい。</span
+            >いいです。</span
           >
         </p>
       </div>
@@ -1550,28 +677,28 @@
         <div class="princ-row reveal">
           <span class="princ-n">01</span>
           <div>
-            <h3>アルゴリズムを、手放す。</h3>
+            <h2>アルゴリズムを、手放す。</h2>
             <p>
-              タイムラインはただの時系列。おすすめも、バズもない。流れてくるのは、自分がフォローした人の声だけ。
+              タイムラインはただの時系列です。勝手に並べ替えるアルゴリズムも、バズもありません。流れてくるのは、自分がフォローした人の声だけです。
             </p>
           </div>
         </div>
         <div class="princ-row reveal">
           <span class="princ-n">02</span>
           <div>
-            <h3>輪は、小さくていい。</h3>
+            <h2>輪は、小さくていい。</h2>
             <p>
-              興味でつくる小さなコミュニティが、そのまま「届く範囲」になる。薄く広い繋がりより、濃くて小さな繋がりを。
+              興味でつくる小さなコミュニティが、そのまま「届く範囲」になります。薄く広い繋がりより、濃くて小さな繋がりを大切にします。
             </p>
           </div>
         </div>
         <div class="princ-row reveal">
           <span class="princ-n">03</span>
           <div>
-            <h3>居場所は、自分のもの。</h3>
+            <h2>居場所は、自分のもの。</h2>
             <p>
-              セルフホストだから、データも、続けるかどうかも、すべて自分の手の中に。凍結も、サービス終了もない。ActivityPub
-              で、外の世界とは繋がったまま。
+              セルフホストだから、データも、続けるかどうかも、すべて自分の手の中にあります。凍結も、サービス終了もありません。ActivityPub
+              で、外の世界とは繋がったままです。
             </p>
           </div>
         </div>
@@ -1593,79 +720,18 @@
             <div class="feat-label">できること — 01</div>
             <h2>時系列だけの、<br />タイムライン。</h2>
             <p>
-              フォローした人の声だけが、ただ時間順に流れる。バズもトレンドもない、静かで心地いい場所。
+              フォローした人の声だけが、ただ時間順に流れます。バズもトレンドもない、静かで心地いい場所です。
             </p>
           </div>
           <div class="feat-mock">
             <div class="feat-mock-frame">
-              <div class="fm-post">
-                <div class="fm-post-av" style="background: #6366f1">N</div>
-                <div class="fm-post-content">
-                  <div class="fm-post-head">
-                    <span class="fm-post-name">のどか</span>
-                    <span class="fm-post-handle">@nodoka@nodoka.social</span>
-                    <span class="fm-post-dot">·</span>
-                    <span class="fm-post-time">2分前</span>
-                  </div>
-                  <div class="fm-post-body">
-                    海の見える街に引っ越しました。ゆるく繋がれる人、この
-                    <span class="tag">#輪</span> の中だけで十分かも。
-                  </div>
-                  <div class="fm-post-actions">
-                    <span
-                      ><svg
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                          d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
-                        />
-                      </svg>
-                      3</span
-                    >
-                    <span
-                      ><svg
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                        />
-                      </svg>
-                      1</span
-                    >
-                    <span class="liked"
-                      ><svg viewBox="0 0 24 24" fill="currentColor">
-                        <path
-                          d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"
-                        />
-                      </svg>
-                      12</span
-                    >
-                    <span
-                      ><svg
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                          d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"
-                        /></svg
-                    ></span>
-                  </div>
-                </div>
-              </div>
+              <img
+                class="feat-shot"
+                src="./assets/shots/yc-feat-post.webp"
+                alt="yurucommu の投稿。フォローした人の声が、時間順に静かに流れる。"
+                loading="lazy"
+                decoding="async"
+              />
             </div>
           </div>
         </div>
@@ -1676,72 +742,18 @@
             <div class="feat-label">できること — 02</div>
             <h2>24時間で消える、<br />気軽な近況。</h2>
             <p>
-              キャンバスエディタで自由に。描いて、書いて、貼って、24時間後にはなくなる。身軽に。
+              キャンバスエディタで自由に描いたり書いたり貼ったりできます。24時間後には消えるので、身軽に使えます。
             </p>
           </div>
           <div class="feat-mock">
             <div class="feat-mock-frame">
-              <div class="fm-stories">
-                <div class="fm-story-bar">
-                  <div class="fm-story-item">
-                    <div class="fm-story-circle own">
-                      <div class="fm-story-circle-inner">
-                        <div
-                          class="fm-story-inner"
-                          style="background: #404040"
-                        ></div>
-                      </div>
-                    </div>
-                    <span class="fm-story-name">あなた</span>
-                  </div>
-                  <div class="fm-story-item">
-                    <div class="fm-story-circle">
-                      <div class="fm-story-circle-inner">
-                        <div
-                          class="fm-story-inner"
-                          style="background: #6366f1"
-                        ></div>
-                      </div>
-                    </div>
-                    <span class="fm-story-name">のどか</span>
-                  </div>
-                  <div class="fm-story-item">
-                    <div class="fm-story-circle">
-                      <div class="fm-story-circle-inner">
-                        <div
-                          class="fm-story-inner"
-                          style="background: #ec4899"
-                        ></div>
-                      </div>
-                    </div>
-                    <span class="fm-story-name">ゆき</span>
-                  </div>
-                  <div class="fm-story-item">
-                    <div class="fm-story-circle">
-                      <div class="fm-story-circle-inner">
-                        <div
-                          class="fm-story-inner"
-                          style="background: #14b8a6"
-                        ></div>
-                      </div>
-                    </div>
-                    <span class="fm-story-name">はる</span>
-                  </div>
-                </div>
-                <div class="fm-viewer">
-                  <div class="fm-viewer-bar">
-                    <div class="fm-viewer-seg active"></div>
-                    <div class="fm-viewer-seg"></div>
-                    <div class="fm-viewer-seg"></div>
-                  </div>
-                  <div class="fm-viewer-head">
-                    <div class="fm-viewer-av" style="background: #6366f1"></div>
-                    <span class="fm-viewer-name">のどか</span>
-                    <span class="fm-viewer-time">3時間前</span>
-                  </div>
-                  <div class="fm-viewer-text">引っ越し完了！</div>
-                </div>
-              </div>
+              <img
+                class="feat-shot"
+                src="./assets/shots/yc-feat-story.webp"
+                alt="yurucommu のストーリー一覧。フォローした人の 24 時間で消える近況が並ぶ。"
+                loading="lazy"
+                decoding="async"
+              />
             </div>
           </div>
         </div>
@@ -1752,163 +764,46 @@
             <div class="feat-label">できること — 03</div>
             <h2>自分で決める、<br />届く範囲。</h2>
             <p>
-              興味でつくるコミュニティが、投稿の届く「輪」になる。全世界に叫ぶ必要はない。
+              興味でつくるコミュニティが、投稿の届く「輪」になります。全世界に向けて発信する必要はありません。
             </p>
           </div>
           <div class="feat-mock">
-            <div class="feat-mock-frame fm-scope">
-              <div class="fm-scope-header">
-                <div class="fm-scope-av" style="background: #f59e0b"></div>
-                写真部
-                <span class="fm-scope-chevron"
-                  ><svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M19 9l-7 7-7-7"
-                    /></svg
-                ></span>
-                <span class="fm-scope-badge">Community</span>
-              </div>
-              <div class="fm-scope-post">
-                <div class="fm-post-av" style="background: #14b8a6">H</div>
-                <div class="fm-post-content">
-                  <div class="fm-post-head">
-                    <span class="fm-post-name">はる</span>
-                    <span class="fm-post-handle">@haru</span>
-                    <span class="fm-post-dot">·</span>
-                    <span class="fm-post-time">30分前</span>
-                  </div>
-                  <div class="fm-post-body">
-                    今日の夕焼けすごかった。写真じゃ伝わらないけど。
-                  </div>
-                  <div class="fm-post-actions">
-                    <span
-                      ><svg
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                          d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
-                        />
-                      </svg>
-                      5</span
-                    >
-                    <span
-                      ><svg
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                        />
-                      </svg>
-                      2</span
-                    >
-                    <span class="liked"
-                      ><svg viewBox="0 0 24 24" fill="currentColor">
-                        <path
-                          d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"
-                        />
-                      </svg>
-                      24</span
-                    >
-                    <span
-                      ><svg
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                          d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"
-                        /></svg
-                    ></span>
-                  </div>
-                </div>
-              </div>
-              <div class="fm-scope-post">
-                <div class="fm-post-av" style="background: #ec4899">Y</div>
-                <div class="fm-post-content">
-                  <div class="fm-post-head">
-                    <span class="fm-post-name">ゆき</span>
-                    <span class="fm-post-handle">@yuki</span>
-                    <span class="fm-post-dot">·</span>
-                    <span class="fm-post-time">2時間前</span>
-                  </div>
-                  <div class="fm-post-body">
-                    カフェの窓際から撮った一枚。光がきれい。
-                  </div>
-                  <div class="fm-post-actions">
-                    <span
-                      ><svg
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                          d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
-                        />
-                      </svg>
-                      2</span
-                    >
-                    <span
-                      ><svg
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                        /></svg
-                    ></span>
-                    <span
-                      ><svg
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"
-                        />
-                      </svg>
-                      9</span
-                    >
-                    <span
-                      ><svg
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                          d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"
-                        /></svg
-                    ></span>
-                  </div>
-                </div>
-              </div>
+            <div class="feat-mock-frame">
+              <img
+                class="feat-shot"
+                src="./assets/shots/yc-feat-community.webp"
+                alt="yurucommu の投稿。コミュニティのバッジが付き、投稿の届く「輪」をコミュニティで選べる。"
+                loading="lazy"
+                decoding="async"
+              />
             </div>
           </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="hairline"></div>
+
+    <!-- Mobile -->
+    <section class="mobile-sec reveal">
+      <div class="wrap mobile-grid">
+        <div class="mobile-copy">
+          <span class="mono">手のひらに</span>
+          <h2>スマホでも、<br />自分の輪。</h2>
+          <p>
+            ホーム画面から開けば、タイムラインも、ストーリーも、DM
+            も使えます。あなたのサーバーが、そのままポケットの中に入ります。
+          </p>
+        </div>
+        <div class="phone">
+          <img
+            src="./assets/shots/yurucommu-mobile.webp"
+            width="780"
+            height="1688"
+            alt="yurucommu のスマホ画面。ダークなタイムラインと下部タブ（ホーム・検索・通知・メッセージ）。"
+            loading="lazy"
+            decoding="async"
+          />
         </div>
       </div>
     </section>
@@ -1919,24 +814,25 @@
     <section class="deploy" id="start">
       <div class="wrap">
         <span class="mono">走る場所</span>
-        <h2>Cloudflare の上で、無料で動く。</h2>
+        <h2>Takosumi で管理して、<br />自分の場所に置く。</h2>
         <div class="step-row reveal">
           <span class="step-n">01</span>
-          <b>クローン</b>
-          <span>GitHub からソースを取得</span>
+          <b>選ぶ</b>
+          <span>Takosumi に Git URL を登録して、管理付きで導入</span>
         </div>
         <div class="step-row reveal">
           <span class="step-n">02</span>
-          <b>デプロイ</b>
-          <span>Workers / D1 / R2 で自分のドメインへ</span>
+          <b>Plan・Apply</b>
+          <span>変更を確認して、自分の Cloudflare 環境へ公開します</span>
         </div>
         <div class="step-row reveal">
           <span class="step-n">03</span>
           <b>アカウント作成</b>
-          <span>自分だけのインスタンスで完了</span>
+          <span>自分だけのインスタンスが完成します</span>
         </div>
         <p class="deploy-note">
-          Cloudflare の無料枠で動く。かかるのは、ドメイン代だけ。
+          Takosumi が Plan・Apply・state・output を管理します。Cloudflare
+          への直接デプロイも選べます。
         </p>
       </div>
     </section>
@@ -1947,7 +843,7 @@
     <section class="federation reveal">
       <div class="wrap">
         <p>
-          Mastodon、Misskey、そして ActivityPub の世界と繋がる。<br />小さくても、孤立しない。
+          Mastodon、Misskey、そして ActivityPub の世界と繋がります。<br />小さくても、孤立しません。
         </p>
       </div>
     </section>
@@ -1959,9 +855,19 @@
       <div class="wrap reveal">
         <h2>自分の場所を、<br />自分の手で。</h2>
         <div class="act">
-          <a href="/help/deployment.html" class="arrow"
-            >デプロイ手順を見る <span>→</span></a
+          <a
+            href="https://app.takosumi.com/install?git=https%3A%2F%2Fgithub.com%2Ftako0614%2Fyurucommu.git&amp;ref=main&amp;path=.&amp;name=yurucommu"
+            class="arrow"
+            rel="noopener"
+            >Takosumi でインストール <span>→</span></a
           >
+          <a
+            href="https://deploy.workers.cloudflare.com/?url=https://github.com/tako0614/yurucommu"
+            class="link"
+            rel="noopener"
+            >Cloudflare に直接デプロイ</a
+          >
+          <a href="/help/deployment.html" class="link">導入手順</a>
           <a
             href="https://github.com/tako0614/yurucommu"
             class="link"
@@ -1984,7 +890,7 @@
             >GitHub</a
           >
         </div>
-        <span class="foot-copy">© 2026 · AGPL v3</span>
+        <span class="foot-copy">© 2026 · AGPL-3.0-only</span>
       </div>
     </footer>
 

@@ -1,0 +1,46 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "yurucommu",
+  "main": "./dist/yurucommu-worker.js",
+  "compatibility_date": "2026-07-16",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "workers_dev": true,
+  "preview_urls": false,
+  "observability": {
+    "enabled": true,
+  },
+  "vars": {
+    "DELIVERY_QUEUE_NAME": "yurucommu-delivery",
+    "DELIVERY_DLQ_NAME": "yurucommu-delivery-dlq",
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "yurucommu-db",
+      "migrations_dir": "node_modules/@takosjp/yurucommu-core/migrations",
+    },
+  ],
+  "kv_namespaces": [{ "binding": "KV" }],
+  "r2_buckets": [{ "binding": "MEDIA" }],
+  "queues": {
+    "producers": [
+      { "binding": "DELIVERY_QUEUE", "queue": "yurucommu-delivery" },
+      { "binding": "DELIVERY_DLQ", "queue": "yurucommu-delivery-dlq" },
+    ],
+    "consumers": [
+      {
+        "queue": "yurucommu-delivery",
+        "max_batch_size": 10,
+        "max_batch_timeout": 1,
+        "max_retries": 3,
+        "dead_letter_queue": "yurucommu-delivery-dlq",
+      },
+      {
+        "queue": "yurucommu-delivery-dlq",
+        "max_batch_size": 10,
+        "max_batch_timeout": 60,
+        "max_retries": 1,
+      },
+    ],
+  },
+}

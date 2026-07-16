@@ -1,5 +1,13 @@
-import { For, lazy, onMount, Show, Suspense } from "solid-js";
-import { useNavigate } from "@solidjs/router";
+import {
+  createEffect,
+  createSignal,
+  For,
+  lazy,
+  onMount,
+  Show,
+  Suspense,
+} from "solid-js";
+import { useNavigate, useSearchParams } from "@solidjs/router";
 import { useAtomValue, useSetAtom } from "solid-jotai";
 import { useRequiredActor } from "../hooks/useRequiredActor.ts";
 import { StoryBar } from "../components/story/StoryBar.tsx";
@@ -26,7 +34,44 @@ import { useTimelineState } from "./useTimelineState.ts";
 export function TimelinePage() {
   const actor = useRequiredActor();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const state = useTimelineState();
+  const [linkedStoryIndex, setLinkedStoryIndex] = createSignal<
+    number | undefined
+  >(undefined);
+
+  // Notification push/list links use `/?story=<AP id>`. Stories are already
+  // fetched for the home bar, so resolve the id against that authoritative
+  // list and open the exact item without inventing a second story-detail API.
+  // Expired/deleted stories safely leave the user on home.
+  createEffect(() => {
+    const raw = searchParams.story;
+    const storyApId = Array.isArray(raw) ? raw[0] : raw;
+    if (!storyApId || state.storiesLoading() || state.storiesError()) return;
+
+    for (const [actorIndex, group] of state.actorStories().entries()) {
+      const storyIndex = group.stories.findIndex(
+        (story) => story.ap_id === storyApId,
+      );
+      if (storyIndex < 0) continue;
+      setLinkedStoryIndex(storyIndex);
+      state.setStoryViewerActorIndex(actorIndex);
+      state.setShowStoryViewer(true);
+      return;
+    }
+
+    // The story has expired, was deleted, or is no longer readable.
+    setSearchParams({ story: undefined }, { replace: true });
+  });
+
+  const closeStoryViewer = () => {
+    state.setShowStoryViewer(false);
+    setLinkedStoryIndex(undefined);
+    if (searchParams.story) {
+      setSearchParams({ story: undefined }, { replace: true });
+    }
+    state.loadStories();
+  };
 
   // The scope switcher sheet and the "create a community" modal are mounted
   // once at shell level (GlobalPostComposer). The home header pill, the scope
@@ -62,10 +107,9 @@ export function TimelinePage() {
           <StoryViewer
             actorStories={state.actorStories()}
             initialActorIndex={state.storyViewerActorIndex()}
-            onClose={() => {
-              state.setShowStoryViewer(false);
-              state.loadStories(); // Refresh to update viewed status
-            }}
+            initialStoryIndex={linkedStoryIndex()}
+            currentUserApId={actor.ap_id}
+            onClose={closeStoryViewer}
           />
         </Suspense>
       </Show>
@@ -112,7 +156,10 @@ export function TimelinePage() {
         loading={state.storiesLoading()}
         error={state.storiesError()}
         onRetry={state.loadStories}
-        onStoryClick={state.handleStoryClick}
+        onStoryClick={(stories, actorListIndex) => {
+          setLinkedStoryIndex(0);
+          state.handleStoryClick(stories, actorListIndex);
+        }}
         onAddStory={state.handleAddStory}
       />
 

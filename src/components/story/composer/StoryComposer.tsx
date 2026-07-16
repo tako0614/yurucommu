@@ -13,6 +13,7 @@
 import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { useI18n } from "../../../lib/i18n.tsx";
 import { useDialog } from "../../../lib/useDialog.ts";
+import { ConfirmSheet } from "../../ConfirmSheet.tsx";
 import {
   CANVAS_HEIGHT,
   CANVAS_WIDTH,
@@ -140,10 +141,16 @@ export function StoryComposer(props: StoryComposerProps) {
   );
   const [showBackgroundPanel, setShowBackgroundPanel] = createSignal(false);
 
+  // Discard-confirm gate: a story in progress (placed layers / video / overlays
+  // / caption) represents minutes of work, so Escape and the header close (X)
+  // must not silently throw it away — mirrors TimelinePostModal's dirty gate.
+  const [showDiscard, setShowDiscard] = createSignal(false);
+
   // Full-screen editor: trap focus, lock scroll, and dismiss on Escape. Escape
   // first dismisses any open tool/background panel (a forgiving step-back),
-  // then closes the whole composer. The TextEditorModal registers ABOVE this on
-  // the shared dialog stack, so while it is open Escape closes IT, not the sheet.
+  // then requests close for the whole composer (confirming first when dirty).
+  // The TextEditorModal and the discard ConfirmSheet register ABOVE this on the
+  // shared dialog stack, so while either is open Escape closes IT, not the sheet.
   let composerRootRef: HTMLDivElement | undefined;
   const handleComposerEscape = () => {
     if (showBackgroundPanel()) {
@@ -155,10 +162,10 @@ export function StoryComposer(props: StoryComposerProps) {
       setActiveTool(null);
       return;
     }
-    props.onClose();
+    requestClose();
   };
   useDialog({
-    isOpen: () => true,
+    isOpen: () => !showDiscard(),
     onClose: handleComposerEscape,
     container: () => composerRootRef,
   });
@@ -499,6 +506,26 @@ export function StoryComposer(props: StoryComposerProps) {
     );
   };
 
+  // The composer holds unsent work worth confirming before discarding: any
+  // placed layer / video / overlay (== canPost) or a typed caption.
+  const isDirty = () => canPost() || caption().trim().length > 0;
+
+  // Close request: confirm first when there is unsent work, otherwise close
+  // straight away. Used by Escape (handleComposerEscape) and the header X.
+  const requestClose = () => {
+    if (postActions.posting()) return;
+    if (isDirty()) {
+      setShowDiscard(true);
+      return;
+    }
+    props.onClose();
+  };
+
+  const confirmDiscard = () => {
+    setShowDiscard(false);
+    props.onClose();
+  };
+
   // --- Render ---
 
   return (
@@ -572,7 +599,7 @@ export function StoryComposer(props: StoryComposerProps) {
         </Show>
 
         <StoryComposerHeader
-          onClose={props.onClose}
+          onClose={requestClose}
           onText={handleOpenText}
           onSticker={handleToggleSticker}
           stickerActive={activeTool() === "sticker"}
@@ -697,6 +724,18 @@ export function StoryComposer(props: StoryComposerProps) {
             />
           )}
         </Show>
+
+        {/* Discard confirm — layered above the composer; cancel keeps editing. */}
+        <ConfirmSheet
+          open={showDiscard()}
+          title={t("posts.discardTitle")}
+          body={t("posts.discardBody")}
+          confirmLabel={t("posts.discardConfirm")}
+          cancelLabel={t("posts.keepEditing")}
+          destructive
+          onConfirm={confirmDiscard}
+          onCancel={() => setShowDiscard(false)}
+        />
       </div>
     </div>
   );

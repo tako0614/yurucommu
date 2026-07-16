@@ -96,9 +96,9 @@ function focusableWithin(root: HTMLElement): HTMLElement[] {
  * Tab within the dialog, closes on Escape, restores focus on close, and locks
  * background scroll. All of this is a no-op while closed.
  *
- * MediaLightbox / StoryViewer predate this and keep their own Escape + scroll
- * wiring; this hook is the canonical implementation for the remaining overlays
- * (ScopeSwitcherSheet, CreateScopeModal, ConfirmSheet, the AppMenu drawer).
+ * This hook is the canonical implementation for every overlay (MediaLightbox,
+ * StoryViewer, ScopeSwitcherSheet, CreateScopeModal, ConfirmSheet, the AppMenu
+ * drawer); overlays must not keep their own Escape / scroll-lock wiring.
  */
 export function useDialog(options: UseDialogOptions): void {
   createEffect(() => {

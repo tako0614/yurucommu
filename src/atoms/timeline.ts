@@ -48,6 +48,14 @@ export const timelineHasMoreAtom = atom(true);
 // decodes as a legacy published-only cursor that matches every row → the feed
 // re-serves page 1 forever). Reset on every full reload.
 export const timelineCursorAtom = atom<string | null>(null);
+// Timestamp of the last successful full timeline load. A home re-mount (e.g.
+// back from a post detail) skips the head refetch while the in-memory feed is
+// still fresh, so loaded pages and the reading position survive the round trip
+// instead of resetting to page 1.
+export const timelineLoadedAtAtom = atom<number | null>(null);
+// Scroll offset of the home feed's scroll container, captured on unmount and
+// restored on the next mount when the fresh in-memory feed is reused.
+export const timelineScrollTopAtom = atom(0);
 // Primary-load failure (shown inline with a Retry button).
 export const timelineLoadErrorAtom = atom<string | null>(null);
 
@@ -190,6 +198,7 @@ export const loadTimelineAtom = atom(null, async (get, set) => {
     set(timelinePostsAtom, page.posts);
     set(timelineCursorAtom, page.nextCursor);
     set(timelineHasMoreAtom, page.hasMore);
+    set(timelineLoadedAtAtom, Date.now());
     // A full reload already shows the freshest head; drop any staged posts and
     // reset the new-posts watermark to this fresh head (page is newest-first).
     set(pendingNewPostsAtom, []);
@@ -377,7 +386,12 @@ export const createPostAtom = atom(
 );
 
 export const uploadMediaAtom = atom(null, async (get, set, file: File) => {
-  if (get(uploadedMediaAtom).length >= 4) return;
+  if (get(uploadedMediaAtom).length >= 4) {
+    // Selecting more than 4 files at once lands here for the excess — surface
+    // the limit instead of silently dropping them.
+    set(uploadErrorAtom, get(tAtom)("posts.mediaLimit"));
+    return;
+  }
   if (file.size > MAX_IMAGE_SIZE) {
     set(
       uploadErrorAtom,

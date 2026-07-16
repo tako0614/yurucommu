@@ -1,6 +1,6 @@
 {
   "name": "@takosjp/yurucommu",
-  "version": "2.0.9",
+  "version": "2.1.0",
   "license": "AGPL-3.0-only",
   "type": "module",
   "private": true,
@@ -19,21 +19,36 @@
     "dev:mock:api": "bun scripts/dev-mock-server.ts",
     "dev:site": "bunx serve site",
     "check": "tsc --noEmit",
-    "test": "bun test src/ scripts/release-version.test.ts scripts/takosumi-release.test.ts",
+    "test": "bun test src/ scripts/release-version.test.ts scripts/takosumi-release.test.ts scripts/check-core-release.test.ts",
     "build": "bun run build:client",
     "build:client": "bunx vite build --config vite.config.ts",
     "build:worker": "bun scripts/build-yurucommu-worker.ts",
-    "takosumi:release": "bun scripts/takosumi-release.ts",
+    "deploy": "bun run deploy:cloudflare",
+    "deploy:cloudflare": "bun run build:worker && bun run db:migrate:cloudflare && bunx wrangler deploy",
+    "db:migrate:cloudflare": "bunx wrangler d1 migrations apply DB --remote",
+    "check:core-release": "bun scripts/check-core-release.mjs",
+    "takosumi:release": "bun run check:core-release && bun scripts/takosumi-release.ts",
+    "smoke:postdeploy": "bun scripts/post-deploy-smoke.ts",
     "lint": "bun run check",
     "fmt": "bunx prettier --write index.html vite.config.ts public.ts plugin.ts src site shims scripts",
     "fmt:check": "bunx prettier --check index.html vite.config.ts public.ts plugin.ts src site shims scripts"
+  },
+  "cloudflare": {
+    "bindings": {
+      "ENCRYPTION_KEY": {
+        "description": "Required 64-character hex key used to encrypt sensitive Yurucommu data. Generate one with `openssl rand -hex 32`."
+      },
+      "AUTH_PASSWORD_HASH": {
+        "description": "Required password credential for a direct Cloudflare install. Use a PBKDF2 salt:hash value or a strong one-time bootstrap secret."
+      }
+    }
   },
   "dependencies": {
     "@ffmpeg/ffmpeg": "^0.12.15",
     "@ffmpeg/util": "^0.12.2",
     "@solidjs/router": "^0.15.0",
-    "@takosjp/yurucommu-api": "^3.0.3",
-    "@takosjp/yurucommu-core": "^3.0.3",
+    "@takosjp/yurucommu-api": "^3.1.0",
+    "@takosjp/yurucommu-core": "^3.1.0",
     "html5-qrcode": "^2.3.8",
     "jotai": "^2.18.0",
     "qrcode-generator": "^2.0.4",

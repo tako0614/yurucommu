@@ -10,8 +10,10 @@ import {
   fetchPost,
   fetchReplies,
   likePost,
+  repostPost,
   unbookmarkPost,
   unlikePost,
+  unrepostPost,
 } from "../lib/api.ts";
 import { ApiError } from "../lib/api/fetch.ts";
 import { EditPostModal } from "../components/timeline/EditPostModal.tsx";
@@ -29,6 +31,7 @@ import {
   BookmarkIcon,
   HeartIcon,
   ReplyIcon,
+  RepostIcon,
 } from "../components/icons/SocialIcons.tsx";
 import { InlineErrorBanner } from "../components/InlineErrorBanner.tsx";
 import {
@@ -174,6 +177,50 @@ export function PostDetailPage() {
   // guard independently).
   const likeInFlight = new Set<string>();
   const bookmarkInFlight = new Set<string>();
+  const repostInFlight = new Set<string>();
+
+  // A repost is an Announce to Public, so only a publicly-reachable post may be
+  // boosted — mirrors the backend gate and TimelinePostItem's isRepostable.
+  const isRepostable = (p: Post): boolean =>
+    (p.visibility === "public" || p.visibility === "unlisted") &&
+    !p.community_ap_id;
+
+  const handleRepost = async () => {
+    const currentPost = post();
+    if (!currentPost) return;
+    if (repostInFlight.has(currentPost.ap_id)) return;
+    repostInFlight.add(currentPost.ap_id);
+    try {
+      if (currentPost.reposted) {
+        await unrepostPost(currentPost.ap_id);
+        setPost((prev) =>
+          prev
+            ? {
+                ...prev,
+                reposted: false,
+                announce_count: Math.max(0, prev.announce_count - 1),
+              }
+            : null,
+        );
+      } else {
+        await repostPost(currentPost.ap_id);
+        setPost((prev) =>
+          prev
+            ? {
+                ...prev,
+                reposted: true,
+                announce_count: prev.announce_count + 1,
+              }
+            : null,
+        );
+      }
+    } catch (e) {
+      console.error("Failed to toggle repost:", e);
+      setError(t("common.error"));
+    } finally {
+      repostInFlight.delete(currentPost.ap_id);
+    }
+  };
 
   const handleLike = async (targetPost: Post, isReply: boolean = false) => {
     if (likeInFlight.has(targetPost.ap_id)) return;
@@ -424,6 +471,17 @@ export function PostDetailPage() {
                 </div>
               </Show>
             </div>
+            {/* Thread context: a reply carries its parent's ap_id, so opening a
+                reply (e.g. from a notification) must not be an upward dead end. */}
+            <Show when={post()!.in_reply_to}>
+              <A
+                href={`/post/${encodeURIComponent(post()!.in_reply_to!)}`}
+                class="mt-2 inline-flex items-center gap-1.5 text-sm text-accent hover:underline"
+              >
+                <ReplyIcon />
+                {t("postDetail.viewParent")}
+              </A>
+            </Show>
             <PostContent
               content={post()!.content}
               summary={post()!.summary}
@@ -508,6 +566,22 @@ export function PostDetailPage() {
               >
                 <ReplyIcon />
               </button>
+              <Show when={isRepostable(post()!)}>
+                <button
+                  onClick={handleRepost}
+                  aria-label={
+                    post()!.reposted ? t("posts.undoRepost") : t("posts.repost")
+                  }
+                  aria-pressed={post()!.reposted}
+                  class={`flex items-center gap-2 p-2 transition-colors ${
+                    post()!.reposted
+                      ? "text-green-500"
+                      : "text-neutral-500 hover:text-green-500"
+                  }`}
+                >
+                  <RepostIcon filled={post()!.reposted} />
+                </button>
+              </Show>
               <button
                 onClick={() => handleLike(post()!)}
                 aria-label={post()!.liked ? t("posts.unlike") : t("posts.like")}
@@ -638,12 +712,32 @@ export function PostDetailPage() {
                       </div>
                     </Show>
                   </div>
-                  <PostContent
-                    content={reply.content}
-                    summary={reply.summary}
-                    class="text-[15px] text-neutral-200 mt-1"
-                  />
+                  {/* The reply body links to the reply's OWN detail page — the
+                      only surface where it can itself be replied to (threading
+                      is one level per page). */}
+                  <A
+                    href={`/post/${encodeURIComponent(reply.ap_id)}`}
+                    class="block"
+                  >
+                    <PostContent
+                      content={reply.content}
+                      summary={reply.summary}
+                      class="text-[15px] text-neutral-200 mt-1"
+                    />
+                  </A>
                   <div class="flex items-center gap-6 mt-2">
+                    <A
+                      href={`/post/${encodeURIComponent(reply.ap_id)}`}
+                      aria-label={
+                        reply.reply_count
+                          ? `${t("posts.reply")} ${reply.reply_count}`
+                          : t("posts.reply")
+                      }
+                      class="flex items-center gap-2 text-neutral-500 hover:text-[var(--accent)] transition-colors"
+                    >
+                      <ReplyIcon />
+                      <span class="text-sm">{reply.reply_count || ""}</span>
+                    </A>
                     <button
                       onClick={() => handleLike(reply, true)}
                       aria-label={

@@ -31,7 +31,7 @@ env:
 jobs:
   build:
     name: Build Worker artifact
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pinned: v6.0.2 (2026)
@@ -40,7 +40,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76 # pinned: v2.0.2
         with:
-          bun-version: latest
+          bun-version: 1.3.14
 
       - name: Cache Bun deps
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # pinned: v5.0.5 (2026)
@@ -51,6 +51,7 @@ jobs:
             ${{ runner.os }}-bun-yurucommu-worker-artifact-
 
       - run: bun install --frozen-lockfile
+      - run: bun run check:core-release
       - run: bun run check
       - run: bun run test
       - run: bun run build:worker
@@ -80,7 +81,6 @@ jobs:
             --arg app "yurucommu" \
             --arg commit "${GITHUB_SHA}" \
             --arg ref "${GITHUB_REF_NAME}" \
-            --arg workflowRun "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
             --arg releaseTag "${release_tag}" \
             --arg artifactUrl "${artifact_url}" \
             --arg manifestUrl "${manifest_url}" \
@@ -90,7 +90,6 @@ jobs:
               app: $app,
               commit: $commit,
               ref: $ref,
-              workflowRun: $workflowRun,
               releaseTag: $releaseTag,
               artifact: {
                 filename: "yurucommu-worker.js",
@@ -118,9 +117,11 @@ jobs:
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
             release_tag="${GITHUB_REF_NAME}"
             prerelease_flag=()
+            target_flag=(--verify-tag)
           else
             release_tag="${{ inputs.release_tag }}"
             prerelease_flag=(--prerelease)
+            target_flag=(--target "${GITHUB_SHA}")
           fi
           if [[ ! "${release_tag}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ ]]; then
             echo "release_tag must be SemVer-like and start with v: ${release_tag}" >&2
@@ -130,8 +131,30 @@ jobs:
             gh release create "${release_tag}" \
               --title "Yurucommu ${release_tag}" \
               --notes "Takosumi/OpenTofu Worker artifact for ${GITHUB_SHA}." \
+              "${target_flag[@]}" \
               "${prerelease_flag[@]}"
           fi
+          release_commit="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/commits/${release_tag}" \
+            --jq '.sha')"
+          if [[ "${release_commit}" != "${GITHUB_SHA}" ]]; then
+            echo "refusing to upload release assets: ${release_tag} resolves to ${release_commit}, expected ${GITHUB_SHA}" >&2
+            exit 1
+          fi
+          existing_dir="$(mktemp -d)"
+          trap 'rm -rf "${existing_dir}"' EXIT
+          for asset in yurucommu-worker.js yurucommu-worker.js.sha256 takosumi-artifact.json; do
+            if gh release download "${release_tag}" \
+              --pattern "${asset}" \
+              --dir "${existing_dir}" >/dev/null 2>&1; then
+              if ! cmp -s \
+                "${existing_dir}/${asset}" \
+                "dist/takosumi-artifact/${asset}"; then
+                echo "refusing to mutate existing release asset ${asset}: ${release_tag}" >&2
+                exit 1
+              fi
+            fi
+          done
           gh release upload "${release_tag}" \
             dist/takosumi-artifact/yurucommu-worker.js \
             dist/takosumi-artifact/yurucommu-worker.js.sha256 \

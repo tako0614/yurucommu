@@ -60,6 +60,9 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
   const { t, language } = useI18n();
   const lightbox = useMediaLightbox();
   const [burst, setBurst] = createSignal(false);
+  // Like/repost COUNTS are shown only on your own posts — the same
+  // author-only policy the detail / profile / search surfaces follow.
+  const isOwnPost = () => props.currentActorApId === props.post.author.ap_id;
   // Shared content-warning reveal state: a single reveal un-hides both the
   // text body (PostContent) and the media hero below it.
   const [cwRevealed, setCwRevealed] = createSignal(false);
@@ -214,7 +217,7 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
           onClick={() => props.onRepost(props.post)}
           aria-label={
             (props.post.reposted ? t("posts.undoRepost") : t("posts.repost")) +
-            (props.post.announce_count > 0
+            (isOwnPost() && props.post.announce_count > 0
               ? ` ${props.post.announce_count}`
               : "")
           }
@@ -226,7 +229,7 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
           }`}
         >
           <RepostIcon filled={props.post.reposted} />
-          <Show when={props.post.announce_count > 0}>
+          <Show when={isOwnPost() && props.post.announce_count > 0}>
             <span class="text-sm">{props.post.announce_count}</span>
           </Show>
         </button>
@@ -235,7 +238,9 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
         onClick={() => props.onLike(props.post)}
         aria-label={
           (props.post.liked ? t("posts.unlike") : t("posts.like")) +
-          (props.post.like_count > 0 ? ` ${props.post.like_count}` : "")
+          (isOwnPost() && props.post.like_count > 0
+            ? ` ${props.post.like_count}`
+            : "")
         }
         aria-pressed={props.post.liked}
         class={`flex items-center gap-2 transition-colors ${
@@ -245,7 +250,7 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
         }`}
       >
         <HeartIcon filled={props.post.liked} />
-        <Show when={props.post.like_count > 0}>
+        <Show when={isOwnPost() && props.post.like_count > 0}>
           <span class="text-sm">{props.post.like_count}</span>
         </Show>
       </button>

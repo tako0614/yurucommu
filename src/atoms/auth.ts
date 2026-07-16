@@ -8,6 +8,7 @@ import {
   type InstanceHealth,
 } from "../lib/plugin.ts";
 import { resetScopeAtom } from "./scope.ts";
+import { clearYurucommuBrowserPushBeforeSignOut } from "../lib/browser-push.ts";
 
 export type { HostedInstance };
 
@@ -102,6 +103,7 @@ export const loginAtom = atom(null, async (get, set, password?: string) => {
 
 export const logoutAtom = atom(null, async (get, set) => {
   try {
+    await clearYurucommuBrowserPushBeforeSignOut();
     await authStrategy.logout();
   } catch (e) {
     console.error("Logout error:", e);

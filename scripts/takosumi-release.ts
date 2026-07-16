@@ -92,12 +92,7 @@ export function releaseConfigFromOutputs(
     "cloudflare_account_id",
   );
   const queueNames = outputValue(outputs.cloudflare_queue_names);
-  const vars = collectWorkerVars(
-    appUrl,
-    queueNames,
-    sourceEnv,
-    appDeploymentEnvFromOutputs(outputs),
-  );
+  const vars = collectWorkerVars(appUrl, queueNames, sourceEnv);
   return {
     workerName,
     appUrl,
@@ -538,10 +533,8 @@ function collectWorkerVars(
   appUrl: string,
   queueNames: unknown,
   sourceEnv: Record<string, string | undefined>,
-  deploymentEnv: Record<string, string> = {},
 ): Record<string, string> {
   const vars: Record<string, string> = {
-    ...deploymentEnv,
     APP_URL: appUrl,
     DELIVERY_QUEUE_NAME: nestedString(queueNames, "delivery") ?? "",
     DELIVERY_DLQ_NAME: nestedString(queueNames, "delivery_dlq") ?? "",
@@ -552,27 +545,6 @@ function collectWorkerVars(
   }
   return Object.fromEntries(
     Object.entries(vars).filter(([, value]) => value.trim() !== ""),
-  );
-}
-
-function appDeploymentEnvFromOutputs(
-  outputs: JsonRecord,
-): Record<string, string> {
-  const appDeployment = outputValue(outputs.app_deployment);
-  if (!isRecord(appDeployment) || !isRecord(appDeployment.env)) return {};
-  const vars: Record<string, string> = {};
-  for (const [name, value] of Object.entries(appDeployment.env)) {
-    if (typeof value !== "string" || value.trim() === "") continue;
-    if (!isSafePlainWorkerVarName(name)) continue;
-    vars[name] = value;
-  }
-  return vars;
-}
-
-function isSafePlainWorkerVarName(name: string): boolean {
-  return (
-    /^[A-Z_][A-Z0-9_]{0,127}$/.test(name) &&
-    !/(SECRET|TOKEN|PASSWORD|CREDENTIAL|PRIVATE_?KEY|API_?KEY)/i.test(name)
   );
 }
 

@@ -103,6 +103,39 @@ variable "takosumi_accounts_client_id" {
   default     = ""
 }
 
+variable "notification_push_gateway_url" {
+  description = "Optional public HTTPS notify endpoint for the stateless notification push gateway."
+  type        = string
+  default     = ""
+
+  validation {
+    condition = trimspace(var.notification_push_gateway_url) == "" || (
+      can(regex("^https://[A-Za-z0-9][A-Za-z0-9.-]*\\.[A-Za-z0-9-]+(:443)?(/[^[:space:]#]*)?(\\?[^[:space:]#]*)?$", trimspace(var.notification_push_gateway_url))) &&
+      !can(regex("^https://[0-9]+(\\.[0-9]+){3}(:443)?(/|$)", trimspace(var.notification_push_gateway_url))) &&
+      !can(regex("^https://[^/:?#]+\\.(localhost|local|internal|home|lan)(:443)?(/|$)", lower(trimspace(var.notification_push_gateway_url))))
+    )
+    error_message = "notification_push_gateway_url must be empty or a public-DNS https URL using the default/443 port."
+  }
+}
+
+variable "notification_push_gateway_token" {
+  description = "Optional bearer used only by the Yurucommu Worker when calling the exact notification_push_gateway_url."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "notification_push_web_push_public_key" {
+  description = "Optional public base64url VAPID P-256 key exposed to browser clients for Web Push subscription."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = trimspace(var.notification_push_web_push_public_key) == "" || can(regex("^B[A-P][A-Za-z0-9_-]{85}$", trimspace(var.notification_push_web_push_public_key)))
+    error_message = "notification_push_web_push_public_key must be empty or an unpadded 87-character base64url uncompressed P-256 public key."
+  }
+}
+
 variable "env" {
   description = "Additional non-secret Worker environment variables projected as plain_text bindings. Secrets must use dedicated sensitive variables or Provider Connections."
   type        = map(string)
@@ -126,6 +159,10 @@ variable "env" {
         "AUTH_PASSWORD_HASH",
         "TAKOSUMI_ACCOUNTS_ISSUER_URL",
         "TAKOSUMI_ACCOUNTS_CLIENT_ID",
+        "YURUCOMMU_NOTIFICATION_PUSH_GATEWAY_ALLOWED_HOSTS",
+        "YURUCOMMU_NOTIFICATION_PUSH_GATEWAY_URL",
+        "YURUCOMMU_NOTIFICATION_PUSH_GATEWAY_TOKEN",
+        "YURUCOMMU_NOTIFICATION_PUSH_WEB_PUSH_PUBLIC_KEY",
       ], name)
     ])
     error_message = "env keys must be uppercase Worker plain-text variable names and must not be secret-like or reserved by the Yurucommu module."
@@ -158,7 +195,7 @@ variable "worker_bundle_path" {
 variable "worker_release_tag" {
   description = "GitHub release tag whose takosumi-artifact.json selects the default Worker bundle and SHA-256. Set empty to use worker_bundle_path."
   type        = string
-  default     = "v2.0.9"
+  default     = "v2.1.0"
 
   validation {
     condition     = trimspace(var.worker_release_tag) == "" || can(regex("^v[0-9]+\\.[0-9]+\\.[0-9]+([-+][0-9A-Za-z.-]+)?$", trimspace(var.worker_release_tag)))
@@ -267,6 +304,13 @@ locals {
   effective_encryption_key      = local.provided_encryption_key != "" ? local.provided_encryption_key : random_id.encryption_key.hex
   effective_auth_password_hash  = local.provided_auth_password_hash != "" ? local.provided_auth_password_hash : (local.has_takosumi_accounts_oidc ? "" : try(random_id.bootstrap_auth_token[0].hex, ""))
   extra_worker_env              = { for name, value in var.env : name => value if trimspace(value) != "" }
+  notification_push_gateway_url = trimspace(var.notification_push_gateway_url)
+  notification_push_gateway_host = try(regex(
+    "^https://([^/:?#]+)",
+    local.notification_push_gateway_url,
+  )[0], "")
+  notification_push_web_push_public_key = trimspace(var.notification_push_web_push_public_key)
+  notification_push_gateway_token       = trimspace(var.notification_push_gateway_token)
 
   d1_database_name    = "${local.resource_prefix}-db"
   r2_media_bucket     = "${local.resource_prefix}-media"
@@ -449,6 +493,32 @@ resource "cloudflare_workers_script" "worker" {
         text = trimspace(var.takosumi_accounts_client_id)
       },
     ] : [],
+    local.notification_push_gateway_url != "" ? [
+      {
+        type = "plain_text"
+        name = "YURUCOMMU_NOTIFICATION_PUSH_GATEWAY_URL"
+        text = local.notification_push_gateway_url
+      },
+      {
+        type = "plain_text"
+        name = "YURUCOMMU_NOTIFICATION_PUSH_GATEWAY_ALLOWED_HOSTS"
+        text = local.notification_push_gateway_host
+      },
+    ] : [],
+    local.notification_push_web_push_public_key != "" ? [
+      {
+        type = "plain_text"
+        name = "YURUCOMMU_NOTIFICATION_PUSH_WEB_PUSH_PUBLIC_KEY"
+        text = local.notification_push_web_push_public_key
+      },
+    ] : [],
+    local.notification_push_gateway_token != "" ? [
+      {
+        type = "secret_text"
+        name = "YURUCOMMU_NOTIFICATION_PUSH_GATEWAY_TOKEN"
+        text = local.notification_push_gateway_token
+      },
+    ] : [],
   )
 
   lifecycle {
@@ -470,6 +540,16 @@ resource "cloudflare_workers_script" "worker" {
     precondition {
       condition     = local.worker_bundle_uses_url || local.worker_bundle_uses_manifest || local.worker_bundle_expected_sha256 == "" || local.worker_bundle_expected_sha256 == local.worker_bundle_content_sha256
       error_message = "worker_bundle_sha256 does not match worker_bundle_path."
+    }
+
+    precondition {
+      condition     = (local.notification_push_gateway_url == "") == (local.notification_push_web_push_public_key == "")
+      error_message = "notification_push_gateway_url and notification_push_web_push_public_key must be configured together."
+    }
+
+    precondition {
+      condition     = local.notification_push_gateway_token == "" || local.notification_push_gateway_url != ""
+      error_message = "notification_push_gateway_token requires notification_push_gateway_url."
     }
   }
 }

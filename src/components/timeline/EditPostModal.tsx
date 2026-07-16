@@ -1,6 +1,7 @@
 import { createEffect, createMemo, createSignal, Show } from "solid-js";
 import type { Post } from "../../types/index.ts";
 import { CloseIconLarge } from "./TimelineIcons.tsx";
+import { ConfirmSheet } from "../ConfirmSheet.tsx";
 import { useDialog } from "../../lib/useDialog.ts";
 import { useI18n } from "../../lib/i18n.tsx";
 
@@ -58,9 +59,28 @@ export function EditPostModal(props: EditPostModalProps) {
     () => contentLength() > 0 && !overLimit() && isDirty() && !props.saving,
   );
 
+  // Discard-confirm gate: a dirty edit closed via Escape / backdrop / the
+  // header close button is minutes of rewriting — never drop it on a stray
+  // tap (mirrors TimelinePostModal's gate).
+  const [showDiscard, setShowDiscard] = createSignal(false);
+
+  const requestClose = () => {
+    if (props.saving) return;
+    if (isDirty()) {
+      setShowDiscard(true);
+      return;
+    }
+    props.onClose();
+  };
+
+  const confirmDiscard = () => {
+    setShowDiscard(false);
+    props.onClose();
+  };
+
   useDialog({
-    isOpen: () => true,
-    onClose: props.onClose,
+    isOpen: () => !showDiscard(),
+    onClose: requestClose,
     container: () => dialogRef,
     initialFocus: () => textareaRef,
   });
@@ -85,7 +105,7 @@ export function EditPostModal(props: EditPostModalProps) {
     <div
       class="fixed inset-0 bg-black/70 flex items-start justify-center z-50 p-4 pt-12"
       onClick={(e) => {
-        if (e.target === e.currentTarget) props.onClose();
+        if (e.target === e.currentTarget) requestClose();
       }}
     >
       <div
@@ -99,7 +119,7 @@ export function EditPostModal(props: EditPostModalProps) {
         <div class="flex items-center justify-between px-4 py-3 border-b border-neutral-800">
           <div class="flex items-center gap-3">
             <button
-              onClick={props.onClose}
+              onClick={requestClose}
               aria-label={t("common.close")}
               class="text-white hover:text-neutral-400 transition-colors"
             >
@@ -186,6 +206,17 @@ export function EditPostModal(props: EditPostModalProps) {
           </button>
         </div>
       </div>
+      {/* Discard confirm — layered above the editor; cancel keeps editing. */}
+      <ConfirmSheet
+        open={showDiscard()}
+        title={t("posts.discardTitle")}
+        body={t("posts.discardBody")}
+        confirmLabel={t("posts.discardConfirm")}
+        cancelLabel={t("posts.keepEditing")}
+        destructive
+        onConfirm={confirmDiscard}
+        onCancel={() => setShowDiscard(false)}
+      />
     </div>
   );
 }

@@ -599,10 +599,10 @@ export function SearchPage() {
         pushToast(setToasts, t("profile.followRequested"), { kind: "success" });
         return;
       }
+      // Keep the row in the results — it flips to the "following" pill via
+      // isFollowing(). Removing it would make the person the user just searched
+      // for vanish, losing the path to their profile.
       setFollowing((prev) => [...prev, targetActor]);
-      setSearchUsersResult((prev) =>
-        prev.filter((u) => u.ap_id !== targetActor.ap_id),
-      );
     } catch (e) {
       console.error("Failed to follow:", e);
       setError(t("common.error"));
@@ -842,44 +842,49 @@ export function SearchPage() {
                   >
                     <For each={discoverCommunities()}>
                       {(community) => (
-                        <A
-                          href={`/groups/${community.name}`}
-                          class="flex items-center gap-3 px-4 py-3 border-b border-neutral-900 hover:bg-neutral-900/30 transition-colors"
-                        >
-                          <div class="w-12 h-12 rounded-full bg-neutral-800 flex items-center justify-center overflow-hidden shrink-0">
-                            <Show
-                              when={community.icon_url}
-                              fallback={
-                                <span class="text-lg font-medium text-white">
-                                  {(community.display_name || community.name)
-                                    .charAt(0)
-                                    .toUpperCase()}
-                                </span>
-                              }
-                            >
-                              <img
-                                src={community.icon_url ?? undefined}
-                                alt=""
-                                loading="lazy"
-                                decoding="async"
-                                class="w-full h-full object-cover"
-                              />
-                            </Show>
-                          </div>
-                          <div class="flex-1 min-w-0">
-                            <div class="font-bold text-white truncate">
-                              {community.display_name || community.name}
+                        /* The row link and the join button are SIBLINGS — a
+                           <button> nested inside an <A> is invalid interactive
+                           nesting and breaks SR/keyboard focus order. */
+                        <div class="flex items-center gap-3 px-4 py-3 border-b border-neutral-900 hover:bg-neutral-900/30 transition-colors">
+                          <A
+                            href={`/groups/${community.name}`}
+                            class="flex min-w-0 flex-1 items-center gap-3"
+                          >
+                            <div class="w-12 h-12 rounded-full bg-neutral-800 flex items-center justify-center overflow-hidden shrink-0">
+                              <Show
+                                when={community.icon_url}
+                                fallback={
+                                  <span class="text-lg font-medium text-white">
+                                    {(community.display_name || community.name)
+                                      .charAt(0)
+                                      .toUpperCase()}
+                                  </span>
+                                }
+                              >
+                                <img
+                                  src={community.icon_url ?? undefined}
+                                  alt=""
+                                  loading="lazy"
+                                  decoding="async"
+                                  class="w-full h-full object-cover"
+                                />
+                              </Show>
                             </div>
-                            <Show when={community.summary}>
-                              <div class="text-sm text-neutral-400 truncate mt-0.5">
-                                {community.summary}
+                            <div class="flex-1 min-w-0">
+                              <div class="font-bold text-white truncate">
+                                {community.display_name || community.name}
                               </div>
-                            </Show>
-                            <div class="text-xs text-neutral-500 mt-0.5">
-                              {community.member_count ?? 0}{" "}
-                              {t("groups.members")}
+                              <Show when={community.summary}>
+                                <div class="text-sm text-neutral-400 truncate mt-0.5">
+                                  {community.summary}
+                                </div>
+                              </Show>
+                              <div class="text-xs text-neutral-500 mt-0.5">
+                                {community.member_count ?? 0}{" "}
+                                {t("groups.members")}
+                              </div>
                             </div>
-                          </div>
+                          </A>
                           <Show
                             when={community.join_status === "pending"}
                             fallback={
@@ -898,7 +903,7 @@ export function SearchPage() {
                               {t("groups.pending")}
                             </span>
                           </Show>
-                        </A>
+                        </div>
                       )}
                     </For>
                   </Show>

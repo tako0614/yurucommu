@@ -1,0 +1,4 @@
+# Copy the values into Cloudflare secrets before the first CLI deploy.
+# Never commit the real values.
+ENCRYPTION_KEY=replace-with-64-character-hex-key
+AUTH_PASSWORD_HASH=replace-with-pbkdf2-hash-or-strong-bootstrap-secret

@@ -22,3 +22,7 @@
 # browser cache. Combined with the `?v=` cache-bust on the <link> tags.
 /styles.css
   Cache-Control: public, max-age=600, must-revalidate
+
+/img/og.png
+  Content-Type: image/png
+  Cache-Control: public, max-age=86400

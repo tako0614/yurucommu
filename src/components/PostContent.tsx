@@ -39,16 +39,18 @@ export function PostContent(props: PostContentProps) {
   // Remote ActivityPub posts arrive as HTML; local posts are plain text.
   const isHtml = createMemo(() => looksLikeHtml(props.content));
 
-  // SECURITY: this string is assigned to innerHTML below. It is the output of
-  // the strict allowlist sanitizer (only safe formatting tags + http(s) links
-  // survive), then mentions are linkified only in text regions.
-  const sanitizedHtml = createMemo(() =>
-    linkifyTokensInHtml(sanitizeHtml(props.content)),
-  );
+  // Lazy derivations (plain functions, not eager memos): only the branch the
+  // <Show> below actually renders pays its parse/sanitize cost, instead of
+  // every post computing BOTH representations up front.
+  //
+  // SECURITY: sanitizedHtml() is assigned to innerHTML below. It is the output
+  // of the strict allowlist sanitizer (only safe formatting tags + http(s)
+  // links survive), then mentions are linkified only in text regions.
+  const sanitizedHtml = () => linkifyTokensInHtml(sanitizeHtml(props.content));
 
-  const parsedContent = createMemo(() => parsePostTokens(props.content));
+  const parsedContent = () => parsePostTokens(props.content);
 
-  const plainBody = (
+  const plainBody = () => (
     <p class={`whitespace-pre-wrap break-words ${props.class ?? ""}`}>
       <For each={parsedContent()}>
         {(part) => {
@@ -77,7 +79,7 @@ export function PostContent(props: PostContentProps) {
 
   // Sanitized remote HTML. The container links inherit blue styling; the
   // innerHTML payload is XSS-safe (see sanitizedHtml above).
-  const htmlBody = (
+  const htmlBody = () => (
     <div
       class={`post-html break-words [&_a]:text-blue-400 [&_a:hover]:underline ${
         props.class ?? ""
@@ -91,10 +93,17 @@ export function PostContent(props: PostContentProps) {
     />
   );
 
-  const body = isHtml() ? htmlBody : plainBody;
+  // A function returning fresh JSX per call site: the previous shared const
+  // was a single DOM node referenced from two spots, and its html/plain branch
+  // was chosen ONCE at setup (non-reactive if the content's nature changes).
+  const body = () => (
+    <Show when={isHtml()} fallback={plainBody()}>
+      {htmlBody()}
+    </Show>
+  );
 
   return (
-    <Show when={hasSummary()} fallback={body}>
+    <Show when={hasSummary()} fallback={body()}>
       <div class={props.class ?? ""}>
         <p class="whitespace-pre-wrap break-words text-neutral-200">
           {props.summary}
@@ -111,7 +120,7 @@ export function PostContent(props: PostContentProps) {
           {revealed() ? t("posts.showLess") : t("posts.showMore")}
         </button>
         <Show when={revealed()}>
-          <div class="mt-2">{body}</div>
+          <div class="mt-2">{body()}</div>
         </Show>
       </div>
     </Show>

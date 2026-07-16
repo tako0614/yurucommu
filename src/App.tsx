@@ -21,6 +21,8 @@ import { AppLayout } from "./components/layout/index.ts";
 import { LoadingSpinner } from "./components/LoadingSpinner.tsx";
 import { OfflineBanner } from "./components/OfflineBanner.tsx";
 import { yurucommuDeployDocsUrl } from "./lib/deploy-docs.ts";
+import { refreshBrowserNotificationPush } from "./lib/api.ts";
+import { resolveYurucommuBrowserPushConfig } from "./lib/browser-push.ts";
 
 // Lazy load page components for code splitting
 const TimelinePage = lazy(() => import("./pages/TimelinePage.tsx"));
@@ -190,6 +192,17 @@ function AppContent() {
   const language = useAtomValue(languageAtom);
   createEffect(() => {
     document.documentElement.lang = language();
+  });
+
+  // Keep an existing browser subscription bound to the currently selected
+  // actor. This never requests permission or creates a subscription.
+  createEffect(() => {
+    if (!actor()) return;
+    void resolveYurucommuBrowserPushConfig()
+      .then((config) =>
+        config ? refreshBrowserNotificationPush(config) : undefined,
+      )
+      .catch(() => {});
   });
 
   // Health reports `provisioning`/`updating` while the instance is still coming

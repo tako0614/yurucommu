@@ -8,7 +8,7 @@ const outputs = parseRecord(
   JSON.parse(await readFile(outputsPath, "utf8")),
   "Capsule outputs",
 );
-const baseUrl = firstString(outputs, ["url", "public_url", "launch_url"]);
+const baseUrl = firstString(outputs, ["launch_url"]);
 if (!baseUrl) throw new Error("Capsule outputs do not contain a public URL");
 
 const origin = new URL(baseUrl).origin;
@@ -172,7 +172,7 @@ async function expectStatus(
   expectedStatus: number,
 ): Promise<void> {
   const response = await fetch(new URL(path, origin), {
-    headers: requestHeaders(),
+    headers: { origin },
   });
   if (response.status !== expectedStatus) {
     const body = await response.text();

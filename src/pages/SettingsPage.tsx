@@ -27,13 +27,23 @@ import {
   ShieldIcon,
 } from "../components/settings/SettingsIcons.tsx";
 import {
+  disableBrowserNotificationPush,
   deleteAccount,
+  enableBrowserNotificationPush,
   fetchBlockedUsers,
   fetchMutedUsers,
+  getBrowserNotificationPushState,
   logout as logoutRequest,
+  refreshBrowserNotificationPush,
+  type BrowserNotificationPushState,
   unblockUser,
   unmuteUser,
 } from "../lib/api.ts";
+import {
+  clearYurucommuBrowserPushBeforeSignOut,
+  resolveYurucommuBrowserPushConfig,
+  yurucommuBrowserPushConfig,
+} from "../lib/browser-push.ts";
 
 export function SettingsPage() {
   const actor = useRequiredActor();
@@ -62,6 +72,13 @@ export function SettingsPage() {
   // True while the irreversible delete request is in flight, to show progress
   // and prevent a double-submit.
   const [deletingAccount, setDeletingAccount] = createSignal(false);
+  const [pushConfig, setPushConfig] =
+    createSignal<ReturnType<typeof yurucommuBrowserPushConfig>>(null);
+  const [pushState, setPushState] =
+    createSignal<BrowserNotificationPushState>("unconfigured");
+  const [pushBusy, setPushBusy] = createSignal(false);
+  const [pushConfigResolved, setPushConfigResolved] = createSignal(false);
+  const [pushRegistrationError, setPushRegistrationError] = createSignal(false);
 
   // Account switching — share the same atoms as the AppMenu switcher so the
   // list and current selection never go stale across the two surfaces.
@@ -85,6 +102,7 @@ export function SettingsPage() {
 
   const handleLogout = async () => {
     try {
+      await clearYurucommuBrowserPushBeforeSignOut();
       await logoutRequest();
     } catch {
       // Ignore errors
@@ -110,7 +128,53 @@ export function SettingsPage() {
 
   onMount(() => {
     setActiveSection("main");
+    void (async () => {
+      try {
+        const config = await resolveYurucommuBrowserPushConfig();
+        setPushConfig(config);
+        let state = await getBrowserNotificationPushState(config);
+        if (config && state === "enabled") {
+          state = await refreshBrowserNotificationPush(config);
+        }
+        setPushState(state);
+      } catch {
+        setPushRegistrationError(true);
+        setPushState("disabled");
+      } finally {
+        setPushConfigResolved(true);
+      }
+    })();
   });
+
+  const handleTogglePush = async () => {
+    const config = pushConfig();
+    if (!config || pushBusy()) return;
+    setPushBusy(true);
+    setPushRegistrationError(false);
+    try {
+      const next =
+        pushState() === "enabled"
+          ? await disableBrowserNotificationPush(config)
+          : (await enableBrowserNotificationPush(config)).state;
+      setPushState(next);
+      if (next === "enabled" || next === "disabled") {
+        pushToast(
+          setToasts,
+          t(
+            next === "enabled"
+              ? "settings.pushEnabled"
+              : "settings.pushDisabled",
+          ),
+        );
+      }
+    } catch (e) {
+      console.error("Failed to update browser push:", e);
+      setPushRegistrationError(true);
+      pushToast(setToasts, t("settings.pushFailed"), { kind: "error" });
+    } finally {
+      setPushBusy(false);
+    }
+  };
 
   // Track ONLY activeSection via on(): the body reads blockedUsers()/mutedUsers()
   // for the loading decision AND writes them via setBlockedUsers/setMutedUsers, so
@@ -224,6 +288,7 @@ export function SettingsPage() {
     if (deletingAccount()) return;
     setDeletingAccount(true);
     try {
+      await clearYurucommuBrowserPushBeforeSignOut();
       await deleteAccount();
       // On success we navigate away; keep the in-flight state until then.
       globalThis.location.href = "/";
@@ -341,6 +406,46 @@ export function SettingsPage() {
             </button>
           </div>
 
+          {/* Browser push is an explicit opt-in. Never trigger the browser
+              permission prompt on page load. */}
+          <div class="border-b border-neutral-900">
+            <div class="px-4 py-2 text-sm text-neutral-500 uppercase">
+              {t("settings.sectionNotifications")}
+            </div>
+            <div class="flex items-center justify-between gap-4 px-4 py-3">
+              <div class="min-w-0">
+                <div class="text-sm font-medium">{t("settings.pushTitle")}</div>
+                <div class="text-xs text-neutral-500">
+                  {!pushConfigResolved()
+                    ? t("common.loading")
+                    : pushRegistrationError()
+                      ? t("settings.pushFailed")
+                      : t(pushStateTranslationKey(pushState()))}
+                </div>
+              </div>
+              <button
+                type="button"
+                class="shrink-0 rounded-lg border border-neutral-700 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={
+                  pushBusy() ||
+                  !pushConfigResolved() ||
+                  pushState() === "unsupported" ||
+                  pushState() === "unconfigured" ||
+                  pushState() === "denied"
+                }
+                onClick={() => void handleTogglePush()}
+              >
+                {pushBusy()
+                  ? t("common.saving")
+                  : t(
+                      pushState() === "enabled"
+                        ? "settings.pushDisable"
+                        : "settings.pushEnable",
+                    )}
+              </button>
+            </div>
+          </div>
+
           {/* Privacy */}
           <div class="border-b border-neutral-900">
             <div class="px-4 py-2 text-sm text-neutral-500 uppercase">
@@ -455,3 +560,18 @@ export function SettingsPage() {
 }
 
 export default SettingsPage;
+
+function pushStateTranslationKey(state: BrowserNotificationPushState) {
+  switch (state) {
+    case "enabled":
+      return "settings.pushState.enabled" as const;
+    case "disabled":
+      return "settings.pushState.disabled" as const;
+    case "denied":
+      return "settings.pushState.denied" as const;
+    case "unconfigured":
+      return "settings.pushState.unconfigured" as const;
+    default:
+      return "settings.pushState.unsupported" as const;
+  }
+}

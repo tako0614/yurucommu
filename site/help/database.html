@@ -3,8 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>データベース - Yurucommu</title>
-    <meta name="description" content="Yurucommuのデータベーススキーマ" />
+    <title>データベース - yurucommu</title>
+    <meta name="description" content="yurucommuのデータベーススキーマ" />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="yurucommu" />
     <meta property="og:image" content="https://yurucommu.com/img/og.png" />
@@ -23,7 +23,7 @@
   <body>
     <header class="header">
       <div class="header-inner">
-        <a href="/" class="logo">Yurucommu</a>
+        <a href="/" class="logo">yurucommu</a>
         <div class="header-links">
           <a href="/help/" class="header-link active">Docs</a>
           <a href="/specs/" class="header-link">Specs</a>
@@ -89,7 +89,7 @@
       <main class="docs-content">
         <h1>データベース</h1>
         <p class="lead">
-          YurucommuはCloudflare
+          yurucommuはCloudflare
           D1（SQLite）を使用したAP-nativeなスキーマを採用しています。
           すべてのActivityPubオブジェクトはAP IRIを主キーとして使用します。
         </p>
@@ -218,7 +218,9 @@
 
         <h3>actor_cache</h3>
         <p>リモートアクターのキャッシュ</p>
-        <p>連合で取得したリモートユーザーの情報を保存。定期的に更新。</p>
+        <p>
+          連合で取得したリモートユーザーの情報を保存します。定期的に更新されます。
+        </p>
 
         <h3>objects</h3>
         <p>投稿（Note）やストーリー（Story）などのActivityPubオブジェクト</p>
@@ -610,39 +612,39 @@
         <p>
           マイグレーションファイルは
           <code>@takosjp/yurucommu-core</code> package の
-          <code>migrations/</code> が正本です。deployable product repo には重複
-          copy を置きません。
+          <code>migrations/</code> を正本（正とする情報）とします。デプロイする
+          product repo には重複した copy を置きません。
         </p>
         <p>
-          ローカルの core Bun サーバーは起動時に <code>MIGRATIONS_PATH</code>
-          の SQL を自動適用します。production では Capsule の Apply 後に
-          <code>takosumi_release.post_apply</code> の migration hook を実行し、
-          OpenTofu が作成した D1 database にアプリ側の schema を適用します。
-          Takosumi はデータベース種類を解釈せず、OpenTofu output に含まれる
-          実行コマンドをそのまま使います。
+          ローカルのcore
+          Bunサーバーは起動時に<code>MIGRATIONS_PATH</code>のSQLを適用します。
+          Cloudflare直接経路では<code>bun run deploy</code>がWranglerのD1
+          migrationを実行します。 Takosumi経路ではoperatorが設定したversioned
+          lifecycle actionとして適用します。
+          Takosumi自体がデータベースの種類やコマンドを推測することはありません。
         </p>
-        <pre><code>flow: Source の pinned commit を更新 -> Takosumi が Capsule を読み検証 -> Plan -> approval -> Apply
-evidence: Run logs / StateVersion / Output / AuditEvent / release activation record</code></pre>
+        <pre><code>Cloudflare: bun run deploy -> D1 migration -> wrangler deploy
+Takosumi: Source -> Plan -> 承認 -> Apply -> StateVersion + Output + AuditEvent</code></pre>
 
         <h2>データの確認</h2>
         <p>
-          operator/debug 権限で provider console または Takosumi run evidence
-          を確認します。 一般ユーザー向け docs では direct provider CLI
-          を操作手順として公開しません。
+          直接経路はCloudflare
+          dashboardまたはWrangler、Takosumi経路はoperator/debug権限で provider
+          consoleまたはRun evidenceを確認します。
         </p>
 
         <h2>バックアップ</h2>
         <p>
-          Backup / restore は Takosumi control/state backup と provider backup
-          policy の範囲です。provider service data restore は operator policy と
-          runbook に従います。
+          Backup / restore は、Takosumi の control/state backup と provider の
+          backup policy の範囲です。provider 側の service data の restore
+          は、operator の policy と runbook に従います。
         </p>
       </main>
     </div>
 
     <footer class="footer">
       <div class="footer-inner">
-        <div class="footer-logo">Yurucommu</div>
+        <div class="footer-logo">yurucommu</div>
         <div class="footer-links">
           <a href="/" class="footer-link">ホーム</a>
           <a href="/help/" class="footer-link">Docs</a>
@@ -651,7 +653,7 @@ evidence: Run logs / StateVersion / Output / AuditEvent / release activation rec
             >GitHub</a
           >
         </div>
-        <p class="footer-copy">&copy; 2026 Yurucommu. GPL v3.</p>
+        <p class="footer-copy">&copy; 2026 yurucommu. AGPL-3.0-only.</p>
       </div>
     </footer>
   </body>

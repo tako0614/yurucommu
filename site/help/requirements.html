@@ -3,10 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>必要な環境 - Yurucommu</title>
+    <title>必要な環境 - yurucommu</title>
     <meta
       name="description"
-      content="Yurucommuを動かすために必要な環境と依存関係"
+      content="yurucommuを動かすために必要な環境と依存関係"
     />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="yurucommu" />
@@ -26,7 +26,7 @@
   <body>
     <header class="header">
       <div class="header-inner">
-        <a href="/" class="logo">Yurucommu</a>
+        <a href="/" class="logo">yurucommu</a>
         <div class="header-links">
           <a href="/help/" class="header-link active">Docs</a>
           <a href="/specs/" class="header-link">Specs</a>
@@ -92,7 +92,7 @@
       <main class="docs-content">
         <h1>必要な環境</h1>
         <p class="lead">
-          Yurucommuをセットアップ・運用するために必要な環境と依存関係です。
+          yurucommuをセットアップ・運用するために必要な環境と依存関係です。
         </p>
 
         <h2>開発環境</h2>
@@ -119,7 +119,7 @@
         </table>
 
         <h2>Cloudflareサービス</h2>
-        <p>Yurucommuは以下のCloudflareサービスを使用します：</p>
+        <p>yurucommuは以下のCloudflareサービスを使用します：</p>
         <table class="docs-table">
           <thead>
             <tr>
@@ -167,7 +167,7 @@
         </ul>
 
         <h2>推奨ブラウザ</h2>
-        <p>YurucommuのWebクライアントは以下のブラウザをサポートしています：</p>
+        <p>yurucommuのWebクライアントは以下のブラウザをサポートしています：</p>
         <ul>
           <li>Chrome / Chromium 90+</li>
           <li>Firefox 90+</li>
@@ -182,8 +182,14 @@
             カスタムドメインを使用する場合は別途取得が必要
           </li>
           <li>
-            <strong>Takos連携</strong> -
-            認証システムとしてTakosを使用する場合は別途セットアップが必要
+            <strong>OIDCログイン</strong> - Takosumi Accounts
+            や汎用OIDCプロバイダーでログインさせる場合は別途セットアップが必要
+          </li>
+          <li>
+            <strong>Takos連携</strong> - Takos
+            はyurucommuの認証システムではありません。AIエージェントに
+            投稿・検索などのツール呼び出しをさせたい場合のみ、別途
+            セットアップが必要
           </li>
         </ul>
       </main>
@@ -191,7 +197,7 @@
 
     <footer class="footer">
       <div class="footer-inner">
-        <div class="footer-logo">Yurucommu</div>
+        <div class="footer-logo">yurucommu</div>
         <div class="footer-links">
           <a href="/" class="footer-link">ホーム</a>
           <a href="/help/" class="footer-link">Docs</a>
@@ -200,7 +206,7 @@
             >GitHub</a
           >
         </div>
-        <p class="footer-copy">&copy; 2026 Yurucommu. GPL v3.</p>
+        <p class="footer-copy">&copy; 2026 yurucommu. AGPL-3.0-only.</p>
       </div>
     </footer>
   </body>

@@ -347,10 +347,15 @@ export function DMChatPanel(props: DMChatPanelProps) {
 
   const handleSend = async (e: SubmitEvent) => {
     e.preventDefault();
-    if (!input().trim() || sending()) return;
+    const text = input().trim();
+    if (!text || sending()) return;
 
     setSending(true);
     setErrorMessage(null);
+    // Clear the input at SEND time, not on completion: the input stays editable
+    // while the request is in flight, and a completion-time setInput("") would
+    // wipe whatever the user typed during the await.
+    setInput("");
     // Bind to the target conversation: the panel isn't remounted on a thread
     // switch, so an A→B switch mid-send must not inject A's bubble into B.
     const sentApId = props.contact.ap_id;
@@ -359,7 +364,7 @@ export function DMChatPanel(props: DMChatPanelProps) {
       props.contact.ap_id === sentApId && props.contact.type === sentType;
     try {
       if (sentType === "community") {
-        const newMsg = await sendCommunityMessage(sentApId, input().trim());
+        const newMsg = await sendCommunityMessage(sentApId, text);
         // Dedupe by id: a concurrent poll may have already merged this message.
         if (stillOnConversation()) {
           setMessages((prev) =>
@@ -367,14 +372,13 @@ export function DMChatPanel(props: DMChatPanelProps) {
           );
         }
       } else {
-        const { message } = await sendUserDMMessage(sentApId, input().trim());
+        const { message } = await sendUserDMMessage(sentApId, text);
         if (stillOnConversation()) {
           setMessages((prev) =>
             prev.some((m) => m.id === message.id) ? prev : [...prev, message],
           );
         }
       }
-      setInput("");
     } catch (e) {
       console.error("Failed to send message:", e);
       // A community whose post_policy is mods/owners lets ordinary members READ
@@ -388,6 +392,9 @@ export function DMChatPanel(props: DMChatPanelProps) {
             ? e.message
             : t("common.error"),
         );
+        // Restore the failed draft so it isn't lost — but never clobber text
+        // the user typed while the send was in flight.
+        setInput((cur) => (cur.trim() === "" ? text : cur));
       }
     } finally {
       setSending(false);
@@ -528,9 +535,13 @@ export function DMChatPanel(props: DMChatPanelProps) {
             </Show>
             <For each={messages()}>
               {(msg, index) => {
-                const isMine = getSenderApId(msg) === props.actor.ap_id;
-                const showAvatar =
-                  !isMine &&
+                // Functions, not consts: `index()` shifts when loadOlder
+                // PREPENDS a page, and a captured const would freeze the
+                // sender-grouping decision at row-creation time (stale avatar
+                // at the old page boundary).
+                const isMine = () => getSenderApId(msg) === props.actor.ap_id;
+                const showAvatar = () =>
+                  !isMine() &&
                   (index() === 0 ||
                     getSenderApId(messages()[index() - 1]) !==
                       getSenderApId(msg));
@@ -538,12 +549,14 @@ export function DMChatPanel(props: DMChatPanelProps) {
                 return (
                   <div
                     class={`flex ${
-                      isMine ? "justify-end" : "justify-start"
+                      isMine() ? "justify-end" : "justify-start"
                     } mb-2`}
                   >
                     <Show
-                      when={!isMine && showAvatar}
-                      fallback={!isMine ? <div class="w-8 mr-2" /> : undefined}
+                      when={!isMine() && showAvatar()}
+                      fallback={
+                        !isMine() ? <div class="w-8 mr-2" /> : undefined
+                      }
                     >
                       <UserAvatar
                         avatarUrl={msg.sender.icon_url || null}
@@ -558,17 +571,17 @@ export function DMChatPanel(props: DMChatPanelProps) {
                     </Show>
                     <div
                       class={`max-w-[70%] ${
-                        isMine ? "text-right" : "text-left"
+                        isMine() ? "text-right" : "text-left"
                       }`}
                     >
-                      <Show when={!isMine && showAvatar}>
+                      <Show when={!isMine() && showAvatar()}>
                         <div class="text-xs text-neutral-500 mb-1">
                           {msg.sender.name || msg.sender.preferred_username}
                         </div>
                       </Show>
                       <div
                         class={`inline-block px-4 py-2 rounded-2xl ${
-                          isMine
+                          isMine()
                             ? "bg-accent text-white rounded-br-sm"
                             : "bg-neutral-800 text-white rounded-bl-sm"
                         }`}
@@ -580,7 +593,7 @@ export function DMChatPanel(props: DMChatPanelProps) {
                       <div class="text-xs text-neutral-500 mt-1">
                         {formatTime(msg.created_at)}
                         <Show
-                          when={isMine && props.contact.type === "community"}
+                          when={isMine() && props.contact.type === "community"}
                         >
                           <button
                             type="button"

@@ -28,6 +28,7 @@ const discovery = {
     "activitypub.server.v1",
     "client.yurucommu.feed.v1",
     "client.yurume.messages.v1",
+    "notification.pushers.v1",
   ],
 };
 
@@ -65,7 +66,11 @@ async function collectAssets(
   assets: Record<string, StaticAsset>,
   prefix = "",
 ): Promise<void> {
-  for (const entry of await readdir(dir, { withFileTypes: true })) {
+  const entries = await readdir(dir, { withFileTypes: true });
+  entries.sort((left, right) =>
+    left.name < right.name ? -1 : left.name > right.name ? 1 : 0,
+  );
+  for (const entry of entries) {
     const relativePath = `${prefix}${entry.name}`;
     const url = new URL(entry.name, dir);
     if (entry.isDirectory()) {

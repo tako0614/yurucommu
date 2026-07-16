@@ -3,8 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>カスタムドメイン - Yurucommu</title>
-    <meta name="description" content="Yurucommuに独自ドメインを設定する方法" />
+    <title>カスタムドメイン - yurucommu</title>
+    <meta name="description" content="yurucommuに独自ドメインを設定する方法" />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="yurucommu" />
     <meta property="og:image" content="https://yurucommu.com/img/og.png" />
@@ -23,7 +23,7 @@
   <body>
     <header class="header">
       <div class="header-inner">
-        <a href="/" class="logo">Yurucommu</a>
+        <a href="/" class="logo">yurucommu</a>
         <div class="header-links">
           <a href="/help/" class="header-link active">Docs</a>
           <a href="/specs/" class="header-link">Specs</a>
@@ -91,7 +91,7 @@
       <main class="docs-content">
         <h1>カスタムドメイン</h1>
         <p class="lead">
-          独自ドメインでYurucommuを運用するための設定方法です。
+          独自ドメインでyurucommuを運用するための設定方法です。
         </p>
 
         <div class="callout callout-warning">
@@ -111,21 +111,21 @@
           <li>指示に従ってネームサーバーを変更</li>
         </ol>
 
-        <h3>Step 2: Workers ルートを設定</h3>
-        <p><code>wrangler.toml</code> に以下を追加：</p>
-        <pre><code>routes = [
-  { pattern = "yurucommu.example.com/*", zone_name = "example.com" }
-]</code></pre>
-
-        <h3>Step 3: 環境変数を更新</h3>
-        <pre><code>[vars]
-APP_URL = "https://yurucommu.example.com"</code></pre>
-
-        <h3>Step 4: Plan / Apply</h3>
+        <h3>Step 2: デプロイ経路にドメインを設定</h3>
         <p>
-          custom domain は Project に登録した Capsule の variable / route input
-          として Plan に反映し、レビューした Plan を Apply して StateVersion /
-          Output / AuditEvent を更新します。
+          Cloudflare直接経路ではWorkerのCustom
+          Domainsまたは<code>wrangler.jsonc</code>の
+          routeに設定し、<code>APP_URL</code>も同じHTTPS
+          originにします。Takosumi経路では Capsuleのhostname /
+          route入力として設定します。
+        </p>
+
+        <h3>Step 3: 反映を確認</h3>
+        <p>
+          直接経路では<code>bun run deploy</code>後のCustom
+          Domainと<code>APP_URL</code>を
+          確認します。Takosumi経路ではPlanのrouteとbindingをレビューしてApplyし、
+          StateVersion・Output・AuditEventを確認します。
         </p>
 
         <h2>方法2: 外部DNSでCNAMEを設定</h2>
@@ -133,8 +133,8 @@ APP_URL = "https://yurucommu.example.com"</code></pre>
 
         <h3>Step 1: WorkersのURLを確認</h3>
         <p>
-          Apply Run の StateVersion / Output に記録された公開URL（例:
-          <code>https://yurucommu.example.com</code>）を確認します。
+          直接経路はWranglerのdeploy出力、Takosumi経路はStateVersion /
+          Outputに記録された 公開URLを確認します。
         </p>
 
         <h3>Step 2: CNAMEレコードを追加</h3>
@@ -143,14 +143,12 @@ APP_URL = "https://yurucommu.example.com"</code></pre>
 名前: yurucommu（サブドメイン部分）
 値: yurucommu.xxx.workers.dev</code></pre>
 
-        <h3>Step 3: Cloudflare側でカスタムドメインを追加</h3>
-        <ol>
-          <li>Cloudflareダッシュボード &gt; Workers &amp; Pages</li>
-          <li>yurucommuを選択</li>
-          <li>「カスタムドメイン」タブ</li>
-          <li>「カスタムドメインを追加」</li>
-          <li>ドメインを入力して追加</li>
-        </ol>
+        <h3>Step 3: デプロイ経路に登録</h3>
+        <p>
+          直接経路ではCloudflareのCustom
+          Domainsとして、Takosumi経路ではCapsuleの
+          入力値として登録します。同じruntimeを両方の経路から同時に管理しないでください。
+        </p>
 
         <h2>SSL/TLS設定</h2>
         <p>
@@ -183,7 +181,7 @@ APP_URL = "https://yurucommu.example.com"</code></pre>
           <ul>
             <li>既存のフォロワーからのフォローが切れる</li>
             <li>他サーバーにキャッシュされた投稿のリンクが切れる</li>
-            <li>ActivityPub上での identity が変わる</li>
+            <li>ActivityPub上でのアカウントの同一性（identity）が変わる</li>
           </ul>
         </div>
         <p>
@@ -194,7 +192,7 @@ APP_URL = "https://yurucommu.example.com"</code></pre>
 
     <footer class="footer">
       <div class="footer-inner">
-        <div class="footer-logo">Yurucommu</div>
+        <div class="footer-logo">yurucommu</div>
         <div class="footer-links">
           <a href="/" class="footer-link">ホーム</a>
           <a href="/help/" class="footer-link">Docs</a>
@@ -203,7 +201,7 @@ APP_URL = "https://yurucommu.example.com"</code></pre>
             >GitHub</a
           >
         </div>
-        <p class="footer-copy">&copy; 2026 Yurucommu. GPL v3.</p>
+        <p class="footer-copy">&copy; 2026 yurucommu. AGPL-3.0-only.</p>
       </div>
     </footer>
   </body>

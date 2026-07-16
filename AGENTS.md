@@ -11,6 +11,7 @@ server engine は `@takosjp/yurucommu-core` library として組み込みます�
 - frontend plugin API
 - yurucommu Worker artifact source/build pipeline (`dist/yurucommu-worker.js`
   is generated output and must not be committed)
+- direct Cloudflare deployment (`wrangler.jsonc` + `bun run deploy`)
 - OpenTofu Capsule module (`main.tf` / `outputs.tf`)
 - app-owned Takosumi release hook / D1 migration activation
 - same-origin fullstack runtime and configured-origin development UX
@@ -29,14 +30,21 @@ bun run check
 bun run test
 bun run build
 bun run build:worker
+# 実際にCloudflareへ公開するときだけ
+bun run deploy
 ```
 
 `dist/yurucommu-worker.js` is local/CI generated output. Hosted Takosumi installs
 must use `worker_bundle_url` + `worker_bundle_sha256` from a Git release or CI
 artifact rather than checking built bundles into Git.
 
+Cloudflare direct deploy and Takosumi install are equal product entrypoints.
+`wrangler.jsonc` owns direct Cloudflare bindings; `main.tf` owns the
+Takosumi-managed OpenTofu path. Do not make direct Cloudflare users run
+OpenTofu solely to deploy this product.
+
 ## Version discipline
 
-`package.json` and `outputs.tf` versions describe the yurucommu product release.
+`package.json` and the `worker_release_tag` default in `main.tf` describe the yurucommu product release.
 Do not bump the product major version just because dependencies, licensing, or
 repo topology changed; major releases need an explicit product release decision.

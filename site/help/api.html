@@ -3,8 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>API リファレンス - Yurucommu</title>
-    <meta name="description" content="Yurucommu REST APIのエンドポイント一覧" />
+    <title>API リファレンス - yurucommu</title>
+    <meta name="description" content="yurucommu REST APIのエンドポイント一覧" />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="yurucommu" />
     <meta property="og:image" content="https://yurucommu.com/img/og.png" />
@@ -23,7 +23,7 @@
   <body>
     <header class="header">
       <div class="header-inner">
-        <a href="/" class="logo">Yurucommu</a>
+        <a href="/" class="logo">yurucommu</a>
         <div class="header-links">
           <a href="/help/" class="header-link active">Docs</a>
           <a href="/specs/" class="header-link">Specs</a>
@@ -87,7 +87,7 @@
       <main class="docs-content">
         <h1>API リファレンス</h1>
         <p class="lead">
-          Yurucommuの主要な内部REST APIエンドポイントです。
+          yurucommuの主要な内部REST APIエンドポイントです。
           主にフロントエンドから使用されます。外部クライアントからは参照系APIを利用できます。
         </p>
 
@@ -103,7 +103,7 @@
           <code>APP_URL</code>
           と同一である必要があります。外部クライアントからは
           <code>GET</code> 系の参照 API を利用できますが、状態を変更する API は
-          Yurucommu と同一 origin から送信してください。
+          yurucommu と同一 origin から送信してください。
         </p>
 
         <h3>POST /api/auth/login</h3>
@@ -277,8 +277,8 @@
 
         <h3>GET /media/:filename</h3>
         <p>
-          アップロードされたメディアファイルを取得。アップロードレスポンスの
-          <code>url</code> を使う。
+          アップロードされたメディアファイルを取得します。アップロードレスポンスの
+          <code>url</code> を使ってください。
         </p>
 
         <h2>通知</h2>
@@ -350,7 +350,7 @@
         <p>投稿を検索</p>
 
         <h3>GET /api/search/hashtags/trending</h3>
-        <p>トレンド hashtag を取得</p>
+        <p>トレンドのハッシュタグを取得</p>
 
         <h3>GET /api/recommendations/users</h3>
         <p>おすすめユーザー一覧を取得（要認証）</p>
@@ -408,7 +408,7 @@
         <p><code>ENABLE_TAKOS_TOOLS=true</code> のときだけ公開されます。</p>
 
         <h3>POST /.takos/tools/:name</h3>
-        <p>agent runtime profile 向け tool を実行</p>
+        <p>agent runtime profile 向けの tool を実行</p>
         <pre><code>{
   "input": {},
   "context": {
@@ -458,7 +458,7 @@
 
     <footer class="footer">
       <div class="footer-inner">
-        <div class="footer-logo">Yurucommu</div>
+        <div class="footer-logo">yurucommu</div>
         <div class="footer-links">
           <a href="/" class="footer-link">ホーム</a>
           <a href="/help/" class="footer-link">Docs</a>
@@ -467,7 +467,7 @@
             >GitHub</a
           >
         </div>
-        <p class="footer-copy">&copy; 2026 Yurucommu. GPL v3.</p>
+        <p class="footer-copy">&copy; 2026 yurucommu. AGPL-3.0-only.</p>
       </div>
     </footer>
   </body>

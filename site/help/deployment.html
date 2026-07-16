@@ -3,8 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>デプロイ - Yurucommu</title>
-    <meta name="description" content="Yurucommuのビルドとデプロイ方法" />
+    <title>デプロイ - yurucommu</title>
+    <meta name="description" content="yurucommuのビルドとデプロイ方法" />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="yurucommu" />
     <meta property="og:image" content="https://yurucommu.com/img/og.png" />
@@ -23,7 +23,7 @@
   <body>
     <header class="header">
       <div class="header-inner">
-        <a href="/" class="logo">Yurucommu</a>
+        <a href="/" class="logo">yurucommu</a>
         <div class="header-links">
           <a href="/help/" class="header-link active">Docs</a>
           <a href="/specs/" class="header-link">Specs</a>
@@ -86,91 +86,101 @@
 
       <main class="docs-content">
         <h1>デプロイ</h1>
-        <p class="lead">Yurucommuのビルドとデプロイの詳細な手順です。</p>
-
-        <h2>ビルド</h2>
-        <p>フロントエンドとバックエンドをビルドします。</p>
-        <pre><code>bun run build</code></pre>
-        <p>
-          これにより <code>dist/</code>
-          ディレクトリに静的ファイルが生成されます。
+        <p class="lead">
+          Cloudflareへの直接デプロイと、Takosumiによる管理付きインストールの2つから選べます。
         </p>
 
+        <h2>Cloudflareへ直接デプロイ</h2>
         <p>
-          Takosumi install では Git 上の OpenTofu module を Plan / Apply し、
-          module outputs の <code>takosumi_release</code> に従って post-apply
-          release command が Worker artifact を publish します。 yurucommu の
-          release command は一時的な <code>wrangler.toml</code> を生成し、
-          <code>src/backend/index.ts</code> を Worker entrypoint として deploy
-          します。事前 build が必要な場合も yurucommu 側の script が担当し、
-          Takosumi は artifact resolver になりません。
+          一番短い方法はCloudflareのdeploy画面を使うことです。D1、KV、R2、Queuesが
+          作成され、Workerにbindingされます。
+        </p>
+        <p>
+          <a
+            href="https://deploy.workers.cloudflare.com/?url=https://github.com/tako0614/yurucommu"
+            >Deploy to Cloudflareを開く</a
+          >
         </p>
 
-        <h2>Takosumi での install について</h2>
+        <h3>CLIからデプロイ</h3>
+        <pre><code>git clone https://github.com/tako0614/yurucommu.git
+cd yurucommu
+bun install
+bunx wrangler login
+bunx wrangler d1 create yurucommu-db
+bunx wrangler queues create yurucommu-delivery
+bunx wrangler queues create yurucommu-delivery-dlq
+bunx wrangler secret put ENCRYPTION_KEY
+bunx wrangler secret put AUTH_PASSWORD_HASH
+bun run deploy</code></pre>
         <p>
-          yurucommu は Git URL / ref / module path で指定できる OpenTofu Capsule
-          です。Takosumi では Capsule の Source を Project に登録し、cloudflare
-          provider などにどの ProviderConnection を使うかを ProviderBinding
-          で指定し、Plan を作成してレビューしたうえで Apply すると、Worker /
-          storage / routing が materialize されます。
+          <code>wrangler.jsonc</code
+          >が直接経路の正本です。KVとR2はWranglerが初回deploy時に
+          provisionします。<code>bun run deploy</code>はfullstack
+          Workerをビルドし、 <code>@takosjp/yurucommu-core</code>のD1
+          migrationを適用してから公開します。
         </p>
 
-        <h2>Source 登録 / Plan / Apply</h2>
+        <h2>Takosumiでインストール</h2>
         <p>
-          本番導線は Takosumi の Run ledger です。Capsule の Source（Git URL /
-          ref / module path）を Project に登録すると、Takosumi が Capsule を Git
-          から読み、検証して Plan を作成します。cloudflare provider などに使う
-          ProviderConnection を ProviderBinding で指定し、変数 / secret
-          を入力したうえで Plan を作成します。レビューした Plan を承認して Apply
-          すると、StateVersion・Output・AuditEvent が記録されます。
+          yurucommu は GitAddress の URL・ref・path で指定できる plain OpenTofu
+          module です。Takosumi はこれを OpenTofu Capsule（Takosumi
+          が管理する1つのインフラ単位）として扱います。Takosumi
+          では、取得元となる Source（Git URL・ref・パス）を Project
+          （ワークスペース内のグループ）に登録し、cloudflare provider
+          にどのクラウド接続（ProviderConnection）を使うかを
+          ProviderBinding（接続先の割り当て）で指定します。変更内容（Plan）
+          を作成してレビューしたうえで適用（Apply）すると、Worker / storage /
+          routing が作成されます。
         </p>
-        <pre><code>Source: https://github.com/tako0614/yurucommu.git
+
+        <h3>Source登録 / Plan / Apply</h3>
+        <p>
+          本番へのデプロイは Takosumi の実行記録（Run）として記録されます。
+          Source を Project に登録すると、Takosumi が Capsule を Git
+          から読み、検証して Plan を作成します。ProviderConnection を
+          ProviderBinding で指定し、変数・secret を入力したうえで Plan
+          を作成します。レビューした Plan を承認して Apply
+          すると、復元ポイント（StateVersion）・実行結果（Output）・履歴
+          （AuditEvent）が記録されます。
+        </p>
+        <pre><code>GitAddress:
+url: https://github.com/tako0614/yurucommu.git
 ref: main
-modulePath: .
+path: .
 flow: Source 登録 -> Takosumi が Git から読み検証 -> Plan Run -> Apply Run -> StateVersion + Output</code></pre>
 
-        <h2>設定ファイル</h2>
+        <h2>2つの正本</h2>
         <p>
-          Yurucommu は用途ごとに Cloudflare の設定ファイルを分けていますが、
-          本番 install 時の binding / env / route は Takosumi generated root
-          が所有します。
+          Cloudflare直接経路は<code>wrangler.jsonc</code>、Takosumi管理経路は
+          <code>main.tf</code>と<code>outputs.tf</code>が正本です。どちらも同じ
+          <code>dist/yurucommu-worker.js</code>とcore migrationを使います。
         </p>
-        <ul>
-          <li>
-            <code>wrangler.toml</code> - contributor / low-level debug
-            用の参照設定
-          </li>
-          <li><code>wrangler.local.toml</code> - ローカル開発用設定</li>
-        </ul>
         <p>
-          ローカルで Worker を起動する場合は
-          <code>bunx wrangler dev --config wrangler.local.toml</code> を使います
-          （内部では <code>wrangler.local.toml</code> を参照します）。production
-          hostname、route、D1 / R2 / KV / Queue binding は Capsule install 時の
-          Plan / Apply の入力と Output で確認します。
+          OpenTofuはTakosumiがPlan、Apply、state、output、auditを管理するために使います。
+          Cloudflareへ直接デプロイするだけならOpenTofuは必要ありません。
         </p>
 
         <h2>CI/CDパイプライン</h2>
         <p>
-          CI は build / test / artifact verification を行い、deploy 実行は
-          Takosumi の Source ref 更新、Plan の検証・レビュー、Apply approval
-          に委譲します。GitHub Actions secret に broad Cloudflare token
-          を置く導線は product install path ではありません。
+          CIではbuild /
+          testとTakosumi用artifactを検証します。Cloudflare直接経路は
+          WranglerまたはWorkers Builds、管理付き経路はTakosumiのPlan /
+          Applyを使います。
         </p>
 
         <h2>ロールバック</h2>
         <p>
-          問題が発生した場合は、過去の StateVersion を選び、通常の Plan /
-          approval / Apply flow で戻します。Apply 時には Source の pinned commit
-          と module inputs が記録されています。provider resource state の汎用
-          rollback は OpenTofu module の範囲です。
+          Cloudflare直接経路ではWorkersのversion /
+          rollbackを使います。Takosumi経路では
+          過去のStateVersionとpin済みSourceを基にPlan / Applyします。
         </p>
 
         <h2>ログの確認</h2>
         <p>
-          Run logs、Activity、Apply Run の evidence を Takosumi dashboard /
-          operator observability で確認します。ローカル開発時だけ Wrangler tail
-          を debug 補助として使います。
+          直接経路は<code>wrangler tail</code>とCloudflare
+          dashboard、Takosumi経路は Runログ、Activity、Apply
+          Runの証跡を確認します。
         </p>
 
         <h2>よくあるエラー</h2>
@@ -185,8 +195,8 @@ flow: Source 登録 -> Takosumi が Git から読み検証 -> Plan Run -> Apply 
 
         <h3>「D1 database not found」エラー</h3>
         <p>
-          <code>wrangler.toml</code>
-          のデータベースIDが正しいか確認してください。
+          <code>wrangler.jsonc</code>の<code>DB</code> bindingと、初回に作成した
+          <code>yurucommu-db</code>を確認してください。
         </p>
 
         <h3>「R2 bucket not found」エラー</h3>
@@ -196,7 +206,7 @@ flow: Source 登録 -> Takosumi が Git から読み検証 -> Plan Run -> Apply 
 
     <footer class="footer">
       <div class="footer-inner">
-        <div class="footer-logo">Yurucommu</div>
+        <div class="footer-logo">yurucommu</div>
         <div class="footer-links">
           <a href="/" class="footer-link">ホーム</a>
           <a href="/help/" class="footer-link">Docs</a>
@@ -205,7 +215,7 @@ flow: Source 登録 -> Takosumi が Git から読み検証 -> Plan Run -> Apply 
             >GitHub</a
           >
         </div>
-        <p class="footer-copy">&copy; 2026 Yurucommu. GPL v3.</p>
+        <p class="footer-copy">&copy; 2026 yurucommu. AGPL-3.0-only.</p>
       </div>
     </footer>
   </body>

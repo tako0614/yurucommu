@@ -3,10 +3,11 @@ import {
   createMemo,
   createSignal,
   For,
+  on,
   onCleanup,
   Show,
 } from "solid-js";
-import { ActorStories } from "../../types/index.ts";
+import type { ActorStories } from "../../types/index.ts";
 import {
   deleteStory,
   likeStory,
@@ -17,6 +18,7 @@ import {
   voteOnStory,
 } from "../../lib/api.ts";
 import { useI18n } from "../../lib/i18n.tsx";
+import { useDialog } from "../../lib/useDialog.ts";
 import { formatRelativeTime } from "../../lib/datetime.ts";
 import { ErrorIcon } from "./viewer/StoryViewerIcons.tsx";
 import { StoryViewerActionBar } from "./viewer/StoryViewerActionBar.tsx";
@@ -30,6 +32,7 @@ import { parseStoryDuration } from "./viewer/storyViewerUtils.ts";
 interface StoryViewerProps {
   actorStories: ActorStories[];
   initialActorIndex: number;
+  initialStoryIndex?: number;
   currentUserApId?: string;
   onClose: () => void;
 }
@@ -43,7 +46,9 @@ export function StoryViewer(props: StoryViewerProps) {
     props.actorStories,
   );
   const [actorIndex, setActorIndex] = createSignal(props.initialActorIndex);
-  const [storyIndex, setStoryIndex] = createSignal(0);
+  const [storyIndex, setStoryIndex] = createSignal(
+    props.initialStoryIndex ?? 0,
+  );
   const [progress, setProgress] = createSignal(0);
   const [isPaused, setIsPaused] = createSignal(false);
   let isPausedRef = false;
@@ -79,14 +84,29 @@ export function StoryViewer(props: StoryViewerProps) {
   );
   const isLiked = createMemo(() => !!currentStory()?.liked);
 
-  // Lock background scroll while the full-screen viewer is mounted, restoring
-  // the prior value on close (matches the MediaLightbox / useDialog behaviour).
-  createEffect(() => {
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    onCleanup(() => {
-      document.body.style.overflow = previous;
-    });
+  // Shared modal-dialog primitive: focus moves into the viewer, Tab is trapped
+  // inside it (previously it could reach the feed behind the aria-modal
+  // dialog), Escape closes via the shared dialog stack (so the delete-confirm
+  // dialog, which registers on top, receives Escape first), and background
+  // scroll is ref-count locked — replacing the viewer's ad-hoc overflow toggle.
+  useDialog({
+    isOpen: () => true,
+    onClose: () => {
+      // Escape while typing a reply steps back to the story (blur the input),
+      // it does NOT close the whole viewer and throw the draft away; a second
+      // Escape then closes the viewer.
+      const active = document.activeElement;
+      if (
+        active instanceof HTMLElement &&
+        active.tagName === "INPUT" &&
+        containerRef?.contains(active)
+      ) {
+        active.blur();
+        return;
+      }
+      props.onClose();
+    },
+    container: () => containerRef,
   });
 
   createEffect(() => {
@@ -236,22 +256,29 @@ export function StoryViewer(props: StoryViewerProps) {
     }, TICK_MS);
   };
 
-  createEffect(() => {
-    // Re-arm only when the STORY changes — NOT on pause toggle (the interval's
-    // isPausedRef guard handles pausing without restarting progress).
-    actorIndex();
-    storyIndex();
+  // Re-arm only when the story IDENTITY (ap_id) changes — NOT on pause toggle
+  // (the interval's isPausedRef guard handles pausing without restarting
+  // progress), and NOT when a like/vote/share replaces the story OBJECT (same
+  // ap_id): startTimer() reads currentStory() internally, so a bare
+  // createEffect tracked it and every like reset the progress bar to 0.
+  // `on(...)` keys strictly on the ap_id and runs the body untracked. Deleting
+  // a story still re-arms (the story sliding into the index has a new ap_id).
+  createEffect(
+    on(
+      () => currentStory()?.ap_id,
+      () => {
+        if (!isVideo()) {
+          setProgress(0);
+          startTimer();
+        }
 
-    if (!isVideo()) {
-      setProgress(0);
-      startTimer();
-    }
-
-    onCleanup(() => {
-      if (timerRef) clearTimeout(timerRef);
-      if (progressTimerRef) clearInterval(progressTimerRef);
-    });
-  });
+        onCleanup(() => {
+          if (timerRef) clearTimeout(timerRef);
+          if (progressTimerRef) clearInterval(progressTimerRef);
+        });
+      },
+    ),
+  );
 
   // Video stall watchdog: a broken or stalled video never fires `onEnded`
   // (auto-advance relies on it) and the image timer bails on `isVideo()`, so
@@ -403,10 +430,26 @@ export function StoryViewer(props: StoryViewerProps) {
     }
   };
 
+  // Reply target, captured when the reply input gains focus (and re-captured on
+  // every focus). The DM must go to the author whose story the draft was typed
+  // for — resolving the author only at submit time could mis-aim the message if
+  // the viewer advanced to another actor mid-draft.
+  let replyTargetApId: string | null = null;
+
+  // Focusing the reply input pauses playback (like holding the story): without
+  // this the auto-advance timer keeps running under the keyboard, the story
+  // flips mid-typing, and the draft re-aims at the next actor.
+  const handleReplyFocusChange = (focused: boolean) => {
+    setIsPaused(focused);
+    if (focused) {
+      replyTargetApId = currentActorStories()?.actor.ap_id ?? null;
+    }
+  };
+
   // Send a reply to the story author as a direct message (Note). Returns true
   // on success so the action bar can clear its input.
   const handleReply = async (text: string): Promise<boolean> => {
-    const authorApId = currentActorStories()?.actor.ap_id;
+    const authorApId = replyTargetApId ?? currentActorStories()?.actor.ap_id;
     if (!authorApId) return false;
     try {
       await sendUserDMMessage(authorApId, text);
@@ -523,25 +566,18 @@ export function StoryViewer(props: StoryViewerProps) {
     }
   };
 
-  // Handle keyboard navigation
+  // Handle keyboard navigation. Escape is owned by the shared dialog stack
+  // (useDialog above; the delete-confirm dialog registers on top of it and
+  // receives Escape first), so only the arrow/space navigation lives here.
   createEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // While the delete-confirmation prompt is open it owns the keyboard:
-      // Escape cancels the prompt (not the whole viewer) and navigation keys
-      // must not advance stories behind the modal.
-      if (showDeleteConfirm()) {
-        if (e.key === "Escape") {
-          e.preventDefault();
-          setShowDeleteConfirm(false);
-        }
-        return;
-      }
+      // navigation keys must not advance stories behind the modal.
+      if (showDeleteConfirm()) return;
       if (e.key === "ArrowLeft") {
         goPrev();
       } else if (e.key === "ArrowRight" || e.key === " ") {
         goNext();
-      } else if (e.key === "Escape") {
-        props.onClose();
       }
     };
 
@@ -729,6 +765,7 @@ export function StoryViewer(props: StoryViewerProps) {
             placeholder={t("story.replyPlaceholder")}
             sendLabel={t("dm.send")}
             onReply={isOwnStory() ? undefined : handleReply}
+            onReplyFocusChange={handleReplyFocusChange}
             onLike={handleLike}
             onShare={handleShare}
           />

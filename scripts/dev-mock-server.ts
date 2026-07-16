@@ -255,6 +255,107 @@ let posts: Post[] = [
   },
 ];
 
+// Optional marketing demo seed for the landing-page screenshots
+// (site/assets/shots/*.webp; see the yurucommu-site-sync skill). Opt-in via
+// YURUCOMMU_MOCK_DEMO_SEED=1 so the default mock data stays developer-facing.
+// Reproduce shots with: YURUCOMMU_MOCK_DEMO_SEED=1 bun run dev:mock
+if (process.env.YURUCOMMU_MOCK_DEMO_SEED === "1") {
+  posts = [
+    {
+      ap_id: `${origin}/ap/notes/demo-1`,
+      type: "Note",
+      author: postAuthor(akari),
+      content:
+        "自分のサーバーに、自分の輪だけ。知らない誰かも、アルゴリズムもいない。",
+      summary: null,
+      attachments: [],
+      in_reply_to: null,
+      visibility: "public",
+      community_ap_id: null,
+      like_count: 18,
+      reply_count: 3,
+      announce_count: 2,
+      published: "2026-07-05T05:20:00.000Z",
+      edited_at: null,
+      liked: false,
+      bookmarked: false,
+      reposted: false,
+    },
+    {
+      ap_id: `${origin}/ap/notes/demo-2`,
+      type: "Note",
+      author: postAuthor(ren),
+      content: "週末の集まり、すごく良かった。写真あとで送るね📷",
+      summary: null,
+      attachments: [
+        {
+          url: mockImageUrl,
+          r2_key: "mock/demo-photo-1.jpg",
+          content_type: "image/jpeg",
+          name: "机を囲んで談笑するミーティングの写真",
+        },
+      ],
+      in_reply_to: null,
+      visibility: "public",
+      community_ap_id: communities[0].ap_id,
+      like_count: 12,
+      reply_count: 4,
+      announce_count: 1,
+      published: "2026-07-05T04:45:00.000Z",
+      edited_at: null,
+      liked: false,
+      bookmarked: false,
+      reposted: false,
+    },
+    {
+      ap_id: `${origin}/ap/notes/demo-3`,
+      type: "Note",
+      author: postAuthor(akari),
+      content:
+        "海の見える街に引っ越しました。ゆるく繋がれる人、この輪の中だけで十分かも。",
+      summary: null,
+      attachments: [],
+      in_reply_to: null,
+      visibility: "public",
+      community_ap_id: null,
+      like_count: 18,
+      reply_count: 3,
+      announce_count: 2,
+      published: "2026-07-05T04:20:00.000Z",
+      edited_at: null,
+      liked: false,
+      bookmarked: false,
+      reposted: false,
+    },
+    {
+      ap_id: `${origin}/ap/notes/demo-4`,
+      type: "Note",
+      author: postAuthor(ren),
+      content: "今日の空、すごくきれいだった。",
+      summary: null,
+      attachments: [
+        {
+          url: mockImageUrl,
+          r2_key: "mock/demo-photo-2.jpg",
+          content_type: "image/jpeg",
+          name: "夕方の空の写真",
+        },
+      ],
+      in_reply_to: null,
+      visibility: "public",
+      community_ap_id: communities[0].ap_id,
+      like_count: 31,
+      reply_count: 6,
+      announce_count: 4,
+      published: "2026-07-05T04:00:00.000Z",
+      edited_at: null,
+      liked: true,
+      bookmarked: true,
+      reposted: false,
+    },
+  ];
+}
+
 let userMessages: Record<string, Message[]> = {
   [akari.ap_id]: [
     {
@@ -331,6 +432,9 @@ let notes: ActorNote[] = [
     is_mine: false,
   },
 ];
+
+const readNotifications = new Set<string>();
+const archivedNotifications = new Set<string>();
 
 function headers(request: Request, contentType = "application/json"): Headers {
   const result = new Headers({
@@ -568,26 +672,60 @@ function notesResponse(): JsonValue {
   };
 }
 
-function notificationsResponse(): JsonValue {
+function notificationsResponse(url: URL): JsonValue {
+  const archived = url.searchParams.get("archived") === "true";
+  const type = url.searchParams.get("type");
+  const items: Record<string, JsonValue>[] = [
+    {
+      id: "notif-story",
+      type: "like",
+      actor: postAuthor(ren),
+      object_ap_id: `${origin}/ap/stories/story-you`,
+      target_kind: "story",
+      target_id: `${origin}/ap/stories/story-you`,
+      target_url: `/?story=${encodeURIComponent(`${origin}/ap/stories/story-you`)}`,
+      read: false,
+      created_at: "2026-07-05T05:40:00.000Z",
+    },
+    {
+      id: "notif-1",
+      type: "like",
+      actor: postAuthor(akari),
+      object_ap_id: posts[0].ap_id,
+      target_kind: "post",
+      target_id: posts[0].ap_id,
+      target_url: `/post/${encodeURIComponent(posts[0].ap_id)}`,
+      read: false,
+      created_at: "2026-07-05T05:25:00.000Z",
+    },
+    {
+      id: "notif-2",
+      type: "follow",
+      actor: postAuthor(mio),
+      object_ap_id: null,
+      target_kind: "profile",
+      target_id: mio.ap_id,
+      target_url: `/profile/${encodeURIComponent(mio.ap_id)}`,
+      read: true,
+      created_at: "2026-07-05T03:40:00.000Z",
+    },
+  ];
   return {
-    notifications: [
-      {
-        id: "notif-1",
-        type: "like",
-        actor: postAuthor(akari),
-        object_ap_id: posts[0].ap_id,
-        read: false,
-        created_at: "2026-07-05T05:25:00.000Z",
-      },
-      {
-        id: "notif-2",
-        type: "follow",
-        actor: postAuthor(mio),
-        object_ap_id: null,
-        read: true,
-        created_at: "2026-07-05T03:40:00.000Z",
-      },
-    ],
+    notifications: items
+      .filter(
+        (notification) =>
+          archivedNotifications.has(String(notification.id)) === archived &&
+          (!type ||
+            type === "all" ||
+            notification.type === type ||
+            (type === "follow" && notification.type === "follow_request")),
+      )
+      .map((notification) => ({
+        ...notification,
+        read:
+          Boolean(notification.read) ||
+          readNotifications.has(String(notification.id)),
+      })),
     has_more: false,
     next_cursor: null,
   };
@@ -629,6 +767,7 @@ function discovery(request: Request): JsonValue {
       notes: `${apiBaseUrl}/api/notes`,
       conversations: `${apiBaseUrl}/api/dm/contacts`,
       notifications: `${apiBaseUrl}/api/notifications`,
+      notificationPushers: `${apiBaseUrl}/api/notifications/pushers`,
       mobilePushRegistrations: `${apiBaseUrl}/api/mobile/push/registrations`,
     },
   };
@@ -644,7 +783,7 @@ async function handleAuth(
   path: string,
 ): Promise<Response | null> {
   if (method === "GET" && path === "/api/auth/providers") {
-    return json(request, { providers: [] });
+    return json(request, { providers: [], password_enabled: true });
   }
   if (method === "GET" && path === "/api/auth/me") {
     if (!signedIn)
@@ -657,7 +796,7 @@ async function handleAuth(
     const response = json(request, ok());
     response.headers.append(
       "Set-Cookie",
-      "yurucommu_mock_session=1; Path=/; SameSite=Lax",
+      "session=mock-session; Path=/; HttpOnly; SameSite=Lax",
     );
     return response;
   }
@@ -666,7 +805,7 @@ async function handleAuth(
     const response = json(request, ok());
     response.headers.append(
       "Set-Cookie",
-      "yurucommu_mock_session=; Path=/; Max-Age=0; SameSite=Lax",
+      "session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax",
     );
     return response;
   }
@@ -1275,6 +1414,9 @@ async function handleRequest(request: Request): Promise<Response> {
   const method = request.method.toUpperCase();
 
   if (method === "OPTIONS") return empty(request);
+  if (method === "GET" && path === "/healthz") {
+    return json(request, { status: "ok", missingBindings: [] });
+  }
   if (method === "GET" && path === "/.well-known/social-server") {
     return json(request, discovery(request));
   }
@@ -1303,17 +1445,73 @@ async function handleRequest(request: Request): Promise<Response> {
   const searchResponse = await handleSearch(request, method, path, url);
   if (searchResponse) return searchResponse;
 
-  if (method === "GET" && path === "/api/notifications/unread/count") {
-    return json(request, { count: 2 });
+  if (path === "/api/notifications/pushers" && method === "POST") {
+    const body = await readJson(request);
+    const pusher =
+      body.pusher && typeof body.pusher === "object"
+        ? (body.pusher as Record<string, unknown>)
+        : {};
+    const data =
+      pusher.data && typeof pusher.data === "object"
+        ? (pusher.data as Record<string, JsonValue>)
+        : {};
+    const now = new Date().toISOString();
+    return json(request, {
+      pusher: {
+        id: "mock-notification-pusher",
+        kind: "http",
+        app_id: String(pusher.app_id ?? "mock-app"),
+        data,
+        gateway_url: String(
+          data.url ?? "https://push.example.test/_matrix/push/v1/notify",
+        ),
+        product: String(body.product ?? "yurucommu"),
+        scope: typeof body.scope === "string" ? body.scope : null,
+        registered_at: now,
+        last_seen_at: now,
+      },
+    });
   }
-  if (path.startsWith("/api/notifications/archive")) {
-    return json(request, path.endsWith("/all") ? { archived_count: 2 } : ok());
+  if (path === "/api/notifications/pushers" && method === "DELETE") {
+    return json(request, { deleted: true });
+  }
+
+  if (method === "GET" && path === "/api/notifications/unread/count") {
+    const count = ["notif-story", "notif-1"].filter(
+      (id) => !readNotifications.has(id) && !archivedNotifications.has(id),
+    ).length;
+    return json(request, { count });
+  }
+  if (method === "POST" && path === "/api/notifications/archive/all") {
+    let archivedCount = 0;
+    for (const id of ["notif-story", "notif-1", "notif-2"]) {
+      if (!archivedNotifications.has(id)) archivedCount += 1;
+      archivedNotifications.add(id);
+    }
+    return json(request, { archived_count: archivedCount });
+  }
+  if (
+    (method === "POST" || method === "DELETE") &&
+    path === "/api/notifications/archive"
+  ) {
+    const body = await readJson(request);
+    const ids = Array.isArray(body.ids) ? body.ids.map(String) : [];
+    for (const id of ids) {
+      if (method === "POST") archivedNotifications.add(id);
+      else archivedNotifications.delete(id);
+    }
+    return json(request, ok());
   }
   if (method === "POST" && path === "/api/notifications/read") {
+    const body = await readJson(request);
+    const ids = Array.isArray(body.ids)
+      ? body.ids.map(String)
+      : ["notif-story", "notif-1"];
+    for (const id of ids) readNotifications.add(id);
     return json(request, ok());
   }
   if (method === "GET" && path === "/api/notifications") {
-    return json(request, notificationsResponse());
+    return json(request, notificationsResponse(url));
   }
   if (method === "GET" && path === "/api/recommendations/users") {
     return json(request, {
@@ -1354,6 +1552,7 @@ async function runSelfTest(): Promise<void> {
   signedIn = true;
 
   const checks: Array<[string, string, number]> = [
+    ["GET", "/healthz", 200],
     ["GET", "/.well-known/social-server", 200],
     ["GET", "/api/auth/me", 200],
     ["GET", "/api/timeline", 200],
@@ -1374,6 +1573,71 @@ async function runSelfTest(): Promise<void> {
       );
     }
     await response.text();
+  }
+
+  const registerResponse = await handleRequest(
+    new Request("http://mock.local/api/notifications/pushers", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        product: "yurucommu",
+        pusher: {
+          kind: "http",
+          app_id: "yurucommu.mock",
+          pushkey: "mock-pushkey",
+          data: {
+            url: "https://push.example.test/_matrix/push/v1/notify",
+            format: "event_id_only",
+          },
+        },
+      }),
+    }),
+  );
+  if (registerResponse.status !== 200) {
+    throw new Error(
+      `POST /api/notifications/pushers returned ${registerResponse.status}; expected 200`,
+    );
+  }
+  const registered = (await registerResponse.json()) as {
+    pusher?: { product?: string; app_id?: string };
+  };
+  if (
+    registered.pusher?.product !== "yurucommu" ||
+    registered.pusher.app_id !== "yurucommu.mock"
+  ) {
+    throw new Error("notification pusher registration response is invalid");
+  }
+  const unregisterResponse = await handleRequest(
+    new Request("http://mock.local/api/notifications/pushers", {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        product: "yurucommu",
+        app_id: "yurucommu.mock",
+        pushkey: "mock-pushkey",
+      }),
+    }),
+  );
+  if (unregisterResponse.status !== 200) {
+    throw new Error(
+      `DELETE /api/notifications/pushers returned ${unregisterResponse.status}; expected 200`,
+    );
+  }
+
+  const notificationResponse = await handleRequest(
+    new Request("http://mock.local/api/notifications"),
+  );
+  const notificationBody = (await notificationResponse.json()) as {
+    notifications?: Array<{ target_kind?: string; target_url?: string }>;
+  };
+  if (
+    !notificationBody.notifications?.some(
+      (notification) =>
+        notification.target_kind === "story" &&
+        notification.target_url?.startsWith("/?story="),
+    )
+  ) {
+    throw new Error("story notification target is missing from mock API");
   }
 
   signedIn = previousSignedIn;

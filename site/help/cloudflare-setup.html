@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Cloudflare設定 - Yurucommu</title>
+    <title>Cloudflare設定 - yurucommu</title>
     <meta
       name="description"
       content="Cloudflare Workers、D1、R2のセットアップ方法"
@@ -26,7 +26,7 @@
   <body>
     <header class="header">
       <div class="header-inner">
-        <a href="/" class="logo">Yurucommu</a>
+        <a href="/" class="logo">yurucommu</a>
         <div class="header-links">
           <a href="/help/" class="header-link active">Docs</a>
           <a href="/specs/" class="header-link">Specs</a>
@@ -109,17 +109,16 @@
           <li>メール認証を完了</li>
         </ol>
 
-        <h2>Cloudflare resources</h2>
+        <h2>Cloudflareリソース</h2>
         <p>
-          Yurucommu の production resource は Takosumi で Capsule を install
-          して 作成します。D1、R2、KV、Queue、route、Worker binding は generated
-          root の Plan で確認し、reviewed Plan を Apply
-          すると、StateVersion・Output・ AuditEvent に記録されます。手動で
-          <code>wrangler.toml</code> に resource ID を貼り付ける導線は product
-          install path ではありません。
+          Cloudflareへ直接デプロイする場合は<code>wrangler.jsonc</code>を使います。
+          DeployボタンではD1・R2・KV・Queue・Workerが自動でprovisionされます。
+          CLIではD1と2つのQueueを初回に作成し、KVとR2はWranglerの初回deployで
+          provisionします。Takosumi経路では同じresourceをOpenTofuのPlan /
+          Applyで作成し、 StateVersion・Output・AuditEventにも記録します。
         </p>
 
-        <h3>Plan で確認する binding</h3>
+        <h3>共通のbinding</h3>
         <pre><code>D1: DB
 R2: MEDIA
 KV: KV
@@ -127,43 +126,40 @@ Queue producer: DELIVERY_QUEUE
 Dead letter queue: DELIVERY_DLQ
 Worker entrypoint: dist/yurucommu-worker.js</code></pre>
 
-        <h3>ProviderConnection</h3>
+        <h3>クラウド接続（ProviderConnection）</h3>
         <p>
-          Cloudflare credential は Project に登録した Capsule の cloudflare
-          provider に、どの ProviderConnection を使うかを ProviderBinding で
-          指定して解決します。cloudflare provider はその ProviderConnection を
-          使って Cloudflare へ直接アクセスします。broad Cloudflare token を CI
-          secret に置いて直接 deploy する必要はありません。
+          直接経路は<code>wrangler login</code>またはCloudflare API
+          tokenを使います。 Takosumi経路はcloudflare
+          providerに使うProviderConnectionを
+          ProviderBindingで指定します。どちらの経路でもsecret値をrepoへcommitしません。
         </p>
 
         <h2>トラブルシューティング</h2>
 
         <h3>「認証エラー」が出る場合</h3>
         <p>
-          ProviderConnection の status、cloudflare provider に紐づく
-          ProviderBinding の設定、および Takosumi が Capsule を Git から読み、
-          検証して Plan を作成する際の provider 関連メッセージを確認します。
+          直接経路は<code>bunx wrangler whoami</code>、Takosumi経路は
+          ProviderConnectionとProviderBindingの状態を確認します。
         </p>
 
         <h3>D1のクエリを確認したい場合</h3>
         <p>
-          operator/debug 権限で provider console または Takosumi の Apply Run
-          evidence から 対象の StateVersion・Output に記録された D1 binding を
-          確認します。一般ユーザー向け install docs では direct provider CLI を
-          正本にしません。
+          直接経路はCloudflare dashboardまたはWrangler、Takosumi経路はApply
+          Runの Outputとoperator側の証跡から<code>DB</code>
+          bindingを確認します。
         </p>
 
         <h3>R2の内容を確認したい場合</h3>
         <p>
-          Apply Run の StateVersion・Output と operator observability で対象
-          bucket を確認します。
+          直接経路はCloudflare dashboard、Takosumi経路はApply
+          Runの記録とoperator側の監視で確認します。
         </p>
       </main>
     </div>
 
     <footer class="footer">
       <div class="footer-inner">
-        <div class="footer-logo">Yurucommu</div>
+        <div class="footer-logo">yurucommu</div>
         <div class="footer-links">
           <a href="/" class="footer-link">ホーム</a>
           <a href="/help/" class="footer-link">Docs</a>
@@ -172,7 +168,7 @@ Worker entrypoint: dist/yurucommu-worker.js</code></pre>
             >GitHub</a
           >
         </div>
-        <p class="footer-copy">&copy; 2026 Yurucommu. GPL v3.</p>
+        <p class="footer-copy">&copy; 2026 yurucommu. AGPL-3.0-only.</p>
       </div>
     </footer>
   </body>

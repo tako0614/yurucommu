@@ -3,8 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>クイックスタート - Yurucommu</title>
-    <meta name="description" content="Yurucommuを5分でセットアップする手順" />
+    <title>クイックスタート - yurucommu</title>
+    <meta name="description" content="yurucommuを5分でセットアップする手順" />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="yurucommu" />
     <meta property="og:image" content="https://yurucommu.com/img/og.png" />
@@ -23,7 +23,7 @@
   <body>
     <header class="header">
       <div class="header-inner">
-        <a href="/" class="logo">Yurucommu</a>
+        <a href="/" class="logo">yurucommu</a>
         <div class="header-links">
           <a href="/help/" class="header-link active">Docs</a>
           <a href="/specs/" class="header-link">Specs</a>
@@ -91,7 +91,7 @@
       <main class="docs-content">
         <h1>クイックスタート</h1>
         <p class="lead">
-          5分でYurucommuをセットアップしてデプロイする手順です。
+          5分でyurucommuをセットアップしてデプロイする手順です。
         </p>
 
         <h2>前提条件</h2>
@@ -103,53 +103,59 @@
 
         <h2>デプロイ方法を選ぶ</h2>
         <p>
-          yurucommu は Git URL / ref / module path で指定できる OpenTofu Capsule
-          です。本番導入は Takosumi が Capsule を Git から読み、検証して Plan
-          を作成し、レビューしたうえで Apply する流れで行います。手元で
-          動作を確認したい場合は、下の「ローカルで確認する」手順を使います。
+          Cloudflareへ直接デプロイする経路と、TakosumiがOpenTofu Capsuleとして
+          Plan / Applyする管理付き経路があります。どちらも同じfullstack Workerと
+          D1 migrationを使います。
         </p>
         <p><a href="/help/deployment.html">デプロイガイドを開く</a></p>
 
         <h2>ローカルで確認する</h2>
         <p>まずリポジトリをクローンして、ローカルで Worker を起動します：</p>
         <pre><code>git clone https://github.com/tako0614/yurucommu.git
-	cd yurucommu
-	bun install
-	bun run dev</code></pre>
+cd yurucommu
+bun install
+bun run dev</code></pre>
         <p>
-          Worker を直接確認する場合は
-          <code>bunx wrangler dev --config wrangler.local.toml</code>
-          を使います。開発時の基本タスクは <code>bun run build</code>、<code
+          Worker bundleを確認する場合は<code>bun run build:worker</code
+          >を使います。 開発時の基本タスクは <code>bun run build</code>、<code
             >bun run build:worker</code
           >、<code>bun run db:generate</code> です。
         </p>
 
-        <h2>本番導入（Takosumi で install）</h2>
+        <h2>本番導入</h2>
+        <h3>Cloudflareへ直接</h3>
         <p>
-          本番は Takosumi の Capsule install フローで導入します。yurucommu は
-          plain OpenTofu Capsule として扱われ、専用 manifest は不要です。
+          Deployボタン、または初回resourceとsecretを設定したCLIから
+          <code>bun run deploy</code>を実行します。詳細は
+          <a href="/help/deployment.html">デプロイガイド</a>を参照してください。
         </p>
 
-        <h3>Step 1: Source を登録</h3>
+        <h3>Takosumiでインストール</h3>
         <p>
-          Git URL / ref / module path で Source を Project
-          に登録します。Takosumi が Capsule を Git から読み、検証して Plan
-          を作成します。
+          本番導入は
+          Takosumi（Git上のコードを読み取ってCloudflareに配置してくれる管理ツール）から行います。yurucommu
+          は通常のOpenTofuモジュールとして扱われ、専用の設定ファイルは不要です。
         </p>
 
-        <h3>Step 2: ProviderBinding と変数を確認</h3>
+        <h4>Step 1: リポジトリを登録</h4>
         <p>
-          D1 / R2 / KV / Queue / route は generated root
-          が作成します。cloudflare provider などにどの ProviderConnection
-          を使うかは ProviderBinding で指定し、必要な変数・secret を確認します。
+          yurucommuのGit URL・ブランチ・パスを登録すると、Takosumi
+          がコードを読み込んで内容を検証し、変更内容を作成します。
         </p>
 
-        <h3>Step 3: Plan / レビュー / Apply</h3>
+        <h4>Step 2: 接続と変数を確認</h4>
         <p>
-          レビューした Plan を承認して Apply すると、Worker / D1 / R2 / KV /
-          Queue が materialize され、StateVersion・Output・AuditEvent に public
-          URL と launcher metadata が記録されます。ロールバックは過去の
-          StateVersion を選んで通常の Plan -> Apply フローで行います。
+          D1・R2・KV・Queue・ドメインの割り当ては自動で作成されます。使う
+          Cloudflareアカウントの接続設定と、必要な環境変数・secret
+          を確認します。
+        </p>
+
+        <h4>Step 3: レビューして適用</h4>
+        <p>
+          作成された変更内容をレビューして承認すると、Worker・D1・R2・KV・Queue
+          が作成され、公開URLが発行されます。変更は履歴に残るので、問題が
+          起きた場合は以前の状態に戻すこともできます。詳しい仕組みは
+          <a href="/help/deployment.html">デプロイガイド</a>を参照してください。
         </p>
 
         <h2>初期設定</h2>
@@ -177,7 +183,7 @@
 
     <footer class="footer">
       <div class="footer-inner">
-        <div class="footer-logo">Yurucommu</div>
+        <div class="footer-logo">yurucommu</div>
         <div class="footer-links">
           <a href="/" class="footer-link">ホーム</a>
           <a href="/help/" class="footer-link">Docs</a>
@@ -186,7 +192,7 @@
             >GitHub</a
           >
         </div>
-        <p class="footer-copy">&copy; 2026 Yurucommu. GPL v3.</p>
+        <p class="footer-copy">&copy; 2026 yurucommu. AGPL-3.0-only.</p>
       </div>
     </footer>
   </body>

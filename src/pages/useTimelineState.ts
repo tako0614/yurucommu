@@ -17,10 +17,12 @@ import {
   storiesLoadingAtom,
   storyViewerActorIndexAtom,
   timelineHasMoreAtom,
+  timelineLoadedAtAtom,
   timelineLoadErrorAtom,
   timelineLoadingAtom,
   timelineLoadingMoreAtom,
   timelinePostsAtom,
+  timelineScrollTopAtom,
 } from "../atoms/timeline.ts";
 import { toggleBookmark, toggleLike, toggleRepost } from "../atoms/posts.ts";
 import { deletePost, editPost } from "../lib/api/posts.ts";
@@ -73,6 +75,12 @@ export function useTimelineState() {
   const checkNewPosts = useSetAtom(checkNewPostsAtom);
   const applyNewPosts = useSetAtom(applyNewPostsAtom);
 
+  // Freshness window inside which a home re-mount reuses the in-memory feed
+  // instead of resetting it to page 1 (the 30s head poll keeps it current).
+  const TIMELINE_FRESH_MS = 60_000;
+  const timelineLoadedAt = useAtomValue(timelineLoadedAtAtom);
+  const [savedScrollTop, setSavedScrollTop] = useAtom(timelineScrollTopAtom);
+
   // Initial load. The unified home defaults to PERSONAL scope ("everything you
   // can see") and `inhabitedScopeAtom` is NOT persisted — it resets to personal
   // on every load — so the first timeline/story fetch never depends on a
@@ -82,10 +90,36 @@ export function useTimelineState() {
   // it, deduped) to populate the community filter picker, and since it only
   // reconciles personal -> personal on cold load, the deferred scope-change
   // effect below never refires (no double-fetch).
+  //
+  // Re-mounts (back from a post detail / profile) previously ALWAYS refetched,
+  // which replaced the loaded pages with page 1 and snapped the reader to the
+  // top. When the in-memory feed is still fresh, skip the refetch and restore
+  // the saved scroll offset instead; the atoms already hold the posts.
   onMount(() => {
     void hydrateScope();
-    loadTimeline();
+    const loadedAt = timelineLoadedAt();
+    const feedIsFresh =
+      posts().length > 0 &&
+      loadedAt !== null &&
+      Date.now() - loadedAt < TIMELINE_FRESH_MS;
+    if (feedIsFresh) {
+      const offset = savedScrollTop();
+      if (offset > 0) {
+        // After the current render commits (the <For> list is synchronous, so
+        // the content height is already there; images may still stream in).
+        requestAnimationFrame(() => {
+          if (scrollContainerRef) scrollContainerRef.scrollTop = offset;
+        });
+      }
+    } else {
+      loadTimeline();
+    }
     loadStories();
+  });
+
+  // Preserve the reading position across unmounts (route round trips).
+  onCleanup(() => {
+    if (scrollContainerRef) setSavedScrollTop(scrollContainerRef.scrollTop);
   });
 
   // Reactively reload when the inhabited scope changes (personal <-> a
@@ -101,6 +135,9 @@ export function useTimelineState() {
       () => scopeQuery()?.community ?? "",
       () => {
         setPosts([]);
+        // The saved reading position belongs to the PREVIOUS scope's feed; a
+        // later re-mount must not restore it into this one.
+        setSavedScrollTop(0);
         loadTimeline();
         // The StoryBar is scope-filtered too (loadStoriesAtom reads the same
         // scope): clear the stale group list and show the skeleton while the
@@ -348,6 +385,7 @@ export function useTimelineState() {
     showStoryViewer,
     setShowStoryViewer,
     storyViewerActorIndex,
+    setStoryViewerActorIndex,
     showStoryComposer,
     setShowStoryComposer,
     handleStoryClick,

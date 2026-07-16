@@ -2,7 +2,7 @@ import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import { useNavigate } from "@solidjs/router";
 import { useSetAtom } from "solid-jotai";
-import { Notification } from "../types/index.ts";
+import type { Notification } from "../types/index.ts";
 import { refreshNotificationUnreadAtom } from "../atoms/notifications.ts";
 import {
   acceptFollowRequest,
@@ -112,6 +112,33 @@ const FollowRequestIcon = () => (
 
 type FilterType = "all" | "follow" | "like" | "announce" | "mention" | "reply";
 
+// Source-compatible with the currently published SDK while the richer target
+// fields roll out. Older servers omit them and use the type-based fallback.
+type NotificationTarget = Notification & {
+  target_url?: string | null;
+  target_kind?: "post" | "story" | "profile" | "community" | "notifications";
+};
+
+function targetsStory(notification: Notification): boolean {
+  return (
+    (notification as NotificationTarget).target_kind === "story" ||
+    !!notification.object_ap_id?.includes("/ap/stories/")
+  );
+}
+
+function safeNotificationPath(value: string | null | undefined): string | null {
+  if (
+    !value ||
+    !value.startsWith("/") ||
+    value.startsWith("//") ||
+    value.includes("\\") ||
+    /[\u0000-\u001f]/.test(value)
+  ) {
+    return null;
+  }
+  return value;
+}
+
 export function NotificationPage() {
   const { t, language } = useI18n();
   const navigate = useNavigate();
@@ -131,12 +158,15 @@ export function NotificationPage() {
   const [archivingAll, setArchivingAll] = createSignal(false);
   // Per-row in-flight guard for archive/unarchive.
   const [archiving, setArchiving] = createSignal<Record<string, boolean>>({});
+  const archiveMutationPending = () =>
+    archivingAll() || Object.values(archiving()).some(Boolean);
   // Bumping this re-runs the load effect for the current filter (retry).
   const [reloadKey, setReloadKey] = createSignal(0);
   // Whether an OLDER page exists past the last notification shown. Seeded from
   // the initial load + each load-older fetch, NOT from the in-place refresh
   // (which re-reads the newest page).
   const [hasMoreOlder, setHasMoreOlder] = createSignal(false);
+  const [nextCursor, setNextCursor] = createSignal<string | null>(null);
   const [loadingOlder, setLoadingOlder] = createSignal(false);
 
   createEffect(() => {
@@ -146,6 +176,7 @@ export function NotificationPage() {
 
     setNotifications([]);
     setHasMoreOlder(false);
+    setNextCursor(null);
     setLoadError(null);
     setLoading(true);
 
@@ -153,13 +184,18 @@ export function NotificationPage() {
 
     const loadNotifications = async () => {
       try {
-        const { notifications: data, hasMore } = await fetchNotifications({
+        const {
+          notifications: data,
+          hasMore,
+          nextCursor: pageCursor,
+        } = await fetchNotifications({
           type: currentFilter === "all" ? undefined : currentFilter,
           archived,
         });
         if (cancelled) return;
         setNotifications(data);
         setHasMoreOlder(hasMore);
+        setNextCursor(pageCursor);
 
         // Archived notifications are read-only history — never mark-read here.
         // Mark unread as read — in its OWN try/catch so a failed mark-read POST
@@ -207,7 +243,7 @@ export function NotificationPage() {
   // Optimistically drop the row from the current view; on failure reload to
   // restore the true state and surface an inline error.
   const handleArchiveToggle = async (notification: Notification) => {
-    if (archiving()[notification.id]) return;
+    if (archivingAll() || archiving()[notification.id]) return;
     const wasArchived = viewArchived();
     setArchiving((p) => ({ ...p, [notification.id]: true }));
     setNotifications((prev) => prev.filter((n) => n.id !== notification.id));
@@ -219,6 +255,9 @@ export function NotificationPage() {
       }
       // Re-sync the badge: archiving an unread item lowers the count.
       void refreshUnread();
+      // Invalidate any focus refresh/load-older result that raced the write and
+      // reload whichever inbox/archive view is current when it completes.
+      retryLoad();
     } catch (e) {
       console.error("Failed to (un)archive notification:", e);
       setError(
@@ -239,13 +278,19 @@ export function NotificationPage() {
   };
 
   const handleArchiveAll = async () => {
-    if (archivingAll() || notifications().length === 0) return;
+    if (
+      archiveMutationPending() ||
+      viewArchived() ||
+      filter() !== "all" ||
+      notifications().length === 0
+    ) {
+      return;
+    }
     setArchivingAll(true);
     try {
       await archiveAllNotifications();
-      setNotifications([]);
-      setHasMoreOlder(false);
       void refreshUnread();
+      retryLoad();
     } catch (e) {
       console.error("Failed to archive all notifications:", e);
       setError(t("notifications.archiveAllFailed"));
@@ -255,22 +300,12 @@ export function NotificationPage() {
     }
   };
 
-  // Append the page of notifications OLDER than the last one shown. The list is
-  // newest-first, so the oldest is the final element and older items are
-  // appended. The cursor is a composite of (created_at, id) — `id` is the
-  // activity ap_id, unique within the inbox — joined with a NUL separator
-  // matching the backend's keyset cursor. A bare created_at cursor would skip
-  // same-millisecond notifications straddling the page boundary. Respects the
-  // active type filter.
+  // Append the next server page. Treat next_cursor as opaque: the backend owns
+  // its keyset encoding, so the UI never has to reconstruct it from row data.
   const loadOlder = async () => {
-    if (loadingOlder()) return;
-    const current = notifications();
-    if (current.length === 0) return;
-    const oldest = current[current.length - 1];
-    if (!oldest.created_at) return;
-    const before = oldest.id
-      ? `${oldest.created_at}\u0000${oldest.id}`
-      : oldest.created_at;
+    if (loadingOlder() || archiveMutationPending()) return;
+    const before = nextCursor();
+    if (!before) return;
     const currentFilter = filter();
     const archived = viewArchived();
     // Capture the reload generation: a retryLoad()/filter reset mid-flight
@@ -280,7 +315,11 @@ export function NotificationPage() {
     const key = reloadKey();
     setLoadingOlder(true);
     try {
-      const { notifications: older, hasMore } = await fetchNotifications({
+      const {
+        notifications: older,
+        hasMore,
+        nextCursor: pageCursor,
+      } = await fetchNotifications({
         type: currentFilter === "all" ? undefined : currentFilter,
         before,
         archived,
@@ -297,6 +336,33 @@ export function NotificationPage() {
         return fresh.length > 0 ? [...prev, ...fresh] : prev;
       });
       setHasMoreOlder(hasMore);
+      setNextCursor(pageCursor);
+
+      // Loading an older page is still viewing it. Mark just those newly
+      // exposed rows read and then re-sync the global badge; otherwise an old
+      // unread row can remain counted forever while visibly open on this page.
+      const unread = archived ? [] : older.filter((n) => !n.read);
+      if (unread.length > 0) {
+        try {
+          const ids = unread.map((n) => n.id);
+          await markNotificationsRead(ids);
+          if (
+            filter() === currentFilter &&
+            viewArchived() === archived &&
+            reloadKey() === key
+          ) {
+            const marked = new Set(ids);
+            setNotifications((prev) =>
+              prev.map((n) =>
+                !n.read && marked.has(n.id) ? { ...n, read: true } : n,
+              ),
+            );
+            void refreshUnread();
+          }
+        } catch (markErr) {
+          console.error("Failed to mark older notifications read:", markErr);
+        }
+      }
     } catch (e) {
       console.error("Failed to load older notifications:", e);
       // Surface via the dismissible banner (not the full-page retry) so the
@@ -392,7 +458,7 @@ export function NotificationPage() {
     notification: Notification,
     action: "accept" | "reject",
   ) => {
-    if (pendingAction()[notification.id]) return;
+    if (viewArchived() || pendingAction()[notification.id]) return;
     setPendingAction((prev) => ({ ...prev, [notification.id]: true }));
     try {
       if (action === "accept") {
@@ -401,6 +467,7 @@ export function NotificationPage() {
         await rejectFollowRequest(notification.actor.ap_id);
       }
       setNotifications((prev) => prev.filter((n) => n.id !== notification.id));
+      void refreshUnread();
     } catch (e) {
       console.error("Failed to handle follow request:", e);
       setError(t("common.error"));
@@ -413,6 +480,14 @@ export function NotificationPage() {
   // attached to it: post-shaped events open the related post, while
   // follow-shaped events open the actor's profile.
   const notificationTarget = (notification: Notification): string | null => {
+    const declaredTarget = safeNotificationPath(
+      (notification as NotificationTarget).target_url,
+    );
+    if (declaredTarget) return declaredTarget;
+    if (targetsStory(notification) && notification.object_ap_id) {
+      return `/?story=${encodeURIComponent(notification.object_ap_id)}`;
+    }
+
     switch (notification.type) {
       case "like":
       case "announce":
@@ -456,7 +531,11 @@ export function NotificationPage() {
         return (
           <>
             <span class="font-bold text-white">{actorName}</span>
-            {t("notifications.like")}
+            {t(
+              targetsStory(notification)
+                ? "notifications.likeStory"
+                : "notifications.like",
+            )}
           </>
         );
       case "announce":
@@ -586,7 +665,7 @@ export function NotificationPage() {
             >
               <button
                 onClick={handleArchiveAll}
-                disabled={archivingAll()}
+                disabled={archiveMutationPending()}
                 class="px-3 py-1.5 text-sm text-neutral-300 rounded-full hover:bg-neutral-800 transition-colors disabled:opacity-50"
               >
                 {t("notifications.archiveAll")}
@@ -594,8 +673,9 @@ export function NotificationPage() {
             </Show>
             <button
               onClick={() => setViewArchived((v) => !v)}
+              disabled={archiveMutationPending()}
               aria-pressed={viewArchived()}
-              class={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-full transition-colors ${
+              class={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-full transition-colors disabled:opacity-50 ${
                 viewArchived()
                   ? "bg-neutral-800 text-white"
                   : "text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200"
@@ -616,6 +696,7 @@ export function NotificationPage() {
           aria-label={t("notifications.title")}
           class="flex overflow-x-auto scrollbar-hide border-t border-neutral-900"
           onKeyDown={(e) => {
+            if (archiveMutationPending()) return;
             const cur = filterTabs.findIndex((tb) => tb.key === filter());
             handleTablistKeydown(e, filterTabs.length, cur < 0 ? 0 : cur, (i) =>
               setFilter(filterTabs[i].key),
@@ -628,6 +709,7 @@ export function NotificationPage() {
                 role="tab"
                 aria-selected={filter() === tab.key}
                 tabindex={filter() === tab.key ? 0 : -1}
+                disabled={archiveMutationPending()}
                 onClick={() => setFilter(tab.key)}
                 class={`flex items-center gap-1.5 px-4 py-2.5 text-sm whitespace-nowrap transition-colors border-b-2 ${
                   filter() === tab.key
@@ -697,6 +779,15 @@ export function NotificationPage() {
                         onClick={
                           target
                             ? (e: MouseEvent) => {
+                                if (
+                                  e.button !== 0 ||
+                                  e.metaKey ||
+                                  e.ctrlKey ||
+                                  e.shiftKey ||
+                                  e.altKey
+                                ) {
+                                  return;
+                                }
                                 e.preventDefault();
                                 handleRowActivate(notification);
                               }
@@ -730,7 +821,12 @@ export function NotificationPage() {
                           </p>
                         </div>
                       </Dynamic>
-                      <Show when={notification.type === "follow_request"}>
+                      <Show
+                        when={
+                          !viewArchived() &&
+                          notification.type === "follow_request"
+                        }
+                      >
                         <div class="flex gap-2 shrink-0 self-center">
                           <button
                             onClick={() =>
@@ -777,7 +873,7 @@ export function NotificationPage() {
                 <div class="flex justify-center py-4">
                   <button
                     onClick={loadOlder}
-                    disabled={loadingOlder()}
+                    disabled={loadingOlder() || archiveMutationPending()}
                     class="rounded-full bg-neutral-800 px-4 py-1.5 text-sm text-neutral-300 hover:bg-neutral-700 transition-colors disabled:opacity-50"
                   >
                     {loadingOlder()

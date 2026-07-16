@@ -9,6 +9,9 @@ interface StoryViewerActionBarProps {
   // `true` on success so the input can clear. When omitted (e.g. own story),
   // the reply input is hidden entirely.
   onReply?: (text: string) => Promise<boolean>;
+  // Fired when the reply input gains/loses focus so the viewer can pause
+  // playback while a draft is being typed (and bind the reply target).
+  onReplyFocusChange?: (focused: boolean) => void;
   onLike: () => void;
   onShare: () => void;
 }
@@ -45,6 +48,8 @@ export function StoryViewerActionBar(props: StoryViewerActionBarProps) {
             onClick={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.stopPropagation()}
             onTouchStart={(e) => e.stopPropagation()}
+            onFocus={() => props.onReplyFocusChange?.(true)}
+            onBlur={() => props.onReplyFocusChange?.(false)}
             onKeyDown={(e) => {
               e.stopPropagation();
               if (e.key === "Enter") {

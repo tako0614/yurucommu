@@ -70,7 +70,9 @@ test("release migrations come from the authoritative core package", () => {
   expect(migrationsDir).toContain(
     join("node_modules", "@takosjp", "yurucommu-core", "migrations"),
   );
-  expect(existsSync(join(migrationsDir, "0018_actor_notes.sql"))).toBe(true);
+  expect(
+    existsSync(join(migrationsDir, "0019_notification_push_delivery.sql")),
+  ).toBe(true);
 });
 
 test("migrations-only release can detect when dependency materialization is required", () => {
@@ -100,44 +102,4 @@ test("migrations-only release can detect when dependency materialization is requ
   ).toBe(true);
 
   expect(hasCoreMigrationsDir({})).toBe(true);
-});
-
-test("release config projects non-secret app_deployment env into worker vars", () => {
-  const config = releaseConfigFromOutputs(
-    {
-      worker_name: "yurucommu-demo",
-      launch_url: "https://demo.example.test",
-      cloudflare_d1_database_name: "demo-db",
-      cloudflare_d1_database_id: "db-id",
-      cloudflare_kv_namespace_id: "kv-id",
-      cloudflare_queue_names: {
-        delivery: "delivery",
-        delivery_dlq: "delivery-dlq",
-      },
-      app_deployment: {
-        env: {
-          PUBLIC_MODE: "demo",
-          FEATURE_FLAG: "enabled",
-          API_TOKEN: "must-not-leak",
-          badName: "ignored",
-        },
-      },
-    },
-    {},
-  );
-
-  expect(config.vars).toMatchObject({
-    APP_URL: "https://demo.example.test",
-    PUBLIC_MODE: "demo",
-    FEATURE_FLAG: "enabled",
-    DELIVERY_QUEUE_NAME: "delivery",
-    DELIVERY_DLQ_NAME: "delivery-dlq",
-  });
-  expect(config.vars.API_TOKEN).toBeUndefined();
-  expect(config.vars.badName).toBeUndefined();
-
-  const toml = buildWranglerToml(config);
-  expect(toml).toContain('PUBLIC_MODE = "demo"');
-  expect(toml).toContain('FEATURE_FLAG = "enabled"');
-  expect(toml).not.toContain("must-not-leak");
 });
