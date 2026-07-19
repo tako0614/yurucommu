@@ -80,6 +80,11 @@ hosted 環境からのインストールでは、Git release や CI artifact の
 OpenTofuはこのTakosumi管理経路でPlan・Apply・StateVersion・Output・Auditを扱うためのものです。
 Cloudflareへ直接デプロイするだけならOpenTofuは必要ありません。
 
+[`install-options.json`](install-options.json) は、現在実行可能な Cloudflare OpenTofu module を選ぶための任意の
+`CapsuleSourceOptions` 表示ドキュメントです。Takosumi 専用 manifest ではなく、通常の Git URL + module path での
+直接インストールには不要です。この文書は、それを含む次の通常の安定版タグから利用できます。別クラウドの選択肢は、
+対応する実在 module を出荷したときだけ追加します。
+
 ## ブラウザ通知
 
 ブラウザ通知は設定画面から明示的に有効化します。ページを開いただけでは通知権限を要求しません。
