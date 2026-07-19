@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.1.1 - 2026-07-19
+
+- Publish the optional Capsule Source Options chooser for the existing
+  Cloudflare OpenTofu module.
+
 ## 2.1.0 - 2026-07-16
 
 - Add browser notification push registration and delivery support from `@takosjp/yurucommu-core` 3.1.
