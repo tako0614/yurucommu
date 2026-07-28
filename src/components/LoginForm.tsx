@@ -2,6 +2,7 @@ import { createSignal, For, onMount, Show } from "solid-js";
 import type { JSX } from "solid-js";
 import { apiFetch } from "../lib/api/fetch.ts";
 import {
+  claimTakosumiOidcAutoStart,
   shouldAutoStartTakosumiOidc,
   type AuthConfig,
   type OAuthProvider,
@@ -73,7 +74,7 @@ export function LoginForm(props: LoginFormProps) {
         return (await res.json()) as AuthConfig;
       })
       .then((data) => {
-        if (shouldAutoStartTakosumiOidc(data)) {
+        if (shouldAutoStartTakosumiOidc(data) && claimTakosumiOidcAutoStart()) {
           window.location.assign("/api/auth/login/takos");
           return;
         }

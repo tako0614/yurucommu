@@ -87,13 +87,17 @@
       <main class="docs-content">
         <h1>デプロイ</h1>
         <p class="lead">
-          Cloudflareへの直接デプロイと、Takosumiによる管理付きインストールの2つから選べます。
+          Cloudflare 直接経路と、operator が運用する Takosumi の plain OpenTofu
+          経路があります。Takosumi Cloud
+          の選択式インストールはまだ公開していません。
         </p>
 
-        <h2>Cloudflareへ直接デプロイ</h2>
+        <h2>Cloudflare 直接経路</h2>
         <p>
-          一番短い方法はCloudflareのdeploy画面を使うことです。D1、KV、R2、Queuesが
-          作成され、Workerにbindingされます。
+          設定正本は <code>wrangler.jsonc</code> です。D1・KV・R2・Queue と
+          secret を用意し、利用者または operator 自身の runbook、credential、
+          承認、migration、rollback policy で管理します。この self-host
+          deployment は公式 distribution の公開とは別です。
         </p>
         <p>
           <a
@@ -102,85 +106,82 @@
           >
         </p>
 
-        <h3>CLIからデプロイ</h3>
+        <h3>ローカルで候補を検証</h3>
         <pre><code>git clone https://github.com/tako0614/yurucommu.git
 cd yurucommu
 bun install
-bunx wrangler login
-bunx wrangler d1 create yurucommu-db
-bunx wrangler queues create yurucommu-delivery
-bunx wrangler queues create yurucommu-delivery-dlq
-bunx wrangler secret put ENCRYPTION_KEY
-bunx wrangler secret put AUTH_PASSWORD_HASH
-bun run deploy</code></pre>
+bun run check
+bun run test
+bun run build:worker</code></pre>
         <p>
-          <code>wrangler.jsonc</code
-          >が直接経路の正本です。KVとR2はWranglerが初回deploy時に
-          provisionします。<code>bun run deploy</code>はfullstack
-          Workerをビルドし、 <code>@takosjp/yurucommu-core</code>のD1
-          migrationを適用してから公開します。
+          ここで作る Worker bundle は self-host 用です。repository の task や
+          check は production mutation authority を与えません。
         </p>
 
-        <h2>Takosumiでインストール</h2>
+        <h2>operator 管理の Takosumi</h2>
         <p>
-          yurucommu は GitAddress の URL・ref・path で指定できる plain OpenTofu
-          module です。Takosumi はこれを OpenTofu Capsule（Takosumi
-          が管理する1つのインフラ単位）として扱います。Takosumi
-          では、取得元となる Source（Git URL・ref・パス）を Project
-          （ワークスペース内のグループ）に登録し、cloudflare provider
-          にどのクラウド接続（ProviderConnection）を使うかを
-          ProviderBinding（接続先の割り当て）で指定します。変更内容（Plan）
-          を作成してレビューしたうえで適用（Apply）すると、Worker / storage /
-          routing が作成されます。
+          yurucommu は Git URL・ブランチ・パスで指定できる、そのまま実行できる
+          OpenTofu module です。Takosumi はこれを OpenTofu Capsule（Takosumi
+          が管理する 1 つのインフラ単位）として扱います。Takosumi
+          では、取得元となる Source（Git
+          URL・ブランチ・パス）をワークスペース内の Project に登録し、Cloudflare
+          provider が使うクラウドアカウント接続（ProviderConnection）を
+          ProviderBinding（provider への接続の割り当て）で指定します。
+          変更内容（Plan）を作成してレビューしたうえで適用（Apply）すると、Worker・ストレージ・ルーティングが作成されます。
+        </p>
+        <p>
+          これは operator-reviewed な plain OpenTofu 経路です。Takosumi Cloud の
+          Store 候補は、portable provider/Form Package、migration
+          activation、rollback の実環境証跡が揃うまで selectable にしません。
         </p>
 
-        <h3>Source登録 / Plan / Apply</h3>
+        <h3>Source 登録 / Plan / Apply</h3>
         <p>
-          本番へのデプロイは Takosumi の実行記録（Run）として記録されます。
-          Source を Project に登録すると、Takosumi が Capsule を Git
-          から読み、検証して Plan を作成します。ProviderConnection を
+          本番へのデプロイは Takosumi の履歴（Run）として記録されます。 Source
+          を Project に登録すると、Takosumi が Capsule を Git から
+          読み込み、検証して Plan を作成します。ProviderConnection を
           ProviderBinding で指定し、変数・secret を入力したうえで Plan
           を作成します。レビューした Plan を承認して Apply
-          すると、復元ポイント（StateVersion）・実行結果（Output）・履歴
-          （AuditEvent）が記録されます。
+          すると、復元ポイント（StateVersion）・実行結果（Output）・履歴（AuditEvent）が記録されます。
         </p>
         <pre><code>GitAddress:
 url: https://github.com/tako0614/yurucommu.git
 ref: main
 path: .
-flow: Source 登録 -> Takosumi が Git から読み検証 -> Plan Run -> Apply Run -> StateVersion + Output</code></pre>
+flow: Source 登録 -> Takosumi が Git から読み込み・検証 -> Plan -> Apply -> 復元ポイント + 実行結果</code></pre>
 
-        <h2>2つの正本</h2>
+        <h2>2つの管理元</h2>
         <p>
-          Cloudflare直接経路は<code>wrangler.jsonc</code>、Takosumi管理経路は
-          <code>main.tf</code>と<code>outputs.tf</code>が正本です。どちらも同じ
-          <code>dist/yurucommu-worker.js</code>とcore migrationを使います。
+          Cloudflare 直接経路は <code>wrangler.jsonc</code>、Takosumi 管理経路は
+          <code>main.tf</code> と
+          <code>outputs.tf</code> が管理元です。どちらも同じ
+          <code>dist/yurucommu-worker.js</code> と core
+          マイグレーションを使います。
         </p>
         <p>
-          OpenTofuはTakosumiがPlan、Apply、state、output、auditを管理するために使います。
-          Cloudflareへ直接デプロイするだけならOpenTofuは必要ありません。
+          OpenTofu は Takosumi
+          が変更内容の確認・適用・状態・実行結果・履歴を管理するために使います。
+          Cloudflare へ直接デプロイするだけなら OpenTofu は必要ありません。
         </p>
 
         <h2>CI/CDパイプライン</h2>
         <p>
-          CIではbuild /
-          testとTakosumi用artifactを検証します。Cloudflare直接経路は
-          WranglerまたはWorkers Builds、管理付き経路はTakosumiのPlan /
-          Applyを使います。
+          CI ではビルド・テストと Takosumi
+          用のビルド成果物を検証します。Cloudflare 直接経路は Wrangler または
+          Workers Builds、管理付き経路は Takosumi の Plan / Apply を使います。
         </p>
 
         <h2>ロールバック</h2>
         <p>
-          Cloudflare直接経路ではWorkersのversion /
-          rollbackを使います。Takosumi経路では
-          過去のStateVersionとpin済みSourceを基にPlan / Applyします。
+          Cloudflare 直接経路では Workers の version / rollback
+          を使います。Takosumi 経路では
+          過去の復元ポイントと固定済みの取得元を基に Plan / Apply します。
         </p>
 
         <h2>ログの確認</h2>
         <p>
-          直接経路は<code>wrangler tail</code>とCloudflare
-          dashboard、Takosumi経路は Runログ、Activity、Apply
-          Runの証跡を確認します。
+          直接経路は <code>wrangler tail</code> と Cloudflare
+          dashboard、Takosumi 経路は実行ログと履歴を確認します。
         </p>
 
         <h2>よくあるエラー</h2>

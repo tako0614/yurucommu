@@ -2,12 +2,15 @@
 
 # Yurucommu
 
-Official feed / story / profile fullstack product for yurucommu.
+Yurucommu is a self-hostable community SNS with feeds, stories, and profiles.
+It supports ActivityPub — the shared protocol that lets decentralized social
+servers talk to each other — so your users can connect with people on other
+servers too.
 
-This repo owns the web UI, `yurucommu.com` site, Worker artifact, and plain
-OpenTofu Capsule. It embeds the shared ActivityPub / API engine from
-`@takosjp/yurucommu-core` and uses `@takosjp/yurucommu-api` for typed client
-calls.
+This repo is the official fullstack product. It owns the web UI,
+`yurucommu.com` site, Worker artifact, and plain OpenTofu Capsule. It embeds
+the shared ActivityPub / API engine from `@takosjp/yurucommu-core` and uses
+`@takosjp/yurucommu-api` for typed client calls.
 
 ## Develop
 
@@ -29,28 +32,28 @@ login screen.
 
 `site/` contains the public `yurucommu.com` brand/help/static namespace content.
 
-## Deploy
+## Installation and official distribution
 
 Yurucommu has two equal installation paths.
 
-### Deploy directly to Cloudflare
+### Self-host on Cloudflare
 
-Use [Deploy to Cloudflare](https://deploy.workers.cloudflare.com/?url=https://github.com/tako0614/yurucommu),
-or deploy from an authenticated CLI with the standard Wrangler configuration:
+This deployment is owned by the end user or their operator; it is not an
+official production target operated by us. `wrangler.jsonc` and the root
+OpenTofu module define the direct Cloudflare path, while credentials, approval,
+migrations, and recovery remain under that operator's runbook and authority.
+Neither a task nor this README grants production-mutation authority.
+
+When publishing the official distribution artifact, use only the Release
+the entrypoint owned by this repository; the shared rules live in `takos-control` (a working fixed
+adapter has been registered for `yurucommu-worker`:
 
 ```bash
-bunx wrangler d1 create yurucommu-db
-bunx wrangler queues create yurucommu-delivery
-bunx wrangler queues create yurucommu-delivery-dlq
-bunx wrangler secret put ENCRYPTION_KEY
-bunx wrangler secret put AUTH_PASSWORD_HASH
 bun run deploy
 ```
 
-`wrangler.jsonc` is the source of truth for direct deployment. `bun run deploy`
-builds the fullstack Worker, applies the shared core D1 migrations, and runs
-`wrangler deploy`. Wrangler provisions KV and R2 on the first deploy. The
-Deploy to Cloudflare flow also provisions D1, KV, R2, and Queues.
+`prepare` is read-only. If the adapter is unavailable, release remains
+fail-closed; do not fall back to a raw Worker deployment or migration.
 
 ### Install through Takosumi
 
@@ -76,6 +79,11 @@ with `bun run build:worker` for local/self-host applies.
 Hosted installs should pass `worker_bundle_url` + `worker_bundle_sha256` from a
 Git release or CI artifact. Do not commit `dist/yurucommu-worker.js` or other
 build outputs to the repository.
+
+Takosumi Cloud's selectable Store installation remains unpublished until the
+portable provider/Form Package, migration activation, and rollback gates have
+live evidence. Today, use the direct Cloudflare path or an operator-reviewed
+plain OpenTofu installation.
 
 OpenTofu belongs to this Takosumi-managed path because it adds Plan, Apply,
 StateVersion, Output, and Audit management. A direct Cloudflare deployment does

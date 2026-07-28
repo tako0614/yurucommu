@@ -103,9 +103,9 @@
 
         <h2>デプロイ方法を選ぶ</h2>
         <p>
-          Cloudflareへ直接デプロイする経路と、TakosumiがOpenTofu Capsuleとして
-          Plan / Applyする管理付き経路があります。どちらも同じfullstack Workerと
-          D1 migrationを使います。
+          Cloudflare へ直接デプロイする経路と、Takosumi
+          による管理付き経路があります。どちらも同じ fullstack Worker と D1
+          マイグレーションを使います。
         </p>
         <p><a href="/help/deployment.html">デプロイガイドを開く</a></p>
 
@@ -116,44 +116,46 @@ cd yurucommu
 bun install
 bun run dev</code></pre>
         <p>
-          Worker bundleを確認する場合は<code>bun run build:worker</code
-          >を使います。 開発時の基本タスクは <code>bun run build</code>、<code
-            >bun run build:worker</code
-          >、<code>bun run db:generate</code> です。
+          mock API も必要なら <code>bun run dev:mock</code> を使います。Worker
+          bundle は <code>bun run build:worker</code> で確認し、基本 gate は
+          <code>bun run check</code> と <code>bun run test</code> です。
         </p>
 
         <h2>本番導入</h2>
         <h3>Cloudflareへ直接</h3>
         <p>
-          Deployボタン、または初回resourceとsecretを設定したCLIから
-          <code>bun run deploy</code>を実行します。詳細は
+          これは利用者または operator が所有する self-host
+          経路です。credential・承認・migration・rollback は、その operator
+          自身の runbook と authority で管理します。公式 distribution artifact
+          の公開とは別です。詳細は
           <a href="/help/deployment.html">デプロイガイド</a>を参照してください。
         </p>
 
         <h3>Takosumiでインストール</h3>
         <p>
-          本番導入は
-          Takosumi（Git上のコードを読み取ってCloudflareに配置してくれる管理ツール）から行います。yurucommu
-          は通常のOpenTofuモジュールとして扱われ、専用の設定ファイルは不要です。
+          operator が運用する Takosumi では通常の OpenTofu module
+          として扱え、専用 manifest は不要です。Takosumi Cloud の選択式 Store
+          インストールは、provider・migration・rollback
+          の実環境証跡が揃うまで公開していません。
         </p>
 
         <h4>Step 1: リポジトリを登録</h4>
         <p>
-          yurucommuのGit URL・ブランチ・パスを登録すると、Takosumi
-          がコードを読み込んで内容を検証し、変更内容を作成します。
+          yurucommu の Git URL・ブランチ・パスを登録すると、Takosumi
+          がコードを読み込んで内容を検証し、変更内容（Plan）を作成します。
         </p>
 
         <h4>Step 2: 接続と変数を確認</h4>
         <p>
-          D1・R2・KV・Queue・ドメインの割り当ては自動で作成されます。使う
-          Cloudflareアカウントの接続設定と、必要な環境変数・secret
+          D1・R2・KV・Queue・ドメインの割り当ては Plan に含まれます。使う
+          Cloudflare アカウントの接続設定と、必要な環境変数・secret
           を確認します。
         </p>
 
         <h4>Step 3: レビューして適用</h4>
         <p>
           作成された変更内容をレビューして承認すると、Worker・D1・R2・KV・Queue
-          が作成され、公開URLが発行されます。変更は履歴に残るので、問題が
+          が作成され、公開 URL が発行されます。変更は履歴に残るので、問題が
           起きた場合は以前の状態に戻すこともできます。詳しい仕組みは
           <a href="/help/deployment.html">デプロイガイド</a>を参照してください。
         </p>

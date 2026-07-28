@@ -19,6 +19,7 @@ import { InlineErrorBanner } from "../components/InlineErrorBanner.tsx";
 import { SettingsAccountsSection } from "../components/settings/SettingsAccountsSection.tsx";
 import { SettingsAccountSection } from "../components/settings/SettingsAccountSection.tsx";
 import { SettingsModerationSection } from "../components/settings/SettingsModerationSection.tsx";
+import { SettingsFiltersSection } from "../components/settings/SettingsFiltersSection.tsx";
 import { SettingsDeleteSection } from "../components/settings/SettingsDeleteSection.tsx";
 import { SettingsUserList } from "../components/settings/SettingsUserList.tsx";
 import {
@@ -57,6 +58,7 @@ export function SettingsPage() {
     | "main"
     | "blocked"
     | "muted"
+    | "filters"
     | "delete"
     | "accounts"
     | "migration"
@@ -67,7 +69,11 @@ export function SettingsPage() {
   const isOwner = () => actor.role === "owner";
   const [blockedUsers, setBlockedUsers] = createSignal<Actor[]>([]);
   const [mutedUsers, setMutedUsers] = createSignal<Actor[]>([]);
-  const [loading, setLoading] = createSignal(false);
+  // Per-section loading flags: blocked/muted previously shared one signal, so
+  // a quick section switch let the other fetch's `finally` clear the flag
+  // early and flash the wrong ("no users") empty state.
+  const [loadingBlocked, setLoadingBlocked] = createSignal(false);
+  const [loadingMuted, setLoadingMuted] = createSignal(false);
   const [deleteConfirm, setDeleteConfirm] = createSignal("");
   // True while the irreversible delete request is in flight, to show progress
   // and prevent a double-submit.
@@ -100,7 +106,13 @@ export function SettingsPage() {
     usernamePattern.test(normalizedUsername());
   const [switching, setSwitching] = createSignal(false);
 
+  // Logout is confirm-gated (same ConfirmSheet + copy as the AppMenu logout):
+  // a single mis-tap in the settings list must not sign the user out.
+  const [confirmingLogout, setConfirmingLogout] = createSignal(false);
+  const [loggingOut, setLoggingOut] = createSignal(false);
   const handleLogout = async () => {
+    if (loggingOut()) return;
+    setLoggingOut(true);
     try {
       await clearYurucommuBrowserPushBeforeSignOut();
       await logoutRequest();
@@ -186,24 +198,24 @@ export function SettingsPage() {
     on(activeSection, (section) => {
       if (section === "blocked") {
         // Only show loading if no cached data
-        if (blockedUsers().length === 0) setLoading(true);
+        if (blockedUsers().length === 0) setLoadingBlocked(true);
         fetchBlockedUsers()
           .then(setBlockedUsers)
           .catch((err) => {
             console.error("Failed to load blocked users:", err);
             setError(t("common.error"));
           })
-          .finally(() => setLoading(false));
+          .finally(() => setLoadingBlocked(false));
       } else if (section === "muted") {
         // Only show loading if no cached data
-        if (mutedUsers().length === 0) setLoading(true);
+        if (mutedUsers().length === 0) setLoadingMuted(true);
         fetchMutedUsers()
           .then(setMutedUsers)
           .catch((err) => {
             console.error("Failed to load muted users:", err);
             setError(t("common.error"));
           })
-          .finally(() => setLoading(false));
+          .finally(() => setLoadingMuted(false));
       } else if (section === "accounts") {
         // Shared atom owns the fetch + loading/error state; this just triggers it.
         doLoadAccounts();
@@ -315,7 +327,7 @@ export function SettingsPage() {
           title={t("settings.blockedUsers")}
           emptyLabel={t("settings.noBlockedUsers")}
           actionLabel={t("settings.unblock")}
-          loading={loading()}
+          loading={loadingBlocked()}
           users={blockedUsers()}
           onBack={() => setActiveSection("main")}
           onAction={handleUnblock}
@@ -328,12 +340,16 @@ export function SettingsPage() {
           title={t("settings.mutedUsers")}
           emptyLabel={t("settings.noMutedUsers")}
           actionLabel={t("settings.unmute")}
-          loading={loading()}
+          loading={loadingMuted()}
           users={mutedUsers()}
           onBack={() => setActiveSection("main")}
           onAction={handleUnmute}
           t={t}
         />
+      </Show>
+
+      <Show when={activeSection() === "filters"}>
+        <SettingsFiltersSection onBack={() => setActiveSection("main")} t={t} />
       </Show>
 
       <Show when={activeSection() === "delete"}>
@@ -467,6 +483,14 @@ export function SettingsPage() {
               <span>{t("settings.mutedUsers")}</span>
               <ChevronRightIcon />
             </button>
+            <button
+              type="button"
+              onClick={() => setActiveSection("filters")}
+              class="w-full flex items-center justify-between px-4 py-3 hover:bg-neutral-900/50"
+            >
+              <span>{t("settings.filters")}</span>
+              <ChevronRightIcon />
+            </button>
           </div>
 
           {/* Account */}
@@ -509,7 +533,7 @@ export function SettingsPage() {
             </button>
             <button
               type="button"
-              onClick={handleLogout}
+              onClick={() => setConfirmingLogout(true)}
               class="w-full flex items-center justify-between px-4 py-3 hover:bg-neutral-900/50"
             >
               <span>{t("settings.logout")}</span>
@@ -554,6 +578,16 @@ export function SettingsPage() {
         destructive
         onConfirm={confirmDeleteAccount}
         onCancel={() => setConfirmingDeleteAccount(false)}
+      />
+      <ConfirmSheet
+        open={confirmingLogout()}
+        title={t("settings.logoutConfirmTitle")}
+        body={t("settings.logoutConfirmBody")}
+        confirmLabel={t("settings.logout")}
+        destructive
+        busy={loggingOut()}
+        onConfirm={handleLogout}
+        onCancel={() => setConfirmingLogout(false)}
       />
     </div>
   );

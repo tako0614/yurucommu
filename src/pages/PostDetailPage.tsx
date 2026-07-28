@@ -34,6 +34,7 @@ import {
   RepostIcon,
 } from "../components/icons/SocialIcons.tsx";
 import { InlineErrorBanner } from "../components/InlineErrorBanner.tsx";
+import { InlineErrorRetry } from "../components/InlineErrorRetry.tsx";
 import {
   mediaAttachmentUrl,
   MediaLightbox,
@@ -83,7 +84,7 @@ export function PostDetailPage() {
   const actor = useRequiredActor();
   const params = useParams();
   const navigate = useNavigate();
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const setToasts = useSetAtom(toastsAtom);
   const setTimelinePosts = useSetAtom(timelinePostsAtom);
   const setPendingNewPosts = useSetAtom(pendingNewPostsAtom);
@@ -106,11 +107,23 @@ export function PostDetailPage() {
   } | null>(null);
   const lightbox = useMediaLightbox();
 
+  // Load failure states, split by cause: a non-404 post-load failure renders a
+  // retry view (NOT the misleading "post not found" text — the post may exist
+  // fine), and a replies-only failure keeps the successfully fetched post
+  // visible with an inline retry for the replies (Promise.all would have
+  // discarded the post along with the failed replies).
+  const [loadFailed, setLoadFailed] = createSignal(false);
+  const [repliesFailed, setRepliesFailed] = createSignal(false);
+  // Bumping this re-runs the load effect for the current post (retry).
+  const [reloadKey, setReloadKey] = createSignal(0);
+  const retryLoad = () => setReloadKey((k) => k + 1);
+
   // Generation guard: a fast post→post navigation must not let a slow prior
   // load land its post/replies under the new post.
   let postLoadGen = 0;
   createEffect(() => {
     const postId = params.postId;
+    reloadKey();
     if (!postId) return;
 
     const gen = ++postLoadGen;
@@ -118,27 +131,34 @@ export function PostDetailPage() {
     setReplies([]);
     setReplyContent("");
     setError(null);
+    setLoadFailed(false);
+    setRepliesFailed(false);
     setLoading(true);
 
     const decodedPostId = decodeApIdParam(postId);
-    Promise.all([fetchPost(decodedPostId), fetchReplies(decodedPostId)])
-      .then(([postData, repliesData]) => {
+    Promise.allSettled([fetchPost(decodedPostId), fetchReplies(decodedPostId)])
+      .then(([postResult, repliesResult]) => {
         if (gen !== postLoadGen) return;
-        setPost(postData);
-        setReplies(repliesData.replies);
-        setRepliesCursor(repliesData.nextCursor);
-        setRepliesHasMore(repliesData.hasMore);
-      })
-      .catch((e) => {
-        if (gen !== postLoadGen) return;
-        console.error("Failed to load post:", e);
-        // A 404 is the expected "this post does not exist / was deleted" case;
-        // the inline not-found view below already says so, so don't also raise
-        // the generic red error banner (which invites a pointless retry). Only
-        // surface the banner for genuinely unexpected failures.
-        if (!(e instanceof ApiError && e.status === 404)) {
-          setError(t("common.error"));
+        if (postResult.status === "rejected") {
+          const e = postResult.reason;
+          console.error("Failed to load post:", e);
+          // A 404 is the expected "this post does not exist / was deleted"
+          // case; the inline not-found view below already says so. Any other
+          // failure gets the retry view instead.
+          if (!(e instanceof ApiError && e.status === 404)) {
+            setLoadFailed(true);
+          }
+          return;
         }
+        setPost(postResult.value);
+        if (repliesResult.status === "rejected") {
+          console.error("Failed to load replies:", repliesResult.reason);
+          setRepliesFailed(true);
+          return;
+        }
+        setReplies(repliesResult.value.replies);
+        setRepliesCursor(repliesResult.value.nextCursor);
+        setRepliesHasMore(repliesResult.value.hasMore);
       })
       .finally(() => {
         if (gen === postLoadGen) setLoading(false);
@@ -185,6 +205,16 @@ export function PostDetailPage() {
     (p.visibility === "public" || p.visibility === "unlisted") &&
     !p.community_ap_id;
 
+  // Mirror an interaction-state change onto the timeline's cached copy of the
+  // same post — the delete and reply-count paths already do this. Without it a
+  // like/repost/bookmark toggled here shows stale on navigating back within
+  // the feed's reuse window.
+  const syncTimelinePost = (apId: string, patch: (p: Post) => Post) => {
+    setTimelinePosts((prev) =>
+      prev.map((p) => (p.ap_id === apId ? patch(p) : p)),
+    );
+  };
+
   const handleRepost = async () => {
     const currentPost = post();
     if (!currentPost) return;
@@ -202,6 +232,11 @@ export function PostDetailPage() {
               }
             : null,
         );
+        syncTimelinePost(currentPost.ap_id, (p) => ({
+          ...p,
+          reposted: false,
+          announce_count: Math.max(0, p.announce_count - 1),
+        }));
       } else {
         await repostPost(currentPost.ap_id);
         setPost((prev) =>
@@ -213,6 +248,11 @@ export function PostDetailPage() {
               }
             : null,
         );
+        syncTimelinePost(currentPost.ap_id, (p) => ({
+          ...p,
+          reposted: true,
+          announce_count: p.announce_count + 1,
+        }));
       }
     } catch (e) {
       console.error("Failed to toggle repost:", e);
@@ -243,6 +283,11 @@ export function PostDetailPage() {
               : null,
           );
         }
+        syncTimelinePost(targetPost.ap_id, (p) => ({
+          ...p,
+          liked: false,
+          like_count: Math.max(0, p.like_count - 1),
+        }));
       } else {
         await likePost(targetPost.ap_id);
         if (isReply) {
@@ -260,6 +305,11 @@ export function PostDetailPage() {
               : null,
           );
         }
+        syncTimelinePost(targetPost.ap_id, (p) => ({
+          ...p,
+          liked: true,
+          like_count: p.like_count + 1,
+        }));
       }
     } catch (e) {
       console.error("Failed to toggle like:", e);
@@ -370,7 +420,13 @@ export function PostDetailPage() {
         const removed = pending.post.ap_id;
         setTimelinePosts((prev) => prev.filter((p) => p.ap_id !== removed));
         setPendingNewPosts((prev) => prev.filter((p) => p.ap_id !== removed));
-        navigate(-1);
+        // On a deep link / fresh tab there is no in-app history entry to go
+        // back to — navigate(-1) would bounce out of the app (or nowhere).
+        if (window.history.length > 1) {
+          navigate(-1);
+        } else {
+          navigate("/", { replace: true });
+        }
       }
     } catch (e) {
       console.error("Failed to delete:", e);
@@ -387,9 +443,17 @@ export function PostDetailPage() {
       if (currentPost.bookmarked) {
         await unbookmarkPost(currentPost.ap_id);
         setPost({ ...currentPost, bookmarked: false });
+        syncTimelinePost(currentPost.ap_id, (p) => ({
+          ...p,
+          bookmarked: false,
+        }));
       } else {
         await bookmarkPost(currentPost.ap_id);
         setPost({ ...currentPost, bookmarked: true });
+        syncTimelinePost(currentPost.ap_id, (p) => ({
+          ...p,
+          bookmarked: true,
+        }));
       }
     } catch (e) {
       console.error("Failed to toggle bookmark:", e);
@@ -423,7 +487,17 @@ export function PostDetailPage() {
         </div>
       </Show>
 
-      <Show when={!loading() && !post()}>
+      {/* Retry view for unexpected load failures — "post not found" is
+          reserved for the genuine 404 case below. */}
+      <Show when={!loading() && !post() && loadFailed()}>
+        <InlineErrorRetry
+          message={t("common.loadFailed")}
+          retryLabel={t("common.retry")}
+          onRetry={retryLoad}
+        />
+      </Show>
+
+      <Show when={!loading() && !post() && !loadFailed()}>
         <div class="p-8 text-center text-neutral-500">
           {t("posts.notFound")}
         </div>
@@ -528,10 +602,10 @@ export function PostDetailPage() {
               </div>
             </Show>
             <div class="text-neutral-500 text-sm mt-3 flex items-center gap-2">
-              <span>{formatDateTime(post()!.published)}</span>
+              <span>{formatDateTime(post()!.published, language())}</span>
               <PostVisibilityIndicator visibility={post()!.visibility} />
               <Show when={post()!.edited_at}>
-                <span title={formatDateTime(post()!.edited_at!)}>
+                <span title={formatDateTime(post()!.edited_at!, language())}>
                   {"·"} {t("posts.edited")}
                 </span>
               </Show>
@@ -682,13 +756,13 @@ export function PostDetailPage() {
                     </span>
                     <span class="text-neutral-500">·</span>
                     <span class="text-neutral-500 text-sm">
-                      {formatDateTime(reply.published)}
+                      {formatDateTime(reply.published, language())}
                     </span>
                     <PostVisibilityIndicator visibility={reply.visibility} />
                     <Show when={reply.edited_at}>
                       <span
                         class="text-neutral-500 text-sm"
-                        title={formatDateTime(reply.edited_at!)}
+                        title={formatDateTime(reply.edited_at!, language())}
                       >
                         {"·"} {t("posts.edited")}
                       </span>
@@ -781,7 +855,17 @@ export function PostDetailPage() {
             </div>
           </Show>
 
-          <Show when={replies().length === 0}>
+          {/* Replies failed but the post itself loaded: keep the post visible
+              and offer a retry instead of silently claiming "no replies". */}
+          <Show when={repliesFailed()}>
+            <InlineErrorRetry
+              message={t("common.loadFailed")}
+              retryLabel={t("common.retry")}
+              onRetry={retryLoad}
+            />
+          </Show>
+
+          <Show when={replies().length === 0 && !repliesFailed()}>
             <div class="p-8 text-center text-neutral-500">
               {t("postDetail.noReplies")}
             </div>

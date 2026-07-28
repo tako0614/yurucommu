@@ -5,9 +5,7 @@
   "type": "module",
   "private": true,
   "imports": {
-    "#test/assert": "./shims/std/assert.ts",
-    "#test/mock": "./shims/std/mock.ts",
-    "#test/time": "./shims/std/time.ts"
+    "#test/assert": "./shims/std/assert.ts"
   },
   "exports": {
     ".": "./public.ts",
@@ -18,18 +16,16 @@
     "dev:mock": "bun scripts/dev-mock.ts",
     "dev:mock:api": "bun scripts/dev-mock-server.ts",
     "dev:site": "bunx serve site",
-    "check": "tsc --noEmit",
-    "test": "bun test src/ scripts/release-version.test.ts scripts/takosumi-release.test.ts scripts/check-core-release.test.ts",
+    "check": "bun run fmt:check && bun run lint && bun run check:opentofu && bun run test && bun run build:worker",
+    "deploy": "bun scripts/deploy.mjs",
+    "test": "bun test src/ scripts/worker-entry-contract.test.ts scripts/product-identity-contract.test.ts scripts/release-version.test.ts scripts/takoform-capsule.test.ts scripts/takosumi-release.test.ts scripts/check-core-release.test.ts",
     "build": "bun run build:client",
     "build:client": "bunx vite build --config vite.config.ts",
     "build:worker": "bun scripts/build-yurucommu-worker.ts",
-    "deploy": "bun run deploy:cloudflare",
-    "deploy:cloudflare": "bun run build:worker && bun run db:migrate:cloudflare && bunx wrangler deploy",
-    "db:migrate:cloudflare": "bunx wrangler d1 migrations apply DB --remote",
     "check:core-release": "bun scripts/check-core-release.mjs",
-    "takosumi:release": "bun run check:core-release && bun scripts/takosumi-release.ts",
+    "check:opentofu": "tofu fmt -check -recursive && tofu init -backend=false -input=false -lockfile=readonly && tofu validate && tofu -chdir=deploy/takoform init -backend=false -input=false -lockfile=readonly && tofu -chdir=deploy/takoform validate",
     "smoke:postdeploy": "bun scripts/post-deploy-smoke.ts",
-    "lint": "bun run check",
+    "lint": "tsc --noEmit",
     "fmt": "bunx prettier --write index.html vite.config.ts public.ts plugin.ts src site shims scripts",
     "fmt:check": "bunx prettier --check index.html vite.config.ts public.ts plugin.ts src site shims scripts"
   },
@@ -57,8 +53,6 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260420.1",
-    "@tailwindcss/node": "^4.1.18",
-    "@tailwindcss/oxide": "^4.1.18",
     "@tailwindcss/vite": "^4.1.18",
     "@types/bun": "latest",
     "@types/node": "^22.0.0",

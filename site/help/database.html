@@ -611,26 +611,39 @@
         <h2>マイグレーション</h2>
         <p>
           マイグレーションファイルは
-          <code>@takosjp/yurucommu-core</code> package の
-          <code>migrations/</code> を正本（正とする情報）とします。デプロイする
-          product repo には重複した copy を置きません。
+          <code>@takosjp/yurucommu-core</code> パッケージの
+          <code>migrations/</code> を管理元とします。デプロイする
+          リポジトリには重複したコピーを置きません。
         </p>
         <p>
-          ローカルのcore
-          Bunサーバーは起動時に<code>MIGRATIONS_PATH</code>のSQLを適用します。
-          Cloudflare直接経路では<code>bun run deploy</code>がWranglerのD1
-          migrationを実行します。 Takosumi経路ではoperatorが設定したversioned
-          lifecycle actionとして適用します。
-          Takosumi自体がデータベースの種類やコマンドを推測することはありません。
+          ローカルの core Bun サーバーは起動時に <code>MIGRATIONS_PATH</code> の
+          SQL を適用します。 Cloudflare への直接導入では、利用者または operator
+          が自身の credential、承認、rehearsal、forward-repair
+          手順を所有します。公式 distribution の公開とは別の authority
+          です。公式 target では Release Coordinator が変更内容から
+          state-transition protocol を導出し、実働 fixed adapter と必要な
+          証跡が揃わなければ fail closed にします。Takosumi 経路では operator
+          が設定したバージョン管理されたライフサイクルアクションとして適用します。
+          Takosumi
+          自体がデータベースの種類やコマンドを推測することはありません。
         </p>
-        <pre><code>Cloudflare: bun run deploy -> D1 migration -> wrangler deploy
-Takosumi: Source -> Plan -> 承認 -> Apply -> StateVersion + Output + AuditEvent</code></pre>
+        <p>
+          すべての runner は <code>yurucommu_migrations</code> を同じ ledger
+          として使います。過去の Wrangler 既定
+          ledger（<code>d1_migrations</code>）が残る場合、operator の migration
+          手順は shipped migration
+          の完全な先頭列と一致するときだけ適用済み行をコピーして収束します。欠番・未知の
+          migration・重複があれば、再実行せず fail closed します。
+        </p>
+        <pre><code>Cloudflare self-host: operator-owned rehearsal -> 承認 -> migration/apply -> readback
+公式 target: prepare -> state-transition evidence/承認 -> promote -> readback
+Takosumi: Git URL 登録 -> Plan -> 承認 -> Apply -> 復元ポイント + 実行結果 + 履歴</code></pre>
 
         <h2>データの確認</h2>
         <p>
-          直接経路はCloudflare
-          dashboardまたはWrangler、Takosumi経路はoperator/debug権限で provider
-          consoleまたはRun evidenceを確認します。
+          直接経路は Cloudflare dashboard または Wrangler、Takosumi 経路は
+          operator / debug 権限で provider console
+          または実行記録の証跡を確認します。
         </p>
 
         <h2>バックアップ</h2>

@@ -193,7 +193,9 @@ export function AppMenu() {
                   <button
                     onClick={() => setShowAccountSwitcher((prev) => !prev)}
                     aria-label={t("settings.switchAccount")}
-                    aria-haspopup="menu"
+                    // "true" not "menu": the switcher is a plain list of
+                    // buttons without role="menu"/menuitem/arrow-key semantics.
+                    aria-haspopup="true"
                     aria-expanded={showAccountSwitcher()}
                     class="p-2 rounded-full border border-neutral-700 hover:bg-neutral-800 transition-colors"
                   >

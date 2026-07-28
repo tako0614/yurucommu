@@ -1,6 +1,7 @@
-import { createSignal, For, Show } from "solid-js";
+import { createSignal, For, type JSX, Show } from "solid-js";
 import type { Actor, ActorNote } from "../../types/index.ts";
 import { useI18n } from "../../lib/i18n.tsx";
+import { useDialog } from "../../lib/useDialog.ts";
 import { UserAvatar } from "../UserAvatar.tsx";
 
 interface NoteBarProps {
@@ -40,12 +41,9 @@ function NoteTile(props: {
   onClick?: () => void;
   add?: boolean;
 }) {
-  return (
-    <button
-      type="button"
-      onClick={props.onClick}
-      class="group flex w-20 shrink-0 flex-col items-center"
-    >
+  const tileClass = "group flex w-20 shrink-0 flex-col items-center";
+  const body = (): JSX.Element => (
+    <>
       <div class="relative mb-1 flex h-9 w-full items-end justify-center">
         <div
           class={`relative max-w-[76px] rounded-2xl border px-2 py-1 text-center shadow-sm transition-colors ${
@@ -80,7 +78,16 @@ function NoteTile(props: {
       <span class="mt-1 max-w-full truncate text-xs text-neutral-500 group-hover:text-neutral-300">
         {props.name}
       </span>
-    </button>
+    </>
+  );
+  // Tiles without an action (other users' notes) render as a plain div — a
+  // focusable <button> that does nothing on activation is a keyboard/SR trap.
+  return (
+    <Show when={props.onClick} fallback={<div class={tileClass}>{body()}</div>}>
+      <button type="button" onClick={props.onClick} class={tileClass}>
+        {body()}
+      </button>
+    </Show>
   );
 }
 
@@ -88,6 +95,15 @@ export function NoteBar(props: NoteBarProps) {
   const { t } = useI18n();
   const [editorOpen, setEditorOpen] = createSignal(false);
   const [draft, setDraft] = createSignal("");
+  let editorRef: HTMLFormElement | undefined;
+  // Shared modal-dialog primitive: Escape closes, Tab is trapped, background
+  // scroll locks, and focus is restored to the opener tile on close (the
+  // editor previously had role=dialog but none of the behaviour).
+  useDialog({
+    isOpen: editorOpen,
+    onClose: () => setEditorOpen(false),
+    container: () => editorRef,
+  });
 
   const myNote = () => props.notes.find((note) => note.is_mine);
   const otherNotes = () => props.notes.filter((note) => !note.is_mine);
@@ -181,6 +197,7 @@ export function NoteBar(props: NoteBarProps) {
             onClick={() => setEditorOpen(false)}
           />
           <form
+            ref={editorRef}
             class="relative w-full max-w-md rounded-2xl border border-neutral-800 bg-neutral-950 p-4 shadow-2xl"
             onSubmit={(event) => {
               event.preventDefault();

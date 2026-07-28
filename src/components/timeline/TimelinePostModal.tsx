@@ -351,11 +351,29 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
                       {(media, idx) => (
                         <div class="flex gap-2 items-start">
                           <div class="relative shrink-0">
-                            <img
-                              src={media().preview}
-                              alt={media().name || ""}
-                              class="w-20 h-20 object-cover rounded-lg"
-                            />
+                            {/* Staged videos preview as a muted first-frame
+                                <video>; images keep the <img> path. */}
+                            <Show
+                              when={media().content_type.startsWith("video/")}
+                              fallback={
+                                <img
+                                  src={media().preview}
+                                  alt={media().name || ""}
+                                  class="w-20 h-20 object-cover rounded-lg"
+                                />
+                              }
+                            >
+                              <video
+                                src={media().preview}
+                                muted
+                                playsinline
+                                preload="metadata"
+                                aria-label={
+                                  media().name || t("compose.videoPreview")
+                                }
+                                class="w-20 h-20 object-cover rounded-lg bg-black"
+                              />
+                            </Show>
                             <button
                               onClick={() => props.onRemoveMedia(idx)}
                               aria-label={t("compose.removeMedia")}
@@ -403,10 +421,13 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
 
           {/* Modal Footer */}
           <div class="flex items-center gap-2 px-4 py-3 border-t border-neutral-800">
+            {/* The server accepts JPEG/PNG/GIF/WebP images and MP4/WebM
+                videos; `accept` is advisory, so uploadMediaAtom re-validates
+                type and per-kind size with specific error messages. */}
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/*"
+              accept="image/*,video/*"
               multiple
               onInput={props.onFileSelect}
               class="hidden"
@@ -414,7 +435,7 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
             <button
               onClick={() => fileInputRef?.click()}
               disabled={props.uploading || props.uploadedMedia.length >= 4}
-              aria-label={t("compose.addImage")}
+              aria-label={t("compose.addMedia")}
               class="p-2 text-accent hover:bg-[var(--accent)]/10 rounded-full disabled:opacity-50 transition-colors"
             >
               <ImageIcon />

@@ -11,6 +11,7 @@ import { createResource, For, Show } from "solid-js";
 import type { Story, StoryOverlay } from "../../../types/index.ts";
 import { getStoryViewers } from "../../../lib/api.ts";
 import { useI18n } from "../../../lib/i18n.tsx";
+import { useDialog } from "../../../lib/useDialog.ts";
 import { formatRelativeTime } from "../../../lib/datetime.ts";
 
 interface StoryInsightsSheetProps {
@@ -26,9 +27,19 @@ function questionOverlay(story: Story): StoryOverlay | undefined {
 
 export function StoryInsightsSheet(props: StoryInsightsSheetProps) {
   const { t } = useI18n();
+  let sheetRef: HTMLDivElement | undefined;
+  // Shared dialog primitive (same as StoryViewerDeleteDialog): registers on
+  // top of the viewer's own dialog-stack entry, so Escape closes the SHEET
+  // (not the whole viewer), Tab is trapped inside it, and focus is restored
+  // to the opener on close.
+  useDialog({
+    isOpen: () => props.open,
+    onClose: () => props.onClose(),
+    container: () => sheetRef,
+  });
 
   // Fetch viewers whenever the sheet is open for a given story.
-  const [viewers] = createResource(
+  const [viewers, { refetch }] = createResource(
     () => (props.open ? props.story.ap_id : null),
     (apId) => getStoryViewers(apId),
   );
@@ -39,11 +50,20 @@ export function StoryInsightsSheet(props: StoryInsightsSheetProps) {
 
   return (
     <Show when={props.open}>
+      {/* stopPropagation (click AND press events): the sheet renders inside
+          the viewer's tap-zone container — a bubbled click would navigate the
+          story underneath (swapping the sheet's data mid-read), and a bubbled
+          mousedown/touchstart would arm the viewer's hold-to-pause whose
+          release then resumes playback behind the open sheet. */}
       <div
+        ref={sheetRef}
         role="dialog"
         aria-modal="true"
         aria-label={t("story.insights.title")}
         class="absolute inset-0 z-40 flex items-end"
+        onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
+        onTouchStart={(e) => e.stopPropagation()}
       >
         <button
           type="button"
@@ -56,12 +76,16 @@ export function StoryInsightsSheet(props: StoryInsightsSheetProps) {
 
           <div class="mb-4 flex items-baseline justify-between">
             <h3 class="text-base font-semibold">{t("story.insights.title")}</h3>
-            <span class="text-sm text-white/60">
-              {t("story.insights.seenBy").replace(
-                "{count}",
-                String(viewers()?.view_count ?? 0),
-              )}
-            </span>
+            {/* On a failed fetch the count is unknown — showing "seen by 0"
+                would be a lie; the error + retry renders in the list below. */}
+            <Show when={!viewers.error}>
+              <span class="text-sm text-white/60">
+                {t("story.insights.seenBy").replace(
+                  "{count}",
+                  String(viewers()?.view_count ?? 0),
+                )}
+              </span>
+            </Show>
           </div>
 
           {/* Poll results (if the story has a poll) */}
@@ -113,9 +137,18 @@ export function StoryInsightsSheet(props: StoryInsightsSheetProps) {
           <Show
             when={!viewers.error}
             fallback={
-              <p class="text-sm text-white/50">
-                {t("story.insights.loadFailed")}
-              </p>
+              <div class="flex items-center gap-3">
+                <p class="text-sm text-white/50">
+                  {t("story.insights.loadFailed")}
+                </p>
+                <button
+                  type="button"
+                  class="text-sm font-medium text-white underline underline-offset-2"
+                  onClick={() => void refetch()}
+                >
+                  {t("common.retry")}
+                </button>
+              </div>
             }
           >
             <Show

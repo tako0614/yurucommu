@@ -7,6 +7,16 @@ import {
   actorStoriesAtom,
   applyNewPostsAtom,
   checkNewPostsAtom,
+  followingHasMoreAtom,
+  followingLoadedAtAtom,
+  followingLoadErrorAtom,
+  followingLoadingAtom,
+  followingLoadingMoreAtom,
+  followingPostsAtom,
+  followingScrollTopAtom,
+  homeFeedTabAtom,
+  loadFollowingTimelineAtom,
+  loadMoreFollowingTimelineAtom,
   loadMoreTimelineAtom,
   loadStoriesAtom,
   loadTimelineAtom,
@@ -23,6 +33,7 @@ import {
   timelineLoadingMoreAtom,
   timelinePostsAtom,
   timelineScrollTopAtom,
+  type HomeFeedTab,
 } from "../atoms/timeline.ts";
 import { toggleBookmark, toggleLike, toggleRepost } from "../atoms/posts.ts";
 import { deletePost, editPost } from "../lib/api/posts.ts";
@@ -42,14 +53,52 @@ export function useTimelineState() {
   const [loadMoreSentinel, setLoadMoreSentinel] =
     createSignal<HTMLDivElement | null>(null);
 
-  // State atoms
-  const [posts, setPosts] = useAtom(timelinePostsAtom);
+  // State atoms — unified ("all") feed
+  const [allPosts, setAllPosts] = useAtom(timelinePostsAtom);
   const setPendingNewPosts = useSetAtom(pendingNewPostsAtom);
   const scopeQuery = useAtomValue(scopeQueryAtom);
-  const loading = useAtomValue(timelineLoadingAtom);
-  const loadingMore = useAtomValue(timelineLoadingMoreAtom);
-  const hasMore = useAtomValue(timelineHasMoreAtom);
-  const loadError = useAtomValue(timelineLoadErrorAtom);
+  const allLoading = useAtomValue(timelineLoadingAtom);
+  const allLoadingMore = useAtomValue(timelineLoadingMoreAtom);
+  const allHasMore = useAtomValue(timelineHasMoreAtom);
+  const allLoadError = useAtomValue(timelineLoadErrorAtom);
+
+  // State atoms — following feed (independent page/cursor/scroll state)
+  const [followingPosts, setFollowingPosts] = useAtom(followingPostsAtom);
+  const followingLoading = useAtomValue(followingLoadingAtom);
+  const followingLoadingMore = useAtomValue(followingLoadingMoreAtom);
+  const followingHasMore = useAtomValue(followingHasMoreAtom);
+  const followingLoadError = useAtomValue(followingLoadErrorAtom);
+  const followingLoadedAt = useAtomValue(followingLoadedAtAtom);
+  const [savedFollowingScrollTop, setSavedFollowingScrollTop] = useAtom(
+    followingScrollTopAtom,
+  );
+
+  // The home feed tab. Only meaningful on the unfiltered (personal) home: a
+  // community view filter replaces the tab bar, so the EFFECTIVE tab snaps to
+  // "all" whenever a community lens is active.
+  const [feedTab, setFeedTab] = useAtom(homeFeedTabAtom);
+  const activeTab = (): HomeFeedTab => (scopeQuery() ? "all" : feedTab());
+
+  // Tab-dispatched views over the two feeds. Every consumer below (list,
+  // skeleton, sentinel, retry) reads these so the markup stays tab-agnostic.
+  const posts = () =>
+    activeTab() === "following" ? followingPosts() : allPosts();
+  const loading = () =>
+    activeTab() === "following" ? followingLoading() : allLoading();
+  const loadingMore = () =>
+    activeTab() === "following" ? followingLoadingMore() : allLoadingMore();
+  const hasMore = () =>
+    activeTab() === "following" ? followingHasMore() : allHasMore();
+  const loadError = () =>
+    activeTab() === "following" ? followingLoadError() : allLoadError();
+
+  // Feed mutations (like/delete/edit/mute/...) must land in BOTH tabs' lists —
+  // a post can be visible in each — plus the staged new-posts buffer where the
+  // existing call sites already did.
+  const setBothFeeds = (fn: (prev: Post[]) => Post[]) => {
+    setAllPosts(fn);
+    setFollowingPosts(fn);
+  };
 
   // Story state
   const actorStories = useAtomValue(actorStoriesAtom);
@@ -66,20 +115,71 @@ export function useTimelineState() {
 
   // Actions
   const loadTimeline = useSetAtom(loadTimelineAtom);
-  const loadMore = useSetAtom(loadMoreTimelineAtom);
+  const loadMoreAll = useSetAtom(loadMoreTimelineAtom);
+  const loadFollowing = useSetAtom(loadFollowingTimelineAtom);
+  const loadMoreFollowing = useSetAtom(loadMoreFollowingTimelineAtom);
   const loadStories = useSetAtom(loadStoriesAtom);
   const hydrateScope = useSetAtom(hydrateScopeAtom);
+
+  // Tab-dispatched actions: the sentinel/load-more button and the inline
+  // retry drive whichever feed the active tab shows.
+  const reload = () =>
+    activeTab() === "following" ? loadFollowing() : loadTimeline();
+  const loadMore = () =>
+    activeTab() === "following" ? loadMoreFollowing() : loadMoreAll();
 
   // New-posts indicator
   const pendingNewPosts = useAtomValue(pendingNewPostsAtom);
   const checkNewPosts = useSetAtom(checkNewPostsAtom);
   const applyNewPosts = useSetAtom(applyNewPostsAtom);
 
-  // Freshness window inside which a home re-mount reuses the in-memory feed
-  // instead of resetting it to page 1 (the 30s head poll keeps it current).
+  // Freshness window inside which a home re-mount (or a tab switch back)
+  // reuses the in-memory feed instead of resetting it to page 1 (the 30s head
+  // poll keeps the unified feed current). Applies per tab: each feed carries
+  // its own loadedAt/scroll atoms so one tab's reuse never disturbs the other.
   const TIMELINE_FRESH_MS = 60_000;
   const timelineLoadedAt = useAtomValue(timelineLoadedAtAtom);
   const [savedScrollTop, setSavedScrollTop] = useAtom(timelineScrollTopAtom);
+
+  const feedIsFresh = (tab: HomeFeedTab) => {
+    const list = tab === "following" ? followingPosts() : allPosts();
+    const loadedAt =
+      tab === "following" ? followingLoadedAt() : timelineLoadedAt();
+    return (
+      list.length > 0 &&
+      loadedAt !== null &&
+      Date.now() - loadedAt < TIMELINE_FRESH_MS
+    );
+  };
+  const savedScrollFor = (tab: HomeFeedTab) =>
+    tab === "following" ? savedFollowingScrollTop() : savedScrollTop();
+  const saveScrollFor = (tab: HomeFeedTab, offset: number) => {
+    if (tab === "following") setSavedFollowingScrollTop(offset);
+    else setSavedScrollTop(offset);
+  };
+
+  // Switch between the unified ("all") and following-only home feeds. The
+  // outgoing tab's reading position is parked in its scroll atom; the incoming
+  // tab either restores its own (fresh feed) or reloads page 1 (stale/never
+  // loaded) — mirroring the re-mount freshness semantics above.
+  const handleTabChange = (tab: HomeFeedTab) => {
+    if (tab === activeTab()) return;
+    if (scrollContainerRef)
+      saveScrollFor(activeTab(), scrollContainerRef.scrollTop);
+    setFeedTab(tab);
+    if (feedIsFresh(tab)) {
+      const offset = savedScrollFor(tab);
+      requestAnimationFrame(() => {
+        if (scrollContainerRef) scrollContainerRef.scrollTop = offset;
+      });
+    } else {
+      // The saved position belonged to pages this reload discards.
+      saveScrollFor(tab, 0);
+      if (scrollContainerRef) scrollContainerRef.scrollTop = 0;
+      if (tab === "following") void loadFollowing();
+      else void loadTimeline();
+    }
+  };
 
   // Initial load. The unified home defaults to PERSONAL scope ("everything you
   // can see") and `inhabitedScopeAtom` is NOT persisted — it resets to personal
@@ -97,13 +197,11 @@ export function useTimelineState() {
   // the saved scroll offset instead; the atoms already hold the posts.
   onMount(() => {
     void hydrateScope();
-    const loadedAt = timelineLoadedAt();
-    const feedIsFresh =
-      posts().length > 0 &&
-      loadedAt !== null &&
-      Date.now() - loadedAt < TIMELINE_FRESH_MS;
-    if (feedIsFresh) {
-      const offset = savedScrollTop();
+    // The tab atom survives route round trips, so a return from a post detail
+    // lands back on the tab (and reading position) the user left.
+    const tab = activeTab();
+    if (feedIsFresh(tab)) {
+      const offset = savedScrollFor(tab);
       if (offset > 0) {
         // After the current render commits (the <For> list is synchronous, so
         // the content height is already there; images may still stream in).
@@ -111,6 +209,8 @@ export function useTimelineState() {
           if (scrollContainerRef) scrollContainerRef.scrollTop = offset;
         });
       }
+    } else if (tab === "following") {
+      loadFollowing();
     } else {
       loadTimeline();
     }
@@ -119,7 +219,9 @@ export function useTimelineState() {
 
   // Preserve the reading position across unmounts (route round trips).
   onCleanup(() => {
-    if (scrollContainerRef) setSavedScrollTop(scrollContainerRef.scrollTop);
+    if (scrollContainerRef) {
+      saveScrollFor(activeTab(), scrollContainerRef.scrollTop);
+    }
   });
 
   // Reactively reload when the inhabited scope changes (personal <-> a
@@ -134,7 +236,11 @@ export function useTimelineState() {
     on(
       () => scopeQuery()?.community ?? "",
       () => {
-        setPosts([]);
+        // A scope switch always lands on the unified feed: the community lens
+        // replaces the tab bar, and returning to personal starts from "all"
+        // rather than surprising the user with a parked "following" tab.
+        setFeedTab("all");
+        setAllPosts([]);
         // The saved reading position belongs to the PREVIOUS scope's feed; a
         // later re-mount must not restore it into this one.
         setSavedScrollTop(0);
@@ -230,7 +336,7 @@ export function useTimelineState() {
   // Post interactions using shared helpers
   const handleLike = async (post: Parameters<typeof toggleLike>[0]) => {
     try {
-      await toggleLike(post, (fn) => setPosts(fn));
+      await toggleLike(post, setBothFeeds);
     } catch (e) {
       console.error("Failed to toggle like:", e);
       toastError("common.error");
@@ -239,7 +345,7 @@ export function useTimelineState() {
 
   const handleBookmark = async (post: Parameters<typeof toggleBookmark>[0]) => {
     try {
-      await toggleBookmark(post, (fn) => setPosts(fn));
+      await toggleBookmark(post, setBothFeeds);
     } catch (e) {
       console.error("Failed to toggle bookmark:", e);
       toastError("common.error");
@@ -248,7 +354,7 @@ export function useTimelineState() {
 
   const handleRepost = async (post: Parameters<typeof toggleRepost>[0]) => {
     try {
-      await toggleRepost(post, (fn) => setPosts(fn));
+      await toggleRepost(post, setBothFeeds);
     } catch (e) {
       console.error("Failed to toggle repost:", e);
       toastError("common.error");
@@ -256,10 +362,12 @@ export function useTimelineState() {
   };
 
   // Remove a single post (after deleting your own) from the timeline.
+  // Filtering by the post's own ap_id is deliberate: it also removes any boost
+  // entries of the deleted post (they share the original's ap_id).
   const handleDelete = async (post: Post) => {
     try {
       await deletePost(post.ap_id);
-      setPosts((prev) => prev.filter((p) => p.ap_id !== post.ap_id));
+      setBothFeeds((prev) => prev.filter((p) => p.ap_id !== post.ap_id));
       pushToast(setToasts, t()("feedback.postDeleted"), { kind: "success" });
     } catch (e) {
       console.error("Failed to delete post:", e);
@@ -289,7 +397,7 @@ export function useTimelineState() {
         p.ap_id === target.ap_id
           ? { ...p, content: updated.content, summary: updated.summary }
           : p;
-      setPosts((prev) => prev.map(apply));
+      setBothFeeds((prev) => prev.map(apply));
       setPendingNewPosts((prev) => prev.map(apply));
       setEditingPost(null);
       pushToast(setToasts, t()("feedback.postEdited"), { kind: "success" });
@@ -305,7 +413,7 @@ export function useTimelineState() {
   // the staged "new posts" buffer (otherwise a muted author's already-fetched
   // posts re-enter the feed when the user taps "show new posts").
   const dropAuthorPosts = (authorApId: string) => {
-    setPosts((prev) => prev.filter((p) => p.author.ap_id !== authorApId));
+    setBothFeeds((prev) => prev.filter((p) => p.author.ap_id !== authorApId));
     setPendingNewPosts((prev) =>
       prev.filter((p) => p.author.ap_id !== authorApId),
     );
@@ -375,9 +483,12 @@ export function useTimelineState() {
     loadingMore,
     hasMore,
     loadError,
-    loadTimeline,
+    reload,
     loadMore,
-    newPostsCount: () => pendingNewPosts().length,
+    feedTab: activeTab,
+    setFeedTab: handleTabChange,
+    // The new-posts pill belongs to the unified feed's head poll only.
+    newPostsCount: () => (activeTab() === "all" ? pendingNewPosts().length : 0),
     handleShowNewPosts,
     actorStories,
     storiesLoading,

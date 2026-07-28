@@ -15,6 +15,8 @@ import { ScopeHeader } from "../components/scope/ScopeHeader.tsx";
 import { createScopeOpenAtom } from "../atoms/shell.ts";
 import { showScopeSwitcherAtom } from "../atoms/timeline.ts";
 import { inhabitedScopeAtom } from "../atoms/scope.ts";
+import type { HomeFeedTab } from "../atoms/timeline.ts";
+import { handleTablistKeydown } from "../lib/tablistNav.ts";
 import { LoadingSpinner } from "../components/LoadingSpinner.tsx";
 
 // Lazy load heavy components
@@ -25,11 +27,21 @@ const StoryComposer = lazy(
 import { InlineErrorRetry } from "../components/InlineErrorRetry.tsx";
 import { FirstFeedEmptyState } from "../components/FirstFeedEmptyState.tsx";
 import { TimelinePostItem } from "../components/timeline/TimelinePostItem.tsx";
+import { FilteredPost } from "../components/timeline/FilteredPost.tsx";
 import { EditPostModal } from "../components/timeline/EditPostModal.tsx";
 import { ReportSheet } from "../components/ReportSheet.tsx";
 import { PostSkeleton } from "../components/timeline/PostSkeleton.tsx";
 import { PluginSlot } from "../components/PluginSlot.tsx";
 import { useTimelineState } from "./useTimelineState.ts";
+
+// Home feed tabs: the unified home ("すべて") and the following-only feed.
+const FEED_TABS: {
+  key: HomeFeedTab;
+  labelKey: "timeline.all" | "timeline.following";
+}[] = [
+  { key: "all", labelKey: "timeline.all" },
+  { key: "following", labelKey: "timeline.following" },
+];
 
 export function TimelinePage() {
   const actor = useRequiredActor();
@@ -149,6 +161,43 @@ export function TimelinePage() {
           is folded inline into this single bar instead of a third stacked rail. */}
       <ScopeHeader onOpenSwitcher={() => openSwitcher(true)} />
 
+      {/* Home feed tabs — unified ("すべて") vs following-only. Shown only on
+          the unfiltered personal home: a community view filter already narrows
+          the feed, so the tab bar hides while a lens is active. */}
+      <Show when={!communityScope()}>
+        <div
+          role="tablist"
+          aria-label={state.t()("timeline.feedTabs")}
+          class="flex border-b border-neutral-800"
+          onKeyDown={(e) => {
+            const cur = FEED_TABS.findIndex(
+              (tab) => tab.key === state.feedTab(),
+            );
+            handleTablistKeydown(e, FEED_TABS.length, cur < 0 ? 0 : cur, (i) =>
+              state.setFeedTab(FEED_TABS[i].key),
+            );
+          }}
+        >
+          <For each={FEED_TABS}>
+            {(tab) => (
+              <button
+                role="tab"
+                aria-selected={state.feedTab() === tab.key}
+                tabindex={state.feedTab() === tab.key ? 0 : -1}
+                onClick={() => state.setFeedTab(tab.key)}
+                class={`flex-1 px-4 py-2.5 text-sm font-bold whitespace-nowrap transition-colors border-b-2 ${
+                  state.feedTab() === tab.key
+                    ? "text-white border-accent"
+                    : "text-neutral-500 border-transparent hover:text-neutral-300"
+                }`}
+              >
+                {state.t()(tab.labelKey)}
+              </button>
+            )}
+          </For>
+        </div>
+      </Show>
+
       {/* Story Bar */}
       <StoryBar
         actor={actor}
@@ -209,7 +258,7 @@ export function TimelinePage() {
             <InlineErrorRetry
               message={state.loadError()!}
               retryLabel={state.t()("common.retry")}
-              onRetry={state.loadTimeline}
+              onRetry={state.reload}
             />
           }
         >
@@ -220,32 +269,54 @@ export function TimelinePage() {
             <Show
               when={state.posts().length > 0}
               fallback={
-                <FirstFeedEmptyState
-                  communityScope={communityScope()}
-                  onCreateStory={state.handleAddStory}
-                  onCreateCommunity={() => openCreateScope(true)}
-                  onDiscoverCommunities={() => navigate("/search")}
-                />
+                <Show
+                  when={state.feedTab() === "following"}
+                  fallback={
+                    <FirstFeedEmptyState
+                      communityScope={communityScope()}
+                      onCreateStory={state.handleAddStory}
+                      onCreateCommunity={() => openCreateScope(true)}
+                      onDiscoverCommunities={() => navigate("/search")}
+                    />
+                  }
+                >
+                  {/* Following-only empty state: the community/story CTAs of
+                      the first-feed empty state don't apply here. */}
+                  <div class="flex min-h-[50vh] flex-col items-center justify-center p-8 text-center">
+                    <p class="max-w-xs text-sm text-neutral-400">
+                      {state.t()("timeline.followingEmpty")}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => navigate("/search")}
+                      class="mt-6 rounded-full border border-neutral-700 px-5 py-3 text-sm font-medium text-neutral-200 transition-colors hover:bg-neutral-800"
+                    >
+                      {state.t()("timeline.findPeople")}
+                    </button>
+                  </div>
+                </Show>
               }
             >
               <For each={state.posts()}>
                 {(post, index) => (
                   <div>
-                    <TimelinePostItem
-                      post={post}
-                      onReply={() =>
-                        navigate(`/post/${encodeURIComponent(post.ap_id)}`)
-                      }
-                      onRepost={state.handleRepost}
-                      onLike={state.handleLike}
-                      onBookmark={state.handleBookmark}
-                      currentActorApId={actor.ap_id}
-                      onDelete={state.handleDelete}
-                      onMute={state.handleMute}
-                      onBlock={state.handleBlock}
-                      onEdit={state.handleEdit}
-                      onReport={state.handleReport}
-                    />
+                    <FilteredPost post={post}>
+                      <TimelinePostItem
+                        post={post}
+                        onReply={() =>
+                          navigate(`/post/${encodeURIComponent(post.ap_id)}`)
+                        }
+                        onRepost={state.handleRepost}
+                        onLike={state.handleLike}
+                        onBookmark={state.handleBookmark}
+                        currentActorApId={actor.ap_id}
+                        onDelete={state.handleDelete}
+                        onMute={state.handleMute}
+                        onBlock={state.handleBlock}
+                        onEdit={state.handleEdit}
+                        onReport={state.handleReport}
+                      />
+                    </FilteredPost>
                     <Show
                       when={
                         index() === 2 ||

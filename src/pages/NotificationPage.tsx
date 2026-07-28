@@ -255,9 +255,11 @@ export function NotificationPage() {
       }
       // Re-sync the badge: archiving an unread item lowers the count.
       void refreshUnread();
-      // Invalidate any focus refresh/load-older result that raced the write and
-      // reload whichever inbox/archive view is current when it completes.
-      retryLoad();
+      // Keep the optimistic removal in place — no full reload on success (that
+      // reset the list to page 1, flashed the skeleton and lost scroll on every
+      // archive). A load-older page that raced the write may have re-added the
+      // row after the filter above; drop it again.
+      setNotifications((prev) => prev.filter((n) => n.id !== notification.id));
     } catch (e) {
       console.error("Failed to (un)archive notification:", e);
       setError(
@@ -290,7 +292,11 @@ export function NotificationPage() {
     try {
       await archiveAllNotifications();
       void refreshUnread();
-      retryLoad();
+      // Everything moved to the archive: the inbox is now empty by definition,
+      // so reflect that in place instead of a skeleton-flashing full reload.
+      setNotifications([]);
+      setHasMoreOlder(false);
+      setNextCursor(null);
     } catch (e) {
       console.error("Failed to archive all notifications:", e);
       setError(t("notifications.archiveAllFailed"));
@@ -612,7 +618,13 @@ export function NotificationPage() {
   // Notifications are already filtered by the server
   const filteredNotifications = () => notifications();
 
-  const filterTabs: { key: FilterType; label: string; icon: JSX.Element }[] = [
+  // A function (not a const built once) so the labels re-render reactively on
+  // a language switch — a frozen array would keep the old locale's strings.
+  const filterTabs = (): {
+    key: FilterType;
+    label: string;
+    icon: JSX.Element;
+  }[] => [
     {
       key: "all",
       // Bell icon (consistent with the per-type tabs' SVG icons) instead of a
@@ -697,13 +709,14 @@ export function NotificationPage() {
           class="flex overflow-x-auto scrollbar-hide border-t border-neutral-900"
           onKeyDown={(e) => {
             if (archiveMutationPending()) return;
-            const cur = filterTabs.findIndex((tb) => tb.key === filter());
-            handleTablistKeydown(e, filterTabs.length, cur < 0 ? 0 : cur, (i) =>
-              setFilter(filterTabs[i].key),
+            const tabs = filterTabs();
+            const cur = tabs.findIndex((tb) => tb.key === filter());
+            handleTablistKeydown(e, tabs.length, cur < 0 ? 0 : cur, (i) =>
+              setFilter(tabs[i].key),
             );
           }}
         >
-          <For each={filterTabs}>
+          <For each={filterTabs()}>
             {(tab) => (
               <button
                 role="tab"

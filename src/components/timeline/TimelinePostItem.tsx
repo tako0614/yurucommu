@@ -1,6 +1,6 @@
 import { A } from "@solidjs/router";
 import { Show, createSignal, onCleanup } from "solid-js";
-import type { Post } from "../../types/index.ts";
+import type { Post, PostWithRepost } from "../../types/index.ts";
 import { formatRelativeTime } from "../../lib/datetime.ts";
 import { useI18n } from "../../lib/i18n.tsx";
 import { UserAvatar } from "../UserAvatar.tsx";
@@ -162,6 +162,32 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
     scheduleOpen(index);
   };
 
+  // Boost attribution (forward-compat): the next server release surfaces
+  // boosts as the original post plus a `reposted_by` block. When absent —
+  // every entry the current server emits — nothing extra renders.
+  const repostedBy = () => (props.post as PostWithRepost).reposted_by ?? null;
+
+  // A function (not a shared const) so each card variant materializes its own
+  // nodes.
+  const repostLine = () => (
+    <Show when={repostedBy()}>
+      {(booster) => (
+        <A
+          href={`/profile/${encodeURIComponent(booster().ap_id)}`}
+          class="flex items-center gap-1.5 px-4 pt-3 -mb-1 text-xs font-bold text-neutral-500 hover:underline"
+        >
+          <RepostIcon class="h-3.5 w-3.5 shrink-0" />
+          <span class="truncate">
+            {t("posts.repostedBy").replace(
+              "{name}",
+              booster().name || booster().username,
+            )}
+          </span>
+        </A>
+      )}
+    </Show>
+  );
+
   const header = (
     <div class="flex min-w-0 items-baseline gap-2">
       <A
@@ -303,33 +329,37 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
     <Show
       when={hasMedia()}
       fallback={
-        <div class="flex gap-3 px-4 py-3 border-b border-neutral-900 hover:bg-neutral-900/30 transition-colors">
-          <A href={`/profile/${encodeURIComponent(props.post.author.ap_id)}`}>
-            <UserAvatar
-              avatarUrl={props.post.author.icon_url}
-              name={props.post.author.name || props.post.author.username}
-              size={48}
-            />
-          </A>
-          <div class="flex-1 min-w-0">
-            {header}
-            <A
-              href={`/post/${encodeURIComponent(props.post.ap_id)}`}
-              class="block"
-            >
-              <PostContent
-                content={props.post.content}
-                summary={props.post.summary}
-                class="text-[15px] text-neutral-200 mt-1"
+        <div class="border-b border-neutral-900 hover:bg-neutral-900/30 transition-colors">
+          {repostLine()}
+          <div class="flex gap-3 px-4 py-3">
+            <A href={`/profile/${encodeURIComponent(props.post.author.ap_id)}`}>
+              <UserAvatar
+                avatarUrl={props.post.author.icon_url}
+                name={props.post.author.name || props.post.author.username}
+                size={48}
               />
             </A>
-            {actions}
+            <div class="flex-1 min-w-0">
+              {header}
+              <A
+                href={`/post/${encodeURIComponent(props.post.ap_id)}`}
+                class="block"
+              >
+                <PostContent
+                  content={props.post.content}
+                  summary={props.post.summary}
+                  class="text-[15px] text-neutral-200 mt-1"
+                />
+              </A>
+              {actions}
+            </div>
+            {lightboxOverlay}
           </div>
-          {lightboxOverlay}
         </div>
       }
     >
       <article class="border-b border-neutral-900 hover:bg-neutral-900/20 transition-colors">
+        {repostLine()}
         {/* Slim header */}
         <div class="flex items-center gap-2.5 px-4 pt-3 pb-2">
           <A href={`/profile/${encodeURIComponent(props.post.author.ap_id)}`}>

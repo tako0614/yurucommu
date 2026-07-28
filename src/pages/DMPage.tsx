@@ -4,6 +4,7 @@ import {
   createSignal,
   For,
   on,
+  onCleanup,
   onMount,
   Show,
 } from "solid-js";
@@ -167,6 +168,9 @@ export function DMPage() {
   // Archived one-to-one conversations (lazy-loaded when the archived tab opens).
   const [archived, setArchived] = createSignal<DMContact[]>([]);
   const [loadingArchived, setLoadingArchived] = createSignal(false);
+  // Requests are also lazy-loaded per tab open; without their own flag the tab
+  // renders "no requests" while the fetch is still in flight.
+  const [loadingRequests, setLoadingRequests] = createSignal(false);
   const [archiveBusy, setArchiveBusy] = createSignal<Record<string, boolean>>(
     {},
   );
@@ -218,12 +222,15 @@ export function DMPage() {
 
   const loadRequests = async () => {
     setListError(null);
+    setLoadingRequests(true);
     try {
       const data = await fetchDMRequests();
       setRequests(data);
     } catch (e) {
       console.error("Failed to load requests:", e);
       setListError(errorMessage());
+    } finally {
+      setLoadingRequests(false);
     }
   };
 
@@ -281,6 +288,42 @@ export function DMPage() {
     setSearchQuery("");
     void loadContacts();
     void loadNotes();
+
+    // Keep the contact list fresh. Previously it was fetched exactly once on
+    // mount (only the unread badge polled), so new conversations / reordered
+    // threads never appeared without a full page reload. Same visibility-gated
+    // 30s cadence as useUnreadPolling: pause while hidden, refresh immediately
+    // on return. A background refresh is non-disruptive: loadContacts() only
+    // shows the skeleton when the list is empty, and the selection effect only
+    // swaps the open conversation when its identity actually changes.
+    const POLL_INTERVAL_MS = 30000;
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+    const stopPolling = () => {
+      if (intervalId !== null) {
+        clearInterval(intervalId);
+        intervalId = null;
+      }
+    };
+    const startPolling = () => {
+      if (intervalId !== null) return;
+      intervalId = setInterval(() => {
+        void loadContacts();
+      }, POLL_INTERVAL_MS);
+    };
+    const handleVisibility = () => {
+      if (document.hidden) {
+        stopPolling();
+      } else {
+        void loadContacts();
+        startPolling();
+      }
+    };
+    if (!document.hidden) startPolling();
+    document.addEventListener("visibilitychange", handleVisibility);
+    onCleanup(() => {
+      stopPolling();
+      document.removeEventListener("visibilitychange", handleVisibility);
+    });
   });
 
   // Handle contact selection when URL changes (after initial load)
@@ -773,7 +816,16 @@ export function DMPage() {
                 <Show when={activeTab() === "archived" && loadingArchived()}>
                   <PostSkeleton count={6} />
                 </Show>
-                <Show when={!loading() && activeTab() === "requests"}>
+                <Show when={activeTab() === "requests" && loadingRequests()}>
+                  <PostSkeleton count={6} />
+                </Show>
+                <Show
+                  when={
+                    !loading() &&
+                    !loadingRequests() &&
+                    activeTab() === "requests"
+                  }
+                >
                   <Show
                     when={requests().length === 0}
                     fallback={
@@ -852,17 +904,18 @@ export function DMPage() {
                               ? t("dm.archivedEmpty")
                               : t("groups.noGroups")}
                     </p>
-                    <p class="text-neutral-500 text-sm">
-                      {searchQuery()
-                        ? t("dm.searchHint")
-                        : activeTab() === "all"
-                          ? t("dm.emptyAllHint")
-                          : activeTab() === "friends"
-                            ? t("dm.emptyFriendsHint")
-                            : activeTab() === "archived"
-                              ? ""
+                    {/* Archived has no hint copy — don't render an empty <p>. */}
+                    <Show when={searchQuery() || activeTab() !== "archived"}>
+                      <p class="text-neutral-500 text-sm">
+                        {searchQuery()
+                          ? t("dm.searchHint")
+                          : activeTab() === "all"
+                            ? t("dm.emptyAllHint")
+                            : activeTab() === "friends"
+                              ? t("dm.emptyFriendsHint")
                               : t("dm.emptyGroupsHint")}
-                    </p>
+                      </p>
+                    </Show>
                   </div>
                 </Show>
                 <Show

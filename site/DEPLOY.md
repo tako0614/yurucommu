@@ -8,16 +8,19 @@ There is no build step — the directory is uploaded as-is. `_headers` sets the
 `application/ld+json` content type (and CORS) on the `/ns/*` JSON-LD contexts so
 strict JSON-LD processors accept them.
 
-## Deploy a new version
+## Official release
+
+The ecosystem currently has no runnable `yurucommu-site` adapter. Official
+publication remains fail-closed until a fixed adapter with authoritative Pages
+readback is registered. Do not substitute a raw Pages upload.
 
 ```sh
-# from the repo root
-bunx wrangler pages deploy site --project-name=yurucommu-website --branch=main
+# from the sibling takos-control repository, once the adapter exists
+bun run deploy
 ```
 
-This uploads `site/` and returns a `*.yurucommu-website.pages.dev` preview URL;
-the production alias (`yurucommu-website.pages.dev` and the custom domain) update
-automatically.
+`prepare` is read-only. Only authenticated `promote` may change the official
+Pages target, and success requires authoritative remote readback.
 
 ## Custom domain (already configured)
 
@@ -32,6 +35,6 @@ Cloudflare flattens the apex CNAME automatically. To re-create it if ever
 removed: DNS → Add record → CNAME, name `@`, target `yurucommu-website.pages.dev`,
 Proxied. Add `www.yurucommu.com` the same way for a `www` alias.
 
-(The Pages domain was attached via
-`POST /accounts/<acct>/pages/projects/yurucommu-website/domains {"name":"yurucommu.com"}`
-— a token with Pages:Edit; the apex DNS record needs DNS:Edit or the dashboard.)
+The existing custom-domain and DNS configuration is provisioning state, not a
+deploy step. Recreating or changing it is an operator-owned action outside this
+repository and outside its deploy entrypoint.

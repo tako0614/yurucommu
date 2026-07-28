@@ -111,11 +111,11 @@
 
         <h2>Cloudflareリソース</h2>
         <p>
-          Cloudflareへ直接デプロイする場合は<code>wrangler.jsonc</code>を使います。
-          DeployボタンではD1・R2・KV・Queue・Workerが自動でprovisionされます。
-          CLIではD1と2つのQueueを初回に作成し、KVとR2はWranglerの初回deployで
-          provisionします。Takosumi経路では同じresourceをOpenTofuのPlan /
-          Applyで作成し、 StateVersion・Output・AuditEventにも記録します。
+          Cloudflare 直接経路の設定正本は <code>wrangler.jsonc</code>
+          です。D1・R2・KV・2 つの Queue・Worker を provider 側で用意し、binding
+          と secret を release envelope で検証します。operator 管理の Takosumi
+          経路では root OpenTofu module の Plan / Apply で同じ provider resource
+          を作成し、StateVersion・Output・AuditEvent を記録します。
         </p>
 
         <h3>共通のbinding</h3>
@@ -126,33 +126,33 @@ Queue producer: DELIVERY_QUEUE
 Dead letter queue: DELIVERY_DLQ
 Worker entrypoint: dist/yurucommu-worker.js</code></pre>
 
-        <h3>クラウド接続（ProviderConnection）</h3>
+        <h3>クラウドアカウントの接続</h3>
         <p>
-          直接経路は<code>wrangler login</code>またはCloudflare API
-          tokenを使います。 Takosumi経路はcloudflare
-          providerに使うProviderConnectionを
-          ProviderBindingで指定します。どちらの経路でもsecret値をrepoへcommitしません。
+          直接経路は <code>wrangler login</code> または Cloudflare API token
+          を使います。Takosumi 経路は Cloudflare provider
+          に使うクラウドアカウントの 接続設定を割り当てます。どちらの経路でも
+          secret 値をリポジトリへ commit しません。
         </p>
 
         <h2>トラブルシューティング</h2>
 
         <h3>「認証エラー」が出る場合</h3>
         <p>
-          直接経路は<code>bunx wrangler whoami</code>、Takosumi経路は
-          ProviderConnectionとProviderBindingの状態を確認します。
+          直接経路は <code>bunx wrangler whoami</code>、Takosumi 経路は
+          クラウドアカウントの接続設定と割り当ての状態を確認します。
         </p>
 
         <h3>D1のクエリを確認したい場合</h3>
         <p>
-          直接経路はCloudflare dashboardまたはWrangler、Takosumi経路はApply
-          Runの Outputとoperator側の証跡から<code>DB</code>
-          bindingを確認します。
+          直接経路は Cloudflare dashboard または Wrangler、Takosumi 経路は
+          適用時の実行結果と operator 側の証跡から <code>DB</code>
+          binding を確認します。
         </p>
 
         <h3>R2の内容を確認したい場合</h3>
         <p>
-          直接経路はCloudflare dashboard、Takosumi経路はApply
-          Runの記録とoperator側の監視で確認します。
+          直接経路は Cloudflare dashboard、Takosumi 経路は 適用時の記録と
+          operator 側の監視で確認します。
         </p>
       </main>
     </div>

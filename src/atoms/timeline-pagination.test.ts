@@ -154,6 +154,112 @@ test("loadMoreTimeline is a no-op when there is no server cursor", async () => {
   }
 });
 
+// The following feed pages with the same server-cursor discipline as the
+// unified feed (see the loadMoreTimeline regression above) against its OWN
+// endpoint.
+test("loadMoreFollowingTimeline paginates /api/timeline/following with the server cursor", async () => {
+  ensureLocalStorage();
+  const {
+    followingCursorAtom,
+    followingHasMoreAtom,
+    followingPostsAtom,
+    loadMoreFollowingTimelineAtom,
+  } = await import("./timeline.ts");
+  const { clearYurucommuFrontendPlugin } = await import("../lib/plugin.ts");
+
+  const lastApId = "https://example.com/ap/objects/post-1";
+  const serverCursor = "2026-01-01T00:00:00.000Z " + lastApId;
+
+  const captured: string[] = [];
+  const originalFetch = globalThis.fetch;
+  clearYurucommuFrontendPlugin();
+  globalThis.fetch = ((input: RequestInfo | URL) => {
+    captured.push(typeof input === "string" ? input : input.toString());
+    return Promise.resolve(
+      new Response(JSON.stringify({ posts: [], has_more: false }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+  }) as typeof fetch;
+
+  try {
+    const store = createStore();
+    store.set(followingPostsAtom, [makePost(lastApId)]);
+    store.set(followingCursorAtom, serverCursor);
+    store.set(followingHasMoreAtom, true);
+
+    await store.set(loadMoreFollowingTimelineAtom);
+
+    assertEquals(captured.length, 1);
+    const url = new URL(captured[0], "http://localhost");
+    assertEquals(url.pathname, "/api/timeline/following");
+    assertEquals(url.searchParams.get("before"), serverCursor);
+  } finally {
+    globalThis.fetch = originalFetch;
+    clearYurucommuFrontendPlugin();
+  }
+});
+
+// Forward-compat: a boost entry shares the boosted post's ap_id and is only
+// distinguished by repost_ap_id (see PostWithRepost/feedItemKey). checkNewPosts
+// must stage a NEW boost of an already-visible post instead of swallowing it
+// as a duplicate ap_id.
+test("checkNewPosts stages a boost entry of an already-visible post", async () => {
+  ensureLocalStorage();
+  const { checkNewPostsAtom, pendingNewPostsAtom, timelinePostsAtom } =
+    await import("./timeline.ts");
+  const { feedItemKey } = await import("../types/index.ts");
+  const { clearYurucommuFrontendPlugin } = await import("../lib/plugin.ts");
+
+  const original = makePost(
+    "https://example.com/ap/objects/original",
+    "2026-01-01T00:00:00.000Z",
+  );
+  // The same post resurfaced by an announce: newer sort position, own
+  // announce ap_id, booster attribution.
+  const boost: Post = {
+    ...makePost(original.ap_id, original.published),
+    ...{
+      reposted_by: {
+        ap_id: "https://example.com/ap/users/bob",
+        username: "bob@example.com",
+        preferred_username: "bob",
+        name: "Bob",
+        icon_url: null,
+      },
+      repost_ap_id: "https://example.com/ap/activities/announce-1",
+      repost_published: "2026-01-02T00:00:00.000Z",
+    },
+  };
+
+  const originalFetch = globalThis.fetch;
+  clearYurucommuFrontendPlugin();
+  globalThis.fetch = ((_input: RequestInfo | URL) =>
+    Promise.resolve(
+      new Response(
+        JSON.stringify({ posts: [boost, original], has_more: false }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    )) as typeof fetch;
+
+  try {
+    const store = createStore();
+    store.set(timelinePostsAtom, [original]);
+
+    await store.set(checkNewPostsAtom);
+
+    const pending = store.get(pendingNewPostsAtom);
+    // Only the boost ENTRY is new; the original is already visible.
+    assertEquals(pending.map(feedItemKey), [
+      "https://example.com/ap/activities/announce-1",
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+    clearYurucommuFrontendPlugin();
+  }
+});
+
 // Regression: the MAX_TIMELINE_POSTS feed cap evicts the newest head once the
 // user scrolls deep. checkNewPosts must NOT re-stage a head post that was
 // already seen-then-evicted (no longer in the live window) as "new" — the

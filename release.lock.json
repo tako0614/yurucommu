@@ -1,0 +1,19 @@
+{
+  "kind": "takos.release-artifact-lock@v1",
+  "app": "yurucommu",
+  "releases": {
+    "v2.1.0": {
+      "artifact": {
+        "filename": "yurucommu-worker.js",
+        "url": "https://github.com/tako0614/yurucommu/releases/download/v2.1.0/yurucommu-worker.js",
+        "sha256": "sha256:683c5ed5bc5f537087b703bf24ad3b306508dd3778918d0c31eb4561777fbe13"
+      },
+      "manifest": {
+        "url": "https://github.com/tako0614/yurucommu/releases/download/v2.1.0/takosumi-artifact.json",
+        "sha256": "sha256:8b562b05eb29e8d73ba7f5613c48489e9fab2ecd107168ba30c9be91840ea548"
+      },
+      "commit": "bbc683fbb257e9a60844cf40d89ed95aed1b30ac",
+      "seededFrom": "read-only GET of the published GitHub Release assets on 2026-07-28; reconciled against manifest kind, app, releaseTag, artifact SHA-256, source commit, and both downloaded digests"
+    }
+  }
+}

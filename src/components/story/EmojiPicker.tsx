@@ -687,6 +687,7 @@ export function EmojiPicker(props: EmojiPickerProps) {
           {(category, index) => (
             <button
               onClick={() => setActiveCategory(index())}
+              aria-pressed={activeCategory() === index()}
               class={`px-3 py-1.5 rounded-full text-sm whitespace-nowrap transition-colors ${
                 activeCategory() === index()
                   ? "bg-accent text-white"

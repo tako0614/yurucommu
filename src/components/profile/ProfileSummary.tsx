@@ -108,7 +108,9 @@ export function ProfileSummary(props: ProfileSummaryProps) {
                 ref={menuTrigger}
                 onClick={props.onToggleMenu}
                 aria-label={props.t("profile.moreOptions")}
-                aria-haspopup="menu"
+                // "true" not "menu": the popup is a plain list of buttons
+                // without role="menu"/menuitem/arrow-key semantics.
+                aria-haspopup="true"
                 aria-expanded={props.showMenu}
                 class="p-2 border border-neutral-600 rounded-full hover:bg-neutral-900 transition-colors"
               >

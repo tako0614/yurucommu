@@ -33,7 +33,7 @@ const ArchiveIcon = () => (
 );
 
 export function DMContactItem(props: DMContactItemProps) {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const canArchive = () =>
     props.contact.type !== "community" &&
     (props.onArchive !== undefined || props.onUnarchive !== undefined);
@@ -108,7 +108,10 @@ export function DMContactItem(props: DMContactItemProps) {
 
         <div class="flex flex-col items-end gap-1">
           <span class="text-xs text-neutral-500">
-            {formatConversationListTime(props.contact.last_message_at)}
+            {formatConversationListTime(
+              props.contact.last_message_at,
+              language(),
+            )}
           </span>
           <Show when={(props.unreadCount ?? 0) > 0}>
             <span class="min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">

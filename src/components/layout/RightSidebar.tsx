@@ -54,23 +54,28 @@ function RecommendedUserCard(props: {
   };
 
   return (
-    <A
-      href={`/profile/${encodeURIComponent(props.user.ap_id)}`}
-      class="flex items-center gap-3 px-4 py-3 hover:bg-neutral-800/50 transition-colors"
-    >
-      <UserAvatar
-        avatarUrl={props.user.icon_url}
-        name={props.user.name || props.user.preferred_username}
-        size="small"
-      />
-      <div class="flex-1 min-w-0">
-        <div class="text-sm font-bold text-white truncate">
-          {props.user.name || props.user.preferred_username}
+    /* The profile link and the follow button are SIBLINGS — a <button> nested
+       inside an <A> is invalid interactive nesting and breaks SR/keyboard
+       focus order (same pattern as the SearchPage discover rows). */
+    <div class="flex items-center gap-3 px-4 py-3 hover:bg-neutral-800/50 transition-colors">
+      <A
+        href={`/profile/${encodeURIComponent(props.user.ap_id)}`}
+        class="flex min-w-0 flex-1 items-center gap-3"
+      >
+        <UserAvatar
+          avatarUrl={props.user.icon_url}
+          name={props.user.name || props.user.preferred_username}
+          size="small"
+        />
+        <div class="flex-1 min-w-0">
+          <div class="text-sm font-bold text-white truncate">
+            {props.user.name || props.user.preferred_username}
+          </div>
+          <div class="text-xs text-neutral-500 truncate">
+            @{props.user.username}
+          </div>
         </div>
-        <div class="text-xs text-neutral-500 truncate">
-          @{props.user.username}
-        </div>
-      </div>
+      </A>
       <button
         onClick={handleFollow}
         disabled={loading() || following() || requested()}
@@ -86,7 +91,7 @@ function RecommendedUserCard(props: {
             ? t("profile.followRequested")
             : t("profile.follow")}
       </button>
-    </A>
+    </div>
   );
 }
 

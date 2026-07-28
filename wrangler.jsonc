@@ -18,8 +18,21 @@
       "binding": "DB",
       "database_name": "yurucommu-db",
       "migrations_dir": "node_modules/@takosjp/yurucommu-core/migrations",
+      // One ledger, shared with the engine's own runners. Without this wrangler
+      // keeps its own `d1_migrations` table, sees zero applied rows on a
+      // database that `yurucommu_migrations` already migrated, and replays
+      // 0001.. from the top — which re-runs table rebuilds against populated
+      // tables. Both runners must agree on the ledger name or the second one
+      // is destructive by construction.
+      "migrations_table": "yurucommu_migrations",
     },
   ],
+  // Retention sweep cadence. Matches the Bun self-host interval timer
+  // (RETENTION_SWEEP_INTERVAL_MS) so both runtimes purge at the same rate;
+  // every pass is LIMIT-bounded and the remainder rolls into the next run.
+  "triggers": {
+    "crons": ["0 * * * *"],
+  },
   "kv_namespaces": [{ "binding": "KV" }],
   "r2_buckets": [{ "binding": "MEDIA" }],
   "queues": {

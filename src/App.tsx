@@ -41,12 +41,13 @@ const SearchPage = lazy(() => import("./pages/SearchPage.tsx"));
 const NotFoundPage = lazy(() => import("./pages/NotFoundPage.tsx"));
 
 function LoginRoute() {
+  const t = useAtomValue(tAtom);
   onMount(() => {
     window.location.replace("/");
   });
   return (
     <div class="flex h-screen items-center justify-center bg-neutral-950 text-neutral-500">
-      Loading...
+      {t()("common.loading")}
     </div>
   );
 }

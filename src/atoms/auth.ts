@@ -9,11 +9,21 @@ import {
 } from "../lib/plugin.ts";
 import { resetScopeAtom } from "./scope.ts";
 import { clearYurucommuBrowserPushBeforeSignOut } from "../lib/browser-push.ts";
+import { suppressTakosumiOidcAutoStart } from "../lib/auth-config.ts";
 
 export type { HostedInstance };
 
-const authStrategy = getAuthStrategy();
-export const IS_HOSTED = authStrategy.mode === "hosted";
+/**
+ * Resolve the strategy only when the UI actually performs auth work.
+ *
+ * This module is imported by the default App component before
+ * bootstrapYurucommuFrontend() installs embedder plugins. Resolving at module
+ * evaluation time therefore permanently cached the self-hosted strategy and
+ * made a correctly supplied hosted plugin ineffective.
+ */
+export function isHostedDeployment(): boolean {
+  return getAuthStrategy().mode === "hosted";
+}
 
 // --- State atoms ---
 export const actorAtom = atom<Actor | null>(null);
@@ -32,6 +42,7 @@ export const instancesLoadingAtom = atom(false);
 
 // --- Action atoms ---
 export const checkAuthAtom = atom(null, async (get, set) => {
+  const authStrategy = getAuthStrategy();
   // Surface an OAuth/OIDC login failure that the callback relayed as
   // `/?error=<code>` (e.g. id_token_invalid / token_exchange_failed /
   // csrf_check_failed). The server logs the technical detail; the user just
@@ -78,6 +89,7 @@ export const checkAuthAtom = atom(null, async (get, set) => {
 });
 
 export const loginAtom = atom(null, async (get, set, password?: string) => {
+  const authStrategy = getAuthStrategy();
   set(loginErrorAtom, null);
   try {
     const result = await authStrategy.login(password);
@@ -102,6 +114,11 @@ export const loginAtom = atom(null, async (get, set, password?: string) => {
 });
 
 export const logoutAtom = atom(null, async (get, set) => {
+  const authStrategy = getAuthStrategy();
+  // Before anything can re-render the login screen: the Takosumi session
+  // outlives ours, so an unsuppressed auto-start would redirect and sign the
+  // user straight back in — signing out would look like it did nothing.
+  suppressTakosumiOidcAutoStart();
   try {
     await clearYurucommuBrowserPushBeforeSignOut();
     await authStrategy.logout();
@@ -119,7 +136,10 @@ export const logoutAtom = atom(null, async (get, set) => {
 export const completeSetupAtom = atom(
   null,
   async (_get, set, username: string) => {
-    if (!IS_HOSTED || !authStrategy.completeSetup) return false;
+    const authStrategy = getAuthStrategy();
+    if (authStrategy.mode !== "hosted" || !authStrategy.completeSetup) {
+      return false;
+    }
     const success = await authStrategy.completeSetup(username);
     if (success) await set(checkAuthAtom);
     return success;
@@ -129,7 +149,8 @@ export const completeSetupAtom = atom(
 export const selectInstanceAtom = atom(
   null,
   async (get, set, instanceId: string) => {
-    if (!IS_HOSTED || !authStrategy.selectInstance) return;
+    const authStrategy = getAuthStrategy();
+    if (authStrategy.mode !== "hosted" || !authStrategy.selectInstance) return;
     set(instancesLoadingAtom, true);
     try {
       await authStrategy.selectInstance(instanceId);
@@ -146,7 +167,10 @@ export const selectInstanceAtom = atom(
 export const rebuildInstanceAtom = atom(
   null,
   async (get, set, instanceId: string) => {
-    if (!IS_HOSTED || !authStrategy.rebuildInstance) return false;
+    const authStrategy = getAuthStrategy();
+    if (authStrategy.mode !== "hosted" || !authStrategy.rebuildInstance) {
+      return false;
+    }
     set(instancesLoadingAtom, true);
     try {
       return await authStrategy.rebuildInstance(instanceId);
@@ -163,6 +187,7 @@ export const rebuildInstanceAtom = atom(
 
 // Init: extract token from URL on load
 export const initAuthAtom = atom(null, async (_get, set) => {
+  const authStrategy = getAuthStrategy();
   authStrategy.extractTokenFromUrl();
   await set(checkAuthAtom);
 });

@@ -85,7 +85,7 @@ export function ScopeHeader(props: ScopeHeaderProps) {
               type="button"
               onClick={() => openMenu(true)}
               aria-label={t("menu.open")}
-              aria-haspopup="menu"
+              aria-haspopup="dialog"
               class="shrink-0 rounded-full ring-1 ring-neutral-700 transition-colors hover:ring-neutral-500 md:hidden"
             >
               <UserAvatar

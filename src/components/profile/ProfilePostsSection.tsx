@@ -315,11 +315,13 @@ function ProfilePostItem(props: ProfilePostItemProps) {
             class="ml-auto self-center"
           />
         </div>
-        <PostContent
-          content={props.post.content}
-          summary={props.post.summary}
-          class="text-[15px] text-neutral-200 mt-1"
-        />
+        <A href={`/post/${encodeURIComponent(props.post.ap_id)}`} class="block">
+          <PostContent
+            content={props.post.content}
+            summary={props.post.summary}
+            class="text-[15px] text-neutral-200 mt-1"
+          />
+        </A>
         <Show
           when={props.post.attachments && props.post.attachments.length > 0}
         >

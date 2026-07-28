@@ -1,11 +1,14 @@
 #!/usr/bin/env bun
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { argv, env } from "node:process";
 
-import { applyMigrations } from "@takosjp/yurucommu-core/migrations";
+import {
+  applyMigrations,
+  MIGRATION_LEDGER_TABLE,
+} from "@takosjp/yurucommu-core/migrations";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -125,10 +128,15 @@ export function buildWranglerToml(config: YurucommuReleaseConfig): string {
     `binding = "DB"`,
     `database_name = ${tomlString(config.d1DatabaseName)}`,
     `database_id = ${tomlString(config.d1DatabaseId)}`,
+    `migrations_dir = "../../node_modules/@takosjp/yurucommu-core/migrations"`,
+    `migrations_table = "yurucommu_migrations"`,
     "",
     "[[kv_namespaces]]",
     `binding = "KV"`,
     `id = ${tomlString(config.kvNamespaceId)}`,
+    "",
+    "[triggers]",
+    `crons = ["0 * * * *"]`,
   ];
 
   if (config.r2BucketName) {
@@ -152,6 +160,9 @@ export function buildWranglerToml(config: YurucommuReleaseConfig): string {
       "max_batch_size = 10",
       "max_batch_timeout = 1",
       "max_retries = 3",
+      ...(config.deliveryDlqName
+        ? [`dead_letter_queue = ${tomlString(config.deliveryDlqName)}`]
+        : []),
     );
   }
 
@@ -248,6 +259,110 @@ export function buildD1ExecuteTemplate(
   ];
 }
 
+export function buildD1QueryArgs(
+  configPath: string,
+  resource: string,
+  sql: string,
+): string[] {
+  return [
+    "bunx",
+    "wrangler",
+    "d1",
+    "execute",
+    resource,
+    "--remote",
+    "--json",
+    "--yes",
+    "--config",
+    configPath,
+    "--command",
+    sql,
+  ];
+}
+
+export function parseWranglerD1Rows(text: string): JsonRecord[] {
+  const parsed = JSON.parse(text) as unknown;
+  const envelopes = Array.isArray(parsed) ? parsed : [parsed];
+  const rows: JsonRecord[] = [];
+  for (const envelope of envelopes) {
+    if (!isRecord(envelope)) continue;
+    const results = envelope.results;
+    if (!Array.isArray(results)) continue;
+    for (const row of results) {
+      if (isRecord(row)) rows.push(row);
+    }
+  }
+  return rows;
+}
+
+export type LegacyMigrationLedgerRow = {
+  name: string;
+  appliedAt?: string;
+};
+
+export function legacyMigrationRows(
+  rows: readonly JsonRecord[],
+): LegacyMigrationLedgerRow[] {
+  return rows.map((row, index) => {
+    if (typeof row.name !== "string" || !row.name.trim()) {
+      throw new Error(
+        `legacy d1_migrations row ${index} has no migration name`,
+      );
+    }
+    const appliedAt =
+      typeof row.applied_at === "string" && row.applied_at.trim()
+        ? row.applied_at
+        : undefined;
+    return { name: row.name, ...(appliedAt ? { appliedAt } : {}) };
+  });
+}
+
+export function assertLegacyLedgerIsMigrationPrefix(
+  legacy: readonly LegacyMigrationLedgerRow[],
+  migrationFiles: readonly string[],
+): void {
+  const names = legacy.map((row) => row.name);
+  const duplicates = names.filter(
+    (name, index) => names.indexOf(name) !== index,
+  );
+  if (duplicates.length > 0) {
+    throw new Error(
+      `legacy d1_migrations contains duplicate names: ${[
+        ...new Set(duplicates),
+      ].join(", ")}`,
+    );
+  }
+  const expected = migrationFiles.slice(0, names.length);
+  if (
+    names.length > migrationFiles.length ||
+    names.some((name, index) => name !== expected[index])
+  ) {
+    throw new Error(
+      "legacy d1_migrations is not an exact prefix of the authoritative migration set; refusing automatic reconciliation",
+    );
+  }
+}
+
+export function buildLegacyLedgerReconciliationSql(
+  legacy: readonly LegacyMigrationLedgerRow[],
+): string {
+  const statements = [
+    `CREATE TABLE IF NOT EXISTS ${MIGRATION_LEDGER_TABLE} (\n` +
+      "  id INTEGER PRIMARY KEY AUTOINCREMENT,\n" +
+      "  name TEXT UNIQUE NOT NULL,\n" +
+      "  applied_at TEXT NOT NULL DEFAULT (datetime('now'))\n" +
+      ")",
+  ];
+  for (const row of legacy) {
+    const name = sqlString(row.name);
+    const appliedAt = sqlString(row.appliedAt ?? "1970-01-01 00:00:00");
+    statements.push(
+      `INSERT OR IGNORE INTO ${MIGRATION_LEDGER_TABLE} (name, applied_at) VALUES (${name}, ${appliedAt})`,
+    );
+  }
+  return `${statements.join(";\n")};\n`;
+}
+
 export function d1MigrationResource(
   config: Pick<YurucommuReleaseConfig, "d1DatabaseId" | "d1DatabaseName">,
 ): string {
@@ -339,13 +454,15 @@ async function main(args = argv.slice(2)): Promise<void> {
       ? join(generatedDir, "secrets.json")
       : undefined;
 
-  await mkdir(generatedDir, { recursive: true });
+  await mkdir(generatedDir, { recursive: true, mode: 0o700 });
   try {
     const restoreWranglerEnv = applyWranglerEnv(config);
     try {
-      await writeFile(configPath, buildWranglerToml(config));
+      await writeFile(configPath, buildWranglerToml(config), { mode: 0o600 });
       if (secretsPath) {
-        await writeFile(secretsPath, JSON.stringify(config.secrets));
+        await writeFile(secretsPath, JSON.stringify(config.secrets), {
+          mode: 0o600,
+        });
       }
 
       if (dryRun) {
@@ -369,7 +486,7 @@ async function main(args = argv.slice(2)): Promise<void> {
       }
 
       if (!migrationsOnly) {
-        warnIfReadinessWillBeIncomplete(config);
+        assertReleaseReadinessConfig(config);
       }
       if (
         shouldInstallDependenciesBeforeRelease({
@@ -387,6 +504,12 @@ async function main(args = argv.slice(2)): Promise<void> {
           "[takosumi:release] Skipping D1 migrations because YURUCOMMU_SKIP_D1_MIGRATIONS is enabled.",
         );
       } else {
+        await reconcileLegacyD1MigrationLedger({
+          configPath,
+          config,
+          generatedDir,
+          migrationsDir: coreMigrationsDir(),
+        });
         await applyMigrations({
           resource: d1MigrationResource(config),
           migrationsDir: coreMigrationsDir(),
@@ -422,6 +545,58 @@ async function main(args = argv.slice(2)): Promise<void> {
       await rm(generatedDir, { recursive: true, force: true });
     }
   }
+}
+
+async function reconcileLegacyD1MigrationLedger(input: {
+  readonly configPath: string;
+  readonly config: Pick<
+    YurucommuReleaseConfig,
+    "d1DatabaseId" | "d1DatabaseName"
+  >;
+  readonly generatedDir: string;
+  readonly migrationsDir: string;
+}): Promise<void> {
+  const resource = d1MigrationResource(input.config);
+  const tableRows = parseWranglerD1Rows(
+    await runForStdout(
+      buildD1QueryArgs(
+        input.configPath,
+        resource,
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'd1_migrations'",
+      ),
+    ),
+  );
+  if (!tableRows.some((row) => row.name === "d1_migrations")) return;
+
+  const legacy = legacyMigrationRows(
+    parseWranglerD1Rows(
+      await runForStdout(
+        buildD1QueryArgs(
+          input.configPath,
+          resource,
+          "SELECT name, applied_at FROM d1_migrations ORDER BY id",
+        ),
+      ),
+    ),
+  );
+  if (legacy.length === 0) return;
+
+  const migrationFiles = (await readdir(input.migrationsDir))
+    .filter((name) => /^\d{4}_.+\.sql$/u.test(name))
+    .sort();
+  assertLegacyLedgerIsMigrationPrefix(legacy, migrationFiles);
+
+  const sqlPath = join(input.generatedDir, "reconcile-d1-ledger.sql");
+  await writeFile(sqlPath, buildLegacyLedgerReconciliationSql(legacy), {
+    mode: 0o600,
+  });
+  const command = buildD1ExecuteTemplate(input.configPath).map((part) =>
+    part === "{resource}" ? resource : part === "{sql_file}" ? sqlPath : part,
+  );
+  await run(command);
+  console.warn(
+    `[takosumi:release] Reconciled ${legacy.length} legacy d1_migrations rows into yurucommu_migrations before applying pending migrations.`,
+  );
 }
 
 async function run(
@@ -462,6 +637,36 @@ async function run(
     }
     throw new Error(`Command failed (${code}): ${command.join(" ")}`);
   }
+}
+
+async function runForStdout(command: readonly string[]): Promise<string> {
+  console.log(`\n> ${command.map(shellArg).join(" ")}\n`);
+  const retryPolicy = releaseCommandRetryPolicy(env);
+  for (let attempt = 1; attempt <= retryPolicy.attempts; attempt += 1) {
+    const child = Bun.spawn([...command], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [stdout, stderr, code] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ]);
+    process.stderr.write(stderr);
+    if (code === 0) return stdout;
+    if (
+      attempt < retryPolicy.attempts &&
+      isRetryableCommandFailure(`${stdout}\n${stderr}`)
+    ) {
+      console.warn(
+        `[takosumi:release] Retryable query failure; retrying ${attempt + 1}/${retryPolicy.attempts} after ${retryPolicy.intervalMs}ms.`,
+      );
+      await sleep(retryPolicy.intervalMs);
+      continue;
+    }
+    throw new Error(`Command failed (${code}): ${command.join(" ")}`);
+  }
+  throw new Error(`Command exhausted retries: ${command.join(" ")}`);
 }
 
 export function isRetryableCommandFailure(output: string): boolean {
@@ -559,7 +764,9 @@ function collectWorkerSecrets(
   return secrets;
 }
 
-function warnIfReadinessWillBeIncomplete(config: YurucommuReleaseConfig): void {
+export function missingReleaseReadinessInputs(
+  config: YurucommuReleaseConfig,
+): string[] {
   const hasAuth =
     Boolean(config.secrets.AUTH_PASSWORD_HASH) ||
     (Boolean(config.vars.GOOGLE_CLIENT_ID) &&
@@ -573,9 +780,14 @@ function warnIfReadinessWillBeIncomplete(config: YurucommuReleaseConfig): void {
   const missing: string[] = [];
   if (!config.secrets.ENCRYPTION_KEY) missing.push("ENCRYPTION_KEY");
   if (!hasAuth) missing.push("AUTH_METHOD");
-  if (missing.length > 0) {
-    console.warn(
-      `[takosumi:release] Worker will deploy, but /readyz will be misconfigured until operator env provides: ${missing.join(", ")}`,
+  return missing;
+}
+
+function assertReleaseReadinessConfig(config: YurucommuReleaseConfig): void {
+  const missing = missingReleaseReadinessInputs(config);
+  if (missing.length !== 0) {
+    throw new Error(
+      `Refusing to deploy a Worker that cannot become ready; provide operator inputs: ${missing.join(", ")}`,
     );
   }
 }
@@ -616,6 +828,10 @@ function firstString(
   ...values: readonly (string | undefined)[]
 ): string | undefined {
   return values.find((value) => value?.trim())?.trim();
+}
+
+function sqlString(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
 }
 
 function tomlString(value: string): string {

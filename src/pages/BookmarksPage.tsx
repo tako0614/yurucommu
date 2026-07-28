@@ -4,12 +4,15 @@ import { useRequiredActor } from "../hooks/useRequiredActor.ts";
 import { Post } from "../types/index.ts";
 import { fetchBookmarks, unbookmarkPost } from "../lib/api.ts";
 import { toggleLike } from "../atoms/posts.ts";
+import { useSetAtom } from "solid-jotai";
+import { timelinePostsAtom } from "../atoms/timeline.ts";
 import { formatRelativeTime } from "../lib/datetime.ts";
 import { useI18n } from "../lib/i18n.tsx";
 import { UserAvatar } from "../components/UserAvatar.tsx";
 import { PostContent } from "../components/PostContent.tsx";
 import { PostVisibilityIndicator } from "../components/timeline/PostVisibilityIndicator.tsx";
 import { BookmarkIcon, HeartIcon } from "../components/icons/SocialIcons.tsx";
+import { ConfirmSheet } from "../components/ConfirmSheet.tsx";
 import { InlineErrorBanner } from "../components/InlineErrorBanner.tsx";
 import { InlineErrorRetry } from "../components/InlineErrorRetry.tsx";
 import { EmptyState } from "../components/EmptyState.tsx";
@@ -24,6 +27,7 @@ export function BookmarksPage() {
   const actor = useRequiredActor();
   const { t, language } = useI18n();
   const lightbox = useMediaLightbox();
+  const setTimelinePosts = useSetAtom(timelinePostsAtom);
   const [error, setError] = createSignal<string | null>(null);
   const clearError = () => setError(null);
   const [loadError, setLoadError] = createSignal<string | null>(null);
@@ -76,12 +80,26 @@ export function BookmarksPage() {
 
   const handleLike = async (post: Post) => {
     try {
-      await toggleLike(post, (fn) => setPosts(fn));
+      // Apply the toggle (and its rollback on failure) to the timeline's
+      // cached copy of the post too, so navigating back to the feed within its
+      // reuse window doesn't show stale like state. The updater merges by
+      // ap_id, so it is a no-op for posts not in the feed.
+      await toggleLike(post, (fn) => {
+        setPosts(fn);
+        setTimelinePosts(fn);
+      });
     } catch (e) {
       console.error("Failed to toggle like:", e);
       setError(t("common.error"));
     }
   };
+
+  // Unbookmark is staged behind the shared ConfirmSheet: it removes the row
+  // instantly and there is no undo affordance (the toast system has no action
+  // button), so a mis-tap would silently lose the bookmark.
+  const [pendingUnbookmark, setPendingUnbookmark] = createSignal<string | null>(
+    null,
+  );
 
   // Guard against a double-tap firing two DELETEs for the same post.
   const unbookmarkInFlight = new Set<string>();
@@ -211,7 +229,7 @@ export function BookmarksPage() {
                           </Show>
                         </button>
                         <button
-                          onClick={() => handleUnbookmark(post.ap_id)}
+                          onClick={() => setPendingUnbookmark(post.ap_id)}
                           aria-label={t("bookmarks.remove")}
                           class="flex items-center gap-2 text-accent transition-colors"
                           title={t("bookmarks.remove")}
@@ -246,6 +264,19 @@ export function BookmarksPage() {
           onClose={lightbox.close}
         />
       </Show>
+      <ConfirmSheet
+        open={pendingUnbookmark() !== null}
+        title={t("confirm.removeBookmarkTitle")}
+        body={t("confirm.removeBookmarkBody")}
+        confirmLabel={t("bookmarks.remove")}
+        destructive
+        onConfirm={() => {
+          const apId = pendingUnbookmark();
+          setPendingUnbookmark(null);
+          if (apId) void handleUnbookmark(apId);
+        }}
+        onCancel={() => setPendingUnbookmark(null)}
+      />
     </div>
   );
 }

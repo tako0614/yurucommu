@@ -41,9 +41,16 @@ export function StoryViewerHeader(props: StoryViewerHeaderProps) {
         </div>
       </div>
       <div class="flex items-center gap-1">
+        {/* stopPropagation: these buttons sit inside the viewer's tap-zone
+            (right two-thirds = next); a bubbled click would ALSO advance the
+            story — mute would flip AND skip, and delete's confirm prompt would
+            be immediately reset by the story change. */}
         <Show when={props.isVideo}>
           <button
-            onClick={props.onToggleMute}
+            onClick={(e) => {
+              e.stopPropagation();
+              props.onToggleMute();
+            }}
             aria-label={
               props.isMuted ? t("story.unmuteVideo") : t("story.muteVideo")
             }
@@ -54,7 +61,10 @@ export function StoryViewerHeader(props: StoryViewerHeaderProps) {
         </Show>
         <Show when={props.isOwnStory}>
           <button
-            onClick={props.onDelete}
+            onClick={(e) => {
+              e.stopPropagation();
+              props.onDelete();
+            }}
             aria-label={t("story.deleteStory")}
             class="p-2 text-white hover:bg-white/10 rounded-full transition-colors"
           >
@@ -62,7 +72,10 @@ export function StoryViewerHeader(props: StoryViewerHeaderProps) {
           </button>
         </Show>
         <button
-          onClick={props.onClose}
+          onClick={(e) => {
+            e.stopPropagation();
+            props.onClose();
+          }}
           aria-label={t("story.close")}
           class="p-2 text-white hover:bg-white/10 rounded-full transition-colors"
         >

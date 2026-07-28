@@ -1,50 +1,47 @@
-# AGENTS.md — yurucommu
+# AGENTS.md
 
-`yurucommu` は feed / story / profile 中心の fullstack product repo です。
-UI、Worker artifact、OpenTofu Capsule、`yurucommu.com` site をこの repo が所有し、
-server engine は `@takosjp/yurucommu-core` library として組み込みます。
+> このファイルは `takos-control/engineering.policy.json` と `ecosystem.repos.json` から generator v1 で生成されています。手編集しないでください。
 
-## 責務
+## Repository
 
-- yurucommu 公式 web client
-- `yurucommu.com` / `yurucommu.test` の brand / help site
-- frontend plugin API
-- yurucommu Worker artifact source/build pipeline (`dist/yurucommu-worker.js`
-  is generated output and must not be committed)
-- direct Cloudflare deployment (`wrangler.jsonc` + `bun run deploy`)
-- OpenTofu Capsule module (`main.tf` / `outputs.tf`)
-- app-owned Takosumi release hook / D1 migration activation
-- same-origin fullstack runtime and configured-origin development UX
+- Scope: Feed, story, and profile focused yurucommu full-stack product and Capsule.
+- Repository kind: `product`
+- Direct sibling dependencies: なし
+- Repository gate: `bun run check`
+- Canonical docs: [README.md](README.md), [deploy/takoform/README.md](deploy/takoform/README.md), [site/DEPLOY.md](site/DEPLOY.md)
 
-## 持たない
+## Ownership
 
-- reusable ActivityPub / API / DB engine implementation (`yurucommu-core`)
-- Takosumi platform federation responsibility
-- Yurumeet talk-first UI / site
+- Owns: Feed, story, and profile full-stack product and web client / yurucommu.com brand site and Worker artifact / Direct Cloudflare module and portable Takoform Capsule
+- Does not own: Reusable ActivityPub, API, and database engine / Takosumi platform federation / Yurumeet talk-first UI or site
+- Hazards: Generated dist/yurucommu-worker.js must not be committed. / deploy/takoform is the canonical managed graph. / Selectable Store install requires provider, lifecycle, and rollback evidence.
 
-## Workflow
+## Required workflow
 
-```bash
-bun install
-bun run check
-bun run test
-bun run build
-bun run build:worker
-# 実際にCloudflareへ公開するときだけ
-bun run deploy
-```
+- repo固有の挙動・契約・architectureは、このrepo自身のsourceとdocsを正本にします。共通工学ルールをこのrepoで再定義しません。
+- 通常変更はこのrepo内に閉じます。横断変更はtask ledgerに対象repoと順序を宣言し、unrelatedなdirty workを変更・stage・commitしません。
+- handoff前に `bun run check` を実行します。これはread-onlyで、`format-check`, `lint-or-static-analysis`, `type-or-compile`, `portable-tests`, `portable-build` を完全に検証し、未実装項目をskipしてはいけません。
+- formatの書き換えは明示的な `bun run fmt` だけで行い、checkやCIからsourceを書き換えません。
+- task ledgerが必要な条件: The change modifies more than one repository. / The work changes production or release behavior. / The work changes a persisted schema or migrates data. / The work changes security, identity, credentials, authorization, billing, or authority. / The work destructively changes data or repository history.
+- secret、credential、production記録、private keyをrepoへcommitしません。
 
-`dist/yurucommu-worker.js` is local/CI generated output. Hosted Takosumi installs
-must use `worker_bundle_url` + `worker_bundle_sha256` from a Git release or CI
-artifact rather than checking built bundles into Git.
+## Deploy
 
-Cloudflare direct deploy and Takosumi install are equal product entrypoints.
-`wrangler.jsonc` owns direct Cloudflare bindings; `main.tf` owns the
-Takosumi-managed OpenTofu path. Do not make direct Cloudflare users run
-OpenTofu solely to deploy this product.
+- このrepoがproduction targetを持つなら、入口は `bun run deploy` 一つです。無ければ作ります。承認待ちの列も、登録する先もありません。entrypointは副作用なしの `--contract` で、自分に立つtriggerと各obligationの果たし方を宣言します。
+- 実行するかどうかはoperatorの判断です。task ledger、branch名、green checkのいずれもdeployを承認しません。逆に、どれも欠けているからといってdeployが禁止されるわけでもありません。
+- どのsurfaceも次のobligationを負います。
 
-## Version discipline
+  - **provenance**: The published bytes belong to one reviewed commit, are built from that worktree, and the commit and artifact digest are recorded. Whatever validates them must cover those bytes.
+  - **post-conditions**: After publishing, state how you know the thing works for a real user, and confirm it.
+  - **reversal**: State how to get back. If you cannot get back, say so and name the forward-repair plan instead.
+  - **failure-handling**: State what the entrypoint prints on failure and what it refuses to do. Raw diagnostics, no blind retry, and a clear split between failing before and after the target was touched.
 
-`package.json` and the `worker_release_tag` default in `main.tf` describe the yurucommu product release.
-Do not bump the product major version just because dependencies, licensing, or
-repo topology changed; major releases need an explicit product release decision.
+- 次のtriggerが立つと義務が増えます。判別できないものはirreversible扱いです。
+
+  - **irreversible** (The step leaves the previous artifact unable to serve again: a schema or data migration, a topology change, or anything that rewrites durable state.) → pre-mutation-proof, independent-review
+  - **authority** (The step moves money, identity, authentication, authorization, or the deploy mechanism itself.) → independent-review
+  - **published-identity** (Publication mints a version, digest, or tag that consumers pin.) → no-overwrite
+  - **asynchronous** (Publication completes through an external review or staged delivery the deploy does not control, such as an app store.) → halt
+
+- 果たし方は各surfaceが自分の言葉で決めます。中央は義務を決め、機構は決めません。宣言を弱められませんが、強める分には自由です。
+- 利用者/operatorが自分の環境へself-host deployすることは別authorityで、このruleの対象外です。

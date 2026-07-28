@@ -80,7 +80,7 @@ variable "encryption_key" {
 }
 
 variable "auth_password_hash" {
-  description = "Optional bootstrap password hash/token injected as AUTH_PASSWORD_HASH. Takosumi installs may instead use the Takosumi Accounts OIDC variables."
+  description = "Bootstrap password hash/token injected as AUTH_PASSWORD_HASH. Required for a managed Worker unless Takosumi Accounts OIDC is configured."
   type        = string
   default     = ""
   sensitive   = true
@@ -101,6 +101,24 @@ variable "takosumi_accounts_client_id" {
   description = "Optional Takosumi Accounts public OIDC client id used with takosumi_accounts_issuer_url."
   type        = string
   default     = ""
+}
+
+variable "oidc_owner_sub" {
+  description = "OIDC/OAuth subject pinned to the single owner slot. Only this subject may become owner on first login; every other first-login is refused."
+  type        = string
+  default     = ""
+}
+
+variable "oidc_allowed_subs" {
+  description = "Comma-separated OIDC/OAuth subjects allowed to auto-provision a non-owner member account. Empty keeps member auto-provisioning closed."
+  type        = string
+  default     = ""
+}
+
+variable "allow_unpinned_owner_claim" {
+  description = "Allow an OIDC-only install to hand the owner slot to whoever signs in first. The pairwise subject is unknown before the first login, so a fresh install sets this, signs in, then pins oidc_owner_sub and clears it."
+  type        = bool
+  default     = false
 }
 
 variable "notification_push_gateway_url" {
@@ -159,6 +177,10 @@ variable "env" {
         "AUTH_PASSWORD_HASH",
         "TAKOSUMI_ACCOUNTS_ISSUER_URL",
         "TAKOSUMI_ACCOUNTS_CLIENT_ID",
+        "OIDC_OWNER_SUB",
+        "TAKOSUMI_ACCOUNTS_OWNER_SUB",
+        "OIDC_ALLOWED_SUBS",
+        "ALLOW_UNPINNED_OWNER_CLAIM",
         "YURUCOMMU_NOTIFICATION_PUSH_GATEWAY_ALLOWED_HOSTS",
         "YURUCOMMU_NOTIFICATION_PUSH_GATEWAY_URL",
         "YURUCOMMU_NOTIFICATION_PUSH_GATEWAY_TOKEN",
@@ -193,7 +215,7 @@ variable "worker_bundle_path" {
 }
 
 variable "worker_release_tag" {
-  description = "GitHub release tag whose takosumi-artifact.json selects the default Worker bundle and SHA-256. Set empty to use worker_bundle_path."
+  description = "GitHub release tag selected from the append-only release.lock.json. The fetched takosumi-artifact.json must match the pinned manifest digest. Set empty to use worker_bundle_path."
   type        = string
   default     = "v2.1.1"
 
@@ -215,7 +237,7 @@ variable "worker_bundle_url" {
 }
 
 variable "worker_bundle_sha256" {
-  description = "Expected SHA-256 of the Worker module JS. Accepts lowercase hex or sha256:<hex>. Required when worker_bundle_url is set; optional for local worker_bundle_path."
+  description = "Expected SHA-256 assertion for an explicit worker_bundle_url or local worker_bundle_path. Accepts lowercase hex or sha256:<hex>. In worker_release_tag mode release.lock.json is authoritative; a supplied value must equal its pin."
   type        = string
   default     = ""
 
@@ -279,17 +301,34 @@ variable "worker_compatibility_flags" {
 }
 
 locals {
-  cloudflare_resources_enabled  = var.enable_cloudflare_resources
-  cloudflare_worker_enabled     = local.cloudflare_resources_enabled && var.enable_cloudflare_worker_script
-  cloudflare_route_enabled      = local.cloudflare_worker_enabled && trimspace(var.cloudflare_route_zone_id) != "" && trimspace(var.cloudflare_route_pattern) != ""
-  worker_release_tag            = trimspace(var.worker_release_tag)
-  worker_bundle_explicit_url    = trimspace(var.worker_bundle_url)
-  worker_bundle_uses_manifest   = local.cloudflare_worker_enabled && local.worker_bundle_explicit_url == "" && local.worker_release_tag != ""
-  worker_release_manifest       = local.worker_bundle_uses_manifest ? jsondecode(data.http.worker_release_manifest[0].response_body) : null
-  worker_bundle_url             = local.worker_bundle_explicit_url != "" ? local.worker_bundle_explicit_url : try(local.worker_release_manifest.artifact.url, "")
+  cloudflare_resources_enabled = var.enable_cloudflare_resources
+  cloudflare_worker_enabled    = local.cloudflare_resources_enabled && var.enable_cloudflare_worker_script
+  cloudflare_route_enabled     = local.cloudflare_worker_enabled && trimspace(var.cloudflare_route_zone_id) != "" && trimspace(var.cloudflare_route_pattern) != ""
+  # A release tag only selects an append-only in-tree pin. The fetched manifest
+  # is checked against that pin and never supplies its own expected digest.
+  release_lock                   = jsondecode(file("${path.module}/release.lock.json"))
+  worker_release_tag             = trimspace(var.worker_release_tag)
+  worker_bundle_explicit_url     = trimspace(var.worker_bundle_url)
+  worker_bundle_uses_manifest    = local.cloudflare_worker_enabled && local.worker_bundle_explicit_url == "" && local.worker_release_tag != ""
+  worker_release_pin             = try(local.release_lock.releases[local.worker_release_tag], null)
+  worker_release_manifest_body   = local.worker_bundle_uses_manifest ? data.http.worker_release_manifest[0].response_body : null
+  worker_release_manifest        = local.worker_bundle_uses_manifest ? jsondecode(local.worker_release_manifest_body) : null
+  worker_release_manifest_digest = local.worker_bundle_uses_manifest ? sha256(local.worker_release_manifest_body) : null
+  worker_release_expected_manifest_sha256 = startswith(try(local.worker_release_pin.manifest.sha256, ""), "sha256:") ? replace(
+    try(local.worker_release_pin.manifest.sha256, ""),
+    "sha256:",
+    "",
+  ) : try(local.worker_release_pin.manifest.sha256, "")
+  worker_release_expected_artifact_sha256 = startswith(try(local.worker_release_pin.artifact.sha256, ""), "sha256:") ? replace(
+    try(local.worker_release_pin.artifact.sha256, ""),
+    "sha256:",
+    "",
+  ) : try(local.worker_release_pin.artifact.sha256, "")
+  worker_bundle_url             = local.worker_bundle_explicit_url != "" ? local.worker_bundle_explicit_url : (local.worker_bundle_uses_manifest ? try(local.worker_release_pin.artifact.url, "") : "")
   worker_bundle_uses_url        = local.cloudflare_worker_enabled && local.worker_bundle_url != ""
-  worker_bundle_sha256_input    = trimspace(var.worker_bundle_sha256) != "" ? trimspace(var.worker_bundle_sha256) : (local.worker_bundle_uses_manifest ? try(local.worker_release_manifest.artifact.sha256, "") : "")
-  worker_bundle_expected_sha256 = startswith(local.worker_bundle_sha256_input, "sha256:") ? replace(local.worker_bundle_sha256_input, "sha256:", "") : local.worker_bundle_sha256_input
+  worker_bundle_sha256_input    = trimspace(var.worker_bundle_sha256)
+  worker_bundle_sha256_override = startswith(local.worker_bundle_sha256_input, "sha256:") ? replace(local.worker_bundle_sha256_input, "sha256:", "") : local.worker_bundle_sha256_input
+  worker_bundle_expected_sha256 = local.worker_bundle_uses_manifest ? local.worker_release_expected_artifact_sha256 : local.worker_bundle_sha256_override
   worker_bundle_local_path      = startswith(var.worker_bundle_path, "/") ? var.worker_bundle_path : "${path.module}/${var.worker_bundle_path}"
   worker_bundle_body            = local.worker_bundle_uses_url ? data.http.worker_bundle[0].response_body : null
   worker_bundle_content_sha256  = local.cloudflare_worker_enabled ? (local.worker_bundle_uses_url ? sha256(data.http.worker_bundle[0].response_body) : (local.worker_bundle_uses_manifest ? null : filesha256(local.worker_bundle_local_path))) : null
@@ -302,7 +341,7 @@ locals {
   provided_auth_password_hash   = trimspace(var.auth_password_hash)
   has_takosumi_accounts_oidc    = trimspace(var.takosumi_accounts_issuer_url) != "" && trimspace(var.takosumi_accounts_client_id) != ""
   effective_encryption_key      = local.provided_encryption_key != "" ? local.provided_encryption_key : random_id.encryption_key.hex
-  effective_auth_password_hash  = local.provided_auth_password_hash != "" ? local.provided_auth_password_hash : (local.has_takosumi_accounts_oidc ? "" : try(random_id.bootstrap_auth_token[0].hex, ""))
+  effective_auth_password_hash  = local.provided_auth_password_hash
   extra_worker_env              = { for name, value in var.env : name => value if trimspace(value) != "" }
   notification_push_gateway_url = trimspace(var.notification_push_gateway_url)
   notification_push_gateway_host = try(regex(
@@ -311,6 +350,8 @@ locals {
   )[0], "")
   notification_push_web_push_public_key = trimspace(var.notification_push_web_push_public_key)
   notification_push_gateway_token       = trimspace(var.notification_push_gateway_token)
+  oidc_owner_sub                        = trimspace(var.oidc_owner_sub)
+  oidc_allowed_subs                     = trimspace(var.oidc_allowed_subs)
 
   d1_database_name    = "${local.resource_prefix}-db"
   r2_media_bucket     = "${local.resource_prefix}-media"
@@ -321,7 +362,7 @@ locals {
 
 data "http" "worker_release_manifest" {
   count              = local.worker_bundle_uses_manifest ? 1 : 0
-  url                = "https://github.com/tako0614/yurucommu/releases/download/${local.worker_release_tag}/takosumi-artifact.json"
+  url                = try(local.worker_release_pin.manifest.url, "https://invalid.example.invalid/unpinned-release")
   request_timeout_ms = 30000
 
   request_headers = {
@@ -333,18 +374,16 @@ data "http" "worker_release_manifest" {
     min_delay_ms = 500
     max_delay_ms = 5000
   }
-}
 
-resource "random_id" "encryption_key" {
-  byte_length = 32
-
-  keepers = {
-    project_name = local.resource_prefix
+  lifecycle {
+    precondition {
+      condition     = local.worker_release_pin != null
+      error_message = "worker_release_tag is not pinned in release.lock.json; published release pins are append-only."
+    }
   }
 }
 
-resource "random_id" "bootstrap_auth_token" {
-  count       = local.provided_auth_password_hash == "" && !local.has_takosumi_accounts_oidc ? 1 : 0
+resource "random_id" "encryption_key" {
   byte_length = 32
 
   keepers = {
@@ -467,6 +506,31 @@ resource "cloudflare_workers_script" "worker" {
         text = value
       }
     ],
+    local.oidc_owner_sub != "" ? [
+      {
+        type = "plain_text"
+        name = "OIDC_OWNER_SUB"
+        text = local.oidc_owner_sub
+      },
+    ] : [],
+    local.oidc_allowed_subs != "" ? [
+      {
+        type = "plain_text"
+        name = "OIDC_ALLOWED_SUBS"
+        text = local.oidc_allowed_subs
+      },
+    ] : [],
+    # The worker refuses to hand the owner slot to an unpinned first login. The
+    # acknowledgement below is what actually opens it, so it has to reach the
+    # runtime -- otherwise an install that legitimately cannot know the pairwise
+    # subject yet passes the precondition and then can never be bootstrapped.
+    local.oidc_owner_sub == "" && var.allow_unpinned_owner_claim ? [
+      {
+        type = "plain_text"
+        name = "ALLOW_UNPINNED_OWNER_CLAIM"
+        text = "true"
+      },
+    ] : [],
     [
       {
         type = "secret_text"
@@ -522,19 +586,48 @@ resource "cloudflare_workers_script" "worker" {
   )
 
   lifecycle {
+    # A generated-but-undisclosed bootstrap token produces a deployment that is
+    # technically healthy but impossible for its owner to enter. Authentication
+    # is therefore an explicit input: password or configured OIDC, never an
+    # implicit random credential hidden in state.
+    precondition {
+      condition     = local.provided_auth_password_hash != "" || local.has_takosumi_accounts_oidc
+      error_message = "A managed Yurucommu Worker requires auth_password_hash or a complete Takosumi Accounts OIDC issuer/client configuration."
+    }
+
     precondition {
       condition = !local.worker_bundle_uses_manifest || (
+        try(local.release_lock.kind, "") == "takos.release-artifact-lock@v1" &&
+        try(local.release_lock.app, "") == "yurucommu" &&
+        local.worker_release_pin != null &&
+        can(regex("^[a-f0-9]{40}$", try(local.worker_release_pin.commit, ""))) &&
+        can(regex("^https://[^[:space:]]+$", try(local.worker_release_pin.artifact.url, ""))) &&
+        can(regex("^https://[^[:space:]]+$", try(local.worker_release_pin.manifest.url, ""))) &&
+        can(regex("^[a-f0-9]{64}$", local.worker_release_expected_artifact_sha256)) &&
+        can(regex("^[a-f0-9]{64}$", local.worker_release_expected_manifest_sha256)) &&
+        local.worker_release_manifest_digest == local.worker_release_expected_manifest_sha256 &&
         try(local.worker_release_manifest.kind, "") == "takosumi.worker-artifact@v1" &&
         try(local.worker_release_manifest.app, "") == "yurucommu" &&
         try(local.worker_release_manifest.releaseTag, "") == local.worker_release_tag &&
+        try(local.worker_release_manifest.ref, "") == local.worker_release_tag &&
+        try(local.worker_release_manifest.commit, "") == try(local.worker_release_pin.commit, "") &&
+        try(local.worker_release_manifest.artifact.filename, "") == try(local.worker_release_pin.artifact.filename, "") &&
+        try(local.worker_release_manifest.artifact.url, "") == try(local.worker_release_pin.artifact.url, "") &&
+        try(local.worker_release_manifest.artifact["sha256"], "") == local.worker_release_expected_artifact_sha256 &&
+        try(local.worker_release_manifest.manifestUrl, "") == try(local.worker_release_pin.manifest.url, "") &&
         local.worker_bundle_uses_url
       )
-      error_message = "worker_release_tag must resolve to a valid yurucommu takosumi.worker-artifact@v1 manifest."
+      error_message = "worker_release_tag must have an append-only yurucommu release pin whose manifest digest, identity, commit, tag, artifact URL/digest, and manifest URL match the fetched release."
+    }
+
+    precondition {
+      condition     = !local.worker_bundle_uses_manifest || local.worker_bundle_sha256_override == "" || local.worker_bundle_sha256_override == local.worker_release_expected_artifact_sha256
+      error_message = "worker_bundle_sha256 cannot override a worker_release_tag pin; omit it or set it to the release.lock.json artifact digest."
     }
 
     precondition {
       condition     = !local.worker_bundle_uses_url || (local.worker_bundle_expected_sha256 != "" && local.worker_bundle_expected_sha256 == local.worker_bundle_content_sha256)
-      error_message = "worker_bundle_sha256 is required for worker_bundle_url and must match the downloaded artifact."
+      error_message = "The selected release.lock.json or worker_bundle_sha256 digest must match the downloaded Worker artifact."
     }
 
     precondition {
@@ -550,6 +643,16 @@ resource "cloudflare_workers_script" "worker" {
     precondition {
       condition     = local.notification_push_gateway_token == "" || local.notification_push_gateway_url != ""
       error_message = "notification_push_gateway_token requires notification_push_gateway_url."
+    }
+
+    # Owner-slot race. With Takosumi Accounts OIDC configured, auth_password_hash
+    # is forced empty and OIDC becomes the only login path, so whoever completes
+    # the flow first permanently owns the instance. The pairwise subject is not
+    # knowable before that first login, so the module cannot simply require the
+    # pin — it requires an explicit, auditable acknowledgement instead.
+    precondition {
+      condition     = !local.has_takosumi_accounts_oidc || local.oidc_owner_sub != "" || var.allow_unpinned_owner_claim
+      error_message = "takosumi_accounts_issuer_url installs must set oidc_owner_sub, or set allow_unpinned_owner_claim = true to accept that the first sign-in takes the owner slot."
     }
   }
 }
@@ -581,6 +684,22 @@ resource "cloudflare_queue_consumer" "delivery_dlq" {
     max_retries      = 1
     max_wait_time_ms = 60000
   }
+}
+
+# Retention sweep. The Capsule path has no wrangler.jsonc, so the cron trigger
+# has to be a resource here or the worker's scheduled() handler never fires and
+# the delivery/session/call/media purges grow forever. Hourly matches the Bun
+# self-host interval; each pass is LIMIT-bounded.
+resource "cloudflare_workers_cron_trigger" "retention" {
+  count       = local.cloudflare_worker_enabled ? 1 : 0
+  account_id  = var.cloudflare_account_id
+  script_name = cloudflare_workers_script.worker[0].script_name
+
+  schedules = [
+    {
+      cron = "0 * * * *"
+    },
+  ]
 }
 
 resource "cloudflare_workers_script_subdomain" "worker" {

@@ -113,19 +113,18 @@
 
         <h3>Step 2: デプロイ経路にドメインを設定</h3>
         <p>
-          Cloudflare直接経路ではWorkerのCustom
-          Domainsまたは<code>wrangler.jsonc</code>の
-          routeに設定し、<code>APP_URL</code>も同じHTTPS
-          originにします。Takosumi経路では Capsuleのhostname /
-          route入力として設定します。
+          Cloudflare 直接経路では Worker の Custom Domains または
+          <code>wrangler.jsonc</code> の route に設定し、<code>APP_URL</code>
+          も同じ HTTPS origin にします。Takosumi 経路ではアプリの hostname /
+          route 入力として設定します。
         </p>
 
         <h3>Step 3: 反映を確認</h3>
         <p>
-          直接経路では<code>bun run deploy</code>後のCustom
-          Domainと<code>APP_URL</code>を
-          確認します。Takosumi経路ではPlanのrouteとbindingをレビューしてApplyし、
-          StateVersion・Output・AuditEventを確認します。
+          直接経路では fixed release adapter の readback で Custom Domain と
+          <code>APP_URL</code> を確認します。operator 管理の Takosumi 経路では
+          Plan の route と紐づけをレビューして Apply し、
+          StateVersion・Output・AuditEvent を確認します。
         </p>
 
         <h2>方法2: 外部DNSでCNAMEを設定</h2>
@@ -133,8 +132,8 @@
 
         <h3>Step 1: WorkersのURLを確認</h3>
         <p>
-          直接経路はWranglerのdeploy出力、Takosumi経路はStateVersion /
-          Outputに記録された 公開URLを確認します。
+          直接経路は Wrangler の deploy 出力、Takosumi 経路は復元ポイント・
+          実行結果に記録された公開 URL を確認します。
         </p>
 
         <h3>Step 2: CNAMEレコードを追加</h3>
@@ -145,9 +144,9 @@
 
         <h3>Step 3: デプロイ経路に登録</h3>
         <p>
-          直接経路ではCloudflareのCustom
-          Domainsとして、Takosumi経路ではCapsuleの
-          入力値として登録します。同じruntimeを両方の経路から同時に管理しないでください。
+          直接経路では Cloudflare の Custom Domains として、Takosumi
+          経路ではアプリの 入力値として登録します。同じ Worker
+          を両方の経路から同時に管理しないでください。
         </p>
 
         <h2>SSL/TLS設定</h2>

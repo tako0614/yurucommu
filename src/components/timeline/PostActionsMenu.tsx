@@ -36,6 +36,12 @@ export function PostActionsMenu(props: PostActionsMenuProps) {
   const { t } = useI18n();
   const [open, setOpen] = createSignal(false);
   const [confirmingDelete, setConfirmingDelete] = createSignal(false);
+  // Mute/block staged behind the same ConfirmSheet pattern as delete — both
+  // are destructive-ish, hard-to-discover-how-to-undo actions and must not
+  // fire off a single (possibly mis-aimed) tap in the overflow menu.
+  const [pendingModeration, setPendingModeration] = createSignal<
+    "mute" | "block" | null
+  >(null);
   const [copied, setCopied] = createSignal(false);
   let root: HTMLDivElement | undefined;
   let triggerBtn: HTMLButtonElement | undefined;
@@ -102,7 +108,10 @@ export function PostActionsMenu(props: PostActionsMenuProps) {
           setOpen(!open());
         }}
         aria-label={t("posts.more")}
-        aria-haspopup="menu"
+        // "true" not "menu": the popup has no role="menu"/menuitem semantics
+        // (it's a plain list of buttons), so announcing a menu would promise
+        // arrow-key behaviour that doesn't exist.
+        aria-haspopup="true"
         aria-expanded={open()}
         class="flex items-center text-neutral-500 hover:text-neutral-300 transition-colors"
       >
@@ -155,8 +164,8 @@ export function PostActionsMenu(props: PostActionsMenuProps) {
             <button
               class={itemClass}
               onClick={() => {
-                props.onMute(props.post);
-                close();
+                setPendingModeration("mute");
+                setOpen(false);
               }}
             >
               {t("posts.mute")}
@@ -164,8 +173,8 @@ export function PostActionsMenu(props: PostActionsMenuProps) {
             <button
               class={`${itemClass} text-red-400`}
               onClick={() => {
-                props.onBlock(props.post);
-                close();
+                setPendingModeration("block");
+                setOpen(false);
               }}
             >
               {t("posts.block")}
@@ -196,6 +205,37 @@ export function PostActionsMenu(props: PostActionsMenuProps) {
           setConfirmingDelete(false);
         }}
         onCancel={() => setConfirmingDelete(false)}
+      />
+
+      {/* Same confirm copy as ProfilePage's moderation confirm. */}
+      <ConfirmSheet
+        open={pendingModeration() !== null}
+        title={
+          pendingModeration() === "block"
+            ? t("confirm.blockTitle")
+            : t("confirm.muteTitle")
+        }
+        body={
+          pendingModeration() === "block"
+            ? t("confirm.blockBody")
+            : t("confirm.muteBody")
+        }
+        confirmLabel={
+          pendingModeration() === "block"
+            ? t("profile.block")
+            : t("profile.mute")
+        }
+        destructive={pendingModeration() === "block"}
+        onConfirm={() => {
+          const action = pendingModeration();
+          setPendingModeration(null);
+          if (action === "block") {
+            props.onBlock(props.post);
+          } else if (action === "mute") {
+            props.onMute(props.post);
+          }
+        }}
+        onCancel={() => setPendingModeration(null)}
       />
     </div>
   );

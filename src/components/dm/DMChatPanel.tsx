@@ -17,6 +17,7 @@ import {
 import { ApiError } from "../../lib/api/fetch.ts";
 import { formatTime } from "../../lib/datetime.ts";
 import { useI18n } from "../../lib/i18n.tsx";
+import { ConfirmSheet } from "../ConfirmSheet.tsx";
 import { UserAvatar } from "../UserAvatar.tsx";
 
 interface DMChatPanelProps {
@@ -84,11 +85,15 @@ export function DMChatPanel(props: DMChatPanelProps) {
   let prevLastId: string | null = null;
   let prevCount = 0;
   let didInitialScroll = false;
-  const { t } = useI18n();
+  const { t, language } = useI18n();
 
   // Delete one of YOUR OWN community-chat messages. The backend enforces
   // author-or-manager ownership; we expose it for own messages (community chat
   // only — DM edit/delete isn't surfaced yet). On success the bubble is removed.
+  // The bare tap stages the message behind the shared ConfirmSheet — the tiny
+  // inline delete affordance is too easy to hit for an unrecoverable action.
+  const [pendingDeleteMessage, setPendingDeleteMessage] =
+    createSignal<ChatMessage | null>(null);
   const handleDeleteCommunityMessage = async (msg: ChatMessage) => {
     if (props.contact.type !== "community" || deletingMessage()[msg.id]) return;
     setDeletingMessage((prev) => ({ ...prev, [msg.id]: true }));
@@ -591,15 +596,13 @@ export function DMChatPanel(props: DMChatPanelProps) {
                         </p>
                       </div>
                       <div class="text-xs text-neutral-500 mt-1">
-                        {formatTime(msg.created_at)}
+                        {formatTime(msg.created_at, language())}
                         <Show
                           when={isMine() && props.contact.type === "community"}
                         >
                           <button
                             type="button"
-                            onClick={() =>
-                              void handleDeleteCommunityMessage(msg)
-                            }
+                            onClick={() => setPendingDeleteMessage(msg)}
                             disabled={deletingMessage()[msg.id]}
                             class="ml-2 text-rose-400 hover:text-rose-300 disabled:opacity-50"
                           >
@@ -633,6 +636,7 @@ export function DMChatPanel(props: DMChatPanelProps) {
             onInput={handleInputChange}
             placeholder={t("dm.placeholder")}
             aria-label={t("dm.placeholder")}
+            enterkeyhint="send"
             class="flex-1 px-4 py-2 bg-neutral-900 border border-neutral-800 rounded-full text-white placeholder-neutral-500 focus:outline-none focus:border-accent"
           />
           <button
@@ -647,6 +651,20 @@ export function DMChatPanel(props: DMChatPanelProps) {
           </button>
         </div>
       </form>
+
+      <ConfirmSheet
+        open={pendingDeleteMessage() !== null}
+        title={t("confirm.deleteMessageTitle")}
+        body={t("confirm.deletePostBody")}
+        confirmLabel={t("common.delete")}
+        destructive
+        onConfirm={() => {
+          const msg = pendingDeleteMessage();
+          setPendingDeleteMessage(null);
+          if (msg) void handleDeleteCommunityMessage(msg);
+        }}
+        onCancel={() => setPendingDeleteMessage(null)}
+      />
     </div>
   );
 }

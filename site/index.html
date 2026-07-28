@@ -7,7 +7,7 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta
       name="description"
-      content="yurucommu は、自分ひとりのためのセルフホスト型 ActivityPub SNS。アルゴリズムも、知らない誰かもいない。つながる相手は自分で選んで、輪をすこしずつ広げていく。"
+      content="yurucommu は、自分ひとりのためのセルフホスト型 ActivityPub SNS です。アルゴリズムも、知らない誰かもいません。つながる相手は自分で選んで、輪をすこしずつ広げていけます。"
     />
     <meta
       property="og:title"
@@ -130,6 +130,14 @@
       }
       .arrow:hover span {
         transform: translateX(3px);
+      }
+      .arrow.unavailable {
+        color: var(--dim);
+        border-bottom-style: dashed;
+        cursor: not-allowed;
+      }
+      .arrow.unavailable:hover {
+        border-color: var(--line);
       }
 
       .link {
@@ -616,10 +624,14 @@
         <span class="mono hero-label">Self-hosted ActivityPub SNS</span>
         <h1>自分の輪を、<br />自分でつくる。</h1>
         <p>
-          自分ひとりのための、小さなSNS。アルゴリズムも、知らない誰かもいない。つながる相手は自分で選んで、輪をすこしずつ広げていく。
+          自分ひとりのための、小さな SNS
+          です。アルゴリズムも、知らない誰かもいません。つながる相手は自分で選んで、輪をすこしずつ広げていけます。
         </p>
         <div class="hero-act">
-          <a href="#start" class="arrow">はじめる <span>→</span></a>
+          <span class="arrow unavailable" aria-disabled="true"
+            >Takosumi Cloud での追加は準備中</span
+          >
+          <a href="#start" class="link">セルフホスト手順</a>
           <a href="https://github.com/tako0614/yurucommu" class="link"
             >GitHub</a
           >
@@ -813,17 +825,17 @@
     <!-- Deploy Steps -->
     <section class="deploy" id="start">
       <div class="wrap">
-        <span class="mono">走る場所</span>
-        <h2>Takosumi で管理して、<br />自分の場所に置く。</h2>
+        <span class="mono">動かす場所</span>
+        <h2>Cloudflare に、<br />自分の場所をつくる。</h2>
         <div class="step-row reveal">
           <span class="step-n">01</span>
           <b>選ぶ</b>
-          <span>Takosumi に Git URL を登録して、管理付きで導入</span>
+          <span>導入手順に沿って、必要なリソースと secret を用意します</span>
         </div>
         <div class="step-row reveal">
           <span class="step-n">02</span>
-          <b>Plan・Apply</b>
-          <span>変更を確認して、自分の Cloudflare 環境へ公開します</span>
+          <b>確認して反映</b>
+          <span>変更内容を確認して、自分の Cloudflare 環境へ公開します</span>
         </div>
         <div class="step-row reveal">
           <span class="step-n">03</span>
@@ -831,8 +843,9 @@
           <span>自分だけのインスタンスが完成します</span>
         </div>
         <p class="deploy-note">
-          Takosumi が Plan・Apply・state・output を管理します。Cloudflare
-          への直接デプロイも選べます。
+          Cloudflare への直接デプロイは利用できます。Takosumi Cloud
+          の選択式インストールは、provider・migration・rollback
+          の証跡が揃うまで公開しません。
         </p>
       </div>
     </section>
@@ -855,11 +868,8 @@
       <div class="wrap reveal">
         <h2>自分の場所を、<br />自分の手で。</h2>
         <div class="act">
-          <a
-            href="https://app.takosumi.com/install?git=https%3A%2F%2Fgithub.com%2Ftako0614%2Fyurucommu.git&amp;ref=main&amp;path=.&amp;name=yurucommu"
-            class="arrow"
-            rel="noopener"
-            >Takosumi でインストール <span>→</span></a
+          <span class="arrow unavailable" aria-disabled="true"
+            >Takosumi Cloud でのインストールは準備中</span
           >
           <a
             href="https://deploy.workers.cloudflare.com/?url=https://github.com/tako0614/yurucommu"

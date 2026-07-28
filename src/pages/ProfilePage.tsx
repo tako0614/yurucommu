@@ -18,6 +18,11 @@ import { toggleLike } from "../atoms/posts.ts";
 import { useI18n } from "../lib/i18n.tsx";
 import { useSetAtom } from "solid-jotai";
 import { pushToast, toastsAtom } from "../atoms/toast.ts";
+import {
+  followingPostsAtom,
+  pendingNewPostsAtom,
+  timelinePostsAtom,
+} from "../atoms/timeline.ts";
 import { InlineErrorBanner } from "../components/InlineErrorBanner.tsx";
 import { InlineErrorRetry } from "../components/InlineErrorRetry.tsx";
 import { ProfileHeader } from "../components/profile/ProfileHeader.tsx";
@@ -42,6 +47,9 @@ export function ProfilePage() {
   const actor = useRequiredActor();
   const { t, language } = useI18n();
   const setToasts = useSetAtom(toastsAtom);
+  const setTimelinePosts = useSetAtom(timelinePostsAtom);
+  const setFollowingPosts = useSetAtom(followingPostsAtom);
+  const setPendingNewPosts = useSetAtom(pendingNewPostsAtom);
   const [error, setError] = createSignal<string | null>(null);
   const clearError = () => setError(null);
   const params = useParams();
@@ -250,7 +258,14 @@ export function ProfilePage() {
 
   const handleLike = async (post: Post) => {
     try {
-      await toggleLike(post, (fn) => setPosts(fn));
+      // Apply the toggle (and its rollback on failure) to the timeline's
+      // cached copy of the post too, so navigating back to the feed within its
+      // reuse window doesn't show stale like state. The updater merges by
+      // ap_id, so it is a no-op for posts not in the feed.
+      await toggleLike(post, (fn) => {
+        setPosts(fn);
+        setTimelinePosts(fn);
+      });
     } catch (e) {
       console.error("Failed to toggle like:", e);
       setError(t("common.error"));
@@ -281,7 +296,11 @@ export function ProfilePage() {
       .slice(0, 4);
     try {
       await updateProfile({
-        name: editName().trim() || undefined,
+        // Same verbatim-send rationale as `summary` below: `|| undefined`
+        // meant CLEARING the display name never persisted (the backend skips
+        // absent fields) — it fell back to the username in the UI but the old
+        // name reappeared on reload. An empty string clears it server-side.
+        name: editName().trim(),
         // Send the (possibly empty) bio verbatim so CLEARING it actually
         // persists: `"" || undefined` would send `undefined`, which the backend
         // skips (PUT /me only updates `summary` when it is present) — the bio
@@ -373,11 +392,29 @@ export function ProfilePage() {
     try {
       if (action === "block") {
         await blockUser(p.ap_id);
+        // Blocking severs the follow edge server-side and hides their content;
+        // reflect that here instead of leaving the page looking untouched
+        // (follow button still "Following", posts still visible).
+        setIsFollowing(false);
+        setFollowPending(false);
+        setPosts([]);
+        setPostsHasMore(false);
         pushToast(setToasts, t("feedback.blocked"), { kind: "success" });
       } else {
         await muteUser(p.ap_id);
         pushToast(setToasts, t("feedback.muted"), { kind: "success" });
       }
+      // Both block and mute hide the target's posts from the home feeds. Those
+      // feed atoms persist across navigation and are reused within a ~60s
+      // freshness window, so drop the author's already-cached posts here too —
+      // otherwise returning to the feed keeps showing the just-blocked/muted
+      // user until a refetch (a block/mute-not-applied-to-cached-data leak).
+      // Mirrors dropAuthorPosts() in useTimelineState (both feeds + staged head).
+      const dropAuthor = (list: Post[]) =>
+        list.filter((post) => post.author.ap_id !== p.ap_id);
+      setTimelinePosts(dropAuthor);
+      setFollowingPosts(dropAuthor);
+      setPendingNewPosts(dropAuthor);
     } catch (e) {
       console.error(`Failed to ${action} user:`, e);
       pushToast(

@@ -1,22 +1,30 @@
 import { atom } from "jotai/vanilla";
-import type { ActorStories, Post } from "../types/index.ts";
+import { atomWithStorage } from "jotai/vanilla/utils";
+import {
+  feedItemKey,
+  type ActorStories,
+  type Post,
+  type PostWithRepost,
+} from "../types/index.ts";
 import { tAtom } from "./i18n.ts";
 import {
   type AccountInfo,
+  allowedMimeTypes,
   createAccount,
   createPost,
   fetchAccounts,
   fetchStories,
   fetchTimeline,
+  maxImageFileSize,
+  maxVideoFileSize,
   switchAccount,
   uploadMedia,
 } from "../lib/api.ts";
+import { fetchFollowingTimeline } from "../lib/api/posts.ts";
 import type { UploadedMedia } from "../components/timeline/types.ts";
 import { ApiError } from "../lib/api/fetch.ts";
 import { pushToast, toastWriter } from "./toast.ts";
 import { scopeQueryAtom } from "./scope.ts";
-
-const MAX_IMAGE_SIZE = 20 * 1024 * 1024;
 // Mirrors the backend MAX_POST_CONTENT_LENGTH (posts/transformers.ts), used to
 // surface a specific message when the server rejects an over-length post.
 const MAX_POST_CONTENT_LENGTH = 5000;
@@ -59,11 +67,51 @@ export const timelineScrollTopAtom = atom(0);
 // Primary-load failure (shown inline with a Retry button).
 export const timelineLoadErrorAtom = atom<string | null>(null);
 
+// --- Home feed tab ---
+//
+// "all" = the unified home (own + follows + communities, optionally narrowed
+// by the community view filter); "following" = the following-only feed
+// (GET /api/timeline/following). TRANSIENT like the scope filter: it survives
+// route round trips (post detail and back) but resets to "all" on reload.
+export type HomeFeedTab = "all" | "following";
+export const homeFeedTabAtom = atom<HomeFeedTab>("all");
+
+// --- Following feed state ---
+//
+// The following tab keeps its OWN page/cursor/scroll state (mirroring the
+// unified atoms above) so switching tabs never resets the other tab's loaded
+// pages or reading position, and the unified feed's 60s freshness-reuse
+// semantics stay untouched.
+export const followingPostsAtom = atom<Post[]>([]);
+export const followingLoadingAtom = atom(true);
+export const followingLoadingMoreAtom = atom(false);
+export const followingHasMoreAtom = atom(true);
+// Server-issued composite cursor — same semantics as timelineCursorAtom.
+export const followingCursorAtom = atom<string | null>(null);
+// Freshness timestamp — same reuse semantics as timelineLoadedAtAtom.
+export const followingLoadedAtAtom = atom<number | null>(null);
+// Reading position of the following tab, captured on tab switch / unmount.
+export const followingScrollTopAtom = atom(0);
+export const followingLoadErrorAtom = atom<string | null>(null);
+
 // --- Post composition ---
-export const postContentAtom = atom("");
-export const postSummaryAtom = atom("");
+//
+// The composer draft (body + content warning + chosen audience) is persisted to
+// localStorage so an unsent post survives a reload or a navigation away and is
+// restored the next time the composer opens — the composer atoms are mounted
+// once at shell level (GlobalPostComposer), so on app load they re-sync from
+// storage. A successful post and an explicit discard both clear these
+// (createPostAtom / closePostModalAtom), so nothing stale lingers. Visibility is
+// persisted alongside the text so restoring a draft can never silently widen a
+// followers-only post back to public. Staged media is NOT part of the draft
+// (blob URLs / File handles are not serializable); text is.
+export const postContentAtom = atomWithStorage("compose.draft.content", "");
+export const postSummaryAtom = atomWithStorage("compose.draft.summary", "");
 // Default visibility is public and is never changed implicitly.
-export const postVisibilityAtom = atom<PostVisibility>("public");
+export const postVisibilityAtom = atomWithStorage<PostVisibility>(
+  "compose.draft.visibility",
+  "public",
+);
 export const postingAtom = atom(false);
 export const uploadedMediaAtom = atom<UploadedMedia[]>([]);
 export const uploadingAtom = atom(false);
@@ -87,7 +135,11 @@ export const pendingNewPostsAtom = atom<Post[]>([]);
 // feed cap (MAX_TIMELINE_POSTS) evicts the newest head once the user scrolls
 // deep; without this watermark, checkNewPosts would re-stage already-seen head
 // posts (they fall out of the known-id set) and the "N new" pill would lie.
-const postKey = (p: Post): string => `${p.published} ${p.ap_id}`;
+// A boost entry (forward-compat, see PostWithRepost) sorts at the ANNOUNCE's
+// timestamp on the server, so its sort key uses repost_published when present
+// — identical to `published` for every entry the current server emits.
+const postKey = (p: Post): string =>
+  `${(p as PostWithRepost).repost_published ?? p.published} ${p.ap_id}`;
 export const newestSeenKeyAtom = atom<string | null>(null);
 // Advance the watermark to the newest of its current value and the given post.
 const bumpNewestSeen = (
@@ -117,9 +169,12 @@ export const checkNewPostsAtom = atom(null, async (get, set) => {
     });
     if (head.length === 0) return;
 
+    // Keyed by feed-ENTRY identity (feedItemKey): a boost entry shares the
+    // boosted post's ap_id, so an ap_id set would wrongly swallow a new boost
+    // of an already-shown post (and vice versa).
     const knownIds = new Set([
-      ...current.map((p) => p.ap_id),
-      ...get(pendingNewPostsAtom).map((p) => p.ap_id),
+      ...current.map(feedItemKey),
+      ...get(pendingNewPostsAtom).map(feedItemKey),
     ]);
     const watermark = get(newestSeenKeyAtom);
     // A head post is genuinely new only if it is BOTH unseen AND strictly newer
@@ -128,14 +183,17 @@ export const checkNewPostsAtom = atom(null, async (get, set) => {
     // being re-staged as "new".
     const fresh = head.filter(
       (p) =>
-        !knownIds.has(p.ap_id) &&
+        !knownIds.has(feedItemKey(p)) &&
         (watermark === null || postKey(p) > watermark),
     );
     if (fresh.length === 0) return;
 
     set(pendingNewPostsAtom, (prev) => {
-      const prevIds = new Set(prev.map((p) => p.ap_id));
-      const merged = [...fresh.filter((p) => !prevIds.has(p.ap_id)), ...prev];
+      const prevIds = new Set(prev.map(feedItemKey));
+      const merged = [
+        ...fresh.filter((p) => !prevIds.has(feedItemKey(p))),
+        ...prev,
+      ];
       // Bound the staged buffer so a busy timeline can't grow it unbounded.
       return merged.slice(0, 100);
     });
@@ -149,8 +207,10 @@ export const applyNewPostsAtom = atom(null, (get, set) => {
   const pending = get(pendingNewPostsAtom);
   if (pending.length === 0) return;
   const current = get(timelinePostsAtom);
-  const currentIds = new Set(current.map((p) => p.ap_id));
-  const deduped = pending.filter((p) => !currentIds.has(p.ap_id));
+  // Feed-ENTRY identity, so a staged boost is not dropped just because the
+  // boosted post is already visible (they are distinct feed entries).
+  const currentIds = new Set(current.map(feedItemKey));
+  const deduped = pending.filter((p) => !currentIds.has(feedItemKey(p)));
   set(timelinePostsAtom, [...deduped, ...current]);
   set(pendingNewPostsAtom, []);
   // The applied posts are now incorporated at the head; advance the watermark.
@@ -267,6 +327,70 @@ export const loadMoreTimelineAtom = atom(null, async (get, set) => {
   }
 });
 
+// Monotonic generation guard for the following feed — same last-writer-wins
+// protection as timelineLoadGen, tracked separately per tab.
+let followingLoadGen = 0;
+
+// Full (re)load of the following-only feed. Mirrors loadTimelineAtom minus the
+// pieces that are unified-home-only (scope filter, staged new-posts buffer).
+export const loadFollowingTimelineAtom = atom(null, async (get, set) => {
+  const gen = ++followingLoadGen;
+  if (get(followingPostsAtom).length === 0) set(followingLoadingAtom, true);
+  set(followingLoadErrorAtom, null);
+  set(followingHasMoreAtom, true);
+  set(followingCursorAtom, null);
+  try {
+    const page = await fetchFollowingTimeline({ limit: 20 });
+    if (gen !== followingLoadGen) return; // a newer load superseded this one
+    set(followingPostsAtom, page.posts);
+    set(followingCursorAtom, page.nextCursor);
+    set(followingHasMoreAtom, page.hasMore);
+    set(followingLoadedAtAtom, Date.now());
+  } catch (e) {
+    if (gen !== followingLoadGen) return;
+    console.error("Failed to load following timeline:", e);
+    set(followingLoadErrorAtom, get(tAtom)("common.loadFailed"));
+  } finally {
+    if (gen === followingLoadGen) set(followingLoadingAtom, false);
+  }
+});
+
+// Older-page append for the following feed. Same cursor semantics and
+// in-memory cap as loadMoreTimelineAtom.
+export const loadMoreFollowingTimelineAtom = atom(null, async (get, set) => {
+  const loadingMore = get(followingLoadingMoreAtom);
+  const hasMore = get(followingHasMoreAtom);
+  const posts = get(followingPostsAtom);
+  const cursor = get(followingCursorAtom);
+  if (loadingMore || !hasMore || posts.length === 0 || !cursor) return;
+
+  set(followingLoadingMoreAtom, true);
+  const gen = followingLoadGen;
+  try {
+    const page = await fetchFollowingTimeline({ limit: 20, before: cursor });
+    // A full reload happened mid-flight → do not append a stale older page.
+    if (gen !== followingLoadGen) return;
+    if (page.posts.length > 0) {
+      const merged = [...get(followingPostsAtom), ...page.posts];
+      set(
+        followingPostsAtom,
+        merged.length > MAX_TIMELINE_POSTS
+          ? merged.slice(-MAX_TIMELINE_POSTS)
+          : merged,
+      );
+    }
+    set(followingCursorAtom, page.nextCursor);
+    set(followingHasMoreAtom, page.hasMore);
+  } catch (e) {
+    console.error("Failed to load more:", e);
+    pushToast(toastWriter(set), get(tAtom)("common.loadFailed"), {
+      kind: "error",
+    });
+  } finally {
+    set(followingLoadingMoreAtom, false);
+  }
+});
+
 export const loadStoriesAtom = atom(null, async (get, set) => {
   const gen = ++storiesLoadGen;
   set(storiesErrorAtom, null);
@@ -343,6 +467,18 @@ export const createPostAtom = atom(
           // head-poll doesn't later re-stage it as "new" if it gets evicted.
           bumpNewestSeen(get, set, newPost);
         }
+        // The following feed's own-posts leg includes every personal
+        // (non-community, non-direct) post of yours, so mirror the prepend
+        // there — but only once that tab has actually loaded (prepending into
+        // a never-loaded feed would fake a head that the first real load
+        // replaces anyway).
+        if (
+          !options.community_ap_id &&
+          vis !== "direct" &&
+          get(followingLoadedAtAtom) !== null
+        ) {
+          set(followingPostsAtom, (prev) => [newPost, ...prev]);
+        }
         set(postContentAtom, "");
         media.forEach((m) => m.preview && URL.revokeObjectURL(m.preview));
         set(uploadedMediaAtom, []);
@@ -392,13 +528,24 @@ export const uploadMediaAtom = atom(null, async (get, set, file: File) => {
     set(uploadErrorAtom, get(tAtom)("posts.mediaLimit"));
     return;
   }
-  if (file.size > MAX_IMAGE_SIZE) {
+  // Mirror the server's accept list (JPEG/PNG/GIF/WebP + MP4/WebM) with a
+  // specific message: the file input's `accept` is advisory only, and the
+  // package-level validateFile rejection would otherwise surface as a generic
+  // "upload failed".
+  if (!(allowedMimeTypes as readonly string[]).includes(file.type)) {
+    set(uploadErrorAtom, get(tAtom)("posts.unsupportedMediaType"));
+    return;
+  }
+  // Server-mirrored size caps (video 40MB / image 20MB), surfaced as a
+  // friendly per-kind message before the doomed round-trip.
+  const isVideo = file.type.startsWith("video/");
+  const maxSize = isVideo ? maxVideoFileSize : maxImageFileSize;
+  if (file.size > maxSize) {
     set(
       uploadErrorAtom,
-      get(tAtom)("story.imageTooLarge").replace(
-        "{size}",
-        String(MAX_IMAGE_SIZE / 1024 / 1024),
-      ),
+      get(tAtom)(
+        isVideo ? "posts.videoTooLarge" : "story.imageTooLarge",
+      ).replace("{size}", String(maxSize / 1024 / 1024)),
     );
     return;
   }

@@ -159,6 +159,7 @@ export function SearchPage() {
   const [trendingHashtags, setTrendingHashtags] = createSignal<
     { tag: string; count: number }[]
   >([]);
+  const [trendingError, setTrendingError] = createSignal<string | null>(null);
 
   // Pull the community list that backs the discover surface. Kept in a function
   // so it can be re-run when the list goes stale (window refocus, membership
@@ -175,14 +176,26 @@ export function SearchPage() {
       });
   };
 
+  // Trending fetch failure is surfaced with a retry — a swallowed error made
+  // an outage indistinguishable from "nothing is trending".
+  const refreshTrendingHashtags = () => {
+    fetchTrendingHashtags(10)
+      .then((tags) => {
+        setTrendingHashtags(tags);
+        setTrendingError(null);
+      })
+      .catch((e) => {
+        console.error("Failed to fetch trending hashtags", e);
+        setTrendingError(t("common.loadFailed"));
+      });
+  };
+
   onMount(() => {
     setSearchQuery("");
     setSearched(false);
     setSearchUsersResult([]);
     setSearchPostsResult([]);
-    fetchTrendingHashtags(10)
-      .catch(() => [])
-      .then(setTrendingHashtags);
+    refreshTrendingHashtags();
     refreshDiscoverCommunities();
     fetchFollowing(actor.ap_id)
       .then((data) => setFollowing(data.actors))
@@ -214,7 +227,10 @@ export function SearchPage() {
     const searchParam = getSingleSearchParam(searchParams.search);
     if (searchParam) {
       setSearchQuery(searchParam);
-      setSearchParams({});
+      // setSearchParams({}) is a no-op in the router (nothing to merge), which
+      // left the stale ?search= in the URL; clearing requires an explicit
+      // undefined (same pattern as TimelinePage's ?story= cleanup).
+      setSearchParams({ search: undefined }, { replace: true });
       performSearch(searchParam);
     }
   });
@@ -575,7 +591,9 @@ export function SearchPage() {
       else await likePost(post.ap_id);
     } catch (e) {
       console.error("Failed to toggle like:", e);
-      setError(t("common.error"));
+      // Toast, not the top-of-page banner: the like button lives deep in the
+      // results list, so a banner failure is off-screen when scrolled.
+      pushToast(setToasts, t("common.error"), { kind: "error" });
       applyDelta(wasLiked, wasLiked ? 1 : -1);
     } finally {
       setLikeInFlight((s) => {
@@ -880,8 +898,10 @@ export function SearchPage() {
                                 </div>
                               </Show>
                               <div class="text-xs text-neutral-500 mt-0.5">
-                                {community.member_count ?? 0}{" "}
-                                {t("groups.members")}
+                                {t("community.members").replace(
+                                  "{count}",
+                                  String(community.member_count ?? 0),
+                                )}
                               </div>
                             </div>
                           </A>
@@ -916,11 +936,22 @@ export function SearchPage() {
                     <Show
                       when={trendingHashtags().length > 0}
                       fallback={
-                        <EmptyState
-                          icon={<SearchEmptyIcon />}
-                          title={t("search.empty")}
-                          hint={t("search.emptyHint")}
-                        />
+                        <Show
+                          when={!trendingError()}
+                          fallback={
+                            <InlineErrorRetry
+                              message={trendingError()!}
+                              retryLabel={t("common.retry")}
+                              onRetry={refreshTrendingHashtags}
+                            />
+                          }
+                        >
+                          <EmptyState
+                            icon={<SearchEmptyIcon />}
+                            title={t("search.empty")}
+                            hint={t("search.emptyHint")}
+                          />
+                        </Show>
                       }
                     >
                       <div class="space-y-3">
@@ -938,7 +969,10 @@ export function SearchPage() {
                             >
                               <div class="font-medium text-white">#{tag}</div>
                               <div class="text-xs text-neutral-500 mt-0.5">
-                                {count} {t("profile.posts").toLowerCase()}
+                                {t("search.postCount").replace(
+                                  "{count}",
+                                  String(count),
+                                )}
                               </div>
                             </button>
                           )}
@@ -1295,7 +1329,10 @@ export function SearchPage() {
                             </div>
                           </Show>
                           <div class="text-xs text-neutral-500 mt-0.5">
-                            {community.member_count ?? 0} {t("groups.members")}
+                            {t("community.members").replace(
+                              "{count}",
+                              String(community.member_count ?? 0),
+                            )}
                           </div>
                         </div>
                       </A>

@@ -98,8 +98,8 @@
 
         <h2>yurucommuとは</h2>
         <p>
-          yurucommuは、個人が自分のために立てるセルフホスト型のActivityPub
-          SNSです。自分のドメイン・自分のデータで運用し、コミュニティ（グループ）を投稿の届く範囲の単位として、濃いつながりを作れます。連合（federation）は目的ではなく手段です。プラットフォームへの依存をなくし、コミュニティやつながりをサーバーをまたいでつなぐための土台として使います。
+          yurucommu は、個人が自分のために立てるセルフホスト型の ActivityPub SNS
+          です。自分のドメイン・自分のデータで運用し、コミュニティ（グループ）を投稿の届く範囲の単位として、濃いつながりを作れます。連合（federation）は目的ではなく手段です。プラットフォームへの依存をなくし、コミュニティやつながりをサーバーをまたいでつなぐための土台として使います。
         </p>
         <ul>
           <li><strong>セルフホスト</strong> - 自分のデータは自分で管理</li>
@@ -118,28 +118,28 @@
 cd yurucommu
 bun run dev</code></pre>
         <p>
-          <code>bun run dev</code> は
-          <code>wrangler.local.toml</code> を使ってローカル Worker
-          を起動します。よく使うタスクは <code>bun run build</code>、<code
+          <code>bun run dev</code> は web UI、<code>bun run dev:mock</code>
+          は mock API 付きの UI を起動します。よく使う検証は
+          <code>bun run check</code>、<code>bun run test</code>、<code
             >bun run build:worker</code
-          >、<code>bun run db:generate</code> です。本番は
-          <code>bun run deploy</code> でCloudflareへ直接デプロイするか、
-          TakosumiのOpenTofu Capsuleとしてインストールします。
+          >
+          です。
         </p>
 
         <h3>2. 導入方法を選ぶ</h3>
         <p>
-          Cloudflareへ直接デプロイする場合は標準の<code>wrangler.jsonc</code>を使います。
-          Takosumiで管理する場合はGit URL / ref / module pathをSourceとして
-          Projectに登録し、ProviderBindingとsecretを設定します。
+          Cloudflare 直接経路の設定正本は <code>wrangler.jsonc</code>
+          です。operator 管理の Takosumi では Git URL・branch・path
+          とクラウドアカウント接続、secret を設定します。Takosumi Cloud の選択式
+          Store インストールは、実環境証跡が揃うまで未公開です。
         </p>
 
         <h3>3. Deploy / Apply</h3>
         <p>
-          直接経路では<code>bun run deploy</code>がWorker build、D1 migration、
-          Wrangler
-          deployを実行します。Takosumi経路ではPlanをレビューしてApplyすると、
-          StateVersion、Output、AuditEventも記録されます。
+          Cloudflare 直接経路は利用者または operator 自身の authority
+          で行います。 公式 distribution の公開とは別です。operator 管理の
+          Takosumi 経路では Plan / Apply と StateVersion・Output・AuditEvent
+          を記録します。
         </p>
 
         <h2>ドキュメント一覧</h2>

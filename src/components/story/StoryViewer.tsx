@@ -552,6 +552,10 @@ export function StoryViewer(props: StoryViewerProps) {
 
   // Handle click/tap navigation
   const handleClick = (e: MouseEvent) => {
+    // Belt-and-braces with the controls' own stopPropagation: a tap that
+    // lands on any interactive control (header buttons, action bar, insights
+    // sheet) is never ALSO a tap-zone navigation.
+    if ((e.target as HTMLElement).closest("button,a,input")) return;
     const rect = containerRef?.getBoundingClientRect();
     if (!rect) return;
 
@@ -571,12 +575,23 @@ export function StoryViewer(props: StoryViewerProps) {
   // receives Escape first), so only the arrow/space navigation lives here.
   createEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // While the delete-confirmation prompt is open it owns the keyboard:
-      // navigation keys must not advance stories behind the modal.
-      if (showDeleteConfirm()) return;
+      // While the delete-confirmation prompt or the insights sheet is open it
+      // owns the keyboard: navigation keys must not advance stories behind it.
+      if (showDeleteConfirm() || showInsights()) return;
+      // Keys aimed at a focused control belong to that control: typing in an
+      // input moves the caret, and Space on a button activates the button —
+      // neither may double as story navigation.
+      const active = document.activeElement;
+      const activeTag = active instanceof HTMLElement ? active.tagName : "";
+      if (activeTag === "INPUT" || activeTag === "TEXTAREA") return;
       if (e.key === "ArrowLeft") {
         goPrev();
       } else if (e.key === "ArrowRight" || e.key === " ") {
+        if (e.key === " ") {
+          if (activeTag === "BUTTON") return;
+          // Space must not also scroll the page behind the viewer.
+          e.preventDefault();
+        }
         goNext();
       }
     };
@@ -585,9 +600,23 @@ export function StoryViewer(props: StoryViewerProps) {
     onCleanup(() => window.removeEventListener("keydown", handleKeyDown));
   });
 
-  // Pause on touch/hold
-  const handleTouchStart = () => setIsPaused(true);
-  const handleTouchEnd = () => setIsPaused(false);
+  // Pause on touch/hold. `holdActive` marks a pause that came from a press so
+  // that only that pause is released on mouseup/touchend — pauses owned by the
+  // insights sheet or the focused reply input must not be resumed by a stray
+  // release. The release also listens on window: dragging off the card and
+  // releasing OUTSIDE the container previously never resumed (the story froze).
+  let holdActive = false;
+  const handleTouchStart = () => {
+    holdActive = true;
+    setIsPaused(true);
+  };
+  const handleTouchEnd = () => {
+    if (!holdActive) return;
+    holdActive = false;
+    setIsPaused(false);
+  };
+  window.addEventListener("mouseup", handleTouchEnd);
+  onCleanup(() => window.removeEventListener("mouseup", handleTouchEnd));
 
   return (
     <Show when={currentActorStories() && currentStory()}>

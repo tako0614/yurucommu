@@ -30,27 +30,28 @@ mock API はパスワード認証・タイムライン・ストーリー・DM・
 
 `site/` には、公開している `yurucommu.com` のブランド・ヘルプ・静的コンテンツが入っています。
 
-## デプロイ方法
+## 導入と公式配布
 
 Yurucommu には、対等な2つの導入方法があります。
 
-### Cloudflareへ直接デプロイ
+### Cloudflare への self-host
 
-[Deploy to Cloudflare](https://deploy.workers.cloudflare.com/?url=https://github.com/tako0614/yurucommu)
-を使うか、CloudflareへログインしたCLIから標準のWrangler設定でデプロイできます。
+これは利用者またはその operator が所有する deployment であり、私たちが運営する
+公式 release target ではありません。`wrangler.jsonc` と repository root の
+OpenTofu module が direct Cloudflare path を定義しますが、credential、承認、
+migration、rollback は利用者側の runbook と authority で管理してください。
+task やこの README が production mutation の権限を与えることはありません。
+
+distribution artifact を公開するときは、この repository の entrypoint を使います
+(まだ存在しないので、作るのが次の作業です)。共通 rule は sibling `takos-control` の
+`engineering.policy.json` → `deploy` が正本です。
 
 ```bash
-bunx wrangler d1 create yurucommu-db
-bunx wrangler queues create yurucommu-delivery
-bunx wrangler queues create yurucommu-delivery-dlq
-bunx wrangler secret put ENCRYPTION_KEY
-bunx wrangler secret put AUTH_PASSWORD_HASH
 bun run deploy
 ```
 
-`wrangler.jsonc` が直接デプロイの正本です。`bun run deploy` はfullstack Workerをビルドし、
-共有coreのD1 migrationを適用してから `wrangler deploy` を実行します。KVとR2はWranglerが
-初回deploy時にprovisionします。CloudflareのDeployボタンではD1・KV・R2・Queuesもセットアップされます。
+`prepare` は read-only です。adapter が未登録なら fail closed のままにし、
+raw Worker deploy や migration へ fallback しません。
 
 ### Takosumiでインストール
 
@@ -76,6 +77,11 @@ Worker artifact の既定パスは `dist/yurucommu-worker.js` で、ローカル
 hosted 環境からのインストールでは、Git release や CI artifact の
 `worker_bundle_url` + `worker_bundle_sha256` を渡してください。`dist/yurucommu-worker.js` などの
 ビルド出力は repo に commit しません。
+
+Takosumi Cloud の選択式 Store インストールは、portable provider/Form
+Package、migration activation、rollback の実環境証跡が揃うまで未公開です。
+現時点で利用できるのは Cloudflare への直接経路、または operator が
+上記の前提を確認した plain OpenTofu 経路です。
 
 OpenTofuはこのTakosumi管理経路でPlan・Apply・StateVersion・Output・Auditを扱うためのものです。
 Cloudflareへ直接デプロイするだけならOpenTofuは必要ありません。
