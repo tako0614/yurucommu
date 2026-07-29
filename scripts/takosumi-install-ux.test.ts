@@ -174,6 +174,13 @@ describe("repository-owned Takosumi install UX", () => {
           (name) => !rootModule.inputs.some((input) => input.name === name),
         ),
       ).toEqual([]);
+      expect(
+        feature.inputs.filter(
+          (name) =>
+            rootModule.inputs.find((input) => input.name === name)?.source
+              .kind !== "user",
+        ),
+      ).toEqual([]);
     }
   });
 
@@ -224,6 +231,8 @@ describe("repository-owned Takosumi install UX", () => {
     expect(manifestText).not.toContain("oidc_allowed_subs");
     expect(manifestText).not.toContain("allow_unpinned_owner_claim");
     expect(manifestText).not.toContain("encryption_key");
+    // `deploy/takoform` stays a non-selectable managed candidate until the host
+    // can materialize its URL, queue/schedule, migration, and rollback duties.
     expect(manifestText).not.toContain("deploy/takoform");
   });
 });

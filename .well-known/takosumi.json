@@ -212,18 +212,6 @@
       },
       "features": [
         {
-          "id": "takosumi-accounts",
-          "optional": false,
-          "label": {
-            "ja": "Takosumiアカウントでログイン",
-            "en": "Sign in with Takosumi Accounts"
-          },
-          "inputs": [
-            "takosumi_accounts_issuer_url",
-            "takosumi_accounts_client_id"
-          ]
-        },
-        {
           "id": "password-authentication",
           "optional": true,
           "label": {
