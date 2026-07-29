@@ -194,6 +194,18 @@ describe("repository-owned Takosumi install UX", () => {
     expect(
       [...declaredVariables].filter((name) => !moduleVariables.has(name)),
     ).toEqual([]);
+    for (const input of rootModule.inputs.filter(
+      (candidate) => candidate.source.kind === "module_default",
+    )) {
+      const blockStart = rootModuleSource.indexOf(`variable "${input.name}" {`);
+      const nextBlock = rootModuleSource.indexOf("\nvariable ", blockStart + 1);
+      const block = rootModuleSource.slice(
+        blockStart,
+        nextBlock < 0 ? undefined : nextBlock,
+      );
+      expect(blockStart).toBeGreaterThanOrEqual(0);
+      expect(block).toMatch(/\n\s+default\s+=/);
+    }
 
     const oidcProjection = rootModule.installExperience?.projections?.find(
       (projection) => projection.kind === "oidc_client",
@@ -209,6 +221,7 @@ describe("repository-owned Takosumi install UX", () => {
     expect(manifestText).not.toContain("enable_cloudflare_resources");
     expect(manifestText).not.toContain("enable_cloudflare_worker_script");
     expect(manifestText).not.toContain("oidc_owner_sub");
+    expect(manifestText).not.toContain("oidc_allowed_subs");
     expect(manifestText).not.toContain("allow_unpinned_owner_claim");
     expect(manifestText).not.toContain("encryption_key");
     expect(manifestText).not.toContain("deploy/takoform");
