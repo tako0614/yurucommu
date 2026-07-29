@@ -1,20 +1,16 @@
 # This file is maintained automatically by "tofu init".
 # Manual edits may be lost in future updates.
 
-provider "registry.opentofu.org/tako0614/takoform" {
-  version     = "0.2.0"
-  constraints = "0.2.0"
+provider "registry.terraform.io/tako0614/takoform" {
+  version     = "0.2.1"
+  constraints = "0.2.1"
   hashes = [
-    "h1:+NsLEFIS0aAodCBVAcvcuNnCCEvXdbG+yhR/o+kSkOs=",
-    "h1:/ISyv8TVRR+c6Ztwzxe8tEI+g+fDsOpKiNV51zbQxyI=",
-    "h1:Hr5tSW5PK1XjvEB9GLFAGjZM+rLfgDA4nzRSxraFtDw=",
-    "h1:vwaHnKswQLR865nEHxOksyYHL6cmTBcydEBgk9ZxJrc=",
-    "h1:wZUccszrYsfJatgHgYRB80SSkd9NffQ9Gtzq3EZsOAo=",
-    "zh:058cb600422110ed2b3babcf1a8c846b1ed476f0457f7c64c651555ab000fd80",
-    "zh:5c6a4089a43a610fb058a70fe7ce220ad0517e867c548932465b01826171136e",
-    "zh:7601e9dd0dcd1f649196383b5b3e8852dceeb1ca08c133be72e57baea871edeb",
-    "zh:7dfc4c5b847e51f424df83ef3097355a3b5240b503a0f82e4adc9c922e559f2a",
-    "zh:893de826ba2bc88a81fefff4f602db40154c2179db5cbed40e019883071af89e",
+    "h1:o/loSi+uSKB1bgAt4eazFmc4ay1fst76UPQAAl8TwZM=",
+    "zh:65e6d3e37802797b17755ae684b4379c1d79cf84caf48345f7c59bc7f235a676",
+    "zh:8fb3f572415b7c901b07ea906dcef5a13b71a87cbe6ba8fcad47712c4e54d328",
+    "zh:d6b54a72800652964ba2dbae0f92c480069c28d235ceac89ead089f41bebfcd3",
+    "zh:dc10c728ecbda0abb292a54037ac49242608a77ebc00ec819711a80f7f0a2a40",
+    "zh:f6cffbd9da272ddca6a446cc755849d9f115f1923eb76ee2a7673494b7557259",
     "zh:f809ab383cca0a5f83072981c64208cbd7fa67e986a86ee02dd2c82333221e32",
   ]
 }

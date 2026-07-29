@@ -217,7 +217,7 @@ variable "worker_bundle_path" {
 variable "worker_release_tag" {
   description = "GitHub release tag selected from the append-only release.lock.json. The fetched takosumi-artifact.json must match the pinned manifest digest. Set empty to use worker_bundle_path."
   type        = string
-  default     = "v2.1.1"
+  default     = "v2.1.2"
 
   validation {
     condition     = trimspace(var.worker_release_tag) == "" || can(regex("^v[0-9]+\\.[0-9]+\\.[0-9]+([-+][0-9A-Za-z.-]+)?$", trimspace(var.worker_release_tag)))

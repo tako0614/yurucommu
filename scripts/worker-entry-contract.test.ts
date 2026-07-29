@@ -22,7 +22,38 @@ describe("generated worker entry", () => {
   test("exports a scheduled handler that forwards to the core retention sweep", () => {
     expect(entrySource).toContain("async scheduled(");
     expect(entrySource).toContain("yurucommuCore");
-    expect(entrySource).toContain("runRetention(controller, env, ctx)");
+    expect(entrySource).toContain(
+      "runRetention(controller, runtimeEnv as WorkerBindings, ctx)",
+    );
+  });
+
+  test("fails closed when a background invocation has no canonical app origin", () => {
+    expect(entrySource).toContain("withRequiredBackgroundAppUrl");
+    expect(entrySource).toContain(
+      "APP_URL is required for queue and scheduled invocations",
+    );
+    expect(entrySource).toContain(
+      "APP_URL must be an HTTPS origin for background invocations",
+    );
+    expect(entrySource).toContain(
+      "handleYurucommuQueueBatch(batch, runtimeEnv as Env)",
+    );
+    expect(entrySource).toContain(
+      "runRetention(controller, runtimeEnv as WorkerBindings, ctx)",
+    );
+  });
+
+  test("fails closed instead of acknowledging an unmaterialized managed queue", () => {
+    expect(entrySource).toContain("withRequiredQueueIdentity");
+    expect(entrySource).toContain(
+      "DELIVERY_QUEUE_NAME and DELIVERY_DLQ_NAME must identify distinct managed queues",
+    );
+    expect(entrySource).toContain(
+      "Queue invocation does not match the managed queue identity",
+    );
+    expect(entrySource).toContain(
+      "withRequiredBackgroundAppUrl(wrapCloudflareBindings(env))",
+    );
   });
 });
 

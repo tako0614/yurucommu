@@ -3,8 +3,8 @@ terraform {
 
   required_providers {
     takoform = {
-      source  = "registry.opentofu.org/tako0614/takoform"
-      version = "= 0.2.0"
+      source  = "registry.terraform.io/tako0614/takoform"
+      version = "= 0.2.1"
     }
   }
 }
@@ -23,7 +23,7 @@ variable "project_name" {
 variable "worker_release_tag" {
   description = "Yurucommu GitHub release containing takosumi-artifact.json."
   type        = string
-  default     = "v2.1.1"
+  default     = "v2.1.2"
 
   validation {
     condition     = trimspace(var.worker_release_tag) == "" || can(regex("^v[0-9]+\\.[0-9]+\\.[0-9]+([-+][0-9A-Za-z.-]+)?$", trimspace(var.worker_release_tag)))
@@ -34,7 +34,7 @@ variable "worker_release_tag" {
 variable "worker_bundle_url" {
   description = "Immutable HTTPS Worker artifact URL pinned by this Yurucommu release."
   type        = string
-  default     = "https://github.com/tako0614/yurucommu/releases/download/v2.1.1/yurucommu-worker.js"
+  default     = "https://github.com/tako0614/yurucommu/releases/download/v2.1.2/yurucommu-worker.js"
 
   validation {
     condition     = can(regex("^https://[^[:space:]]+$", trimspace(var.worker_bundle_url)))
@@ -45,7 +45,7 @@ variable "worker_bundle_url" {
 variable "worker_bundle_sha256" {
   description = "Expected SHA-256 for the pinned Worker artifact."
   type        = string
-  default     = "sha256:683c5ed5bc5f537087b703bf24ad3b306508dd3778918d0c31eb4561777fbe13"
+  default     = "sha256:95ca02d637366e9f134d4236874609c612d0b40b2af42825d49795ed9c852182"
 
   validation {
     condition     = can(regex("^(sha256:)?[a-f0-9]{64}$", trimspace(var.worker_bundle_sha256)))
@@ -93,6 +93,10 @@ resource "takoform_http_service" "worker" {
   artifact_url    = local.artifact_url
   artifact_sha256 = local.artifact_sha256_checked
   runtime         = "javascript"
+  configuration = {
+    DELIVERY_QUEUE_NAME = "${local.prefix}-delivery"
+    DELIVERY_DLQ_NAME   = "${local.prefix}-delivery-dlq"
+  }
 
   connections = [
     {

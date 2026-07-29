@@ -34,7 +34,12 @@ const manifest = JSON.parse(manifestText) as {
   >;
 };
 const rootModule = manifest.modules["."];
+const managedModule = manifest.modules["deploy/takoform"];
 const rootModuleSource = await readFile(new URL("main.tf", rootUrl), "utf8");
+const managedModuleSource = await readFile(
+  new URL("deploy/takoform/main.tf", rootUrl),
+  "utf8",
+);
 const coreAuthRoutes = await readFile(
   new URL(
     "node_modules/@takosjp/yurucommu-core/src/backend/routes/auth.ts",
@@ -126,7 +131,7 @@ function collectForbiddenKeys(
 }
 
 describe("repository-owned Takosumi install UX", () => {
-  test("is a bounded declaration for the exact transitional root module", () => {
+  test("keeps the transitional root and declares the exact managed module", () => {
     expect(
       new TextEncoder().encode(manifestText).byteLength,
     ).toBeLessThanOrEqual(128 * 1024);
@@ -135,52 +140,61 @@ describe("repository-owned Takosumi install UX", () => {
       "modules",
     ]);
     expect(manifest.schemaVersion).toBe("takosumi.install-ux/v1");
-    expect(Object.keys(manifest.modules)).toEqual(["."]);
+    expect(Object.keys(manifest.modules)).toEqual([".", "deploy/takoform"]);
     expect(rootModule).toBeDefined();
+    expect(managedModule).toBeDefined();
+    for (const module of [rootModule, managedModule]) {
+      expect(module.inputs.length).toBeLessThanOrEqual(128);
+      expect(
+        module.installExperience?.projections?.length ?? 0,
+      ).toBeLessThanOrEqual(16);
+      expect(module.features?.length ?? 0).toBeLessThanOrEqual(32);
+    }
     assertExactKeys(rootModule as unknown as Record<string, unknown>, [
       "inputs",
       "installExperience",
       "features",
     ]);
-    expect(rootModule.inputs.length).toBeLessThanOrEqual(128);
-    expect(
-      rootModule.installExperience?.projections?.length ?? 0,
-    ).toBeLessThanOrEqual(16);
-    expect(rootModule.features?.length ?? 0).toBeLessThanOrEqual(32);
+    assertExactKeys(managedModule as unknown as Record<string, unknown>, [
+      "inputs",
+      "installExperience",
+    ]);
   });
 
   test("uses only the bounded v1 presentation vocabulary", () => {
-    for (const input of rootModule.inputs) {
-      expect(sourceKinds.has(input.source.kind)).toBe(true);
-      assertExactKeys(input.source as unknown as Record<string, unknown>, [
-        "kind",
-      ]);
-      expect(input.name.length).toBeLessThanOrEqual(128);
-      expect(input.label.ja.length).toBeGreaterThan(0);
-      expect(input.label.en.length).toBeGreaterThan(0);
-      expect(input.label.ja.length).toBeLessThanOrEqual(512);
-      expect(input.label.en.length).toBeLessThanOrEqual(512);
-    }
-    for (const projection of rootModule.installExperience?.projections ?? []) {
-      expect(projectionKinds.has(String(projection.kind))).toBe(true);
-    }
-    for (const feature of rootModule.features ?? []) {
-      expect(feature.id.length).toBeLessThanOrEqual(64);
-      expect(feature.inputs.length).toBeLessThanOrEqual(32);
-      expect(feature.label.ja.length).toBeGreaterThan(0);
-      expect(feature.label.en.length).toBeGreaterThan(0);
-      expect(
-        feature.inputs.filter(
-          (name) => !rootModule.inputs.some((input) => input.name === name),
-        ),
-      ).toEqual([]);
-      expect(
-        feature.inputs.filter(
-          (name) =>
-            rootModule.inputs.find((input) => input.name === name)?.source
-              .kind !== "user",
-        ),
-      ).toEqual([]);
+    for (const module of Object.values(manifest.modules)) {
+      for (const input of module.inputs) {
+        expect(sourceKinds.has(input.source.kind)).toBe(true);
+        assertExactKeys(input.source as unknown as Record<string, unknown>, [
+          "kind",
+        ]);
+        expect(input.name.length).toBeLessThanOrEqual(128);
+        expect(input.label.ja.length).toBeGreaterThan(0);
+        expect(input.label.en.length).toBeGreaterThan(0);
+        expect(input.label.ja.length).toBeLessThanOrEqual(512);
+        expect(input.label.en.length).toBeLessThanOrEqual(512);
+      }
+      for (const projection of module.installExperience?.projections ?? []) {
+        expect(projectionKinds.has(String(projection.kind))).toBe(true);
+      }
+      for (const feature of module.features ?? []) {
+        expect(feature.id.length).toBeLessThanOrEqual(64);
+        expect(feature.inputs.length).toBeLessThanOrEqual(32);
+        expect(feature.label.ja.length).toBeGreaterThan(0);
+        expect(feature.label.en.length).toBeGreaterThan(0);
+        expect(
+          feature.inputs.filter(
+            (name) => !module.inputs.some((input) => input.name === name),
+          ),
+        ).toEqual([]);
+        expect(
+          feature.inputs.filter(
+            (name) =>
+              module.inputs.find((input) => input.name === name)?.source
+                .kind !== "user",
+          ),
+        ).toEqual([]);
+      }
     }
   });
 
@@ -231,8 +245,59 @@ describe("repository-owned Takosumi install UX", () => {
     expect(manifestText).not.toContain("oidc_allowed_subs");
     expect(manifestText).not.toContain("allow_unpinned_owner_claim");
     expect(manifestText).not.toContain("encryption_key");
-    // `deploy/takoform` stays a non-selectable managed candidate until the host
-    // can materialize its URL, queue/schedule, migration, and rollback duties.
-    expect(manifestText).not.toContain("deploy/takoform");
+  });
+
+  test("managed install asks no provider or runtime-internal questions", () => {
+    const moduleVariables = new Set(
+      Array.from(
+        managedModuleSource.matchAll(/variable\s+"([^"]+)"\s*\{/g),
+        (match) => match[1],
+      ),
+    );
+    expect(managedModule.inputs.map((input) => input.name)).toEqual([
+      "project_name",
+      "worker_release_tag",
+      "worker_bundle_url",
+      "worker_bundle_sha256",
+    ]);
+    expect(
+      managedModule.inputs.filter((input) => input.source.kind === "user"),
+    ).toEqual([]);
+    expect(
+      managedModule.inputs
+        .map((input) => input.name)
+        .filter((name) => !moduleVariables.has(name)),
+    ).toEqual([]);
+    for (const input of managedModule.inputs.filter(
+      (candidate) => candidate.source.kind === "module_default",
+    )) {
+      const blockStart = managedModuleSource.indexOf(
+        `variable "${input.name}" {`,
+      );
+      const nextBlock = managedModuleSource.indexOf(
+        "\nvariable ",
+        blockStart + 1,
+      );
+      expect(
+        managedModuleSource.slice(
+          blockStart,
+          nextBlock < 0 ? undefined : nextBlock,
+        ),
+      ).toMatch(/\n\s+default\s+=/);
+    }
+    for (const forbidden of [
+      "cloudflare",
+      "provider",
+      "credential",
+      "binding",
+      "encryption_key",
+      "oidc_client_id",
+      "database_id",
+      "queue_id",
+    ]) {
+      expect(JSON.stringify(managedModule).toLowerCase()).not.toContain(
+        forbidden,
+      );
+    }
   });
 });

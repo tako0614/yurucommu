@@ -204,6 +204,44 @@ function withDefaultAppUrl(request: Request, env: RuntimeEnv): RuntimeEnv {
   return { ...env, APP_URL: new URL(request.url).origin };
 }
 
+function withRequiredBackgroundAppUrl(env: RuntimeEnv): RuntimeEnv {
+  if (typeof env.APP_URL !== "string" || env.APP_URL.trim().length === 0) {
+    throw new Error(
+      "APP_URL is required for queue and scheduled invocations because they have no request origin",
+    );
+  }
+  const appUrl = new URL(env.APP_URL);
+  if (appUrl.protocol !== "https:" || appUrl.origin !== appUrl.href.replace(/\\/$/, "")) {
+    throw new Error("APP_URL must be an HTTPS origin for background invocations");
+  }
+  return { ...env, APP_URL: appUrl.origin };
+}
+
+function withRequiredQueueIdentity(
+  batch: MessageBatch<DeliveryQueueMessageV1 | DeliveryDlqMessageV1>,
+  env: RuntimeEnv,
+): RuntimeEnv {
+  const deliveryQueueName = env.DELIVERY_QUEUE_NAME?.trim();
+  const deliveryDlqName = env.DELIVERY_DLQ_NAME?.trim();
+  if (
+    !deliveryQueueName ||
+    !deliveryDlqName ||
+    deliveryQueueName === deliveryDlqName
+  ) {
+    throw new Error(
+      "DELIVERY_QUEUE_NAME and DELIVERY_DLQ_NAME must identify distinct managed queues",
+    );
+  }
+  if (batch.queue !== deliveryQueueName && batch.queue !== deliveryDlqName) {
+    throw new Error("Queue invocation does not match the managed queue identity");
+  }
+  return {
+    ...env,
+    DELIVERY_QUEUE_NAME: deliveryQueueName,
+    DELIVERY_DLQ_NAME: deliveryDlqName,
+  };
+}
+
 function applyProductBrowserMediaPolicy(response: Response): Response {
   if (response.status === 101) return response;
   const headers = new Headers(response.headers);
@@ -237,7 +275,11 @@ export default {
     batch: MessageBatch<DeliveryQueueMessageV1 | DeliveryDlqMessageV1>,
     env: WorkerBindings,
   ): Promise<void> {
-    return handleYurucommuQueueBatch(batch, wrapCloudflareBindings(env) as Env);
+    const runtimeEnv = withRequiredQueueIdentity(
+      batch,
+      withRequiredBackgroundAppUrl(wrapCloudflareBindings(env)),
+    );
+    return handleYurucommuQueueBatch(batch, runtimeEnv as Env);
   },
 
   // Cron-triggered retention (delivery/session/call-session purge, media-orphan
@@ -264,7 +306,10 @@ export default {
         "@takosjp/yurucommu-core exposes no scheduled() retention handler; upgrade @takosjp/yurucommu-core",
       );
     }
-    await runRetention(controller, env, ctx);
+    const runtimeEnv = withRequiredBackgroundAppUrl(
+      wrapCloudflareBindings(env),
+    );
+    await runRetention(controller, runtimeEnv as WorkerBindings, ctx);
   },
 };
 `;

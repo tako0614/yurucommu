@@ -234,6 +234,72 @@
           ]
         }
       ]
+    },
+    "deploy/takoform": {
+      "inputs": [
+        {
+          "name": "project_name",
+          "source": {
+            "kind": "capsule_name"
+          },
+          "type": "string",
+          "format": "subdomain",
+          "label": {
+            "ja": "サービス名",
+            "en": "Service name"
+          },
+          "helper": {
+            "ja": "ワークスペース内で使うYurucommuの名前です。",
+            "en": "The name of this Yurucommu service in the workspace."
+          },
+          "advanced": true
+        },
+        {
+          "name": "worker_release_tag",
+          "source": {
+            "kind": "module_default"
+          },
+          "type": "string",
+          "label": {
+            "ja": "リリース",
+            "en": "Release"
+          },
+          "advanced": true
+        },
+        {
+          "name": "worker_bundle_url",
+          "source": {
+            "kind": "module_default"
+          },
+          "type": "string",
+          "format": "url",
+          "label": {
+            "ja": "リリースURL",
+            "en": "Release URL"
+          },
+          "advanced": true
+        },
+        {
+          "name": "worker_bundle_sha256",
+          "source": {
+            "kind": "module_default"
+          },
+          "type": "string",
+          "label": {
+            "ja": "リリースSHA-256",
+            "en": "Release SHA-256"
+          },
+          "advanced": true
+        }
+      ],
+      "installExperience": {
+        "projections": [
+          {
+            "kind": "service_name",
+            "variable": "project_name"
+          }
+        ]
+      }
     }
   }
 }
