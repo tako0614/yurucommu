@@ -3,10 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Story Extension - ActivityPub拡張仕様 - yurucommu</title>
+    <title>Storyの連合形式 - yurucommu</title>
     <meta
       name="description"
-      content="ActivityPub Story拡張仕様。24時間で消える一時的なコンテンツの配信について定義"
+      content="yurucommuが現在送受信するStoryのActivityPub形式"
     />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="yurucommu" />
@@ -53,28 +53,28 @@
     <div class="docs-layout">
       <!-- Sidebar -->
       <aside class="docs-sidebar">
-        <p class="docs-sidebar-title">仕様</p>
+        <p class="docs-sidebar-title">ドキュメント</p>
         <ul class="docs-sidebar-nav">
           <li><a href="/specs/">概要</a></li>
-          <li><a href="/specs/activitypub.html">ActivityPub拡張</a></li>
-          <li><a href="/specs/yurucommu.html">yurucommu仕様</a></li>
-          <li><a href="/specs/namespace.html">名前空間</a></li>
+          <li><a href="/specs/yurucommu.html">使い方</a></li>
+          <li><a href="/specs/activitypub.html">現在の連合形式</a></li>
+          <li><a href="/specs/namespace.html">データ語彙</a></li>
         </ul>
 
         <div class="docs-sidebar-section">
-          <p class="docs-sidebar-title">ActivityPub拡張</p>
+          <p class="docs-sidebar-title">現在の連合形式</p>
           <ul class="docs-sidebar-nav">
-            <li><a href="/specs/apc.html">APC (Communities)</a></li>
-            <li><a href="/specs/single-user.html">Single-User Instance</a></li>
+            <li><a href="/specs/apc.html">コミュニティ</a></li>
             <li><a href="/specs/story.html" class="active">Story</a></li>
-            <li><a href="/specs/dmnote.html">DM Note</a></li>
+            <li><a href="/specs/dmnote.html">DM</a></li>
           </ul>
         </div>
 
         <div class="docs-sidebar-section">
-          <p class="docs-sidebar-title">yurucommu仕様</p>
+          <p class="docs-sidebar-title">使い方</p>
           <ul class="docs-sidebar-nav">
-            <li><a href="/specs/qr-exchange.html">QR Exchange</a></li>
+            <li><a href="/specs/single-user.html">アカウント構成</a></li>
+            <li><a href="/specs/qr-exchange.html">QRでアカウント交換</a></li>
           </ul>
         </div>
 
@@ -95,539 +95,186 @@
 
       <!-- Content -->
       <main class="docs-content">
-        <span class="spec-status stable">Stable</span>
-        <h1>Story Extension</h1>
+        <span class="spec-status experimental">現行実装</span>
+        <h1>Storyの連合形式</h1>
         <p class="lead">
-          24時間で消える一時的なコンテンツ（ストーリー）をActivityPubで配信するための拡張仕様。
-          Instagram StoriesやSnapchat Storiesのような機能を分散SNSで実現します。
+          Storyは、24時間の期限を持つ1枚の画像または動画です。
+          ActivityPubでは<code>Story</code>と<code>Note</code>の両方の型を持つ
+          オブジェクトとして送信します。
         </p>
 
-        <h2>概要</h2>
-        <p>
-          Story拡張は、時間制限付きのコンテンツを配信するためのActivityPub拡張です。
-          AS2標準の
-          <code>Note</code> を拡張し、単一のメディア（画像または動画）と
-          インタラクティブなオーバーレイ（投票など）を定義します。
-        </p>
+        <div class="callout callout-info">
+          <strong>相互運用について:</strong>
+          <code>Story</code>と表示用プロパティはyurucommu独自語彙です。
+          相手が未対応の場合に同じStory画面で表示される保証はありません。
+          <code>Note</code>、<code>content</code>、<code>attachment</code>、
+          <code>endTime</code>はActivityStreamsの語彙です。
+        </div>
 
-        <h3>設計方針</h3>
-        <ul>
-          <li>
-            <strong>1投稿 = 1メディア</strong> -
-            各Storyは独立した画像または動画を持つ
-          </li>
-          <li>
-            <strong>テキスト/スタンプは焼き込み</strong> -
-            メディアに合成済みの状態で配信
-          </li>
-          <li>
-            <strong>インタラクティブ要素は分離</strong> - 投票などは
-            <code>overlays</code> で定義
-          </li>
-          <li>
-            <strong>連続再生はUIの責務</strong> -
-            同一ユーザーの複数Storyをクライアントが連続表示
-          </li>
-          <li>
-            <strong>AS2相互運用</strong> -
-            Story非対応の実装でも通常のNoteとして表示可能
-          </li>
-        </ul>
-
-        <h2>名前空間</h2>
-        <p>Story拡張は以下の名前空間を使用します：</p>
-        <pre><code>https://yurucommu.com/ns/story#</code></pre>
-
-        <h3>JSON-LD Context</h3>
+        <h2>送信するオブジェクト</h2>
         <pre><code>{
   "@context": [
     "https://www.w3.org/ns/activitystreams",
     {
       "story": "https://yurucommu.com/ns/story#",
       "xsd": "http://www.w3.org/2001/XMLSchema#",
-
       "Story": "story:Story",
-
       "displayDuration": {
         "@id": "story:displayDuration",
         "@type": "xsd:duration"
       },
-
       "overlays": {
         "@id": "story:overlays",
         "@container": "@list"
       },
-
-      "position": "story:position"
-    }
-  ]
-}</code></pre>
-
-        <h2>型定義</h2>
-
-        <h3>Story</h3>
-        <p>
-          ストーリーオブジェクト。AS2の <code>Note</code> を拡張します。
-          1つのStoryは1つのメディア（画像または動画）を持ちます。
-        </p>
-
-        <table style="width: 100%; border-collapse: collapse; margin: 1rem 0">
-          <thead>
-            <tr style="border-bottom: 1px solid var(--border)">
-              <th
-                style="
-                  text-align: left;
-                  padding: 0.75rem;
-                  color: var(--text-secondary);
-                "
-              >
-                プロパティ
-              </th>
-              <th
-                style="
-                  text-align: left;
-                  padding: 0.75rem;
-                  color: var(--text-secondary);
-                "
-              >
-                型
-              </th>
-              <th
-                style="
-                  text-align: left;
-                  padding: 0.75rem;
-                  color: var(--text-secondary);
-                "
-              >
-                必須
-              </th>
-              <th
-                style="
-                  text-align: left;
-                  padding: 0.75rem;
-                  color: var(--text-secondary);
-                "
-              >
-                説明
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr style="border-bottom: 1px solid var(--border)">
-              <td style="padding: 0.75rem"><code>type</code></td>
-              <td style="padding: 0.75rem">Array</td>
-              <td style="padding: 0.75rem">Yes</td>
-              <td style="padding: 0.75rem"><code>["Story", "Note"]</code></td>
-            </tr>
-            <tr style="border-bottom: 1px solid var(--border)">
-              <td style="padding: 0.75rem"><code>attachment</code></td>
-              <td style="padding: 0.75rem">Document | Video</td>
-              <td style="padding: 0.75rem">Yes</td>
-              <td style="padding: 0.75rem">メディア（画像または動画）</td>
-            </tr>
-            <tr style="border-bottom: 1px solid var(--border)">
-              <td style="padding: 0.75rem"><code>displayDuration</code></td>
-              <td style="padding: 0.75rem">xsd:duration</td>
-              <td style="padding: 0.75rem">Yes</td>
-              <td style="padding: 0.75rem">
-                表示時間（例: <code>PT5S</code> = 5秒）
-              </td>
-            </tr>
-            <tr style="border-bottom: 1px solid var(--border)">
-              <td style="padding: 0.75rem"><code>endTime</code></td>
-              <td style="padding: 0.75rem">DateTime</td>
-              <td style="padding: 0.75rem">Yes</td>
-              <td style="padding: 0.75rem">ストーリーの有効期限（AS2標準）</td>
-            </tr>
-            <tr style="border-bottom: 1px solid var(--border)">
-              <td style="padding: 0.75rem"><code>overlays</code></td>
-              <td style="padding: 0.75rem">Array&lt;Object&gt;</td>
-              <td style="padding: 0.75rem">No</td>
-              <td style="padding: 0.75rem">
-                インタラクティブなオーバーレイ要素
-              </td>
-            </tr>
-          </tbody>
-        </table>
-
-        <h3>OverlayPosition</h3>
-        <p>
-          オーバーレイ要素の位置を指定します。座標は<code>attachment</code>のメディア（画像・動画）のピクセル座標系で指定します（例:
-          <code>{"x":120,"y":960}</code>）。相対値（0.0〜1.0）ではありません。
-        </p>
-
-        <table style="width: 100%; border-collapse: collapse; margin: 1rem 0">
-          <thead>
-            <tr style="border-bottom: 1px solid var(--border)">
-              <th
-                style="
-                  text-align: left;
-                  padding: 0.75rem;
-                  color: var(--text-secondary);
-                "
-              >
-                プロパティ
-              </th>
-              <th
-                style="
-                  text-align: left;
-                  padding: 0.75rem;
-                  color: var(--text-secondary);
-                "
-              >
-                型
-              </th>
-              <th
-                style="
-                  text-align: left;
-                  padding: 0.75rem;
-                  color: var(--text-secondary);
-                "
-              >
-                説明
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr style="border-bottom: 1px solid var(--border)">
-              <td style="padding: 0.75rem"><code>x</code></td>
-              <td style="padding: 0.75rem">Number（ピクセル）</td>
-              <td style="padding: 0.75rem">
-                要素のX座標（メディア左端からのピクセル数）
-              </td>
-            </tr>
-            <tr style="border-bottom: 1px solid var(--border)">
-              <td style="padding: 0.75rem"><code>y</code></td>
-              <td style="padding: 0.75rem">Number（ピクセル）</td>
-              <td style="padding: 0.75rem">
-                要素のY座標（メディア上端からのピクセル数）
-              </td>
-            </tr>
-            <tr style="border-bottom: 1px solid var(--border)">
-              <td style="padding: 0.75rem"><code>width</code></td>
-              <td style="padding: 0.75rem">Number（ピクセル）</td>
-              <td style="padding: 0.75rem">要素の幅（任意）</td>
-            </tr>
-            <tr style="border-bottom: 1px solid var(--border)">
-              <td style="padding: 0.75rem"><code>height</code></td>
-              <td style="padding: 0.75rem">Number（ピクセル）</td>
-              <td style="padding: 0.75rem">要素の高さ（任意）</td>
-            </tr>
-          </tbody>
-        </table>
-
-        <h4>座標系</h4>
-        <pre><code>┌─────────────────────────────┐
-│ (0,0)                       │
-│                             │
-│                              │
-│            ┌───────────┐    │
-│            │ x=120     │    │
-│            │ y=960     │    │
-│            └───────────┘    │
-│                              │
-└─────────────────────────────┘
-（メディアのピクセルサイズに対する座標）
-
-x, y: attachment メディアのピクセル座標系での位置
-width, height: 要素のサイズ（ピクセル、任意）</code></pre>
-
-        <h3>Overlays</h3>
-        <p>
-          <code>overlays</code> 配列には任意のActivityStreams
-          2.0オブジェクトを含めることができます。 各オーバーレイは
-          <code>position</code> プロパティを持つ必要があります。
-        </p>
-
-        <p><strong>想定されるオーバーレイ型:</strong></p>
-        <ul>
-          <li><code>Question</code> - 投票（AS2標準）</li>
-          <li><code>Note</code> - テキストリンク</li>
-          <li><code>Link</code> - 外部リンク</li>
-          <li>任意の拡張型</li>
-        </ul>
-
-        <h2>例</h2>
-
-        <h3>基本的なストーリー（画像のみ）</h3>
-        <pre><code>{
-  "@context": [
-    "https://www.w3.org/ns/activitystreams",
-    {
-      "story": "https://yurucommu.com/ns/story#",
-      "Story": "story:Story",
-      "displayDuration": "story:displayDuration"
-    }
-  ],
-  "id": "https://example.com/users/alice/stories/2026-01-15/1",
-  "type": ["Story", "Note"],
-  "attributedTo": "https://example.com/users/alice",
-  "published": "2026-01-15T10:00:00Z",
-  "endTime": "2026-01-16T10:00:00Z",
-  "to": ["https://example.com/users/alice/followers"],
-  "attachment": {
-    "type": "Document",
-    "mediaType": "image/jpeg",
-    "url": "https://example.com/media/story/abc123.jpg",
-    "width": 1080,
-    "height": 1920
-  },
-  "displayDuration": "PT5S"
-}</code></pre>
-
-        <h3>動画ストーリー</h3>
-        <pre><code>{
-  "@context": [
-    "https://www.w3.org/ns/activitystreams",
-    {
-      "story": "https://yurucommu.com/ns/story#",
-      "Story": "story:Story",
-      "displayDuration": "story:displayDuration"
-    }
-  ],
-  "id": "https://example.com/users/alice/stories/2026-01-15/2",
-  "type": ["Story", "Note"],
-  "attributedTo": "https://example.com/users/alice",
-  "published": "2026-01-15T12:00:00Z",
-  "endTime": "2026-01-16T12:00:00Z",
-  "to": ["https://example.com/users/alice/followers"],
-  "attachment": {
-    "type": "Video",
-    "mediaType": "video/mp4",
-    "url": "https://example.com/media/story/video456.mp4",
-    "width": 1080,
-    "height": 1920,
-    "duration": "PT15S"
-  },
-  "displayDuration": "PT15S"
-}</code></pre>
-
-        <h3>投票付きストーリー</h3>
-        <pre><code>{
-  "@context": [
-    "https://www.w3.org/ns/activitystreams",
-    {
-      "story": "https://yurucommu.com/ns/story#",
-      "Story": "story:Story",
-      "displayDuration": "story:displayDuration",
-      "overlays": { "@id": "story:overlays", "@container": "@list" },
       "position": "story:position"
     }
   ],
-  "id": "https://example.com/users/alice/stories/2026-01-15/3",
+  "id": "https://example.com/ap/objects/story-1",
   "type": ["Story", "Note"],
-  "attributedTo": "https://example.com/users/alice",
-  "published": "2026-01-15T14:00:00Z",
-  "endTime": "2026-01-16T14:00:00Z",
-  "to": ["https://example.com/users/alice/followers"],
+  "attributedTo": "https://example.com/ap/users/alice",
+  "published": "2026-07-29T10:00:00.000Z",
+  "endTime": "2026-07-30T10:00:00.000Z",
+  "to": ["https://example.com/ap/users/alice/followers"],
+  "content": "今日の景色",
   "attachment": {
     "type": "Document",
     "mediaType": "image/jpeg",
-    "url": "https://example.com/media/story/poll-bg.jpg",
-    "width": 1080,
-    "height": 1920
+    "url": "https://example.com/media/story.jpg"
   },
-  "displayDuration": "PT7S",
+  "displayDuration": "PT5S",
   "overlays": [
     {
-      "type": "Question",
-      "name": "今日どっちがいい？",
-      "oneOf": [
-        { "type": "Note", "name": "A" },
-        { "type": "Note", "name": "B" }
-      ],
-      "closed": "2026-01-15T20:00:00Z",
+      "type": "Note",
+      "name": "駅の近く",
       "position": {
-        "x": 540,
-        "y": 1440,
-        "width": 864,
-        "height": 288
+        "x": 0.5,
+        "y": 0.8,
+        "width": 0.6,
+        "height": 0.1
       }
     }
   ]
 }</code></pre>
 
-        <h2>配信</h2>
+        <h2>プロパティ</h2>
+        <table class="docs-table">
+          <thead>
+            <tr>
+              <th>名前</th>
+              <th>現在の扱い</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>type</code></td>
+              <td><code>["Story", "Note"]</code></td>
+            </tr>
+            <tr>
+              <td><code>endTime</code></td>
+              <td>ローカル作成時は公開時刻から24時間後</td>
+            </tr>
+            <tr>
+              <td><code>attachment</code></td>
+              <td>画像または動画を1つだけ使用</td>
+            </tr>
+            <tr>
+              <td><code>content</code></td>
+              <td>任意のキャプション。ローカル作成は最大500文字</td>
+            </tr>
+            <tr>
+              <td><code>displayDuration</code></td>
+              <td>ISO 8601 duration。未指定時の表示値は<code>PT5S</code></td>
+            </tr>
+            <tr>
+              <td><code>overlays</code></td>
+              <td>最大20件。現在の作成画面はテキスト、リンク、投票に対応</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2>オーバーレイの座標</h2>
         <p>
-          StoryはActivityPubの
-          <code>Create</code> アクティビティで配信されます。
+          <code>position</code>の<code>x</code>、<code>y</code>、
+          <code>width</code>、<code>height</code>は、すべて
+          <code>0.0</code>から<code>1.0</code>までの正規化した数値です。
+          ピクセル数ではありません。<code>x</code>と<code>y</code>は
+          オーバーレイの中心を表します。
         </p>
         <pre><code>{
-  "@context": "https://www.w3.org/ns/activitystreams",
-  "type": "Create",
-  "actor": "https://example.com/users/alice",
-  "to": ["https://example.com/users/alice/followers"],
-  "object": {
-    "type": ["Story", "Note"],
-    "id": "https://example.com/users/alice/stories/2026-01-15/1",
-    ...
+  "type": "Link",
+  "name": "詳細を見る",
+  "href": "https://example.com/article",
+  "position": {
+    "x": 0.5,
+    "y": 0.72,
+    "width": 0.5,
+    "height": 0.09
   }
 }</code></pre>
-
-        <h2>連続再生</h2>
-        <p>
-          同一ユーザーの複数Storyは、クライアントUIが連続再生として表示します。
-          これはサーバー側ではなくクライアント側の責務です。
-        </p>
-
-        <pre><code>// クライアントの表示ロジック
-const storiesByUser = groupBy(stories, s => s.attributedTo);
-
-// 各ユーザーのストーリーを published 順にソート
-for (const [userId, userStories] of storiesByUser) {
-  userStories.sort((a, b) =>
-    new Date(a.published) - new Date(b.published)
-  );
-}</code></pre>
-
-        <h2>削除</h2>
-        <p>
-          ストーリーの期限切れ時、または手動削除時は
-          <code>Delete</code> アクティビティを送信します。
-          <code>endTime</code>
-          を過ぎたストーリーは、受信側で自動的に非表示にすることが推奨されます。
-        </p>
-
-        <h2>実装上の注意</h2>
         <ul>
-          <li>
-            <strong>標準実装での扱い</strong> -
-            <code>type: ["Story", "Note"]</code>
-            とすることで、Story非対応の実装でもNoteとして表示可能
-          </li>
-          <li>
-            <strong>期限管理</strong> -
-            <code>endTime</code> を必ず設定し、期限切れコンテンツは表示しない
-          </li>
-          <li>
-            <strong>displayDuration形式</strong> - ISO 8601 duration形式（<code
-              >PT5S</code
-            >
-            = 5秒、<code>PT1M30S</code> = 1分30秒）
-          </li>
-          <li>
-            <strong>動画の尺</strong> - 動画の実際の長さはAS2標準の
-            <code>duration</code> プロパティを使用
-          </li>
-          <li>
-            <strong>アスペクト比</strong> -
-            推奨は縦型9:16（1080x1920px）。モバイルファーストで全画面表示に最適化
-          </li>
-          <li>
-            <strong>テキスト/スタンプ</strong> -
-            メディアに焼き込み済みの状態で配信。別レイヤーとしては配信しない
-          </li>
+          <li><code>Question</code>は1つのStoryにつき最大1件</li>
+          <li>投票の選択肢は2件から4件</li>
+          <li><code>Link</code>には有効な絶対URLが必要</li>
         </ul>
 
-        <h3>推奨メディアサイズ</h3>
-        <table style="width: 100%; border-collapse: collapse; margin: 1rem 0">
+        <h2>公開範囲</h2>
+        <p>
+          個人のStoryは本人と承認済みフォロワーだけが読み取れます。
+          コミュニティ内で作成したStoryは、そのコミュニティの承認済みメンバー向けです。
+          外部への配送先も、個人Storyは本人のfollowers、コミュニティStoryは
+          コミュニティの範囲に合わせます。
+        </p>
+
+        <h2>24時間経過と手動削除の違い</h2>
+        <table class="docs-table">
           <thead>
-            <tr style="border-bottom: 1px solid var(--border)">
-              <th
-                style="
-                  text-align: left;
-                  padding: 0.75rem;
-                  color: var(--text-secondary);
-                "
-              >
-                形式
-              </th>
-              <th
-                style="
-                  text-align: left;
-                  padding: 0.75rem;
-                  color: var(--text-secondary);
-                "
-              >
-                推奨サイズ
-              </th>
-              <th
-                style="
-                  text-align: left;
-                  padding: 0.75rem;
-                  color: var(--text-secondary);
-                "
-              >
-                最大尺
-              </th>
+            <tr>
+              <th>きっかけ</th>
+              <th>ローカルでの結果</th>
+              <th>連合への通知</th>
             </tr>
           </thead>
           <tbody>
-            <tr style="border-bottom: 1px solid var(--border)">
-              <td style="padding: 0.75rem">画像</td>
-              <td style="padding: 0.75rem">1080x1920px (9:16)</td>
-              <td style="padding: 0.75rem">-</td>
+            <tr>
+              <td><code>endTime</code>を過ぎる</td>
+              <td>
+                読み取り結果から直ちに除外。期限切れデータとメディアは
+                後続の保持期間処理で削除
+              </td>
+              <td>
+                期限切れだけを理由に<code>Delete</code>は送らない。
+                受信側は<code>endTime</code>を見て非表示にする必要がある
+              </td>
             </tr>
-            <tr style="border-bottom: 1px solid var(--border)">
-              <td style="padding: 0.75rem">動画</td>
-              <td style="padding: 0.75rem">1080x1920px (9:16)</td>
-              <td style="padding: 0.75rem">60秒</td>
+            <tr>
+              <td>投稿者が手動で削除</td>
+              <td>Story本体、関連データ、保存メディアを削除</td>
+              <td>元の公開範囲へ<code>Delete</code>を配送して削除を知らせる</td>
             </tr>
           </tbody>
         </table>
+        <p>
+          したがって「24時間後に全サーバーから物理的に消える」とは保証できません。
+          相手が<code>endTime</code>を解釈しない場合や、すでに複製したデータの扱いは
+          相手側に依存します。
+        </p>
 
-        <h2>変更履歴</h2>
-        <table style="width: 100%; border-collapse: collapse; margin: 1rem 0">
-          <thead>
-            <tr style="border-bottom: 1px solid var(--border)">
-              <th
-                style="
-                  text-align: left;
-                  padding: 0.75rem;
-                  color: var(--text-secondary);
-                "
-              >
-                バージョン
-              </th>
-              <th
-                style="
-                  text-align: left;
-                  padding: 0.75rem;
-                  color: var(--text-secondary);
-                "
-              >
-                変更内容
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr style="border-bottom: 1px solid var(--border)">
-              <td style="padding: 0.75rem">v2 (2026-01)</td>
-              <td style="padding: 0.75rem">
-                <code>frames</code> 配列を廃止、<code>attachment</code>
-                をStory直下に移動、<code>overlays</code> を追加
-              </td>
-            </tr>
-            <tr style="border-bottom: 1px solid var(--border)">
-              <td style="padding: 0.75rem">v1 (2025-12)</td>
-              <td style="padding: 0.75rem">
-                初期仕様（<code>frames</code> 配列ベース）
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <h2>受信時の扱い</h2>
+        <p>
+          受信したStoryにも期限が必要です。欠落または不正な
+          <code>endTime</code
+          >は、受信側で公開時刻からおよそ25時間以内に収まる値へ
+          補正します。添付がないStoryは保存しません。オーバーレイは最大20件まで
+          取り込み、過大な付加情報は落として基本のメディアとキャプションを優先します。
+        </p>
 
-        <h2>参考</h2>
-        <ul>
-          <li>
-            <a
-              href="https://www.w3.org/TR/activitystreams-vocabulary/#dfn-endtime"
-              >Activity Streams 2.0 - endTime</a
-            >
-          </li>
-          <li>
-            <a
-              href="https://www.w3.org/TR/activitystreams-vocabulary/#dfn-duration"
-              >Activity Streams 2.0 - duration</a
-            >
-          </li>
-          <li>
-            <a
-              href="https://www.w3.org/TR/activitystreams-vocabulary/#dfn-question"
-              >Activity Streams 2.0 - Question</a
-            >
-          </li>
-        </ul>
+        <h2>機械可読な例</h2>
+        <p>
+          1行1オブジェクトの例は
+          <a href="/ns/story/examples.jsonl">Story examples.jsonl</a>
+          から確認できます。
+        </p>
       </main>
     </div>
 

@@ -3,10 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>仕様 - yurucommu</title>
+    <title>仕様とデータ形式 - yurucommu</title>
     <meta
       name="description"
-      content="yurucommuのActivityPub拡張仕様とyurucommu仕様"
+      content="yurucommuの使い方、現在の連合形式、データ語彙"
     />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="yurucommu" />
@@ -51,28 +51,28 @@
 
     <div class="docs-layout">
       <aside class="docs-sidebar">
-        <p class="docs-sidebar-title">仕様</p>
+        <p class="docs-sidebar-title">ドキュメント</p>
         <ul class="docs-sidebar-nav">
           <li><a href="/specs/" class="active">概要</a></li>
-          <li><a href="/specs/activitypub.html">ActivityPub拡張</a></li>
-          <li><a href="/specs/yurucommu.html">yurucommu仕様</a></li>
-          <li><a href="/specs/namespace.html">名前空間</a></li>
+          <li><a href="/specs/yurucommu.html">使い方</a></li>
+          <li><a href="/specs/activitypub.html">現在の連合形式</a></li>
+          <li><a href="/specs/namespace.html">データ語彙</a></li>
         </ul>
 
         <div class="docs-sidebar-section">
-          <p class="docs-sidebar-title">ActivityPub拡張</p>
+          <p class="docs-sidebar-title">現在の連合形式</p>
           <ul class="docs-sidebar-nav">
-            <li><a href="/specs/apc.html">APC (Communities)</a></li>
-            <li><a href="/specs/single-user.html">Single-User Instance</a></li>
+            <li><a href="/specs/apc.html">コミュニティ</a></li>
             <li><a href="/specs/story.html">Story</a></li>
-            <li><a href="/specs/dmnote.html">DM Note</a></li>
+            <li><a href="/specs/dmnote.html">DM</a></li>
           </ul>
         </div>
 
         <div class="docs-sidebar-section">
-          <p class="docs-sidebar-title">yurucommu仕様</p>
+          <p class="docs-sidebar-title">使い方</p>
           <ul class="docs-sidebar-nav">
-            <li><a href="/specs/qr-exchange.html">QR Exchange</a></li>
+            <li><a href="/specs/single-user.html">アカウント構成</a></li>
+            <li><a href="/specs/qr-exchange.html">QRでアカウント交換</a></li>
           </ul>
         </div>
 
@@ -92,46 +92,94 @@
       </aside>
 
       <main class="docs-content">
-        <h1>仕様</h1>
+        <h1>仕様とデータ形式</h1>
         <p class="lead">
-          yurucommuの仕様は「ActivityPub拡張」と「yurucommu仕様」の2つに分類されます。
+          まず使い方を説明し、その後に現在送受信しているActivityPubの形式と、
+          yurucommuが公開しているデータ語彙を分けて説明します。
         </p>
 
-        <h2>仕様のステータス</h2>
-        <p>各仕様は以下のステータスを持ちます：</p>
-        <ul>
-          <li>
-            <span class="spec-status draft">Draft</span> -
-            策定中。大きな変更の可能性あり
-          </li>
-          <li>
-            <span class="spec-status experimental">Experimental</span> -
-            実験的実装。フィードバック募集中
-          </li>
-          <li>
-            <span class="spec-status stable">Stable</span> -
-            安定版。変更は明示的な仕様更新として管理
-          </li>
-        </ul>
+        <div class="callout callout-info">
+          <strong>このページの読み方:</strong>
+          「現行実装」は現在のコードで確認できる挙動です。「提案」は公開中の名前や形式ですが、
+          現在の送受信データでは使っていないものです。外部ソフトウェアとの相互運用を
+          保証する意味ではありません。
+        </div>
 
-        <div class="card-grid" style="margin-top: 3rem">
-          <a href="/specs/activitypub.html" class="card">
-            <span class="spec-scope federation">連合に配信</span>
-            <h3 class="card-title">ActivityPub拡張</h3>
+        <h2>使い方</h2>
+        <div class="card-grid">
+          <a href="/specs/single-user.html" class="card">
+            <span class="spec-status experimental">現行実装</span>
+            <h3 class="card-title">アカウント構成</h3>
             <p class="card-description">
-              ActivityPubプロトコルを拡張し、他のFediverse実装との相互運用性を確保する仕様。
-              APC、Single-User Instance、Story、DM Noteを含む。
+              1つのインスタンスを1人のオーナーが管理し、必要に応じて
+              切り替えて使うサブアカウントを追加できます。
             </p>
           </a>
-          <a href="/specs/yurucommu.html" class="card">
-            <span class="spec-scope local">ローカルのみ</span>
-            <h3 class="card-title">yurucommu仕様</h3>
+          <a href="/specs/qr-exchange.html" class="card">
+            <span class="spec-status experimental">現行実装</span>
+            <h3 class="card-title">QRでアカウント交換</h3>
             <p class="card-description">
-              yurucommu独自の機能仕様。連合には配信されず、ローカルでのみ動作する。
-              QR Exchangeを含む。
+              自分のプロフィールURLをQRコードで見せ、相手が確認してから
+              フォローするまでの流れです。
             </p>
           </a>
         </div>
+
+        <h2>現在の連合形式</h2>
+        <p>
+          次のページは標準規格を作るための文書ではなく、yurucommuの現在の
+          ActivityPub入出力を説明する実装資料です。
+        </p>
+        <div class="card-grid">
+          <a href="/specs/apc.html" class="card">
+            <span class="spec-status experimental">現行実装</span>
+            <h3 class="card-title">コミュニティ</h3>
+            <p class="card-description">
+              公開コミュニティをGroupアクターとして公開し、Followで参加を受け付け、
+              投稿をAnnounceで配信します。
+            </p>
+          </a>
+          <a href="/specs/story.html" class="card">
+            <span class="spec-status experimental">現行実装</span>
+            <h3 class="card-title">Story</h3>
+            <p class="card-description">
+              24時間の期限、1つのメディア、表示時間、オーバーレイを持つ
+              Storyオブジェクトを送受信します。
+            </p>
+          </a>
+          <a href="/specs/dmnote.html" class="card">
+            <span class="spec-status experimental">現行実装</span>
+            <h3 class="card-title">DM</h3>
+            <p class="card-description">
+              1人の宛先を<code>to</code>に指定した通常の
+              <code>Note</code>として送受信します。自動消去はしません。
+            </p>
+          </a>
+        </div>
+
+        <h2>データ語彙</h2>
+        <div class="card-grid">
+          <a href="/specs/namespace.html" class="card">
+            <span class="spec-status draft">実装済み・提案を併記</span>
+            <h3 class="card-title">JSON-LDコンテキスト</h3>
+            <p class="card-description">
+              Storyで実際に送信する語彙と、将来用に公開しているコミュニティ語彙を
+              区別して掲載します。
+            </p>
+          </a>
+        </div>
+
+        <h2>表記</h2>
+        <ul>
+          <li>
+            <span class="spec-status experimental">現行実装</span> -
+            現在のコードと入出力で確認できる挙動
+          </li>
+          <li>
+            <span class="spec-status draft">提案</span> -
+            公開中でも、現在の送受信では使っていない形式
+          </li>
+        </ul>
 
         <h2>フィードバック</h2>
         <p>

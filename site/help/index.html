@@ -6,7 +6,7 @@
     <title>ドキュメント - yurucommu</title>
     <meta
       name="description"
-      content="yurucommuのセットアップガイド、設定方法、APIリファレンスなどのドキュメント"
+      content="yurucommuをローカルで試す手順、運用方法、設定のドキュメント"
     />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="yurucommu" />
@@ -65,7 +65,7 @@
           <ul class="docs-sidebar-nav">
             <li><a href="/help/cloudflare-setup.html">Cloudflare設定</a></li>
             <li><a href="/help/deployment.html">デプロイ</a></li>
-            <li><a href="/help/configuration.html">環境変数</a></li>
+            <li><a href="/help/configuration.html">設定</a></li>
             <li><a href="/help/custom-domain.html">カスタムドメイン</a></li>
           </ul>
         </div>
@@ -84,7 +84,7 @@
           <ul class="docs-sidebar-nav">
             <li><a href="/help/api.html">API</a></li>
             <li><a href="/help/database.html">データベース</a></li>
-            <li><a href="/specs/">ActivityPub拡張</a></li>
+            <li><a href="/specs/">連合の仕組み</a></li>
           </ul>
         </div>
       </aside>
@@ -92,54 +92,62 @@
       <!-- Content -->
       <main class="docs-content">
         <h1>yurucommu ドキュメント</h1>
-        <p class="lead">
-          セルフホスト型・一人用 ActivityPub SNS のセットアップと使い方
-        </p>
+        <p class="lead">まずローカルで試し、必要になったら運用先を選べます。</p>
 
         <h2>yurucommuとは</h2>
         <p>
-          yurucommu は、個人が自分のために立てるセルフホスト型の ActivityPub SNS
-          です。自分のドメイン・自分のデータで運用し、コミュニティ（グループ）を投稿の届く範囲の単位として、濃いつながりを作れます。連合（federation）は目的ではなく手段です。プラットフォームへの依存をなくし、コミュニティやつながりをサーバーをまたいでつなぐための土台として使います。
+          yurucommu は、自分で運用できる一人用の SNS です。投稿、ストーリー、
+          ダイレクトメッセージ、コミュニティをひとつのアプリで使えます。
+          ActivityPub
+          に対応しているため、対応する別のサーバーともフォローや投稿を
+          やり取りできます。
         </p>
         <ul>
-          <li><strong>セルフホスト</strong> - 自分のデータは自分で管理</li>
-          <li><strong>一人用</strong> - 1インスタンス1ユーザーの設計</li>
+          <li><strong>一人用</strong> - 1つの環境を1人で使う設計</li>
           <li>
-            <strong>ActivityPub対応</strong> - Mastodon、Misskeyと連携可能
+            <strong>セルフホスト</strong> - 運用先とデータの置き場所を選べる
           </li>
-          <li><strong>低コスト</strong> - Cloudflare無料枠で運用可能</li>
+          <li>
+            <strong>ActivityPub対応</strong> - 対応するサーバーとつながれる
+          </li>
+          <li>
+            <strong>小さな輪</strong> - フォローとコミュニティを中心に使える
+          </li>
         </ul>
 
-        <h2>クイックスタート</h2>
-        <p>最小限の手順でyurucommuを立ち上げる方法です。</p>
+        <h2>まずローカルで試す</h2>
+        <p>
+          外部サービスのアカウントやデータベースは不要です。Bun
+          を用意して次のコマンドを実行します。
+        </p>
 
         <h3>1. リポジトリをクローン</h3>
         <pre><code>git clone https://github.com/tako0614/yurucommu.git
 cd yurucommu
-bun run dev</code></pre>
+bun install
+bun run dev:mock</code></pre>
         <p>
-          <code>bun run dev</code> は web UI、<code>bun run dev:mock</code>
-          は mock API 付きの UI を起動します。よく使う検証は
-          <code>bun run check</code>、<code>bun run test</code>、<code
-            >bun run build:worker</code
-          >
-          です。
+          <code>http://localhost:5173</code> を開きます。投稿、ストーリー、
+          メッセージなどを試せます。データはメモリにだけ保存され、プロセスを
+          終了すると消えます。
         </p>
 
-        <h3>2. 導入方法を選ぶ</h3>
-        <p>
-          Cloudflare 直接経路の設定正本は <code>wrangler.jsonc</code>
-          です。operator 管理の Takosumi では Git URL・branch・path
-          とクラウドアカウント接続、secret を設定します。Takosumi Cloud の選択式
-          Store インストールは、実環境証跡が揃うまで未公開です。
-        </p>
+        <h3>2. 運用方法を選ぶ</h3>
+        <p>ローカルで確認したあと、本番で使う場合は2つの方法から選びます。</p>
+        <ul>
+          <li>
+            <strong>Takosumiなどの管理ホスト</strong> -
+            <code>deploy/takoform</code> を読み込ませる
+          </li>
+          <li>
+            <strong>Cloudflareでセルフホスト</strong> - ルートの
+            <code>main.tf</code> または <code>wrangler.jsonc</code> を使う
+          </li>
+        </ul>
 
-        <h3>3. Deploy / Apply</h3>
         <p>
-          Cloudflare 直接経路は利用者または operator 自身の authority
-          で行います。 公式 distribution の公開とは別です。operator 管理の
-          Takosumi 経路では Plan / Apply と StateVersion・Output・AuditEvent
-          を記録します。
+          この2つは別の導入方法です。必要なファイルや手順を混ぜずに、
+          <a href="/help/deployment.html">デプロイガイド</a>から選んでください。
         </p>
 
         <h2>ドキュメント一覧</h2>
@@ -147,17 +155,17 @@ bun run dev</code></pre>
           <a href="/help/getting-started.html" class="card">
             <div class="card-tag">はじめに</div>
             <h3 class="card-title">クイックスタート</h3>
-            <p class="card-description">5分でyurucommuをセットアップする手順</p>
+            <p class="card-description">ローカルで画面と機能を試す手順</p>
           </a>
           <a href="/help/cloudflare-setup.html" class="card">
             <div class="card-tag">セットアップ</div>
             <h3 class="card-title">Cloudflare設定</h3>
-            <p class="card-description">Workers、D1、R2の設定方法</p>
+            <p class="card-description">Cloudflareで自分で運用する場合の設定</p>
           </a>
           <a href="/help/configuration.html" class="card">
             <div class="card-tag">セットアップ</div>
-            <h3 class="card-title">環境変数</h3>
-            <p class="card-description">設定可能な環境変数の一覧</p>
+            <h3 class="card-title">設定</h3>
+            <p class="card-description">公開URL、ログイン、実行環境との接続</p>
           </a>
           <a href="/help/api.html" class="card">
             <div class="card-tag">リファレンス</div>
@@ -166,8 +174,8 @@ bun run dev</code></pre>
           </a>
           <a href="/specs/" class="card">
             <div class="card-tag">仕様</div>
-            <h3 class="card-title">ActivityPub拡張</h3>
-            <p class="card-description">yurucommu独自のActivityPub拡張仕様</p>
+            <h3 class="card-title">連合の仕組み</h3>
+            <p class="card-description">連合で使うActivityPub関連の公開仕様</p>
           </a>
         </div>
       </main>

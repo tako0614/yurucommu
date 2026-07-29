@@ -3,8 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>QR Exchange - yurucommu</title>
-    <meta name="description" content="QRコードを使用したアカウント交換の仕様" />
+    <title>QRでアカウント交換 - yurucommu</title>
+    <meta
+      name="description"
+      content="プロフィールURLをQRコードで共有してフォローする方法"
+    />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="yurucommu" />
     <meta property="og:image" content="https://yurucommu.com/img/og.png" />
@@ -48,29 +51,31 @@
 
     <div class="docs-layout">
       <aside class="docs-sidebar">
-        <p class="docs-sidebar-title">仕様</p>
+        <p class="docs-sidebar-title">ドキュメント</p>
         <ul class="docs-sidebar-nav">
           <li><a href="/specs/">概要</a></li>
-          <li><a href="/specs/activitypub.html">ActivityPub拡張</a></li>
-          <li><a href="/specs/yurucommu.html">yurucommu仕様</a></li>
-          <li><a href="/specs/namespace.html">名前空間</a></li>
+          <li><a href="/specs/yurucommu.html">使い方</a></li>
+          <li><a href="/specs/activitypub.html">現在の連合形式</a></li>
+          <li><a href="/specs/namespace.html">データ語彙</a></li>
         </ul>
 
         <div class="docs-sidebar-section">
-          <p class="docs-sidebar-title">ActivityPub拡張</p>
+          <p class="docs-sidebar-title">現在の連合形式</p>
           <ul class="docs-sidebar-nav">
-            <li><a href="/specs/apc.html">APC (Communities)</a></li>
-            <li><a href="/specs/single-user.html">Single-User Instance</a></li>
+            <li><a href="/specs/apc.html">コミュニティ</a></li>
             <li><a href="/specs/story.html">Story</a></li>
-            <li><a href="/specs/dmnote.html">DM Note</a></li>
+            <li><a href="/specs/dmnote.html">DM</a></li>
           </ul>
         </div>
 
         <div class="docs-sidebar-section">
-          <p class="docs-sidebar-title">yurucommu仕様</p>
+          <p class="docs-sidebar-title">使い方</p>
           <ul class="docs-sidebar-nav">
+            <li><a href="/specs/single-user.html">アカウント構成</a></li>
             <li>
-              <a href="/specs/qr-exchange.html" class="active">QR Exchange</a>
+              <a href="/specs/qr-exchange.html" class="active"
+                >QRでアカウント交換</a
+              >
             </li>
           </ul>
         </div>
@@ -91,173 +96,102 @@
       </aside>
 
       <main class="docs-content">
-        <span class="spec-status experimental">Experimental</span>
-        <h1>QR Exchange</h1>
+        <span class="spec-status experimental">現行実装</span>
+        <h1>QRでアカウント交換</h1>
         <p class="lead">
-          QRコードを使用して、対面でActivityPubアカウントを簡単に交換するための仕様です。
-          LINEの友だち追加のような体験を分散SNSで実現します。
+          自分のプロフィールURLをQRコードで見せ、相手が読み取って
+          プロフィールを確認してからフォローできます。
         </p>
 
-        <h2>概要</h2>
+        <h2>使い方</h2>
+        <ol>
+          <li>自分のプロフィールでQRボタンを開く</li>
+          <li>表示したQRコードを相手に見せるか、共有ボタンでURLを送る</li>
+          <li>相手は「スキャン」へ切り替えてカメラで読み取る</li>
+          <li>読み取ったアカウントのプロフィールを確認する</li>
+          <li>フォローボタンを押す</li>
+        </ol>
         <p>
-          QR Exchangeは、ActivityPubアカウントの情報をQRコードにエンコードし、
-          スマートフォンのカメラでスキャンすることで簡単にフォローできる機能です。
+          読み取っただけではフォローしません。非公開のローカルアカウントや
+          リモートアカウントへのフォローは、相手の承認待ちになる場合があります。
         </p>
 
-        <h3>ユースケース</h3>
-        <ul>
-          <li>対面でのアカウント交換</li>
-          <li>名刺やポスターへのQRコード印刷</li>
-          <li>イベントでの参加者同士の繋がり</li>
-        </ul>
-
-        <h2>QRコードフォーマット</h2>
-        <p>QRコードには yurucommuのプロフィールURLをエンコードします。</p>
-
-        <h3>プロフィールURL形式</h3>
+        <h2>QRコードに入るURL</h2>
         <p>
-          スキャナーは <code>/profile/</code> パスと username hash
-          を読み取ります：
+          QRコードには秘密情報やログイン情報ではなく、次の形のプロフィールURLだけを
+          入れます。
         </p>
         <pre><code>https://example.com/profile/https%3A%2F%2Fexample.com%2Fap%2Fusers%2Falice#alice</code></pre>
+        <table class="docs-table">
+          <thead>
+            <tr>
+              <th>部分</th>
+              <th>用途</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>/profile/:actorId</code></td>
+              <td>
+                URLエンコードしたActivityPubアクターID。
+                同じサーバー内のプロフィール取得に使用
+              </td>
+            </tr>
+            <tr>
+              <td><code>#alice</code></td>
+              <td>
+                アカウント名。別サーバーから読み取ったとき、 QR
+                URLのhostと組み合わせてWebFinger検索に使用
+              </td>
+            </tr>
+          </tbody>
+        </table>
 
-        <h2>スキャン処理フロー</h2>
-
-        <h3>1. QRコードのスキャン</h3>
-        <p>カメラでQRコードを読み取り、プロフィールURLを取得します。</p>
-
-        <h3>2. アクター情報の取得</h3>
-        <p>取得したプロフィールURLからActivityPubアクターを解決します：</p>
-
-        <h4>同一ドメインの場合</h4>
-        <ol>
-          <li>
-            <code>/profile/:actorId</code> の <code>actorId</code> を decode
-          </li>
-          <li>ローカル actor API でプロフィールを取得</li>
-        </ol>
-
-        <h4>別ドメインの場合</h4>
-        <ol>
-          <li>
-            URL hash の username と QR URL の domain から
-            <code>@user@domain</code> を作る
-          </li>
-          <li>リモート検索でプロフィールを取得</li>
-        </ol>
-
-        <h3>3. プロフィール表示</h3>
-        <p>取得したアクター情報をユーザーに表示します：</p>
-        <ul>
-          <li>アイコン</li>
-          <li>表示名</li>
-          <li>ユーザー名</li>
-          <li>自己紹介</li>
-          <li>フォロワー/フォロー数</li>
-        </ul>
-
-        <h3>4. フォローアクション</h3>
+        <h2>読み取り後の解決</h2>
+        <h3>同じサーバーのURL</h3>
         <p>
-          ユーザーが「フォロー」ボタンを押すと、通常のActivityPub
-          Followアクティビティを送信します。
+          <code>:actorId</code>をデコードし、ローカルのプロフィールAPIから
+          アクターを取得します。
         </p>
 
-        <h2>実装例</h2>
-
-        <h3>QRコード生成（React）</h3>
-        <pre><code>import QRCode from 'qrcode.react';
-
-function MyQRCode({ actorUrl }) {
-  return (
-    &lt;QRCode
-      value={actorUrl}
-      size={256}
-      level="M"
-    /&gt;
-  );
-}</code></pre>
-
-        <h3>QRコードスキャン</h3>
-        <pre><code>import { Html5QrcodeScanner } from 'html5-qrcode';
-
-function startScanner(onSuccess) {
-  const scanner = new Html5QrcodeScanner("reader", {
-    fps: 10,
-    qrbox: 250
-  });
-
-  scanner.render((decodedText) => {
-    onSuccess(decodedText);
-    scanner.clear();
-  });
-}</code></pre>
-
-        <h3>アクター解決</h3>
-        <pre><code>async function resolveActor(qrData) {
-  const url = new URL(qrData);
-  const match = url.pathname.match(/\/profile\/([^\/\?]+)/);
-  if (!match) throw new Error('Invalid QR code');
-
-  const actorId = decodeURIComponent(match[1]);
-  const username = url.hash ? decodeURIComponent(url.hash.slice(1)) : null;
-
-  if (url.host === window.location.host) return fetchActor(actorId);
-  if (!username) throw new Error('Remote user info insufficient');
-  return searchRemote(`@${username}@${url.host}`);
-}</code></pre>
-
-        <h2>セキュリティ考慮事項</h2>
-
-        <h3>悪意あるQRコード</h3>
-        <ul>
-          <li>フォロー前に必ずプロフィールを表示し、ユーザーに確認を求める</li>
-          <li>自動フォローは行わない</li>
-          <li>外部URLへのリダイレクトに注意</li>
-        </ul>
-
-        <h3>プライバシー</h3>
-        <ul>
-          <li>QRコードに個人情報を含めすぎない</li>
-          <li>公開プロフィールのURLのみを使用</li>
-        </ul>
-
-        <h2>UI/UXガイドライン</h2>
-
-        <h3>QRコード表示画面</h3>
-        <ul>
-          <li>QRコードを大きく中央に配置</li>
-          <li>ユーザー名を表示</li>
-          <li>共有ボタンを配置（Web Share API）</li>
-          <li>画像として保存できるオプション</li>
-        </ul>
-
-        <h3>スキャン画面</h3>
-        <ul>
-          <li>カメラプレビューを表示</li>
-          <li>スキャン枠のガイドを表示</li>
-          <li>スキャン成功時のフィードバック</li>
-          <li>手動入力へのフォールバック</li>
-        </ul>
-
-        <h3>プロフィールプレビュー</h3>
-        <ul>
-          <li>アクター情報を見やすく表示</li>
-          <li>「フォロー」ボタンを目立つ位置に</li>
-          <li>キャンセルオプションを明確に</li>
-        </ul>
-
-        <h2>相互運用性</h2>
+        <h3>別のサーバーのURL</h3>
         <p>
-          URL形式を使用することで、yurucommu以外のActivityPub実装でも
-          QRコードを読み取ってフォローすることができます。
-          特別な拡張プロトコルは不要です。
+          URLのhashにある名前とhostから<code>@alice@example.com</code>を作り、
+          リモート検索でアクターを取得します。hashに名前がないURLは、
+          現在のスキャナーではリモートアカウントとして解決できません。
         </p>
 
+        <h2>対応している範囲</h2>
+        <ul>
+          <li>
+            yurucommuが生成した<code>/profile/:actorId#username</code>形式
+          </li>
+          <li>端末カメラによる読み取り</li>
+          <li>読み取ったプロフィールのプレビュー</li>
+          <li>通常のフォロー処理への引き渡し</li>
+          <li>Web Share API、またはクリップボードへのURLコピー</li>
+        </ul>
+
+        <h2>独自のURL形式</h2>
         <div class="callout callout-info">
-          <strong>ヒント:</strong>
-          URL形式を使用すれば、QRコードをスマートフォンの標準カメラアプリで
-          スキャンしてもWebブラウザでプロフィールページを開くことができます。
+          <strong>注意:</strong>
+          QRコード自体は一般的なURLですが、URLの組み立て方と読み取り方は
+          yurucommuの現在のクライアント規約です。他のActivityPubソフトウェアが
+          このQRをアカウント交換用として解釈する保証はありません。
         </div>
+        <p>
+          スマートフォンの標準カメラで読み取った場合は、対応していれば
+          URLをブラウザで開けます。ただし、そこからどの画面を表示するかは
+          URLの配信元とクライアント実装に依存します。
+        </p>
+
+        <h2>安全上の注意</h2>
+        <ul>
+          <li>表示された名前とサーバーを確認してからフォローする</li>
+          <li>QRを読んだだけで自動フォローしない</li>
+          <li>カメラ権限はスキャン画面を開いたときだけ求める</li>
+          <li>共有URLは公開プロフィールへの入口として扱う</li>
+        </ul>
       </main>
     </div>
 

@@ -3,10 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Single-User Instance - yurucommu</title>
+    <title>アカウント構成 - yurucommu</title>
     <meta
       name="description"
-      content="1インスタンス1ユーザーの設計に関する仕様"
+      content="yurucommuのオーナーとサブアカウントの構成"
     />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="yurucommu" />
@@ -51,32 +51,32 @@
 
     <div class="docs-layout">
       <aside class="docs-sidebar">
-        <p class="docs-sidebar-title">仕様</p>
+        <p class="docs-sidebar-title">ドキュメント</p>
         <ul class="docs-sidebar-nav">
           <li><a href="/specs/">概要</a></li>
-          <li><a href="/specs/activitypub.html">ActivityPub拡張</a></li>
-          <li><a href="/specs/yurucommu.html">yurucommu仕様</a></li>
-          <li><a href="/specs/namespace.html">名前空間</a></li>
+          <li><a href="/specs/yurucommu.html">使い方</a></li>
+          <li><a href="/specs/activitypub.html">現在の連合形式</a></li>
+          <li><a href="/specs/namespace.html">データ語彙</a></li>
         </ul>
 
         <div class="docs-sidebar-section">
-          <p class="docs-sidebar-title">ActivityPub拡張</p>
+          <p class="docs-sidebar-title">現在の連合形式</p>
           <ul class="docs-sidebar-nav">
-            <li><a href="/specs/apc.html">APC (Communities)</a></li>
-            <li>
-              <a href="/specs/single-user.html" class="active"
-                >Single-User Instance</a
-              >
-            </li>
+            <li><a href="/specs/apc.html">コミュニティ</a></li>
             <li><a href="/specs/story.html">Story</a></li>
-            <li><a href="/specs/dmnote.html">DM Note</a></li>
+            <li><a href="/specs/dmnote.html">DM</a></li>
           </ul>
         </div>
 
         <div class="docs-sidebar-section">
-          <p class="docs-sidebar-title">yurucommu仕様</p>
+          <p class="docs-sidebar-title">使い方</p>
           <ul class="docs-sidebar-nav">
-            <li><a href="/specs/qr-exchange.html">QR Exchange</a></li>
+            <li>
+              <a href="/specs/single-user.html" class="active"
+                >アカウント構成</a
+              >
+            </li>
+            <li><a href="/specs/qr-exchange.html">QRでアカウント交換</a></li>
           </ul>
         </div>
 
@@ -96,205 +96,107 @@
       </aside>
 
       <main class="docs-content">
-        <span class="spec-status stable">Stable</span>
-        <h1>Single-User Instance</h1>
+        <span class="spec-status experimental">現行実装</span>
+        <h1>アカウント構成</h1>
         <p class="lead">
-          1インスタンス1ユーザーの設計パターンに関する仕様です。 yurucommu
-          は個人が自分のために立てる self-host な ActivityPub SNS であり、 その
-          インスタンスの設計指針を定義します。
+          yurucommuは、1つのインスタンスを1人のオーナーが管理する形を基本にしています。
+          ただし、ActivityPub上の人物が1人だけとは限りません。
         </p>
 
-        <h2>概要</h2>
+        <h2>オーナーとサブアカウント</h2>
         <p>
-          Single-User
-          Instanceは、1つのインスタンスを1人のユーザーが所有・運用するモデルです。
-          データの自己管理、プライバシーの確保、運用コストの最小化を目的としています。
+          最初の管理アカウントがインスタンスの<code>owner</code>になります。
+          オーナーは必要に応じて最大20個のサブアカウントを作成できます。
+          サブアカウントは<code>member</code>として保存され、元のオーナーに
+          所有関係がひも付きます。
         </p>
-
-        <h3>メリット</h3>
-        <ul>
-          <li><strong>データ主権</strong> - 自分のデータは自分で管理</li>
-          <li>
-            <strong>プライバシー</strong> -
-            管理者＝ユーザーなのでデータ漏洩リスクが低い
-          </li>
-          <li><strong>シンプルな運用</strong> - マルチユーザー機能が不要</li>
-          <li><strong>低コスト</strong> - 1ユーザー分のリソースで十分</li>
-          <li><strong>カスタマイズ性</strong> - 自分好みに設定可能</li>
-        </ul>
-
-        <h2>アーキテクチャ</h2>
-
-        <h3>アクター構成</h3>
-        <p>Single-User Instanceには通常1つのメインアクターが存在します：</p>
-        <pre><code>{
-  "@context": "https://www.w3.org/ns/activitystreams",
-  "type": "Person",
-  "id": "https://alice.example/users/alice",
-  "preferredUsername": "alice",
-  "name": "Alice",
-  "inbox": "https://alice.example/users/alice/inbox",
-  "outbox": "https://alice.example/users/alice/outbox",
-  "followers": "https://alice.example/users/alice/followers",
-  "following": "https://alice.example/users/alice/following"
-}</code></pre>
-
-        <h3>WebFinger</h3>
-        <p>
-          <code>@tako@example.com</code>
-          のようなアドレスでオーナーアクターを特定できます。 yurucommuの
-          Single-User Instance では、既存のローカル actor 名はその actor
-          に解決し、 存在しない任意の
-          <code>acct:&lt;name&gt;@host</code> は同じオーナーアクターへの alias
-          として解決します。
-        </p>
-        <pre><code>GET /.well-known/webfinger?resource=acct:any@example.com
-
-{
-  "subject": "acct:any@example.com",
-  "aliases": ["https://example.com/ap/users/tako"],
-  "links": [
-    {
-      "rel": "self",
-      "type": "application/activity+json",
-      "href": "https://example.com/ap/users/tako"
-    },
-    {
-      "rel": "http://webfinger.net/rel/profile-page",
-      "type": "text/html",
-      "href": "https://example.com/users/tako"
-    }
-  ]
-}</code></pre>
-
-        <h2>認証</h2>
-        <p>
-          yurucommuの標準運用では、複雑なユーザー登録フローは持たず、
-          <code>AUTH_PASSWORD_HASH</code>
-          に設定した単一パスワードでオーナーとしてログインします。
-        </p>
-
-        <h3>対応する認証方式</h3>
         <table class="docs-table">
           <thead>
             <tr>
-              <th>方式</th>
-              <th>説明</th>
-              <th>適用場面</th>
+              <th>種類</th>
+              <th>できること</th>
             </tr>
           </thead>
           <tbody>
             <tr>
-              <td>パスワード認証</td>
-              <td><code>AUTH_PASSWORD_HASH</code> による単一パスワード認証</td>
-              <td>標準運用</td>
+              <td>オーナー</td>
+              <td>
+                インスタンス設定とモデレーションを管理し、サブアカウントを作成
+              </td>
             </tr>
             <tr>
-              <td>OAuth</td>
-              <td>設定済みプロバイダを使うログイン</td>
-              <td>外部 ID 連携が必要な場合</td>
+              <td>サブアカウント</td>
+              <td>
+                独立したプロフィール、投稿、フォロー関係を持つ人物として利用
+              </td>
             </tr>
           </tbody>
         </table>
 
-        <h3>セッション管理</h3>
+        <h2>アカウントを切り替える</h2>
         <p>
-          ログイン状態はセッションCookieで管理します。 Single-User
-          Instanceでは、長期間のセッション有効期限を設定しても問題ありません。
+          アカウント一覧には、現在のルートオーナーと、そのオーナーが作成した
+          サブアカウントだけが表示されます。切り替え時は古いセッションを使い回さず、
+          新しいセッションへ更新します。
+        </p>
+        <p>
+          サブアカウントに切り替えても、オーナーのOAuthアクセストークンは
+          引き継がれません。サブアカウントは別の認証情報を持って直接ログインする
+          アカウントではなく、オーナーが管理する切り替え先です。
         </p>
 
-        <h2>初期セットアップ</h2>
-        <p>
-          現行実装では、ブラウザ上の初回セットアップ画面からユーザー名・表示名・パスワードを登録する
-          flow は提供しません。 パスワードは deploy 時に
-          <code>AUTH_PASSWORD_HASH</code> として設定します。
-        </p>
-
-        <h3>初回ログインフロー</h3>
-        <ol>
-          <li>インスタンスをデプロイ</li>
-          <li><code>AUTH_PASSWORD_HASH</code> を secret として設定</li>
-          <li>初回アクセス時は通常のログイン画面を表示</li>
-          <li>正しいパスワードでログイン</li>
+        <h2>ログイン方法</h2>
+        <ul>
           <li>
-            オーナー actor が未作成の場合、固定 username <code>tako</code> /
-            表示名 <code>tako</code> で作成
+            パスワード運用では、設定済みのパスワードでオーナーとしてログインします。
+            オーナーがまだ存在しない場合は、最初のログイン時に作成されます。
           </li>
-          <li>キーペア（公開鍵/秘密鍵）を自動生成</li>
-        </ol>
+          <li>
+            OIDC/OAuth運用では、オーナーにするsubjectを固定できます。
+            固定しない初回取得は明示的に許可した場合だけ使います。
+          </li>
+          <li>
+            オーナー作成後に外部subjectを新規メンバーとして自動作成する機能は
+            初期状態では閉じています。運用者が許可リストを設定した場合だけ有効です。
+          </li>
+        </ul>
 
-        <h2>インスタンス情報</h2>
+        <h2>ActivityPubから見たアカウント</h2>
         <p>
-          NodeInfoを通じてインスタンス情報を公開します。 Single-User
-          Instanceであることを示すメタデータを含めることができます。
+          オーナーと各サブアカウントは、それぞれ別の
+          <code>Person</code>アクターです。個別の<code>inbox</code>、
+          <code>outbox</code>、フォロー関係、公開鍵を持ちます。
         </p>
         <pre><code>{
-  "version": "2.1",
-  "software": {
-    "name": "yurucommu",
-    "version": "1.0.0"
-  },
-  "protocols": ["activitypub"],
-  "usage": {
-    "users": {
-      "total": 1,
-      "activeMonth": 1,
-      "activeHalfyear": 1
-    },
-    "localPosts": 42
-  },
-  "openRegistrations": false,
-  "metadata": {
-    "singleUser": true
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "id": "https://example.com/ap/users/alice",
+  "type": "Person",
+  "preferredUsername": "alice",
+  "inbox": "https://example.com/ap/users/alice/inbox",
+  "outbox": "https://example.com/ap/users/alice/outbox",
+  "followers": "https://example.com/ap/users/alice/followers",
+  "following": "https://example.com/ap/users/alice/following",
+  "publicKey": {
+    "id": "https://example.com/ap/users/alice#main-key",
+    "owner": "https://example.com/ap/users/alice",
+    "publicKeyPem": "..."
   }
 }</code></pre>
 
-        <h2>セキュリティ考慮事項</h2>
-
-        <h3>HTTP Signatures</h3>
+        <h2>WebFinger</h2>
         <p>
-          ActivityPubの連合通信にはHTTP Signaturesを使用します。
-          秘密鍵は安全に保管する必要があります。
+          <code>acct:alice@example.com</code>は、同じ名前のローカルアカウントが
+          存在するときだけ解決されます。存在しない名前をオーナーの別名として
+          解決することはありません。公開コミュニティの名前は、該当する
+          <code>Group</code>アクターへ解決されます。
         </p>
 
-        <h3>HTTPS必須</h3>
+        <h2>「一人用」の意味</h2>
         <p>
-          本番環境では必ずHTTPSを使用してください。
-          ActivityPubの仕様上、HTTPSが推奨されています。
+          ここでいう一人用は「運用責任を持つオーナーが1人」という意味です。
+          「インスタンスにPersonアクターが1つだけ」「複数の表示名を持てない」
+          という意味ではありません。
         </p>
-
-        <h3>レート制限</h3>
-        <p>
-          単一ユーザーでも、外部からのリクエストにはレート制限を設けてください。
-          DoS攻撃の防止に役立ちます。
-        </p>
-
-        <h2>運用ガイドライン</h2>
-
-        <h3>バックアップ</h3>
-        <p>定期的なバックアップを推奨します：</p>
-        <ul>
-          <li>データベース（D1）のエクスポート</li>
-          <li>メディアファイル（R2）のバックアップ</li>
-          <li>秘密鍵の安全な保管</li>
-        </ul>
-
-        <h3>更新</h3>
-        <p>
-          セキュリティアップデートは速やかに適用してください。 Single-User
-          Instanceは管理者＝ユーザーなので、更新タイミングを柔軟に決められます。
-        </p>
-
-        <h2>参考</h2>
-        <ul>
-          <li>
-            <a href="https://www.w3.org/TR/activitypub/"
-              >ActivityPub W3C Recommendation</a
-            >
-          </li>
-          <li><a href="https://nodeinfo.diaspora.software/">NodeInfo</a></li>
-          <li><a href="https://webfinger.net/">WebFinger</a></li>
-        </ul>
       </main>
     </div>
 

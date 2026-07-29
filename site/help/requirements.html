@@ -65,7 +65,7 @@
           <ul class="docs-sidebar-nav">
             <li><a href="/help/cloudflare-setup.html">Cloudflare設定</a></li>
             <li><a href="/help/deployment.html">デプロイ</a></li>
-            <li><a href="/help/configuration.html">環境変数</a></li>
+            <li><a href="/help/configuration.html">設定</a></li>
             <li><a href="/help/custom-domain.html">カスタムドメイン</a></li>
           </ul>
         </div>
@@ -84,7 +84,7 @@
           <ul class="docs-sidebar-nav">
             <li><a href="/help/api.html">API</a></li>
             <li><a href="/help/database.html">データベース</a></li>
-            <li><a href="/specs/">ActivityPub拡張</a></li>
+            <li><a href="/specs/">連合の仕組み</a></li>
           </ul>
         </div>
       </aside>
@@ -92,10 +92,10 @@
       <main class="docs-content">
         <h1>必要な環境</h1>
         <p class="lead">
-          yurucommuをセットアップ・運用するために必要な環境と依存関係です。
+          ローカルで試す場合と、本番で運用する場合では必要なものが異なります。
         </p>
 
-        <h2>開発環境</h2>
+        <h2>ローカルで試す</h2>
         <table class="docs-table">
           <thead>
             <tr>
@@ -107,72 +107,111 @@
           <tbody>
             <tr>
               <td>Bun</td>
-              <td>1.3系以上</td>
-              <td>タスク実行とローカル開発に必要</td>
+              <td>1.3以降</td>
+              <td><code>bun run dev:mock</code>の実行に必要</td>
             </tr>
             <tr>
               <td>Git</td>
               <td>任意</td>
-              <td>リポジトリクローン用</td>
+              <td>リポジトリをクローンする場合に必要</td>
             </tr>
           </tbody>
         </table>
+        <p>
+          モックAPIは同じプロセスで起動するため、Cloudflareアカウント、
+          データベース、外部APIは必要ありません。データは終了時に消えます。
+        </p>
 
-        <h2>Cloudflareサービス</h2>
-        <p>yurucommuは以下のCloudflareサービスを使用します：</p>
+        <h2>本番で共通して必要なもの</h2>
+        <ul>
+          <li>外部からアクセスできるHTTPSのURL</li>
+          <li>SQLデータベース</li>
+          <li>画像と動画を保存するオブジェクトストレージ</li>
+          <li>セッションなどを保存するキーバリューストア</li>
+          <li>外部サーバーへの配信を処理するキューと失敗キュー</li>
+          <li>期限切れデータを整理する定期実行</li>
+          <li>暗号化キーと、パスワードまたはOIDCなどのログイン方法</li>
+          <li>ログ、バックアップ、復旧、更新の手順</li>
+        </ul>
+        <p>
+          管理ホストを使う場合は、これらを
+          <code>deploy/takoform</code> から用意できることを確認します。
+          Cloudflareでセルフホストする場合は、自分のアカウントで管理します。
+        </p>
+
+        <h2>Cloudflareでセルフホストする場合</h2>
+        <p>ルートの設定は、次のCloudflareサービスを使います。</p>
         <table class="docs-table">
           <thead>
             <tr>
               <th>サービス</th>
               <th>用途</th>
-              <th>無料枠</th>
             </tr>
           </thead>
           <tbody>
             <tr>
               <td>Workers</td>
-              <td>バックエンドAPI実行</td>
-              <td>100,000 リクエスト/日</td>
+              <td>Web画面とAPIの実行</td>
             </tr>
             <tr>
               <td>D1</td>
-              <td>SQLiteデータベース</td>
-              <td>5GB ストレージ</td>
+              <td>アカウント、投稿、メッセージなどの保存</td>
             </tr>
             <tr>
               <td>R2</td>
-              <td>画像・動画ストレージ</td>
-              <td>10GB ストレージ</td>
+              <td>画像と動画の保存</td>
             </tr>
             <tr>
-              <td>Assets</td>
-              <td>静的アセット配信</td>
-              <td>Workerに付属</td>
+              <td>Workers KV</td>
+              <td>セッションや試行回数の保存</td>
+            </tr>
+            <tr>
+              <td>Queues</td>
+              <td>ActivityPubの配信、再試行、失敗した配信の退避</td>
+            </tr>
+            <tr>
+              <td>Cron Triggers</td>
+              <td>期限切れデータの定期的な整理</td>
             </tr>
           </tbody>
         </table>
-
-        <h2>コスト見積もり</h2>
         <p>
-          個人利用であれば、ほとんどの場合<strong>無料枠内</strong>で運用可能です。
+          OpenTofuでルートの <code>main.tf</code> を使う場合はOpenTofu
+          1.5以降が必要です。既存のリソースへ
+          <code>wrangler.jsonc</code> で接続する場合は、このリポジトリに含まれる
+          WranglerをBunから実行できます。
+        </p>
+
+        <h2>料金と上限</h2>
+        <p>
+          料金や利用上限は、選んだホスト、契約プラン、リクエスト数、保存量、
+          キューの処理量によって変わります。このドキュメントでは固定の金額や
+          無料枠を保証しません。
         </p>
         <ul>
-          <li><strong>小規模利用</strong>（1日100投稿程度）: 無料</li>
           <li>
-            <strong>中規模利用</strong>（1日1,000投稿程度）: 無料〜数ドル/月
+            Cloudflareで運用する場合は
+            <a
+              href="https://www.cloudflare.com/plans/developer-platform/"
+              target="_blank"
+              rel="noopener"
+              >Cloudflareの現在の料金ページ</a
+            >
+            を確認する
           </li>
           <li>
-            <strong>大規模利用</strong>: Workersの有料プラン（$5/月〜）を検討
+            Takosumiなどを使う場合は、そのホストが示す料金と上限を確認する
           </li>
+          <li>本番前に保存量、配信量、バックアップ先を見積もる</li>
         </ul>
 
-        <h2>推奨ブラウザ</h2>
-        <p>yurucommuのWebクライアントは以下のブラウザをサポートしています：</p>
+        <h2>ブラウザ</h2>
+        <p>更新されている一般的なブラウザを使ってください。</p>
         <ul>
-          <li>Chrome / Chromium 90+</li>
-          <li>Firefox 90+</li>
-          <li>Safari 15+</li>
-          <li>Edge 90+</li>
+          <li>Chrome / Chromium</li>
+          <li>Firefox</li>
+          <li>Safari</li>
+          <li>Edge</li>
         </ul>
 
         <h2>オプション</h2>
@@ -182,12 +221,12 @@
             カスタムドメインを使用する場合は別途取得が必要
           </li>
           <li>
-            <strong>OIDCログイン</strong> - Takosumi Accounts
-            や汎用OIDCプロバイダーでログインさせる場合は別途セットアップが必要
+            <strong>OIDCログイン</strong> -
+            使用するOIDCプロバイダーでクライアントの登録が必要
           </li>
           <li>
             <strong>Takos連携</strong> - Takos
-            はyurucommuの認証システムではありません。AIエージェントに
+            はログイン方法ではありません。AIエージェントに
             投稿・検索などのツール呼び出しをさせたい場合のみ、別途
             セットアップが必要
           </li>
