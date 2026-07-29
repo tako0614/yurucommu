@@ -1,4 +1,4 @@
-export const MINIMUM_NOTIFICATION_RELEASE: string;
+export const MINIMUM_PRODUCT_RELEASE: string;
 
 export type CoreReleaseInput = {
   minimumVersion?: string;
@@ -9,6 +9,7 @@ export type CoreReleaseInput = {
   installedVersions?: Record<string, string | undefined>;
   hasNotificationMigration: boolean;
   apiExports?: string[];
+  coreExports?: string[];
 };
 
 export type CoreReleaseResult = {

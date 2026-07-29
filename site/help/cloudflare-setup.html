@@ -6,7 +6,7 @@
     <title>Cloudflare設定 - yurucommu</title>
     <meta
       name="description"
-      content="Cloudflare Workers、D1、R2のセットアップ方法"
+      content="yurucommuをCloudflareでセルフホストするための準備"
     />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="yurucommu" />
@@ -67,7 +67,7 @@
               >
             </li>
             <li><a href="/help/deployment.html">デプロイ</a></li>
-            <li><a href="/help/configuration.html">環境変数</a></li>
+            <li><a href="/help/configuration.html">設定</a></li>
             <li><a href="/help/custom-domain.html">カスタムドメイン</a></li>
           </ul>
         </div>
@@ -86,7 +86,7 @@
           <ul class="docs-sidebar-nav">
             <li><a href="/help/api.html">API</a></li>
             <li><a href="/help/database.html">データベース</a></li>
-            <li><a href="/specs/">ActivityPub拡張</a></li>
+            <li><a href="/specs/">連合の仕組み</a></li>
           </ul>
         </div>
       </aside>
@@ -94,65 +94,174 @@
       <main class="docs-content">
         <h1>Cloudflare設定</h1>
         <p class="lead">
-          Cloudflare
-          Workers、D1データベース、R2ストレージの詳細なセットアップ方法です。
+          Cloudflareでセルフホストする人向けのページです。Takosumiなどの管理ホスト
+          で動かす場合は、この設定を使いません。
         </p>
 
-        <h2>Cloudflareアカウントの作成</h2>
-        <ol>
+        <p>
+          管理ホストを使う場合は
+          <a href="/help/deployment.html">デプロイガイド</a>の
+          <code>deploy/takoform</code> の手順へ進んでください。
+        </p>
+
+        <h2>用意するもの</h2>
+        <ul>
           <li>
-            <a href="https://dash.cloudflare.com/sign-up" target="_blank"
-              >Cloudflare</a
-            >にアクセス
+            <a
+              href="https://dash.cloudflare.com/sign-up"
+              target="_blank"
+              rel="noopener"
+              >Cloudflareアカウント</a
+            >
           </li>
-          <li>メールアドレスとパスワードを入力してアカウント作成</li>
-          <li>メール認証を完了</li>
+          <li>Bun 1.3以降</li>
+          <li>OpenTofu、またはWrangler</li>
+          <li>公開URLと、ログインに使うパスワードまたはOIDC設定</li>
+          <li>データベースのバックアップと復旧を行える運用手順</li>
+        </ul>
+
+        <h2>設定方法を選ぶ</h2>
+        <table class="docs-table">
+          <thead>
+            <tr>
+              <th>状況</th>
+              <th>使うファイル</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>必要なリソースを新しくまとめて作る</td>
+              <td>ルートの<code>main.tf</code></td>
+            </tr>
+            <tr>
+              <td>作成済みのリソースへWorkerを接続する</td>
+              <td><code>wrangler.jsonc</code></td>
+            </tr>
+          </tbody>
+        </table>
+        <p>
+          <code>main.tf</code> と <code>wrangler.jsonc</code>
+          は、同時に使うことを前提にした手順ではありません。どちらがリソースと
+          Workerの設定を管理するか、先に決めてください。
+        </p>
+        <p>
+          ルートのOpenTofu設定は、Cloudflare上の変更を初期状態では行いません。
+          作成内容を確認したうえで
+          <code>enable_cloudflare_resources=true</code> と
+          <code>enable_cloudflare_worker_script=true</code> を指定します。
+        </p>
+
+        <h2>必要なCloudflareサービス</h2>
+        <table class="docs-table">
+          <thead>
+            <tr>
+              <th>サービス</th>
+              <th>役割</th>
+              <th>Workerから見える名前</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Workers</td>
+              <td>Web画面とAPIを実行</td>
+              <td>-</td>
+            </tr>
+            <tr>
+              <td>D1</td>
+              <td>アカウント、投稿、メッセージなどを保存</td>
+              <td><code>DB</code></td>
+            </tr>
+            <tr>
+              <td>R2</td>
+              <td>画像と動画を保存</td>
+              <td><code>MEDIA</code></td>
+            </tr>
+            <tr>
+              <td>Workers KV</td>
+              <td>セッションや試行回数を保存</td>
+              <td><code>KV</code></td>
+            </tr>
+            <tr>
+              <td>Queues</td>
+              <td>ActivityPubの配信と、失敗した配信の退避</td>
+              <td><code>DELIVERY_QUEUE</code>、<code>DELIVERY_DLQ</code></td>
+            </tr>
+            <tr>
+              <td>Cron Triggers</td>
+              <td>期限切れデータを定期的に整理</td>
+              <td>1時間ごとの実行</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2>認証を確認する</h2>
+        <pre><code>bunx wrangler login
+bunx wrangler whoami</code></pre>
+        <p>
+          CIやOpenTofuでAPIトークンを使う場合は、必要な操作だけに権限を絞り、
+          リポジトリへ保存しません。実行前に対象のCloudflareアカウントを
+          確認してください。
+        </p>
+
+        <h2>公開URLとログインを設定する</h2>
+        <p>本番で最低限必要な設定は次のとおりです。</p>
+        <ul>
+          <li><code>APP_URL</code> - 実際にブラウザで開くHTTPSのURL</li>
+          <li><code>ENCRYPTION_KEY</code> - 64文字の16進数で作る暗号化キー</li>
+          <li>
+            <code>AUTH_PASSWORD_HASH</code>、Google/X OAuth、OIDCのいずれか
+          </li>
+        </ul>
+        <p>
+          公開してよい値とシークレットを分けます。Wranglerを使う場合、
+          シークレットは次のように対話形式で登録できます。
+        </p>
+        <pre><code>bunx wrangler secret put ENCRYPTION_KEY
+bunx wrangler secret put AUTH_PASSWORD_HASH</code></pre>
+        <p>
+          Secretの登録はWorkerの新しいバージョンを作ります。すでに運用中の
+          Workerでは、対象と戻し方を確認してから実行してください。OpenTofuを
+          使う場合は、<code>main.tf</code> の機密入力として渡します。
+        </p>
+
+        <h2>データベースを別に扱う</h2>
+        <p>
+          Workerの公開だけではD1のマイグレーションは実行されません。既存環境では
+          マイグレーション履歴を確認し、バックアップと復旧方法を用意してから
+          スキーマを変更してください。コード公開とデータベース更新を一度に
+          試し直さないようにします。
+        </p>
+
+        <h2>動作確認</h2>
+        <ol>
+          <li>公開URLを開く</li>
+          <li><code>/healthz</code>の本文を確認する</li>
+          <li><code>/readyz</code>が準備完了を返すことを確認する</li>
+          <li>ログイン、投稿、画像アップロードを試す</li>
+          <li>キューの配信と失敗キューを確認する</li>
         </ol>
-
-        <h2>Cloudflareリソース</h2>
-        <p>
-          Cloudflare 直接経路の設定正本は <code>wrangler.jsonc</code>
-          です。D1・R2・KV・2 つの Queue・Worker を provider 側で用意し、binding
-          と secret を release envelope で検証します。operator 管理の Takosumi
-          経路では root OpenTofu module の Plan / Apply で同じ provider resource
-          を作成し、StateVersion・Output・AuditEvent を記録します。
-        </p>
-
-        <h3>共通のbinding</h3>
-        <pre><code>D1: DB
-R2: MEDIA
-KV: KV
-Queue producer: DELIVERY_QUEUE
-Dead letter queue: DELIVERY_DLQ
-Worker entrypoint: dist/yurucommu-worker.js</code></pre>
-
-        <h3>クラウドアカウントの接続</h3>
-        <p>
-          直接経路は <code>wrangler login</code> または Cloudflare API token
-          を使います。Takosumi 経路は Cloudflare provider
-          に使うクラウドアカウントの 接続設定を割り当てます。どちらの経路でも
-          secret 値をリポジトリへ commit しません。
-        </p>
 
         <h2>トラブルシューティング</h2>
 
-        <h3>「認証エラー」が出る場合</h3>
+        <h3>認証エラーが出る</h3>
         <p>
-          直接経路は <code>bunx wrangler whoami</code>、Takosumi 経路は
-          クラウドアカウントの接続設定と割り当ての状態を確認します。
+          <code>bunx wrangler whoami</code>
+          でログイン中のアカウントを確認します。APIトークンを使う場合は、
+          アカウントIDと権限の対象が一致しているか確認します。
         </p>
 
-        <h3>D1のクエリを確認したい場合</h3>
+        <h3>接続が不足している</h3>
         <p>
-          直接経路は Cloudflare dashboard または Wrangler、Takosumi 経路は
-          適用時の実行結果と operator 側の証跡から <code>DB</code>
-          binding を確認します。
+          <code>/healthz</code> の
+          <code>missingBindings</code> と、Workerに設定した名前を比べます。D1は
+          <code>DB</code>、R2は <code>MEDIA</code>、Workers KVは
+          <code>KV</code> です。
         </p>
 
-        <h3>R2の内容を確認したい場合</h3>
+        <h3>外部サーバーへの配信が止まる</h3>
         <p>
-          直接経路は Cloudflare dashboard、Takosumi 経路は 適用時の記録と
-          operator 側の監視で確認します。
+          通常の配信キューと失敗キューの両方を確認します。手動で何度も再送する
+          前に、失敗理由と試行回数を記録してください。
         </p>
       </main>
     </div>

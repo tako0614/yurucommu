@@ -8,8 +8,9 @@
         "@ffmpeg/ffmpeg": "^0.12.15",
         "@ffmpeg/util": "^0.12.2",
         "@solidjs/router": "^0.15.0",
-        "@takosjp/yurucommu-api": "^3.1.0",
-        "@takosjp/yurucommu-core": "^3.4.1",
+        "@takosjp/takosumi-contract": "^1.0.0",
+        "@takosjp/yurucommu-api": "^3.4.3",
+        "@takosjp/yurucommu-core": "^3.4.3",
         "html5-qrcode": "^2.3.8",
         "jotai": "^2.18.0",
         "qrcode-generator": "^2.0.4",
@@ -375,9 +376,9 @@
 
     "@takosjp/takosumi-contract": ["@takosjp/takosumi-contract@1.0.0", "", {}, "sha512-WfXEi14+mKSoZJxYYcb9CcYQ9A0MyQquG2nFRyT8nO3v+nxHtkA3LfXdTRcgBd2+T0lVsG2TM1o3V9XcbRYZOg=="],
 
-    "@takosjp/yurucommu-api": ["@takosjp/yurucommu-api@3.2.0", "", {}, "sha512-NN9ghO4M6M/X970yqNNtz6jzEvpteizqoQWpN1ysMRS/dyY+zOh4i5gNmSljHPooSAxXmplHlCdu3iop7fuosw=="],
+    "@takosjp/yurucommu-api": ["@takosjp/yurucommu-api@3.4.3", "", {}, "sha512-C0TslNc1oTIed3CUmvuOx9YprXCagJrvQEdYJYEzsmRVNQM+sE7i3wshq+m/UF3os+Aj4YThRzk1j8P9RkpCbw=="],
 
-    "@takosjp/yurucommu-core": ["@takosjp/yurucommu-core@3.4.1", "", { "dependencies": { "@aws-sdk/client-s3": "^3.971.0", "@libsql/client": "^0.17.0", "@takosjp/takosumi-contract": "^1.0.0", "better-sqlite3": "^12.4.1", "drizzle-orm": "^0.45.1", "fdir": "^6.5.0", "hono": "^4.12.9", "picomatch": "^4.0.4", "tinyglobby": "^0.2.16" } }, "sha512-2OEiSmPnQuai+viQ9Og/xvqTgk6aITWCk/ZOfxjQkMgep8ejLB4rH9wYIuBjq3JYpqHXr05hSu6RlvnYLSxiZg=="],
+    "@takosjp/yurucommu-core": ["@takosjp/yurucommu-core@3.4.3", "", { "dependencies": { "@aws-sdk/client-s3": "^3.971.0", "@libsql/client": "^0.17.0", "@takosjp/takosumi-contract": "^1.0.0", "better-sqlite3": "^12.4.1", "drizzle-orm": "^0.45.1", "fdir": "^6.5.0", "hono": "^4.12.9", "picomatch": "^4.0.4", "tinyglobby": "^0.2.16" } }, "sha512-rLPaq+K1pK+vdq33QAfDZHggFOv4CbSA9Nf5Q6iTS3DaZ9wdQRXfGl0GsPHTPOerRzo/fPeD4wIb9lrlmzHu2A=="],
 
     "@types/babel__core": ["@types/babel__core@7.20.5", "", { "dependencies": { "@babel/parser": "^7.20.7", "@babel/types": "^7.20.7", "@types/babel__generator": "*", "@types/babel__template": "*", "@types/babel__traverse": "*" } }, "sha512-qoQprZvz5wQFJwMDqeseRXWv3rqMvhgpbXFfVyWhbx9X47POIA6i/+dXefEmZKoAgOaTdaIgNSMqMIU61yRyzA=="],
 

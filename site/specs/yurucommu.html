@@ -3,10 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>yurucommu仕様 - yurucommu</title>
+    <title>使い方 - yurucommu</title>
     <meta
       name="description"
-      content="yurucommu独自の機能仕様。ローカルのみで動作する仕様一覧"
+      content="yurucommuの使い方と、外部へ送るもの・送らないもの"
     />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="yurucommu" />
@@ -51,30 +51,28 @@
 
     <div class="docs-layout">
       <aside class="docs-sidebar">
-        <p class="docs-sidebar-title">仕様</p>
+        <p class="docs-sidebar-title">ドキュメント</p>
         <ul class="docs-sidebar-nav">
           <li><a href="/specs/">概要</a></li>
-          <li><a href="/specs/activitypub.html">ActivityPub拡張</a></li>
-          <li>
-            <a href="/specs/yurucommu.html" class="active">yurucommu仕様</a>
-          </li>
-          <li><a href="/specs/namespace.html">名前空間</a></li>
+          <li><a href="/specs/yurucommu.html" class="active">使い方</a></li>
+          <li><a href="/specs/activitypub.html">現在の連合形式</a></li>
+          <li><a href="/specs/namespace.html">データ語彙</a></li>
         </ul>
 
         <div class="docs-sidebar-section">
-          <p class="docs-sidebar-title">ActivityPub拡張</p>
+          <p class="docs-sidebar-title">現在の連合形式</p>
           <ul class="docs-sidebar-nav">
-            <li><a href="/specs/apc.html">APC (Communities)</a></li>
-            <li><a href="/specs/single-user.html">Single-User Instance</a></li>
+            <li><a href="/specs/apc.html">コミュニティ</a></li>
             <li><a href="/specs/story.html">Story</a></li>
-            <li><a href="/specs/dmnote.html">DM Note</a></li>
+            <li><a href="/specs/dmnote.html">DM</a></li>
           </ul>
         </div>
 
         <div class="docs-sidebar-section">
-          <p class="docs-sidebar-title">yurucommu仕様</p>
+          <p class="docs-sidebar-title">使い方</p>
           <ul class="docs-sidebar-nav">
-            <li><a href="/specs/qr-exchange.html">QR Exchange</a></li>
+            <li><a href="/specs/single-user.html">アカウント構成</a></li>
+            <li><a href="/specs/qr-exchange.html">QRでアカウント交換</a></li>
           </ul>
         </div>
 
@@ -94,92 +92,89 @@
       </aside>
 
       <main class="docs-content">
-        <span class="spec-scope local">ローカルのみ</span>
-        <h1>yurucommu仕様</h1>
+        <span class="spec-scope local">使い方</span>
+        <h1>使い方</h1>
         <p class="lead">
-          yurucommu独自の機能仕様です。これらはローカル機能であり、連合には配信されません。
-          他のサーバーとの相互運用は必要なく、yurucommu内でのみ動作します。
+          ここでは、画面上の操作とインスタンス内の仕組みを説明します。
+          ActivityPubで外部へ送るデータ形式は別のページに分けています。
         </p>
 
-        <h2>設計方針</h2>
-        <ul>
-          <li>
-            <strong>ローカル完結</strong> - 連合に依存せず、単体で動作する
-          </li>
-          <li>
-            <strong>プライバシー</strong> - ユーザーのプライバシーを尊重する
-          </li>
-          <li><strong>シンプルさ</strong> - 複雑な同期メカニズムを避ける</li>
-        </ul>
-
-        <h2>仕様一覧</h2>
-
         <div class="card-grid">
-          <a href="/specs/qr-exchange.html" class="card">
-            <span class="spec-status experimental">Experimental</span>
-            <h3 class="card-title">QR Exchange</h3>
+          <a href="/specs/single-user.html" class="card">
+            <span class="spec-status experimental">現行実装</span>
+            <h3 class="card-title">アカウント構成</h3>
             <p class="card-description">
-              QRコードを使用したアカウント交換の仕様。対面でのフォローリクエストを簡略化。
+              1人のオーナーがインスタンスを管理し、複数のサブアカウントを
+              切り替えて使う仕組みを説明します。
+            </p>
+          </a>
+          <a href="/specs/qr-exchange.html" class="card">
+            <span class="spec-status experimental">現行実装</span>
+            <h3 class="card-title">QRでアカウント交換</h3>
+            <p class="card-description">
+              プロフィールURLをQRコードで共有し、確認してから
+              フォローするまでの流れを説明します。
             </p>
           </a>
         </div>
 
-        <h2>ActivityPub拡張との違い</h2>
-        <table style="width: 100%; border-collapse: collapse; margin: 1rem 0">
+        <h2>外部へ送るもの、送らないもの</h2>
+        <table class="docs-table">
           <thead>
-            <tr style="border-bottom: 1px solid var(--border)">
-              <th
-                style="
-                  text-align: left;
-                  padding: 0.75rem;
-                  color: var(--text-secondary);
-                "
-              >
-                項目
-              </th>
-              <th
-                style="
-                  text-align: left;
-                  padding: 0.75rem;
-                  color: var(--text-secondary);
-                "
-              >
-                ActivityPub拡張
-              </th>
-              <th
-                style="
-                  text-align: left;
-                  padding: 0.75rem;
-                  color: var(--text-secondary);
-                "
-              >
-                yurucommu仕様
-              </th>
+            <tr>
+              <th>機能</th>
+              <th>現在の扱い</th>
             </tr>
           </thead>
           <tbody>
-            <tr style="border-bottom: 1px solid var(--border)">
-              <td style="padding: 0.75rem">連合への配信</td>
-              <td style="padding: 0.75rem">あり</td>
-              <td style="padding: 0.75rem">なし</td>
+            <tr>
+              <td>プロフィール、投稿、フォロー</td>
+              <td>ActivityPubで連合</td>
             </tr>
-            <tr style="border-bottom: 1px solid var(--border)">
-              <td style="padding: 0.75rem">他サーバーとの相互運用</td>
-              <td style="padding: 0.75rem">必要</td>
-              <td style="padding: 0.75rem">不要</td>
+            <tr>
+              <td>1対1のDM本文</td>
+              <td>相手がリモートなら直接宛先のNoteとして連合</td>
             </tr>
-            <tr style="border-bottom: 1px solid var(--border)">
-              <td style="padding: 0.75rem">名前空間</td>
-              <td style="padding: 0.75rem">必須</td>
-              <td style="padding: 0.75rem">不要</td>
+            <tr>
+              <td>DMの既読位置、入力中、アーカイブ</td>
+              <td>ローカル状態。連合しない</td>
             </tr>
-            <tr style="border-bottom: 1px solid var(--border)">
-              <td style="padding: 0.75rem">標準相互運用</td>
-              <td style="padding: 0.75rem">必須</td>
-              <td style="padding: 0.75rem">不要</td>
+            <tr>
+              <td>公開コミュニティとフィード投稿</td>
+              <td>GroupアクターとAnnounceを使って連合</td>
+            </tr>
+            <tr>
+              <td>コミュニティチャット</td>
+              <td>現在は主に同じインスタンス内のメンバー向け</td>
+            </tr>
+            <tr>
+              <td>アカウントの所有関係と切り替え</td>
+              <td>
+                ローカルの管理情報。各アカウント自体は別々のPersonとして連合
+              </td>
+            </tr>
+            <tr>
+              <td>QRコード</td>
+              <td>
+                プロフィールURLの共有。QRデータそのものはActivityPubで配信しない
+              </td>
             </tr>
           </tbody>
         </table>
+
+        <h2>連合形式を確認する</h2>
+        <p>
+          外部サーバーとやり取りする正確な形は
+          <a href="/specs/activitypub.html">現在の連合形式</a>から確認できます。
+          コミュニティ、Story、DMごとに、現在の送受信と未保証の範囲を分けて掲載しています。
+        </p>
+
+        <h2>データ語彙を確認する</h2>
+        <p>
+          JSON-LDのURIやStoryの独自プロパティを実装から参照する場合は
+          <a href="/specs/namespace.html">データ語彙</a>を確認してください。
+          公開中でも現在の送信データで使っていない語彙は、提案として区別しています。
+        </p>
       </main>
     </div>
 

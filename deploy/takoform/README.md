@@ -1,48 +1,160 @@
-# Yurucommu portable Takoform Capsule
+# Managed Yurucommu deployment
 
-This directory is the canonical managed desired-resource definition for a
-Yurucommu install on any conforming Takoform host, including Takosumi. It uses
-only typed Takoform Service Forms:
+This directory describes the resources Yurucommu needs when it is installed on
+Takosumi or another compatible host.
 
-- one JavaScript `HttpService`;
-- one SQLite `RelationalDatabase`;
-- one media `ObjectBucket`;
-- one `KeyValueStore`;
-- delivery and dead-letter `Queue` resources;
-- one hourly `Schedule` targeting the Worker;
-- explicit non-secret runtime connections.
-- one app-owned opaque launcher Interface declaration.
+It uses Takoform, an OpenTofu provider whose resource types describe portable
+services such as an HTTP app, a SQL database, and an object bucket. The host
+decides how to implement those services. The definition does not contain
+Cloudflare account IDs, credentials, or Cloudflare-specific resource types.
 
-The selected Worker release URL and SHA-256 are pinned in this Capsule. A
-product release updates the tag, URL, and digest together.
+For the end-to-end installation steps, start with
+[the main README](../../README.en.md#install-on-takosumi).
 
-`migrations/manifest.json` is the app-owned immutable SQLite migration bundle
-manifest. It pins the exact published `@takosjp/yurucommu-core` package
-integrity and every SQL file digest. Takosumi selects it through a typed
-`resource_migration` post-apply action targeting
-`takoform_relational_database.database`. The Cloud executor resolves its exact
-canonical Resource id, numeric generation/revision, and structured Capsule
-owner from server-side records immediately before execution. OpenTofu Outputs
-are never target authority; SQL bytes and native database identifiers remain
-private to the executor.
+## Source to select
 
-The repository-root OpenTofu module and `wrangler.jsonc` remain the direct
-Cloudflare deployment path. They are not imported by this module and the
-Takoform provider is never pointed at a Cloudflare compatibility endpoint.
+Use the Yurucommu repository with:
 
-The launcher document is ordinary app-owned JSON in `takoform_interface`.
-Takoform does not define a UI-specific resource type. The host resolves the
-service origin from the `HttpService` output; a runtime consumer discovers the
-Interface from the host and calls the resolved application endpoint directly.
+| Field | Value                                   |
+| ----- | --------------------------------------- |
+| path  | `deploy/takoform`                       |
+| ref   | a stable release tag or reviewed commit |
 
-## Host-owned configuration
+The selected source also contains
+[`/.well-known/takosumi.json`](../../.well-known/takosumi.json). Takosumi reads
+the `deploy/takoform` entry from that file to label the installation screen.
+The only service-specific value is the service name; the pinned release values
+come from this module's defaults. Provider credentials and secret values do not
+come from repository metadata.
 
-This Capsule deliberately does not place application secrets or host policy in
-Takoform state. Before making it selectable, a host must materialize the
-Yurucommu encryption/bootstrap or OIDC configuration, optional notification
-push configuration, the public hostname, queue consumers, the hourly scheduled
-handler, and D1 migration activation through reviewed host-owned seams.
+## Resources created
 
-Takosumi Cloud must still satisfy every remaining gate before the candidate is
-selectable; the presence of this bundle does not authorize an unfenced direct
-database command or a Cloudflare compatibility path.
+| Resource              | Purpose                                                                  |
+| --------------------- | ------------------------------------------------------------------------ |
+| `HttpService`         | Runs the Yurucommu web app and API                                       |
+| `RelationalDatabase`  | Stores accounts, posts, follows, messages, and notifications in SQLite   |
+| `ObjectBucket`        | Stores uploaded images and video                                         |
+| `KeyValueStore`       | Stores sessions, sign-in attempt limits, and rate limits                 |
+| two `Queue` resources | Handles delivery retries and keeps exhausted work in a dead-letter queue |
+| `Schedule`            | Invokes the retention task once per hour                                 |
+| `Interface`           | Describes the app URL and open action for an Apps screen                 |
+
+The HTTP service connects to the other resources through the names expected by
+the Yurucommu runtime:
+
+```text
+DB
+MEDIA
+KV
+DELIVERY_QUEUE
+DELIVERY_DLQ
+```
+
+These are connection names, not Cloudflare bindings. A compatible host maps
+them to its own database, storage, and queue implementations.
+
+## Release and database migration
+
+The module pins three values together:
+
+- the Yurucommu release tag;
+- the immutable Worker download URL; and
+- the Worker's SHA-256 digest.
+
+An update must change all three to the same release. This prevents an
+installation from downloading different bytes under an unchanged definition.
+
+[`migrations/manifest.json`](migrations/manifest.json) pins the
+`@takosjp/yurucommu-core` package and the digest of every SQL file. On
+Takosumi, the host selects this manifest as a database migration to run after
+Apply.
+The host resolves the exact database created by this installation immediately
+before executing it. Ordinary OpenTofu outputs are not used as permission to
+run SQL.
+
+## How the app URL is discovered
+
+The `HttpService` returns its allocated URL. The module exposes that value as:
+
+- `launch_url` for the web app;
+- `api_url` for the `/api` endpoint.
+
+It also declares `yurucommu.launcher`. This Interface links the HTTP service's
+`url` output to `/` and labels it as Yurucommu. The Interface describes what
+URL the installed resource offers. Permission to open it is a separate,
+host-owned record.
+
+Takosumi grants the installer permission to use this launcher, resolves it
+after Apply, and reads it for the Apps screen. The dashboard does not guess the
+URL from `launch_url`, a Worker name, or a cloud resource ID.
+
+## What remains the host's responsibility
+
+This module describes the resource graph, but it cannot grant itself access to
+a cloud account or decide host policy. Before the installation is usable, the
+host must provide:
+
+- a public HTTPS URL for the HTTP service;
+- an `ENCRYPTION_KEY` secret;
+- password authentication or a complete OIDC setup;
+- working database, media, key-value, and queue connections;
+- queue consumers, dead-letter handling, and the hourly scheduled invocation;
+- execution of the pinned database migration;
+- authorization for the person allowed to open `yurucommu.launcher`;
+- logs, backup, restore, update, and removal procedures.
+
+Browser Web Push is optional and is not stored in this module's state. A host
+that offers it must inject the gateway URL and public VAPID key as runtime
+configuration, plus a token when its gateway requires one.
+
+The root [`main.tf`](../../main.tf) and
+[`wrangler.jsonc`](../../wrangler.jsonc) are a separate Cloudflare self-hosting
+path. This module does not import them and does not send this resource graph
+through a Cloudflare compatibility API.
+
+## Check before publishing
+
+From the repository root:
+
+```bash
+tofu -chdir=deploy/takoform init -backend=false -input=false -lockfile=readonly
+tofu -chdir=deploy/takoform validate
+bun test scripts/takoform-capsule.test.ts scripts/takosumi-install-ux.test.ts
+```
+
+`bun run check` runs these checks as part of the repository's full gate.
+
+## Troubleshooting
+
+### The Apps screen has no Yurucommu link
+
+Check, in this order:
+
+1. Apply completed successfully.
+2. The `HttpService` has a non-secret `url` output.
+3. `yurucommu.launcher` is resolved for the current resource revision.
+4. The current principal has permission to open that Interface.
+
+Do not build a fallback URL from a provider ID. A missing launcher is an
+incomplete installation, not a naming problem.
+
+### The service starts but `/healthz` lists missing bindings
+
+Compare the five connection names above with the host's realized connections.
+Then verify that the queue and schedule activations target the same HTTP
+service revision.
+
+### Apply succeeds but the schema is missing
+
+Creating the resources and changing the database are separate steps. Check
+that the host selected the exact
+`migrations/manifest.json`, targeted
+`takoform_relational_database.database`, and recorded a successful
+migration after Apply. Do not choose a database by a similar name and run SQL
+against it.
+
+### A release update is rejected
+
+Confirm that the release tag, artifact URL, and SHA-256 all refer to the same
+published Yurucommu release. Also confirm that the source ref includes the
+matching migration manifest.

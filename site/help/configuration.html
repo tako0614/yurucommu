@@ -3,8 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>環境変数 - yurucommu</title>
-    <meta name="description" content="yurucommuの設定可能な環境変数一覧" />
+    <title>設定 - yurucommu</title>
+    <meta
+      name="description"
+      content="yurucommuのローカル開発、本番接続、ログインに必要な設定"
+    />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="yurucommu" />
     <meta property="og:image" content="https://yurucommu.com/img/og.png" />
@@ -61,7 +64,7 @@
             <li><a href="/help/cloudflare-setup.html">Cloudflare設定</a></li>
             <li><a href="/help/deployment.html">デプロイ</a></li>
             <li>
-              <a href="/help/configuration.html" class="active">環境変数</a>
+              <a href="/help/configuration.html" class="active">設定</a>
             </li>
             <li><a href="/help/custom-domain.html">カスタムドメイン</a></li>
           </ul>
@@ -81,40 +84,117 @@
           <ul class="docs-sidebar-nav">
             <li><a href="/help/api.html">API</a></li>
             <li><a href="/help/database.html">データベース</a></li>
-            <li><a href="/specs/">ActivityPub拡張</a></li>
+            <li><a href="/specs/">連合の仕組み</a></li>
           </ul>
         </div>
       </aside>
 
       <main class="docs-content">
-        <h1>環境変数</h1>
+        <h1>設定</h1>
         <p class="lead">
-          yurucommuの動作をカスタマイズするための環境変数一覧です。
+          ローカルでは設定なしで試せます。本番では、公開URL、暗号化キー、
+          ログイン方法を最初に設定します。
         </p>
 
-        <h2>必須環境変数</h2>
+        <h2>ローカルで試す</h2>
+        <pre><code>bun run dev:mock</code></pre>
+        <p>
+          モックAPIとWeb画面が一緒に起動します。Cloudflareのbindingや
+          シークレットは必要ありません。ログアウト状態から試す場合は次のように
+          起動します。
+        </p>
+        <pre><code>YURUCOMMU_MOCK_AUTH=signed-out bun run dev:mock</code></pre>
+        <p>
+          <code>bun run dev</code>
+          はWeb画面だけを起動します。既存のAPIへ接続する
+          場合にだけ、接続先を指定してください。
+        </p>
+        <pre><code>YURUCOMMU_DEV_PROXY_TARGET=http://localhost:8787 bun run dev</code></pre>
+
+        <h2>本番で最初に決める設定</h2>
         <table class="docs-table">
           <thead>
             <tr>
-              <th>変数名</th>
+              <th>設定</th>
               <th>説明</th>
-              <th>例</th>
+              <th>扱い</th>
             </tr>
           </thead>
           <tbody>
             <tr>
               <td><code>APP_URL</code></td>
-              <td>インスタンスの公開URL（末尾スラッシュなし）</td>
-              <td><code>https://yurucommu.example.com</code></td>
+              <td>ブラウザで開くHTTPSのURL。末尾のスラッシュは付けません。</td>
+              <td>公開してよい値</td>
+            </tr>
+            <tr>
+              <td><code>ENCRYPTION_KEY</code></td>
+              <td>
+                機密データの暗号化に使う64文字の小文字16進数。<code
+                  >openssl rand -hex 32</code
+                >
+                などで生成します。
+              </td>
+              <td>シークレット</td>
+            </tr>
+            <tr>
+              <td>ログイン方法</td>
+              <td>
+                パスワード、Google/X OAuth、OIDCのうち、少なくとも1つを
+                設定します。
+              </td>
+              <td>IDは公開可、パスワードやSecretはシークレット</td>
             </tr>
           </tbody>
         </table>
 
-        <h2>認証設定</h2>
+        <h2>実行環境との接続</h2>
         <p>
-          認証は <code>AUTH_PASSWORD_HASH</code>、
-          <code>ENCRYPTION_KEY</code>、および各 OAuth
-          プロバイダのシークレットを設定すると有効になります。
+          次の名前でサービスをアプリへ接続します。管理ホストでは
+          <code>deploy/takoform</code> が必要な接続を宣言します。Cloudflareでは
+          ルートの <code>main.tf</code> または <code>wrangler.jsonc</code>
+          で接続します。
+        </p>
+        <table class="docs-table">
+          <thead>
+            <tr>
+              <th>名前</th>
+              <th>役割</th>
+              <th>Cloudflareの場合</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>DB</code></td>
+              <td>アカウント、投稿、メッセージなど</td>
+              <td>D1</td>
+            </tr>
+            <tr>
+              <td><code>MEDIA</code></td>
+              <td>画像と動画</td>
+              <td>R2</td>
+            </tr>
+            <tr>
+              <td><code>KV</code></td>
+              <td>セッションや試行回数</td>
+              <td>Workers KV</td>
+            </tr>
+            <tr>
+              <td><code>DELIVERY_QUEUE</code></td>
+              <td>ActivityPubの配信</td>
+              <td>Queues</td>
+            </tr>
+            <tr>
+              <td><code>DELIVERY_DLQ</code></td>
+              <td>繰り返し失敗した配信の退避</td>
+              <td>Queues</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2>ログイン方法</h2>
+        <p>
+          使わない方式の変数は設定しなくて構いません。クライアントIDとSecretが
+          対になっている方式は、片方だけ設定しないでください。
         </p>
         <table class="docs-table">
           <thead>
@@ -127,13 +207,11 @@
           <tbody>
             <tr>
               <td><code>AUTH_PASSWORD_HASH</code></td>
-              <td>PBKDF2ハッシュ化パスワード</td>
-              <td>パスワード認証を使う場合に設定</td>
-            </tr>
-            <tr>
-              <td><code>ENCRYPTION_KEY</code></td>
-              <td>セッションやトークンの暗号化キー</td>
-              <td>64文字の16進数文字列（<code>openssl rand -hex 32</code>）</td>
+              <td>パスワード認証で使う値</td>
+              <td>
+                PBKDF2の<code>salt:hash</code>、または導入時に発行された
+                一時的なログイン用シークレット
+              </td>
             </tr>
             <tr>
               <td><code>GOOGLE_CLIENT_ID</code></td>
@@ -158,59 +236,11 @@
           </tbody>
         </table>
 
-        <h2>ローカルBunサーバー</h2>
+        <h3>OIDC</h3>
         <p>
-          Cloudflare を使わずに core server をローカルで起動する場合は、
-          <code>@takosjp/yurucommu-core</code> の server を使います。起動時に
-          <code>MIGRATIONS_PATH</code> の SQL を自動適用します。
-        </p>
-        <table class="docs-table">
-          <thead>
-            <tr>
-              <th>変数名</th>
-              <th>説明</th>
-              <th>デフォルト</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><code>PORT</code></td>
-              <td>サーバーポート</td>
-              <td><code>3000</code></td>
-            </tr>
-            <tr>
-              <td><code>DATABASE_PATH</code></td>
-              <td>SQLite データベースの保存先</td>
-              <td><code>./data/yurucommu.db</code></td>
-            </tr>
-            <tr>
-              <td><code>STORAGE_PATH</code></td>
-              <td>ファイルストレージの保存先</td>
-              <td><code>./data/storage</code></td>
-            </tr>
-            <tr>
-              <td><code>ASSETS_PATH</code></td>
-              <td>静的アセットの配置先</td>
-              <td><code>./dist</code></td>
-            </tr>
-            <tr>
-              <td><code>MIGRATIONS_PATH</code></td>
-              <td>SQL マイグレーションの配置先</td>
-              <td><code>@takosjp/yurucommu-core/migrations</code></td>
-            </tr>
-            <tr>
-              <td><code>APP_URL</code></td>
-              <td>アプリケーションの公開URL</td>
-              <td><code>http://localhost:3000</code></td>
-            </tr>
-          </tbody>
-        </table>
-
-        <h2>OIDC認証（Takosumi Accounts / 汎用OIDC）</h2>
-        <p>
-          パスワードや Google/X OAuth に加えて、OIDC (OpenID Connect)
-          でのログインにも対応しています。 Takosumi Accounts のような一般的な
-          OIDC プロバイダーを指定できます。
+          OpenID Connectに対応するログインサービスを指定できます。
+          パブリッククライアントとして登録した場合は、クライアントSecretは
+          不要です。
         </p>
         <table class="docs-table">
           <thead>
@@ -223,36 +253,46 @@
           <tbody>
             <tr>
               <td><code>OIDC_ISSUER_URL</code></td>
-              <td>OIDC プロバイダーの issuer URL</td>
-              <td>
-                代わりに <code>TAKOSUMI_ACCOUNTS_ISSUER_URL</code> も使えます
-              </td>
+              <td>OIDCプロバイダーのissuer URL</td>
+              <td><code>TAKOSUMI_ACCOUNTS_ISSUER_URL</code>も利用できます</td>
             </tr>
             <tr>
               <td><code>OIDC_CLIENT_ID</code></td>
-              <td>OIDC クライアントID</td>
-              <td>
-                代わりに <code>TAKOSUMI_ACCOUNTS_CLIENT_ID</code> も使えます
-              </td>
+              <td>OIDCクライアントID</td>
+              <td><code>TAKOSUMI_ACCOUNTS_CLIENT_ID</code>も利用できます</td>
             </tr>
             <tr>
               <td><code>OIDC_CLIENT_SECRET</code></td>
-              <td>OIDC クライアントシークレット（任意）</td>
+              <td>OIDCクライアントシークレット</td>
               <td>
-                代わりに <code>TAKOSUMI_ACCOUNTS_CLIENT_SECRET</code>
-                も使えます。PKCE のみのパブリッククライアントとして
-                登録する場合は不要です
+                機密クライアントの場合のみ。<code>TAKOSUMI_ACCOUNTS_CLIENT_SECRET</code>も利用できます
               </td>
+            </tr>
+            <tr>
+              <td><code>OIDC_OWNER_SUB</code></td>
+              <td>最初のオーナーにできるOIDCのsubject</td>
+              <td>最初にログインする人を事前に固定するときに設定</td>
+            </tr>
+            <tr>
+              <td><code>OIDC_ALLOWED_SUBS</code></td>
+              <td>メンバーとして追加を許可するsubjectの一覧</td>
+              <td>未設定では外部ログインによるメンバー追加を許可しません</td>
             </tr>
           </tbody>
         </table>
-
-        <h2>Takos連携（AIエージェントのツール呼び出し、オプション）</h2>
         <p>
-          Takos は yurucommuの認証システムではありません。
-          <code>ENABLE_TAKOS_TOOLS</code> を有効にすると、AI エージェントが
+          <code>OIDC_OWNER_SUB</code>を事前に確認できない場合だけ、
+          <code>ALLOW_UNPINNED_OWNER_CLAIM=true</code>
+          を使えます。この間は最初にログインした人がオーナーになります。初回ログイン
+          後はsubjectを固定し、この設定を解除してください。
+        </p>
+
+        <h2>Takos連携（任意）</h2>
+        <p>
+          TakosはYurucommuのログイン方法ではありません。
+          <code>ENABLE_TAKOS_TOOLS=true</code> にすると、AIエージェントが
           <code>POST /.takos/tools/:name</code>
-          経由で投稿・検索・フォローなどの操作を呼び出せるように なります。
+          経由で投稿、検索、フォローなどを呼び出せるようになります。
         </p>
         <table class="docs-table">
           <thead>
@@ -264,62 +304,53 @@
           <tbody>
             <tr>
               <td><code>TAKOS_URL</code></td>
-              <td>
-                連携先 Takos API のベースURL（任意）。 OIDC の issuer
-                とは別物です
-              </td>
+              <td>連携先のTakos APIのURL。OIDCのissuerとは別の設定です。</td>
             </tr>
             <tr>
               <td><code>ENABLE_TAKOS_TOOLS</code></td>
-              <td>
-                <code>true</code> にすると
-                <code>/.takos/tools/:name</code> エンドポイントを有効化
-              </td>
+              <td><code>true</code>でツール用エンドポイントを有効にします。</td>
             </tr>
           </tbody>
         </table>
 
-        <h2>wrangler.jsoncでの設定</h2>
+        <h2>設定を渡す場所</h2>
+        <h3>Takosumiなどの管理ホスト</h3>
         <p>
-          Cloudflare直接経路の公開変数は<code>wrangler.jsonc</code>の
-          <code>vars</code>で設定します：
+          <code>deploy/takoform</code>
+          を読み込んだホストの設定画面から値を渡します。データベースや
+          ストレージの接続、シークレット、公開URLはホスト側で管理します。
+          Cloudflare用の <code>wrangler.jsonc</code> は使いません。
+        </p>
+
+        <h3>CloudflareとWrangler</h3>
+        <p>
+          公開してよい値は、実際に使用するWrangler設定の <code>vars</code>
+          に記述できます。
         </p>
         <pre><code>"vars": {
   "APP_URL": "https://yurucommu.example.com",
   "OIDC_ISSUER_URL": "https://issuer.example.com",
   "OIDC_CLIENT_ID": "your-client-id"
-}
+}</code></pre>
 
-# シークレットは bunx wrangler secret put で設定
-# AUTH_PASSWORD_HASH, ENCRYPTION_KEY, OIDC_CLIENT_SECRET などはコードに含めない</code></pre>
-
-        <h2>シークレットの設定</h2>
-        <p>
-          パスワードなどの機密情報は
-          <code>bunx wrangler secret put</code> で設定します：
-        </p>
-        <pre><code># パスワードハッシュを設定
-bunx wrangler secret put AUTH_PASSWORD_HASH
-
-# 暗号化キーを設定
+        <p>シークレットは設定ファイルへ書かず、対話形式で登録します。</p>
+        <pre><code>bunx wrangler secret put AUTH_PASSWORD_HASH
 bunx wrangler secret put ENCRYPTION_KEY
-
-# OIDC クライアントシークレットを設定（機密クライアントの場合のみ）
 bunx wrangler secret put OIDC_CLIENT_SECRET</code></pre>
-
-        <h2>設定の補足</h2>
         <p>
-          環境ごとに値を切り替える場合でも、<code>AUTH_PASSWORD_HASH</code> や
-          <code>ENCRYPTION_KEY</code> などの認証情報は secret で管理します。
+          Secretの登録はWorkerの新しいバージョンを作ります。運用中の環境では、
+          対象のWorkerと戻し方を確認してから実行してください。ルートの
+          <code>main.tf</code> を使う場合は、同じ値をOpenTofuの機密入力として
+          渡します。
         </p>
 
-        <h2>設定の確認</h2>
-        <p>現在の設定を確認するには：</p>
-        <pre><code># Wrangler設定を確認
-cat wrangler.jsonc
-
-# シークレットの一覧（値は表示されない）
-bunx wrangler secret list</code></pre>
+        <h2>設定を確認する</h2>
+        <pre><code>bunx wrangler secret list</code></pre>
+        <p>
+          Secretの一覧には値は表示されません。公開後は <code>/healthz</code> と
+          <code>/readyz</code> を開き、必要な接続、公開URL、暗号化キー、ログイン
+          方法がそろっているか確認してください。
+        </p>
       </main>
     </div>
 

@@ -3,10 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>yurucommu Namespace</title>
+    <title>yurucommu Data Vocabulary</title>
     <meta
       name="description"
-      content="yurucommu ActivityPub extension namespaces and JSON-LD contexts."
+      content="Published yurucommu JSON-LD contexts, with current and proposed terms clearly separated."
     />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -44,89 +44,128 @@
 
     <div class="docs-layout">
       <main class="docs-content" style="margin: 0 auto">
-        <h1>yurucommu Namespace</h1>
+        <h1>yurucommu Data Vocabulary</h1>
         <p class="lead">
-          This is the base namespace for yurucommu's ActivityPub extensions.
+          Published JSON-LD contexts for yurucommu. A published term is not, by
+          itself, evidence that the current federation output uses it.
         </p>
 
-        <h2>JSON-LD Contexts</h2>
-        <p>The combined context document covering all extensions:</p>
-        <pre><code><a href="/ns/context.jsonld" style="color: var(--accent); border: none;">https://yurucommu.com/ns/context.jsonld</a></code></pre>
-
-        <h2>Extension Namespaces</h2>
+        <h2>Contexts</h2>
         <table class="docs-table">
           <thead>
             <tr>
-              <th>Extension</th>
-              <th>Namespace</th>
               <th>Context</th>
-              <th>Spec</th>
+              <th>URL</th>
+              <th>Current status</th>
             </tr>
           </thead>
           <tbody>
             <tr>
-              <td>Story</td>
-              <td><code>https://yurucommu.com/ns/story#</code></td>
+              <td>Combined</td>
               <td>
-                <a href="/ns/story/context.jsonld"
-                  ><code>story/context.jsonld</code></a
+                <a href="/ns/context.jsonld"
+                  ><code>https://yurucommu.com/ns/context.jsonld</code></a
                 >
               </td>
-              <td><a href="/specs/story.html">Spec</a></td>
+              <td>Contains both current Story terms and proposed APC terms</td>
             </tr>
             <tr>
-              <td>APC (Communities)</td>
-              <td><code>https://yurucommu.com/ns/apc#</code></td>
+              <td>Story</td>
               <td>
-                <a href="/ns/apc/context.jsonld"
-                  ><code>apc/context.jsonld</code></a
+                <a href="/ns/story/context.jsonld"
+                  ><code>https://yurucommu.com/ns/story/context.jsonld</code></a
                 >
               </td>
-              <td><a href="/specs/apc.html">Spec</a></td>
+              <td>Used by the current Story object model</td>
+            </tr>
+            <tr>
+              <td>APC</td>
+              <td>
+                <a href="/ns/apc/context.jsonld"
+                  ><code>https://yurucommu.com/ns/apc/context.jsonld</code></a
+                >
+              </td>
+              <td>
+                Proposed vocabulary. Current community Group actors do not emit
+                these properties
+              </td>
             </tr>
           </tbody>
         </table>
 
-        <h2>Usage</h2>
+        <h2>Current Story terms</h2>
         <p>
-          Include the combined context alongside the standard ActivityStreams
-          context:
+          Story objects use the
+          <code>https://yurucommu.com/ns/story#</code> namespace for:
         </p>
-        <pre><code>{
-  "@context": [
-    "https://www.w3.org/ns/activitystreams",
-    "https://yurucommu.com/ns/context.jsonld"
-  ],
-  "type": "Note",
-  "content": "Hello, Fediverse!"
-}</code></pre>
-        <p>Or include only the extension you need:</p>
+        <ul>
+          <li>
+            <code>Story</code> — a type emitted together with <code>Note</code>
+          </li>
+          <li><code>displayDuration</code> — an <code>xsd:duration</code></li>
+          <li><code>overlays</code> — an ordered list of overlay objects</li>
+          <li>
+            <code>position</code> — normalized <code>x</code>, <code>y</code>,
+            <code>width</code>, and <code>height</code> values from 0 to 1
+          </li>
+        </ul>
+        <p>
+          Current outbound Story objects inline these mappings, so consumers do
+          not have to dereference this site to understand the term IRIs.
+        </p>
+
+        <h2>Proposed APC terms</h2>
+        <p>
+          The APC context publishes <code>rooms</code>, <code>joinPolicy</code>,
+          <code>postPolicy</code>, and <code>visibility</code>. The current
+          per-community Group actor does not emit these values. Treat them as
+          reserved proposals, not a supported federation contract.
+        </p>
+        <p>
+          Current community federation instead relies on ActivityStreams
+          <code>Group</code>, <code>Follow</code>, <code>Accept</code>,
+          <code>Reject</code>, <code>Undo</code>, and <code>Announce</code>.
+        </p>
+
+        <h2>Example</h2>
         <pre><code>{
   "@context": [
     "https://www.w3.org/ns/activitystreams",
     "https://yurucommu.com/ns/story/context.jsonld"
   ],
   "type": ["Story", "Note"],
-  "content": "...",
-  "displayDuration": "PT15S"
+  "displayDuration": "PT5S",
+  "overlays": [
+    {
+      "type": "Note",
+      "name": "Hello",
+      "position": {
+        "x": 0.5,
+        "y": 0.8,
+        "width": 0.6,
+        "height": 0.1
+      }
+    }
+  ]
 }</code></pre>
 
         <h2>Interoperability</h2>
         <p>
-          Implementations that do not recognize yurucommu's extension properties
-          can safely ignore them per JSON-LD processing rules. All extensions
-          are additive to standard ActivityPub / Activity Streams 2.0.
+          A JSON-LD processor may ignore terms it does not understand, but that
+          does not guarantee another ActivityPub product will reproduce
+          yurucommu's Story or community behavior. Verify the receiving
+          implementation's supported types and properties separately.
         </p>
 
         <p style="margin-top: 3rem">
           <a
             href="/specs/namespace.html"
             style="color: var(--accent); border: none"
-            >Full namespace documentation (JA)</a
+            >Data vocabulary guide (JA)</a
           >
           &nbsp;·&nbsp;
           <a href="/specs/" style="color: var(--accent); border: none"
-            >All specifications</a
+            >All documentation</a
           >
         </p>
       </main>

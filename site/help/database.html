@@ -81,7 +81,7 @@
             <li>
               <a href="/help/database.html" class="active">データベース</a>
             </li>
-            <li><a href="/specs/">ActivityPub拡張</a></li>
+            <li><a href="/specs/">連合の仕組み</a></li>
           </ul>
         </div>
       </aside>
@@ -89,568 +89,219 @@
       <main class="docs-content">
         <h1>データベース</h1>
         <p class="lead">
-          yurucommuはCloudflare
-          D1（SQLite）を使用したAP-nativeなスキーマを採用しています。
-          すべてのActivityPubオブジェクトはAP IRIを主キーとして使用します。
+          yurucommuのデータは、1つのSQLデータベースだけに収まるものではありません。
+          アカウントや投稿はSQL、画像や動画はオブジェクトストレージ、一時的な状態は
+          キー・バリューストア、非同期配送はキューが担当します。このページでは、
+          スキーマの全カラムではなく、保存先と更新・復旧の責任範囲を説明します。
         </p>
 
-        <h2>設計思想</h2>
-        <ul>
-          <li>
-            <strong>AP-native</strong> - ActivityPub
-            IRIをそのまま主キーとして使用
-          </li>
-          <li>
-            <strong>統一スキーマ</strong> -
-            ローカルとリモートのオブジェクトを同じテーブルで管理
-          </li>
-          <li>
-            <strong>非正規化</strong> -
-            パフォーマンスのためカウンターなどを非正規化
-          </li>
-        </ul>
-
-        <h2>主要テーブル</h2>
-
-        <h3>actors</h3>
-        <p>ローカルアクター（ユーザー）を格納</p>
+        <h2>保存先ごとの役割</h2>
         <table class="docs-table">
           <thead>
             <tr>
-              <th>カラム</th>
-              <th>型</th>
-              <th>説明</th>
+              <th>保存先</th>
+              <th>主なデータ</th>
+              <th>実行環境での対応</th>
             </tr>
           </thead>
           <tbody>
             <tr>
-              <td>ap_id</td>
-              <td>TEXT PK</td>
-              <td>ActivityPub IRI</td>
+              <td>SQLデータベース</td>
+              <td>
+                アカウント、投稿、フォロー、メッセージ、通知、ActivityPubの受信記録
+              </td>
+              <td>管理ホストではSQLite互換データベース、CloudflareではD1</td>
             </tr>
             <tr>
-              <td>type</td>
-              <td>TEXT</td>
-              <td>Person</td>
+              <td>オブジェクトストレージ</td>
+              <td>投稿、プロフィール、ストーリーなどで使う画像や動画</td>
+              <td>管理ホストではオブジェクトストレージ、CloudflareではR2</td>
             </tr>
             <tr>
-              <td>preferred_username</td>
-              <td>TEXT</td>
-              <td>ユーザー名</td>
+              <td>キー・バリューストア</td>
+              <td>認証フローの一時状態、ログイン試行制限、レート制限</td>
+              <td>
+                管理ホストではキー・バリューストア、CloudflareではWorkers KV
+              </td>
             </tr>
             <tr>
-              <td>name</td>
-              <td>TEXT</td>
-              <td>表示名</td>
-            </tr>
-            <tr>
-              <td>summary</td>
-              <td>TEXT</td>
-              <td>自己紹介</td>
-            </tr>
-            <tr>
-              <td>icon_url</td>
-              <td>TEXT</td>
-              <td>アイコンURL</td>
-            </tr>
-            <tr>
-              <td>header_url</td>
-              <td>TEXT</td>
-              <td>ヘッダー画像URL</td>
-            </tr>
-            <tr>
-              <td>inbox</td>
-              <td>TEXT</td>
-              <td>インボックスURL</td>
-            </tr>
-            <tr>
-              <td>outbox</td>
-              <td>TEXT</td>
-              <td>アウトボックスURL</td>
-            </tr>
-            <tr>
-              <td>followers_url</td>
-              <td>TEXT</td>
-              <td>フォロワーコレクションURL</td>
-            </tr>
-            <tr>
-              <td>following_url</td>
-              <td>TEXT</td>
-              <td>フォローコレクションURL</td>
-            </tr>
-            <tr>
-              <td>public_key_pem</td>
-              <td>TEXT</td>
-              <td>公開鍵（PEM形式）</td>
-            </tr>
-            <tr>
-              <td>private_key_pem</td>
-              <td>TEXT</td>
-              <td>秘密鍵（PEM形式）</td>
-            </tr>
-            <tr>
-              <td>follower_count</td>
-              <td>INTEGER</td>
-              <td>フォロワー数（非正規化）</td>
-            </tr>
-            <tr>
-              <td>following_count</td>
-              <td>INTEGER</td>
-              <td>フォロー数（非正規化）</td>
-            </tr>
-            <tr>
-              <td>post_count</td>
-              <td>INTEGER</td>
-              <td>投稿数（非正規化）</td>
-            </tr>
-            <tr>
-              <td>is_private</td>
-              <td>INTEGER</td>
-              <td>承認制フラグ</td>
-            </tr>
-            <tr>
-              <td>role</td>
-              <td>TEXT</td>
-              <td>owner / moderator / member</td>
+              <td>キュー</td>
+              <td>ActivityPubなどの非同期配送、再試行、処理できなかった配送</td>
+              <td>通常の配送キューと、失敗した配送を受け取るキューの2本</td>
             </tr>
           </tbody>
         </table>
-
-        <h3>actor_cache</h3>
-        <p>リモートアクターのキャッシュ</p>
         <p>
-          連合で取得したリモートユーザーの情報を保存します。定期的に更新されます。
+          SQLのバックアップだけでは、画像や動画まで含む完全な復旧にはなりません。
+          反対に、キューは配送中の作業を運ぶ場所であり、投稿や配送結果を保存する
+          データベースの代わりではありません。
         </p>
 
-        <h3>objects</h3>
-        <p>投稿（Note）やストーリー（Story）などのActivityPubオブジェクト</p>
-        <table class="docs-table">
-          <thead>
-            <tr>
-              <th>カラム</th>
-              <th>型</th>
-              <th>説明</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>ap_id</td>
-              <td>TEXT PK</td>
-              <td>ActivityPub IRI</td>
-            </tr>
-            <tr>
-              <td>type</td>
-              <td>TEXT</td>
-              <td>Note / Story</td>
-            </tr>
-            <tr>
-              <td>attributed_to</td>
-              <td>TEXT</td>
-              <td>作成者のap_id</td>
-            </tr>
-            <tr>
-              <td>content</td>
-              <td>TEXT</td>
-              <td>本文（HTML）</td>
-            </tr>
-            <tr>
-              <td>summary</td>
-              <td>TEXT</td>
-              <td>CW（Content Warning）</td>
-            </tr>
-            <tr>
-              <td>attachments_json</td>
-              <td>TEXT</td>
-              <td>添付メディア（JSON配列）</td>
-            </tr>
-            <tr>
-              <td>in_reply_to</td>
-              <td>TEXT</td>
-              <td>返信先のap_id</td>
-            </tr>
-            <tr>
-              <td>visibility</td>
-              <td>TEXT</td>
-              <td>公開範囲</td>
-            </tr>
-            <tr>
-              <td>community_ap_id</td>
-              <td>TEXT</td>
-              <td>所属コミュニティ</td>
-            </tr>
-            <tr>
-              <td>end_time</td>
-              <td>TEXT</td>
-              <td>ストーリーの有効期限</td>
-            </tr>
-            <tr>
-              <td>conversation</td>
-              <td>TEXT</td>
-              <td>DM会話のコンテキストURL</td>
-            </tr>
-            <tr>
-              <td>to_json</td>
-              <td>TEXT</td>
-              <td>宛先リスト（JSON配列）</td>
-            </tr>
-            <tr>
-              <td>cc_json</td>
-              <td>TEXT</td>
-              <td>CCリスト（JSON配列）</td>
-            </tr>
-            <tr>
-              <td>audience_json</td>
-              <td>TEXT</td>
-              <td>グループ宛先（JSON配列）</td>
-            </tr>
-            <tr>
-              <td>like_count</td>
-              <td>INTEGER</td>
-              <td>いいね数（非正規化）</td>
-            </tr>
-            <tr>
-              <td>reply_count</td>
-              <td>INTEGER</td>
-              <td>返信数（非正規化）</td>
-            </tr>
-            <tr>
-              <td>announce_count</td>
-              <td>INTEGER</td>
-              <td>ブースト数（非正規化）</td>
-            </tr>
-            <tr>
-              <td>share_count</td>
-              <td>INTEGER</td>
-              <td>シェア数（非正規化）</td>
-            </tr>
-            <tr>
-              <td>is_local</td>
-              <td>INTEGER</td>
-              <td>ローカル投稿フラグ</td>
-            </tr>
-          </tbody>
-        </table>
-
-        <h3>follows</h3>
-        <p>フォロー関係</p>
-        <table class="docs-table">
-          <thead>
-            <tr>
-              <th>カラム</th>
-              <th>型</th>
-              <th>説明</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>follower_ap_id</td>
-              <td>TEXT</td>
-              <td>フォローする側</td>
-            </tr>
-            <tr>
-              <td>following_ap_id</td>
-              <td>TEXT</td>
-              <td>フォローされる側</td>
-            </tr>
-            <tr>
-              <td>status</td>
-              <td>TEXT</td>
-              <td>pending / accepted / rejected</td>
-            </tr>
-            <tr>
-              <td>activity_ap_id</td>
-              <td>TEXT</td>
-              <td>Followアクティビティの参照</td>
-            </tr>
-          </tbody>
-        </table>
-
-        <h3>likes</h3>
-        <p>いいね</p>
-        <pre><code>PRIMARY KEY (actor_ap_id, object_ap_id)</code></pre>
-
-        <h3>bookmarks</h3>
-        <p>ブックマーク（ローカル機能、連合しない）</p>
-
-        <h3>inbox</h3>
-        <p>受信したアクティビティ（通知の代わりに使用）</p>
-        <table class="docs-table">
-          <thead>
-            <tr>
-              <th>カラム</th>
-              <th>型</th>
-              <th>説明</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>actor_ap_id</td>
-              <td>TEXT</td>
-              <td>受信者のap_id</td>
-            </tr>
-            <tr>
-              <td>activity_ap_id</td>
-              <td>TEXT</td>
-              <td>アクティビティのap_id</td>
-            </tr>
-            <tr>
-              <td>read</td>
-              <td>INTEGER</td>
-              <td>既読フラグ</td>
-            </tr>
-            <tr>
-              <td>created_at</td>
-              <td>TEXT</td>
-              <td>受信日時</td>
-            </tr>
-          </tbody>
-        </table>
-        <pre><code>PRIMARY KEY (actor_ap_id, activity_ap_id)</code></pre>
-
-        <h3>object_recipients</h3>
-        <p>オブジェクトの宛先（効率的なクエリ用）</p>
-        <table class="docs-table">
-          <thead>
-            <tr>
-              <th>カラム</th>
-              <th>型</th>
-              <th>説明</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>object_ap_id</td>
-              <td>TEXT</td>
-              <td>オブジェクトのap_id</td>
-            </tr>
-            <tr>
-              <td>recipient_ap_id</td>
-              <td>TEXT</td>
-              <td>宛先のap_id</td>
-            </tr>
-            <tr>
-              <td>type</td>
-              <td>TEXT</td>
-              <td>to / cc / bcc / audience</td>
-            </tr>
-          </tbody>
-        </table>
-        <pre><code>PRIMARY KEY (object_ap_id, recipient_ap_id)</code></pre>
-
-        <h3>activities</h3>
-        <p>アクティビティログ（Like, Follow, Announce等）</p>
-        <table class="docs-table">
-          <thead>
-            <tr>
-              <th>カラム</th>
-              <th>型</th>
-              <th>説明</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>ap_id</td>
-              <td>TEXT PK</td>
-              <td>ActivityPub IRI</td>
-            </tr>
-            <tr>
-              <td>type</td>
-              <td>TEXT</td>
-              <td>Like / Follow / Announce 等</td>
-            </tr>
-            <tr>
-              <td>actor_ap_id</td>
-              <td>TEXT</td>
-              <td>実行者のap_id</td>
-            </tr>
-            <tr>
-              <td>object_ap_id</td>
-              <td>TEXT</td>
-              <td>対象のap_id</td>
-            </tr>
-            <tr>
-              <td>published</td>
-              <td>TEXT</td>
-              <td>実行日時</td>
-            </tr>
-            <tr>
-              <td>local</td>
-              <td>INTEGER</td>
-              <td>ローカルアクティビティフラグ</td>
-            </tr>
-          </tbody>
-        </table>
-
-        <h3>communities</h3>
-        <p>コミュニティ（ActivityPub Group）</p>
-
-        <h3>story_views</h3>
-        <p>ストーリー閲覧履歴</p>
-
-        <h3>story_shares</h3>
-        <p>ストーリーのシェア履歴</p>
-        <table class="docs-table">
-          <thead>
-            <tr>
-              <th>カラム</th>
-              <th>型</th>
-              <th>説明</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>id</td>
-              <td>TEXT PK</td>
-              <td>シェアID</td>
-            </tr>
-            <tr>
-              <td>story_ap_id</td>
-              <td>TEXT</td>
-              <td>ストーリーのap_id</td>
-            </tr>
-            <tr>
-              <td>actor_ap_id</td>
-              <td>TEXT</td>
-              <td>シェアしたアクター</td>
-            </tr>
-            <tr>
-              <td>shared_at</td>
-              <td>TEXT</td>
-              <td>シェア日時</td>
-            </tr>
-          </tbody>
-        </table>
-
-        <h3>dm_read_status</h3>
-        <p>DM会話の既読状態</p>
-        <table class="docs-table">
-          <thead>
-            <tr>
-              <th>カラム</th>
-              <th>型</th>
-              <th>説明</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>actor_ap_id</td>
-              <td>TEXT</td>
-              <td>既読側のap_id</td>
-            </tr>
-            <tr>
-              <td>conversation_id</td>
-              <td>TEXT</td>
-              <td>会話コンテキスト</td>
-            </tr>
-            <tr>
-              <td>last_read_at</td>
-              <td>TEXT</td>
-              <td>最終既読日時</td>
-            </tr>
-          </tbody>
-        </table>
-
-        <h3>dm_typing</h3>
-        <p>DMのタイピング状態</p>
-        <table class="docs-table">
-          <thead>
-            <tr>
-              <th>カラム</th>
-              <th>型</th>
-              <th>説明</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>actor_ap_id</td>
-              <td>TEXT</td>
-              <td>タイピング側のap_id</td>
-            </tr>
-            <tr>
-              <td>recipient_ap_id</td>
-              <td>TEXT</td>
-              <td>受信者のap_id</td>
-            </tr>
-            <tr>
-              <td>last_typed_at</td>
-              <td>TEXT</td>
-              <td>最終タイピング日時</td>
-            </tr>
-          </tbody>
-        </table>
-
-        <h3>notification_archived</h3>
-        <p>通知のアーカイブ状態</p>
-        <table class="docs-table">
-          <thead>
-            <tr>
-              <th>カラム</th>
-              <th>型</th>
-              <th>説明</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>actor_ap_id</td>
-              <td>TEXT</td>
-              <td>対象ユーザー</td>
-            </tr>
-            <tr>
-              <td>activity_ap_id</td>
-              <td>TEXT</td>
-              <td>通知アクティビティ</td>
-            </tr>
-            <tr>
-              <td>archived_at</td>
-              <td>TEXT</td>
-              <td>アーカイブ日時</td>
-            </tr>
-          </tbody>
-        </table>
-
-        <h2>マイグレーション</h2>
+        <h2>ローカルとリモートのActivityPubデータ</h2>
         <p>
-          マイグレーションファイルは
+          このサーバーで作成したアカウントは <code>actors</code>
+          に保存します。ほかのサーバーから取得したプロフィールは
+          <code>actor_cache</code>
+          に保存し、ローカルアカウントとは区別します。リモートプロフィールは
+          再取得できるキャッシュですが、ローカルアカウントとして扱ってはいけません。
+        </p>
+        <p>
+          投稿などのActivityPubオブジェクトは、ローカルで作成したものも、
+          連合で受信したものも <code>objects</code>
+          で扱います。各レコードはActivityPubのURLで識別され、
+          <code>is_local</code>
+          で作成元を区別します。受信した投稿、アクティビティ、フォロー関係は
+          タイムラインや通知の動作に使われるため、リモート由来という理由だけで
+          使い捨てのキャッシュとはみなしません。
+        </p>
+
+        <h2>スキーマの正本</h2>
+        <p>
+          テーブルと索引を更新するSQLの正本は、
           <code>@takosjp/yurucommu-core</code> パッケージの
-          <code>migrations/</code> を管理元とします。デプロイする
-          リポジトリには重複したコピーを置きません。
+          <code>migrations/</code> です。この製品リポジトリはcoreを利用して
+          Workerを組み立てますが、別のスキーマ一覧やSQLのコピーは管理しません。
+          現在の構造を調べるときは、利用中の共通パッケージに含まれるSQLと
+          スキーマ定義を確認してください。
         </p>
         <p>
-          ローカルの core Bun サーバーは起動時に <code>MIGRATIONS_PATH</code> の
-          SQL を適用します。 Cloudflare への直接導入では、利用者または operator
-          が自身の credential、承認、rehearsal、forward-repair
-          手順を所有します。公式 distribution の公開とは別の authority
-          です。公式 target では Release Coordinator が変更内容から
-          state-transition protocol を導出し、実働 fixed adapter と必要な
-          証跡が揃わなければ fail closed にします。Takosumi 経路では operator
-          が設定したバージョン管理されたライフサイクルアクションとして適用します。
-          Takosumi
-          自体がデータベースの種類やコマンドを推測することはありません。
-        </p>
-        <p>
-          すべての runner は <code>yurucommu_migrations</code> を同じ ledger
-          として使います。過去の Wrangler 既定
-          ledger（<code>d1_migrations</code>）が残る場合、operator の migration
-          手順は shipped migration
-          の完全な先頭列と一致するときだけ適用済み行をコピーして収束します。欠番・未知の
-          migration・重複があれば、再実行せず fail closed します。
-        </p>
-        <pre><code>Cloudflare self-host: operator-owned rehearsal -> 承認 -> migration/apply -> readback
-公式 target: prepare -> state-transition evidence/承認 -> promote -> readback
-Takosumi: Git URL 登録 -> Plan -> 承認 -> Apply -> 復元ポイント + 実行結果 + 履歴</code></pre>
-
-        <h2>データの確認</h2>
-        <p>
-          直接経路は Cloudflare dashboard または Wrangler、Takosumi 経路は
-          operator / debug 権限で provider console
-          または実行記録の証跡を確認します。
+          適用済みSQLの共通の履歴は
+          <code>yurucommu_migrations</code>
+          です。Cloudflare向けの <code>wrangler.jsonc</code>
+          も、共通パッケージのSQL保存先とこの履歴の名前を指定しています。
         </p>
 
-        <h2>バックアップ</h2>
+        <h2>マイグレーションを適用する責任</h2>
         <p>
-          Backup / restore は、Takosumi の control/state backup と provider の
-          backup policy の範囲です。provider 側の service data の restore
-          は、operator の policy と runbook に従います。
+          Workerコードの公開と、保存済みデータを変えるマイグレーションは別の作業です。
+          Workerを更新してもSQLは自動では適用されません。先にコードだけを戻せるのか、
+          データも復元する必要があるのかを分けて判断してください。
+        </p>
+
+        <h3>Takosumiなどの管理ホスト</h3>
+        <p>
+          管理経路の正本は <code>deploy/takoform</code> です。
+          ここにはSQLデータベース、オブジェクトストレージ、KV、2本のキューなど、
+          Yurucommuが必要とするものが書かれています。実際にどのサービスで実現するかは
+          ホストが決めるため、Cloudflare D1を前提にはしていません。
+        </p>
+        <p>
+          <code>deploy/takoform/migrations/manifest.json</code>
+          には、選んだバージョンで使う共通パッケージとSQL一覧、各SQLのハッシュが
+          記録されています。リソースのApplyとSQLの適用は別の作業です。ホストは
+          Apply後に、このインストールが作成したデータベースを特定し、
+          選んだバージョンに含まれる一覧を使ってSQLを適用し、結果を記録します。
+          似た名前のデータベースだけを根拠にSQLを実行しません。
+        </p>
+
+        <h3>Cloudflareへ直接セルフホストする場合</h3>
+        <p>
+          ルートの <code>main.tf</code> または <code>wrangler.jsonc</code>
+          を使う経路では、Cloudflareアカウントを管理する運用者がD1の更新を担当します。
+          対象データベース、現在の適用履歴、バックアップ、復旧方法を確認してから、
+          共通パッケージのSQLを適用し、結果を読み返してください。
+        </p>
+        <p>
+          古い環境にWrangler既定の
+          <code>d1_migrations</code>
+          が残っていることがあります。現在のSQL一覧と先頭から同じ順番で並んでいると
+          確認できる場合だけ <code>yurucommu_migrations</code>
+          へ履歴をまとめます。途中の欠番、知らない名前、重複がある場合は、
+          先頭からSQLを再実行せず停止して調査してください。
+        </p>
+
+        <h2>更新前後に確認すること</h2>
+        <ol>
+          <li>
+            管理ホスト経由かCloudflareへの直接導入かを確認し、管理画面や実行結果から
+            対象データベースを一意に特定する
+          </li>
+          <li>
+            使用する共通パッケージとSQL一式が、公開するWorkerと対応していることを
+            確認する
+          </li>
+          <li>現在の適用履歴を読み、バックアップと隔離した復元先を用意する</li>
+          <li>SQLを適用し、台帳と必要なテーブルを読み返す</li>
+          <li>
+            <code>/readyz</code>を確認し、ログイン、投稿、画像アップロード、
+            外部配送も試す
+          </li>
+        </ol>
+        <p>
+          途中で失敗した場合は、原因が分からないまま同じSQLを繰り返し実行しません。
+          適用済みの範囲を確認し、用意した復元手順または追加修正で回復します。
+        </p>
+
+        <h2>バックアップと復旧</h2>
+        <p>
+          Takosumiのインストール履歴や構成情報のバックアップと、
+          Yurucommuの投稿やメディアを含むサービスデータのバックアップは別物です。
+          管理ホストを使う場合も、インストール履歴と構成情報を保存しただけでは
+          YurucommuのSQLデータやオブジェクトを復元できません。
+        </p>
+        <ul>
+          <li>SQLデータベースとオブジェクトストレージを同じ復旧計画に含める</li>
+          <li>暗号化キーなど、復元後に必要な秘密情報の保管方法を確認する</li>
+          <li>
+            本番を上書きせず、隔離した復元先でデータを読み取れることを試す
+          </li>
+          <li>復元後に認証、投稿、メディア、連合配送を確認する</li>
+        </ul>
+        <p>
+          バックアップの作成方法、保持期間、復元先は、利用するホストやCloudflareの
+          運用手順に従います。データベースの書き出しファイルが存在するだけで、
+          復旧できると判断しないでください。
+        </p>
+
+        <h2>トラブルシューティング</h2>
+
+        <h3>Applyは成功したがテーブルがない</h3>
+        <p>
+          リソースの作成とSQLの適用は別工程です。管理ホストではApply後のSQL更新の
+          実行結果と対象データベースを確認します。Cloudflareでは
+          Workerを公開しただけでSQL適用済みとは判断せず、
+          <code>yurucommu_migrations</code> を確認してください。
+        </p>
+
+        <h3>「すでに存在する」エラーやSQL適用履歴の不一致が出る</h3>
+        <p>
+          <code>yurucommu_migrations</code> と、存在する場合は
+          <code>d1_migrations</code>
+          の両方を読みます。未知の行、重複、途中の欠番があれば自動で埋めず、
+          使用中の共通パッケージと既存スキーマを照合してください。
+        </p>
+
+        <h3><code>/readyz</code>が503になる</h3>
+        <p>
+          応答本文の <code>status</code> と
+          <code>missingBindings</code> を確認します。まず
+          <code>DB</code>、<code>KV</code>、<code>APP_URL</code>、
+          <code>ENCRYPTION_KEY</code>、認証方法を確認し、DBへの接続はあるのに
+          クエリが失敗する場合は、SQL適用履歴とWorkerが利用する共通パッケージの版を
+          照合します。
+        </p>
+
+        <h3>画像だけ保存できない</h3>
+        <p>
+          SQLではなく <code>MEDIA</code>
+          の接続先と権限を確認します。CloudflareではR2、管理ホストでは
+          オブジェクトストレージがこの役割です。DBの復旧後にメディアが欠ける場合も、
+          同じ接続先とオブジェクトストレージ側の復元結果を確認してください。
+        </p>
+
+        <h3>投稿は保存できるが外部へ届かない</h3>
+        <p>
+          <code>DELIVERY_QUEUE</code> と <code>DELIVERY_DLQ</code>、
+          それぞれのキューを処理するWorker、最後の失敗理由を確認します。
+          SQLデータベースが正常でも、キューの接続や処理が止まっていれば
+          外部配送は進みません。
+        </p>
+
+        <p>
+          接続名とデプロイ経路の詳細は
+          <a href="/help/deployment.html">デプロイ</a>、 Cloudflareの設定は
+          <a href="/help/cloudflare-setup.html">Cloudflare設定</a>
+          を参照してください。
         </p>
       </main>
     </div>

@@ -83,7 +83,7 @@
           <ul class="docs-sidebar-nav">
             <li><a href="/help/api.html">API</a></li>
             <li><a href="/help/database.html">データベース</a></li>
-            <li><a href="/specs/">ActivityPub拡張</a></li>
+            <li><a href="/specs/">連合の仕組み</a></li>
           </ul>
         </div>
       </aside>
@@ -96,69 +96,50 @@
 
         <div class="callout callout-warning">
           <strong>重要:</strong>
-          ActivityPubでは、一度設定したドメインを後から変更すると、既存のフォロー関係が失われます。ドメインは慎重に選択してください。
+          ActivityPubではユーザーや投稿のURLにドメインが入ります。運用開始後の変更は、
+          既存のフォローや投稿への参照に影響するため、公開前に決めてください。
         </div>
 
-        <h2>方法1: Cloudflareでドメインを管理する（推奨）</h2>
+        <h2>最初に確認すること</h2>
         <p>
-          ドメインのDNSをCloudflareで管理している場合、最も簡単に設定できます。
+          ブラウザで開くURL、Workerに渡す<code>APP_URL</code>、ActivityPubが公開する
+          ユーザーや投稿のURLは、同じHTTPS originにそろえます。
         </p>
 
-        <h3>Step 1: ドメインをCloudflareに追加</h3>
-        <ol>
-          <li>Cloudflareダッシュボード &gt; 「サイトを追加」</li>
-          <li>ドメイン名を入力</li>
-          <li>指示に従ってネームサーバーを変更</li>
-        </ol>
-
-        <h3>Step 2: デプロイ経路にドメインを設定</h3>
+        <h2>Takosumiで運用する場合</h2>
         <p>
-          Cloudflare 直接経路では Worker の Custom Domains または
-          <code>wrangler.jsonc</code> の route に設定し、<code>APP_URL</code>
-          も同じ HTTPS origin にします。Takosumi 経路ではアプリの hostname /
-          route 入力として設定します。
+          インストール時に公開URLを指定するか、ホストが割り当てたURLを使います。
+          PlanでURLを確認してからApplyしてください。Apply後はTakosumiのApps画面に
+          表示されたリンクを開き、<code>/.well-known/social-server</code>が同じ
+          originを返すことを確認します。
         </p>
 
-        <h3>Step 3: 反映を確認</h3>
+        <h2>Cloudflareでセルフホストする場合</h2>
         <p>
-          直接経路では fixed release adapter の readback で Custom Domain と
-          <code>APP_URL</code> を確認します。operator 管理の Takosumi 経路では
-          Plan の route と紐づけをレビューして Apply し、
-          StateVersion・Output・AuditEvent を確認します。
+          WorkerのCustom Domainまたはrouteを設定し、同じURLを
+          <code>APP_URL</code
+          >に設定します。ルートのOpenTofuモジュールを使う場合は
+          <code>app_url</code>とrouteのPlanを確認します。既存のWorkerへ
+          <code>wrangler.jsonc</code
+          >で接続する場合は、routeとSecretを別途用意します。
         </p>
 
-        <h2>方法2: 外部DNSでCNAMEを設定</h2>
-        <p>ドメインを他のDNSプロバイダで管理している場合：</p>
-
-        <h3>Step 1: WorkersのURLを確認</h3>
+        <h2>外部DNSを使う場合</h2>
         <p>
-          直接経路は Wrangler の deploy 出力、Takosumi 経路は復元ポイント・
-          実行結果に記録された公開 URL を確認します。
+          先にホストまたはCloudflareが割り当てた公開先を確認し、DNSプロバイダ側で
+          CNAMEなど必要なレコードを作ります。使うレコードと証明書の設定は
+          公開先によって異なるため、ホストの案内を優先してください。
         </p>
-
-        <h3>Step 2: CNAMEレコードを追加</h3>
-        <p>DNSプロバイダの管理画面で以下を設定：</p>
         <pre><code>タイプ: CNAME
 名前: yurucommu（サブドメイン部分）
-値: yurucommu.xxx.workers.dev</code></pre>
-
-        <h3>Step 3: デプロイ経路に登録</h3>
-        <p>
-          直接経路では Cloudflare の Custom Domains として、Takosumi
-          経路ではアプリの 入力値として登録します。同じ Worker
-          を両方の経路から同時に管理しないでください。
-        </p>
+値: ホストが案内した公開先</code></pre>
 
         <h2>SSL/TLS設定</h2>
         <p>
-          Cloudflare経由でアクセスする場合、自動的にSSL/TLSが有効になります。
+          公開URLにはHTTPSが必要です。Cloudflareや管理ホストで証明書が有効になってから
+          Yurucommuを公開してください。HTTPのままでは認証、Web Push、
+          ActivityPubの署名付き通信が正しく動きません。
         </p>
-        <p>推奨設定：</p>
-        <ul>
-          <li>SSL/TLS暗号化モード: <strong>Full (strict)</strong></li>
-          <li>常にHTTPSを使用: <strong>有効</strong></li>
-          <li>自動HTTPS書き換え: <strong>有効</strong></li>
-        </ul>
 
         <h2>サブドメインの選択</h2>
         <p>
@@ -184,7 +165,22 @@
           </ul>
         </div>
         <p>
-          どうしてもドメインを変更する必要がある場合は、事前にフォロワーに告知し、新しいアカウントを作り直すことを検討してください。
+          変更が必要な場合は、バックアップを取り、アカウント移行機能を使えるか確認し、
+          事前に利用者へ告知してください。DNSだけを先に変えず、旧URLからの移行方法と
+          新しいURLの<code>/.well-known</code>応答を確認してから切り替えます。
+        </p>
+
+        <h2>困ったとき</h2>
+        <h3>ブラウザでは開けるがログイン後に戻れない</h3>
+        <p>
+          <code>APP_URL</code>とOIDCのcallback URLが、ブラウザで開いているHTTPS
+          originと一致するか確認します。
+        </p>
+        <h3>ほかのサーバーから見つからない</h3>
+        <p>
+          DNSと証明書に続いて、<code>/.well-known/webfinger</code>と
+          <code>/.well-known/social-server</code
+          >が新しいoriginから返るか確認します。
         </p>
       </main>
     </div>

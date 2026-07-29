@@ -4,13 +4,22 @@
   "metadata": {
     "name": "yurucommu",
     "title": "Yurucommu",
-    "description": "Choose a deployment target for Yurucommu."
+    "description": "Choose where to run Yurucommu."
   },
   "options": [
     {
+      "id": "takosumi-managed",
+      "title": "Takosumi managed",
+      "description": "Run Yurucommu on services managed by Takosumi.",
+      "source": {
+        "url": "https://github.com/tako0614/yurucommu.git",
+        "path": "deploy/takoform"
+      }
+    },
+    {
       "id": "cloudflare",
-      "title": "Cloudflare",
-      "description": "Deploy the Cloudflare OpenTofu module.",
+      "title": "Cloudflare (direct)",
+      "description": "Advanced: run Yurucommu in your own Cloudflare account.",
       "source": {
         "url": "https://github.com/tako0614/yurucommu.git",
         "path": "."

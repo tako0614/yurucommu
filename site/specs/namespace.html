@@ -3,10 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>名前空間 - ActivityPub拡張仕様 - yurucommu</title>
+    <title>データ語彙 - yurucommu</title>
     <meta
       name="description"
-      content="yurucommuのActivityPub拡張で使用する名前空間の定義"
+      content="yurucommuの実装済み語彙と提案中のJSON-LD語彙"
     />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="yurucommu" />
@@ -51,28 +51,28 @@
 
     <div class="docs-layout">
       <aside class="docs-sidebar">
-        <p class="docs-sidebar-title">仕様</p>
+        <p class="docs-sidebar-title">ドキュメント</p>
         <ul class="docs-sidebar-nav">
           <li><a href="/specs/">概要</a></li>
-          <li><a href="/specs/activitypub.html">ActivityPub拡張</a></li>
-          <li><a href="/specs/yurucommu.html">yurucommu仕様</a></li>
-          <li><a href="/specs/namespace.html" class="active">名前空間</a></li>
+          <li><a href="/specs/yurucommu.html">使い方</a></li>
+          <li><a href="/specs/activitypub.html">現在の連合形式</a></li>
+          <li><a href="/specs/namespace.html" class="active">データ語彙</a></li>
         </ul>
 
         <div class="docs-sidebar-section">
-          <p class="docs-sidebar-title">ActivityPub拡張</p>
+          <p class="docs-sidebar-title">現在の連合形式</p>
           <ul class="docs-sidebar-nav">
-            <li><a href="/specs/apc.html">APC (Communities)</a></li>
-            <li><a href="/specs/single-user.html">Single-User Instance</a></li>
+            <li><a href="/specs/apc.html">コミュニティ</a></li>
             <li><a href="/specs/story.html">Story</a></li>
-            <li><a href="/specs/dmnote.html">DM Note</a></li>
+            <li><a href="/specs/dmnote.html">DM</a></li>
           </ul>
         </div>
 
         <div class="docs-sidebar-section">
-          <p class="docs-sidebar-title">yurucommu仕様</p>
+          <p class="docs-sidebar-title">使い方</p>
           <ul class="docs-sidebar-nav">
-            <li><a href="/specs/qr-exchange.html">QR Exchange</a></li>
+            <li><a href="/specs/single-user.html">アカウント構成</a></li>
+            <li><a href="/specs/qr-exchange.html">QRでアカウント交換</a></li>
           </ul>
         </div>
 
@@ -92,115 +92,138 @@
       </aside>
 
       <main class="docs-content">
-        <span class="spec-status stable">Stable</span>
-        <h1>名前空間</h1>
+        <span class="spec-status draft">実装済み・提案を併記</span>
+        <h1>データ語彙</h1>
         <p class="lead">
-          yurucommuのActivityPub拡張で使用する名前空間とJSON-LDコンテキストの定義です。
+          yurucommuが公開しているJSON-LDコンテキストと、
+          現在のActivityPub出力で実際に使っている語彙を区別して説明します。
         </p>
 
-        <h2>基本名前空間</h2>
-        <p>yurucommuの拡張プロパティは以下のベース名前空間を使用します：</p>
-        <pre><code>https://yurucommu.com/ns</code></pre>
-
-        <h2>機能別名前空間</h2>
-        <p>各機能は独自のサブ名前空間を持ちます：</p>
-
+        <h2>公開URL</h2>
         <table class="docs-table">
           <thead>
             <tr>
-              <th>機能</th>
-              <th>名前空間</th>
-              <th>説明</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>APC</td>
-              <td><code>https://yurucommu.com/ns/apc#</code></td>
-              <td>コミュニティ機能</td>
-            </tr>
-            <tr>
-              <td>Story</td>
-              <td><code>https://yurucommu.com/ns/story#</code></td>
-              <td>ストーリー機能</td>
-            </tr>
-          </tbody>
-        </table>
-        <p class="note">
-          QR Exchange は標準の Follow を使うローカル機能で、独自の federation
-          名前空間は持ちません（<a href="/specs/qr-exchange.html"
-            >QR Exchange</a
-          >
-          参照）。
-        </p>
-
-        <h2>JSON-LDコンテキスト</h2>
-
-        <h3>統合コンテキスト</h3>
-        <p>全ての拡張を含む統合コンテキストを提供しています：</p>
-        <pre><code>https://yurucommu.com/ns/context.jsonld</code></pre>
-
-        <h3>使用例</h3>
-        <pre><code>{
-  "@context": [
-    "https://www.w3.org/ns/activitystreams",
-    "https://yurucommu.com/ns/context.jsonld"
-  ],
-  "type": "Note",
-  "content": "Hello, Fediverse!"
-}</code></pre>
-
-        <h3>機能別コンテキスト</h3>
-        <p>
-          必要な機能のみを使用する場合は、個別のコンテキストを指定できます：
-        </p>
-        <pre><code>{
-  "@context": [
-    "https://www.w3.org/ns/activitystreams",
-    "https://yurucommu.com/ns/story/context.jsonld"
-  ],
-  "type": ["Story", "Note"],
-  ...
-}</code></pre>
-
-        <h2>コンテキストURL一覧</h2>
-        <table class="docs-table">
-          <thead>
-            <tr>
-              <th>コンテキスト</th>
+              <th>用途</th>
               <th>URL</th>
+              <th>現在の位置付け</th>
             </tr>
           </thead>
           <tbody>
             <tr>
-              <td>統合</td>
+              <td>まとめて参照</td>
               <td><code>https://yurucommu.com/ns/context.jsonld</code></td>
-            </tr>
-            <tr>
-              <td>APC</td>
-              <td><code>https://yurucommu.com/ns/apc/context.jsonld</code></td>
+              <td>Story語彙と提案中のコミュニティ語彙を収録</td>
             </tr>
             <tr>
               <td>Story</td>
               <td>
                 <code>https://yurucommu.com/ns/story/context.jsonld</code>
               </td>
+              <td>現在のStory出力で使う語彙</td>
+            </tr>
+            <tr>
+              <td>コミュニティ</td>
+              <td><code>https://yurucommu.com/ns/apc/context.jsonld</code></td>
+              <td>公開済みだが、現在のGroupアクターでは未使用の提案語彙</td>
             </tr>
           </tbody>
         </table>
 
-        <h2>標準相互運用</h2>
+        <h2>現在使っているStory語彙</h2>
+        <table class="docs-table">
+          <thead>
+            <tr>
+              <th>語彙</th>
+              <th>URI</th>
+              <th>用途</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>Story</code></td>
+              <td><code>https://yurucommu.com/ns/story#Story</code></td>
+              <td><code>Note</code>と併記するStoryの型</td>
+            </tr>
+            <tr>
+              <td><code>displayDuration</code></td>
+              <td>
+                <code>https://yurucommu.com/ns/story#displayDuration</code>
+              </td>
+              <td>1枚を表示する時間。値は<code>xsd:duration</code></td>
+            </tr>
+            <tr>
+              <td><code>overlays</code></td>
+              <td><code>https://yurucommu.com/ns/story#overlays</code></td>
+              <td>順序を持つオーバーレイの一覧</td>
+            </tr>
+            <tr>
+              <td><code>position</code></td>
+              <td><code>https://yurucommu.com/ns/story#position</code></td>
+              <td>
+                <code>x</code>、<code>y</code>、<code>width</code>、
+                <code>height</code>を0から1で表す位置
+              </td>
+            </tr>
+          </tbody>
+        </table>
         <p>
-          yurucommuの拡張プロパティを認識しない実装でも、標準のActivityPub/Activity
-          Streams 2.0
-          として処理できるよう設計されています。不明なプロパティは無視されます。
+          現在の送信処理はStoryオブジェクトに語彙定義を直接含めます。
+          受信側が<code>yurucommu.com</code>へコンテキストを取りに来ることを
+          必須条件にはしていません。
         </p>
 
+        <h2>提案中のコミュニティ語彙</h2>
+        <p>
+          次の語彙はJSON-LDコンテキストとして公開されていますが、現在の
+          コミュニティGroupアクターは値を出力しません。
+        </p>
+        <ul>
+          <li><code>apc:rooms</code></li>
+          <li><code>apc:joinPolicy</code></li>
+          <li><code>apc:postPolicy</code></li>
+          <li><code>apc:visibility</code></li>
+        </ul>
         <div class="callout callout-info">
-          <strong>ヒント:</strong>
-          JSON-LDの仕様により、未知のプロパティは無視されるため、
-          拡張プロパティを含むオブジェクトも標準実装で安全に処理できます。
+          <strong>実装者向け:</strong>
+          コンテキストに語彙が載っているだけでは、その機能が実装済みという意味には
+          なりません。現在のコミュニティ連合は、標準のGroup、Follow、
+          Accept、Reject、Undo、Announceを中心に動作します。
         </div>
+
+        <h2>コンテキストを参照する例</h2>
+        <pre><code>{
+  "@context": [
+    "https://www.w3.org/ns/activitystreams",
+    "https://yurucommu.com/ns/story/context.jsonld"
+  ],
+  "type": ["Story", "Note"],
+  "displayDuration": "PT5S",
+  "overlays": []
+}</code></pre>
+
+        <h2>独自語彙を使わない機能</h2>
+        <ul>
+          <li>
+            DMは直接宛先を持つ標準の<code>Note</code>として送信し、
+            専用のDM名前空間を使いません。
+          </li>
+          <li>
+            QRでのアカウント交換はクライアントがプロフィールURLを共有する機能で、
+            ActivityPubの語彙を追加しません。
+          </li>
+          <li>
+            公開コミュニティの現在のGroupアクターは、
+            上記の提案中APCプロパティを出力しません。
+          </li>
+        </ul>
+
+        <h2>相互運用の注意</h2>
+        <p>
+          JSON-LDとして未知の語彙を読み飛ばせても、Storyの表示や操作が
+          別の実装で再現されるとは限りません。相互運用を判断するときは、
+          コンテキストの存在ではなく、相手が対応する型とプロパティを
+          実際に処理するかを確認してください。
+        </p>
       </main>
     </div>
 

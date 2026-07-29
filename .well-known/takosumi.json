@@ -1,304 +1,307 @@
 {
-  "schemaVersion": "takosumi.install-ux/v1",
-  "modules": {
-    ".": {
-      "inputs": [
-        {
-          "name": "project_name",
-          "source": {
-            "kind": "capsule_name"
-          },
-          "type": "string",
-          "format": "subdomain",
-          "label": {
-            "ja": "サービス名",
-            "en": "Service name"
-          },
-          "helper": {
-            "ja": "ワークスペース内で使うYurucommuの名前です。",
-            "en": "The name of this Yurucommu service in the workspace."
-          },
-          "advanced": true
-        },
-        {
-          "name": "app_url",
-          "source": {
-            "kind": "user"
-          },
-          "type": "string",
-          "format": "url",
-          "required": false,
-          "label": {
-            "ja": "公開URL",
-            "en": "Public URL"
-          },
-          "helper": {
-            "ja": "空欄の場合はTakosumiが利用可能な公開URLを割り当てます。",
-            "en": "Takosumi allocates an available public URL when omitted."
-          },
-          "placeholder": "https://yurucommu.example.com"
-        },
-        {
-          "name": "takosumi_accounts_issuer_url",
-          "source": {
-            "kind": "module_default"
-          },
-          "type": "string",
-          "format": "url",
-          "label": {
-            "ja": "Takosumi Accounts発行者",
-            "en": "Takosumi Accounts issuer"
-          },
-          "advanced": true
-        },
-        {
-          "name": "takosumi_accounts_client_id",
-          "source": {
-            "kind": "module_default"
-          },
-          "type": "string",
-          "label": {
-            "ja": "Takosumi Accountsクライアント",
-            "en": "Takosumi Accounts client"
-          },
-          "advanced": true
-        },
-        {
-          "name": "auth_password_hash",
-          "source": {
-            "kind": "user"
-          },
-          "type": "string",
-          "format": "password",
-          "required": false,
-          "label": {
-            "ja": "初期パスワード",
-            "en": "Initial password"
-          },
-          "helper": {
-            "ja": "パスワード認証を選んだ場合だけ入力します。",
-            "en": "Enter this only when password authentication is selected."
-          },
-          "secret": true
-        },
-        {
-          "name": "notification_push_gateway_url",
-          "source": {
-            "kind": "user"
-          },
-          "type": "string",
-          "format": "url",
-          "required": false,
-          "label": {
-            "ja": "PushゲートウェイURL",
-            "en": "Push gateway URL"
-          },
-          "advanced": true
-        },
-        {
-          "name": "notification_push_gateway_token",
-          "source": {
-            "kind": "user"
-          },
-          "type": "string",
-          "format": "password",
-          "required": false,
-          "label": {
-            "ja": "Pushゲートウェイトークン",
-            "en": "Push gateway token"
-          },
-          "secret": true,
-          "advanced": true
-        },
-        {
-          "name": "notification_push_web_push_public_key",
-          "source": {
-            "kind": "user"
-          },
-          "type": "string",
-          "required": false,
-          "label": {
-            "ja": "Web Push公開鍵",
-            "en": "Web Push public key"
-          },
-          "advanced": true
-        },
-        {
-          "name": "worker_name",
-          "source": {
-            "kind": "module_default"
-          },
-          "type": "string",
-          "label": {
-            "ja": "実行サービス名",
-            "en": "Runtime service name"
-          },
-          "advanced": true
-        },
-        {
-          "name": "worker_release_tag",
-          "source": {
-            "kind": "module_default"
-          },
-          "type": "string",
-          "label": {
-            "ja": "リリース",
-            "en": "Release"
-          },
-          "advanced": true
-        },
-        {
-          "name": "worker_bundle_url",
-          "source": {
-            "kind": "module_default"
-          },
-          "type": "string",
-          "format": "url",
-          "label": {
-            "ja": "リリースURL",
-            "en": "Release URL"
-          },
-          "advanced": true
-        },
-        {
-          "name": "worker_bundle_sha256",
-          "source": {
-            "kind": "module_default"
-          },
-          "type": "string",
-          "label": {
-            "ja": "リリースSHA-256",
-            "en": "Release SHA-256"
-          },
-          "advanced": true
-        }
-      ],
-      "installExperience": {
-        "projections": [
+  "apiVersion": "takosumi.com/v1alpha1",
+  "kind": "Repository",
+  "install": {
+    "modules": {
+      ".": {
+        "inputs": [
           {
-            "kind": "service_name",
-            "variable": "project_name"
-          },
-          {
-            "kind": "public_endpoint",
-            "variables": {
-              "url": "app_url",
-              "subdomain": "project_name"
-            }
-          },
-          {
-            "kind": "initial_secret",
-            "variable": "auth_password_hash",
-            "secretKind": "password_or_hash",
-            "optional": true
-          },
-          {
-            "kind": "oidc_client",
-            "variables": {
-              "issuerUrl": "takosumi_accounts_issuer_url",
-              "clientId": "takosumi_accounts_client_id"
+            "name": "project_name",
+            "source": {
+              "kind": "capsule_name"
             },
-            "callbackPath": "/api/auth/callback/takos",
-            "scopes": ["openid", "profile", "email"]
+            "type": "string",
+            "format": "subdomain",
+            "label": {
+              "ja": "サービス名",
+              "en": "Service name"
+            },
+            "helper": {
+              "ja": "ワークスペース内で使うYurucommuの名前です。",
+              "en": "The name of this Yurucommu service in the workspace."
+            },
+            "advanced": true
           },
           {
-            "kind": "artifact",
-            "variables": {
-              "url": "worker_bundle_url",
-              "sha256": "worker_bundle_sha256"
+            "name": "app_url",
+            "source": {
+              "kind": "user"
+            },
+            "type": "string",
+            "format": "url",
+            "required": false,
+            "label": {
+              "ja": "公開URL",
+              "en": "Public URL"
+            },
+            "helper": {
+              "ja": "空欄の場合はTakosumiが利用可能な公開URLを割り当てます。",
+              "en": "Takosumi allocates an available public URL when omitted."
+            },
+            "placeholder": "https://yurucommu.example.com"
+          },
+          {
+            "name": "takosumi_accounts_issuer_url",
+            "source": {
+              "kind": "module_default"
+            },
+            "type": "string",
+            "format": "url",
+            "label": {
+              "ja": "Takosumi Accounts発行者",
+              "en": "Takosumi Accounts issuer"
+            },
+            "advanced": true
+          },
+          {
+            "name": "takosumi_accounts_client_id",
+            "source": {
+              "kind": "module_default"
+            },
+            "type": "string",
+            "label": {
+              "ja": "Takosumi Accountsクライアント",
+              "en": "Takosumi Accounts client"
+            },
+            "advanced": true
+          },
+          {
+            "name": "auth_password_hash",
+            "source": {
+              "kind": "user"
+            },
+            "type": "string",
+            "format": "password",
+            "required": false,
+            "label": {
+              "ja": "初期パスワード",
+              "en": "Initial password"
+            },
+            "helper": {
+              "ja": "パスワード認証を選んだ場合だけ入力します。",
+              "en": "Enter this only when password authentication is selected."
+            },
+            "secret": true
+          },
+          {
+            "name": "notification_push_gateway_url",
+            "source": {
+              "kind": "user"
+            },
+            "type": "string",
+            "format": "url",
+            "required": false,
+            "label": {
+              "ja": "PushゲートウェイURL",
+              "en": "Push gateway URL"
+            },
+            "advanced": true
+          },
+          {
+            "name": "notification_push_gateway_token",
+            "source": {
+              "kind": "user"
+            },
+            "type": "string",
+            "format": "password",
+            "required": false,
+            "label": {
+              "ja": "Pushゲートウェイトークン",
+              "en": "Push gateway token"
+            },
+            "secret": true,
+            "advanced": true
+          },
+          {
+            "name": "notification_push_web_push_public_key",
+            "source": {
+              "kind": "user"
+            },
+            "type": "string",
+            "required": false,
+            "label": {
+              "ja": "Web Push公開鍵",
+              "en": "Web Push public key"
+            },
+            "advanced": true
+          },
+          {
+            "name": "worker_name",
+            "source": {
+              "kind": "module_default"
+            },
+            "type": "string",
+            "label": {
+              "ja": "実行サービス名",
+              "en": "Runtime service name"
+            },
+            "advanced": true
+          },
+          {
+            "name": "worker_release_tag",
+            "source": {
+              "kind": "module_default"
+            },
+            "type": "string",
+            "label": {
+              "ja": "リリース",
+              "en": "Release"
+            },
+            "advanced": true
+          },
+          {
+            "name": "worker_bundle_url",
+            "source": {
+              "kind": "module_default"
+            },
+            "type": "string",
+            "format": "url",
+            "label": {
+              "ja": "リリースURL",
+              "en": "Release URL"
+            },
+            "advanced": true
+          },
+          {
+            "name": "worker_bundle_sha256",
+            "source": {
+              "kind": "module_default"
+            },
+            "type": "string",
+            "label": {
+              "ja": "リリースSHA-256",
+              "en": "Release SHA-256"
+            },
+            "advanced": true
+          }
+        ],
+        "installExperience": {
+          "projections": [
+            {
+              "kind": "service_name",
+              "variable": "project_name"
+            },
+            {
+              "kind": "public_endpoint",
+              "variables": {
+                "url": "app_url",
+                "subdomain": "project_name"
+              }
+            },
+            {
+              "kind": "initial_secret",
+              "variable": "auth_password_hash",
+              "secretKind": "password_or_hash",
+              "optional": true
+            },
+            {
+              "kind": "oidc_client",
+              "variables": {
+                "issuerUrl": "takosumi_accounts_issuer_url",
+                "clientId": "takosumi_accounts_client_id"
+              },
+              "callbackPath": "/api/auth/callback/takos",
+              "scopes": ["openid", "profile", "email"]
+            },
+            {
+              "kind": "artifact",
+              "variables": {
+                "url": "worker_bundle_url",
+                "sha256": "worker_bundle_sha256"
+              }
             }
+          ]
+        },
+        "features": [
+          {
+            "id": "password-authentication",
+            "optional": true,
+            "label": {
+              "ja": "パスワードでログイン",
+              "en": "Sign in with a password"
+            },
+            "inputs": ["auth_password_hash"]
+          },
+          {
+            "id": "notification-push",
+            "optional": true,
+            "label": {
+              "ja": "プッシュ通知",
+              "en": "Push notifications"
+            },
+            "inputs": [
+              "notification_push_gateway_url",
+              "notification_push_gateway_token",
+              "notification_push_web_push_public_key"
+            ]
           }
         ]
       },
-      "features": [
-        {
-          "id": "password-authentication",
-          "optional": true,
-          "label": {
-            "ja": "パスワードでログイン",
-            "en": "Sign in with a password"
+      "deploy/takoform": {
+        "inputs": [
+          {
+            "name": "project_name",
+            "source": {
+              "kind": "capsule_name"
+            },
+            "type": "string",
+            "format": "subdomain",
+            "label": {
+              "ja": "サービス名",
+              "en": "Service name"
+            },
+            "helper": {
+              "ja": "ワークスペース内で使うYurucommuの名前です。",
+              "en": "The name of this Yurucommu service in the workspace."
+            },
+            "advanced": true
           },
-          "inputs": ["auth_password_hash"]
-        },
-        {
-          "id": "notification-push",
-          "optional": true,
-          "label": {
-            "ja": "プッシュ通知",
-            "en": "Push notifications"
+          {
+            "name": "worker_release_tag",
+            "source": {
+              "kind": "module_default"
+            },
+            "type": "string",
+            "label": {
+              "ja": "リリース",
+              "en": "Release"
+            },
+            "advanced": true
           },
-          "inputs": [
-            "notification_push_gateway_url",
-            "notification_push_gateway_token",
-            "notification_push_web_push_public_key"
+          {
+            "name": "worker_bundle_url",
+            "source": {
+              "kind": "module_default"
+            },
+            "type": "string",
+            "format": "url",
+            "label": {
+              "ja": "リリースURL",
+              "en": "Release URL"
+            },
+            "advanced": true
+          },
+          {
+            "name": "worker_bundle_sha256",
+            "source": {
+              "kind": "module_default"
+            },
+            "type": "string",
+            "label": {
+              "ja": "リリースSHA-256",
+              "en": "Release SHA-256"
+            },
+            "advanced": true
+          }
+        ],
+        "installExperience": {
+          "projections": [
+            {
+              "kind": "service_name",
+              "variable": "project_name"
+            }
           ]
         }
-      ]
-    },
-    "deploy/takoform": {
-      "inputs": [
-        {
-          "name": "project_name",
-          "source": {
-            "kind": "capsule_name"
-          },
-          "type": "string",
-          "format": "subdomain",
-          "label": {
-            "ja": "サービス名",
-            "en": "Service name"
-          },
-          "helper": {
-            "ja": "ワークスペース内で使うYurucommuの名前です。",
-            "en": "The name of this Yurucommu service in the workspace."
-          },
-          "advanced": true
-        },
-        {
-          "name": "worker_release_tag",
-          "source": {
-            "kind": "module_default"
-          },
-          "type": "string",
-          "label": {
-            "ja": "リリース",
-            "en": "Release"
-          },
-          "advanced": true
-        },
-        {
-          "name": "worker_bundle_url",
-          "source": {
-            "kind": "module_default"
-          },
-          "type": "string",
-          "format": "url",
-          "label": {
-            "ja": "リリースURL",
-            "en": "Release URL"
-          },
-          "advanced": true
-        },
-        {
-          "name": "worker_bundle_sha256",
-          "source": {
-            "kind": "module_default"
-          },
-          "type": "string",
-          "label": {
-            "ja": "リリースSHA-256",
-            "en": "Release SHA-256"
-          },
-          "advanced": true
-        }
-      ],
-      "installExperience": {
-        "projections": [
-          {
-            "kind": "service_name",
-            "variable": "project_name"
-          }
-        ]
       }
     }
   }

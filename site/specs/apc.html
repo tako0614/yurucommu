@@ -3,10 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>APC (ActivityPub Communities) - yurucommu</title>
+    <title>コミュニティの連合形式 - yurucommu</title>
     <meta
       name="description"
-      content="ActivityPubでコミュニティ機能を実現するための拡張仕様"
+      content="yurucommuの公開コミュニティが現在使用するActivityPub形式"
     />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="yurucommu" />
@@ -51,30 +51,28 @@
 
     <div class="docs-layout">
       <aside class="docs-sidebar">
-        <p class="docs-sidebar-title">仕様</p>
+        <p class="docs-sidebar-title">ドキュメント</p>
         <ul class="docs-sidebar-nav">
           <li><a href="/specs/">概要</a></li>
-          <li><a href="/specs/activitypub.html">ActivityPub拡張</a></li>
-          <li><a href="/specs/yurucommu.html">yurucommu仕様</a></li>
-          <li><a href="/specs/namespace.html">名前空間</a></li>
+          <li><a href="/specs/yurucommu.html">使い方</a></li>
+          <li><a href="/specs/activitypub.html">現在の連合形式</a></li>
+          <li><a href="/specs/namespace.html">データ語彙</a></li>
         </ul>
 
         <div class="docs-sidebar-section">
-          <p class="docs-sidebar-title">ActivityPub拡張</p>
+          <p class="docs-sidebar-title">現在の連合形式</p>
           <ul class="docs-sidebar-nav">
-            <li>
-              <a href="/specs/apc.html" class="active">APC (Communities)</a>
-            </li>
-            <li><a href="/specs/single-user.html">Single-User Instance</a></li>
+            <li><a href="/specs/apc.html" class="active">コミュニティ</a></li>
             <li><a href="/specs/story.html">Story</a></li>
-            <li><a href="/specs/dmnote.html">DM Note</a></li>
+            <li><a href="/specs/dmnote.html">DM</a></li>
           </ul>
         </div>
 
         <div class="docs-sidebar-section">
-          <p class="docs-sidebar-title">yurucommu仕様</p>
+          <p class="docs-sidebar-title">使い方</p>
           <ul class="docs-sidebar-nav">
-            <li><a href="/specs/qr-exchange.html">QR Exchange</a></li>
+            <li><a href="/specs/single-user.html">アカウント構成</a></li>
+            <li><a href="/specs/qr-exchange.html">QRでアカウント交換</a></li>
           </ul>
         </div>
 
@@ -94,259 +92,134 @@
       </aside>
 
       <main class="docs-content">
-        <span class="spec-status stable">Stable</span>
-        <h1>APC (ActivityPub Communities)</h1>
+        <span class="spec-status experimental">現行実装</span>
+        <h1>コミュニティの連合形式</h1>
         <p class="lead">
-          ActivityPubの<code>Group</code>アクターを使用してコミュニティ機能を実現するための仕様です。
-          Lemmy、Kbinなどの実装と相互運用性を持ちます。
+          公開コミュニティはActivityPubの<code>Group</code>アクターとして公開されます。
+          参加と投稿配信で現在使っている形式を説明します。
         </p>
 
-        <h2>概要</h2>
+        <div class="callout callout-info">
+          <strong>相互運用について:</strong>
+          標準の<code>Group</code>、<code>Follow</code>、
+          <code>Accept</code>、<code>Reject</code>、
+          <code>Announce</code>を使いますが、特定の外部製品との
+          適合試験を完了したという意味ではありません。
+        </div>
+
+        <h2>公開されるGroupアクター</h2>
         <p>
-          APCは、ActivityPubの標準的な<code>Group</code>アクタータイプを使用して、
-          コミュニティ（グループ、サブレディット的なもの）を実現します。
+          公開中で削除されていないコミュニティだけが
+          <code>/ap/groups/:name</code>で取得できます。非公開コミュニティは
+          ActivityPubのアクターとして公開されず、このURLは<code>404</code>を返します。
+          <code>@name@host</code>はWebFingerでこのアクターに解決されます。
         </p>
-
-        <h3>設計方針</h3>
-        <ul>
-          <li>
-            <strong>AS2準拠</strong> - 標準の<code>Group</code>アクターを使用
-          </li>
-          <li><strong>相互運用性</strong> - Lemmy、Kbin等と互換性を持つ</li>
-          <li><strong>シンプル</strong> - 必要最小限の拡張のみ</li>
-        </ul>
-
-        <h2>名前空間</h2>
-        <pre><code>https://yurucommu.com/ns/apc#</code></pre>
-
-        <h2>コミュニティ（Group）</h2>
-        <p>
-          コミュニティはActivityPubの<code>Group</code>アクターとして表現されます。
-        </p>
-
-        <h3>必須プロパティ</h3>
-        <table class="docs-table">
-          <thead>
-            <tr>
-              <th>プロパティ</th>
-              <th>型</th>
-              <th>説明</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><code>type</code></td>
-              <td>String</td>
-              <td><code>"Group"</code></td>
-            </tr>
-            <tr>
-              <td><code>id</code></td>
-              <td>URI</td>
-              <td>コミュニティのActivityPub IRI</td>
-            </tr>
-            <tr>
-              <td><code>name</code></td>
-              <td>String</td>
-              <td>コミュニティの表示名</td>
-            </tr>
-            <tr>
-              <td><code>preferredUsername</code></td>
-              <td>String</td>
-              <td>@メンション用の識別子</td>
-            </tr>
-            <tr>
-              <td><code>inbox</code></td>
-              <td>URI</td>
-              <td>受信ボックスURL</td>
-            </tr>
-            <tr>
-              <td><code>outbox</code></td>
-              <td>URI</td>
-              <td>送信ボックスURL</td>
-            </tr>
-            <tr>
-              <td><code>followers</code></td>
-              <td>URI</td>
-              <td>メンバー一覧（フォロワーコレクション）</td>
-            </tr>
-          </tbody>
-        </table>
-
-        <h3>拡張プロパティ</h3>
-        <table class="docs-table">
-          <thead>
-            <tr>
-              <th>プロパティ</th>
-              <th>型</th>
-              <th>説明</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><code>apc:visibility</code></td>
-              <td>String</td>
-              <td><code>public</code> または <code>private</code></td>
-            </tr>
-            <tr>
-              <td><code>apc:postPolicy</code></td>
-              <td>String</td>
-              <td>
-                投稿権限: <code>anyone</code>, <code>members</code>,
-                <code>mods</code>, <code>owners</code>（デフォルトは
-                <code>members</code>）
-              </td>
-            </tr>
-            <tr>
-              <td><code>apc:joinPolicy</code></td>
-              <td>String</td>
-              <td>
-                参加方式: <code>open</code>, <code>approval</code>,
-                <code>invite</code>
-              </td>
-            </tr>
-            <tr>
-              <td><code>apc:rooms</code></td>
-              <td>URI</td>
-              <td>
-                コミュニティ内のルーム（サブチャンネル）コレクションの
-                URI。省略可能。
-              </td>
-            </tr>
-          </tbody>
-        </table>
-
-        <h3>例: コミュニティアクター</h3>
         <pre><code>{
-  "@context": [
-    "https://www.w3.org/ns/activitystreams",
-    "https://yurucommu.com/ns/apc/context.jsonld"
-  ],
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "id": "https://example.com/ap/groups/tech",
   "type": "Group",
-  "id": "https://example.com/communities/tech",
-  "name": "Tech Talk",
   "preferredUsername": "tech",
-  "summary": "技術について話すコミュニティ",
-  "icon": {
-    "type": "Image",
-    "url": "https://example.com/media/communities/tech/icon.png"
-  },
-  "inbox": "https://example.com/communities/tech/inbox",
-  "outbox": "https://example.com/communities/tech/outbox",
-  "followers": "https://example.com/communities/tech/followers",
-  "apc:visibility": "public",
-  "apc:postPolicy": "members",
-  "apc:joinPolicy": "open"
-}</code></pre>
-
-        <h2>メンバーシップ</h2>
-        <p>
-          コミュニティへの参加は<code>Follow</code>アクティビティで表現されます。
-        </p>
-
-        <h3>参加リクエスト</h3>
-        <pre><code>{
-  "@context": "https://www.w3.org/ns/activitystreams",
-  "type": "Follow",
-  "id": "https://alice.example/activities/join-tech",
-  "actor": "https://alice.example/users/alice",
-  "object": "https://example.com/communities/tech"
-}</code></pre>
-
-        <h3>参加承認</h3>
-        <pre><code>{
-  "@context": "https://www.w3.org/ns/activitystreams",
-  "type": "Accept",
-  "id": "https://example.com/activities/accept-alice",
-  "actor": "https://example.com/communities/tech",
-  "object": {
-    "type": "Follow",
-    "id": "https://alice.example/activities/join-tech",
-    "actor": "https://alice.example/users/alice",
-    "object": "https://example.com/communities/tech"
+  "name": "Tech Talk",
+  "inbox": "https://example.com/ap/groups/tech/inbox",
+  "outbox": "https://example.com/ap/groups/tech/outbox",
+  "followers": "https://example.com/ap/groups/tech/followers",
+  "moderators": "https://example.com/ap/groups/tech/moderators",
+  "manuallyApprovesFollowers": false,
+  "publicKey": {
+    "id": "https://example.com/ap/groups/tech#main-key",
+    "owner": "https://example.com/ap/groups/tech",
+    "publicKeyPem": "..."
   }
 }</code></pre>
+        <p>
+          実際の<code>@context</code>には、アクター文書で使う既知の語彙定義が
+          追加される場合があります。上の例は参加と配送に必要な部分だけを示しています。
+        </p>
+
+        <h2>参加と退出</h2>
+        <p>
+          リモートアクターはコミュニティの<code>inbox</code>へ
+          <code>Follow</code
+          >を送ります。応答はコミュニティ自身の鍵で署名されます。
+        </p>
+        <table class="docs-table">
+          <thead>
+            <tr>
+              <th>コミュニティの設定</th>
+              <th>Followを受け取ったとき</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>open</code></td>
+              <td>その場で参加を記録し、<code>Accept</code>を配送</td>
+            </tr>
+            <tr>
+              <td><code>approval</code></td>
+              <td>保留にし、管理者が承認した後に<code>Accept</code>を配送</td>
+            </tr>
+            <tr>
+              <td><code>invite</code></td>
+              <td>
+                外部からのFollowだけでは参加させず、<code>Reject</code>を配送
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <p>
+          退出は、参加時の<code>Follow</code>を対象にした
+          <code>Undo</code>で表します。公開コミュニティ以外の
+          <code>inbox</code>は連合向けに公開されません。
+        </p>
 
         <h2>投稿の配信</h2>
         <p>
-          コミュニティへの投稿は、コミュニティの<code>inbox</code>に送信されます。
+          コミュニティのフィードに作成した投稿は、投稿者を
+          <code>actor</code>とする<code>Create(Note)</code>として保存されます。
+          配信先はそのコミュニティのメンバーと、Groupアクターをフォローしている
+          リモートアクターです。
         </p>
-
-        <h3>コミュニティ宛の投稿</h3>
-        <pre><code>{
-  "@context": "https://www.w3.org/ns/activitystreams",
-  "type": "Create",
-  "id": "https://alice.example/activities/create-note-1",
-  "actor": "https://alice.example/users/alice",
-  "to": ["https://example.com/communities/tech"],
-  "cc": ["https://www.w3.org/ns/activitystreams#Public"],
-  "object": {
-    "type": "Note",
-    "id": "https://alice.example/notes/1",
-    "attributedTo": "https://alice.example/users/alice",
-    "content": "新しいプログラミング言語を試してみました！",
-    "to": ["https://example.com/communities/tech"],
-    "cc": ["https://www.w3.org/ns/activitystreams#Public"]
-  }
-}</code></pre>
-
-        <h3>コミュニティによる再配信</h3>
         <p>
-          コミュニティは受け取った投稿を全メンバーに<code>Announce</code>として再配信します。
+          公開コミュニティからリモートへ届けるときは、Groupアクターが投稿を
+          <code>Announce</code>します。ローカルメンバーには元の
+          <code>Create</code>が渡ります。
         </p>
         <pre><code>{
   "@context": "https://www.w3.org/ns/activitystreams",
+  "id": "https://example.com/ap/activities/announce-1",
   "type": "Announce",
-  "id": "https://example.com/communities/tech/announces/1",
-  "actor": "https://example.com/communities/tech",
-  "to": ["https://example.com/communities/tech/followers"],
-  "cc": ["https://www.w3.org/ns/activitystreams#Public"],
-  "object": "https://alice.example/notes/1"
+  "actor": "https://example.com/ap/groups/tech",
+  "object": "https://example.com/ap/objects/post-1",
+  "to": ["https://example.com/ap/groups/tech/followers"],
+  "cc": ["https://www.w3.org/ns/activitystreams#Public"]
 }</code></pre>
 
-        <h2>モデレーション</h2>
-        <p>モデレーターは特定の管理アクションを実行できます。</p>
-
-        <h3>投稿の削除</h3>
-        <pre><code>{
-  "@context": "https://www.w3.org/ns/activitystreams",
-  "type": "Remove",
-  "id": "https://example.com/communities/tech/removes/1",
-  "actor": "https://example.com/communities/tech",
-  "object": "https://alice.example/notes/1",
-  "target": "https://example.com/communities/tech/outbox",
-  "summary": "コミュニティガイドライン違反"
-}</code></pre>
-
-        <h3>メンバーのBAN</h3>
-        <pre><code>{
-  "@context": "https://www.w3.org/ns/activitystreams",
-  "type": "Block",
-  "id": "https://example.com/communities/tech/blocks/1",
-  "actor": "https://example.com/communities/tech",
-  "object": "https://spammer.example/users/spam"
-}</code></pre>
-
-        <h2>相互運用性</h2>
+        <h2>コミュニティのチャット</h2>
         <p>
-          この仕様はLemmy、Kbinなどの実装と相互運用できる構造 を意識しています。
-          標準の<code>Group</code>アクターを使用することで、基本的なフォロー・投稿の配信は
-          ActivityPub対応の多くの実装で動作します。
+          画面上のコミュニティチャットは、現在は主に同じインスタンス内の
+          メンバー向け機能です。コミュニティのフィード投稿と同じ
+          <code>Announce</code>配信を行うとは限りません。外部サーバーから
+          Groupの<code>inbox</code>へ任意の<code>Create</code>を送れば
+          チャットに参加できる、という契約もありません。
         </p>
 
-        <h2>参考</h2>
+        <h2>現在使っていないAPC語彙</h2>
+        <p>
+          <code>https://yurucommu.com/ns/apc#</code>には
+          <code>rooms</code>、<code>joinPolicy</code>、
+          <code>postPolicy</code>、<code>visibility</code>が公開されています。
+          ただし、現在のコミュニティGroupアクターはこれらのプロパティを出力しません。
+          これらは将来の検討用語彙であり、実装済みの連合契約として扱わないでください。
+        </p>
+
+        <h2>確認できる範囲</h2>
         <ul>
           <li>
-            <a
-              href="https://www.w3.org/TR/activitystreams-vocabulary/#dfn-group"
-              >Activity Streams 2.0 - Group</a
-            >
+            公開コミュニティのGroupアクター、outbox、followers、moderators
           </li>
-          <li>
-            <a
-              href="https://join-lemmy.org/docs/contributors/05-federation.html"
-              >Lemmy Federation</a
-            >
-          </li>
+          <li>Follow、Accept、Reject、Undoによるリモート参加</li>
+          <li>公開コミュニティの投稿をGroupのAnnounceとして配信</li>
+          <li>非公開コミュニティのアクター情報を連合向けに公開しない</li>
         </ul>
       </main>
     </div>

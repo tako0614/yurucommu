@@ -3,10 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ActivityPub拡張仕様 - yurucommu</title>
+    <title>現在の連合形式 - yurucommu</title>
     <meta
       name="description"
-      content="yurucommuのActivityPub拡張仕様。連合に配信される仕様一覧"
+      content="yurucommuが現在送受信するActivityPub形式の概要"
     />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="yurucommu" />
@@ -51,30 +51,30 @@
 
     <div class="docs-layout">
       <aside class="docs-sidebar">
-        <p class="docs-sidebar-title">仕様</p>
+        <p class="docs-sidebar-title">ドキュメント</p>
         <ul class="docs-sidebar-nav">
           <li><a href="/specs/">概要</a></li>
+          <li><a href="/specs/yurucommu.html">使い方</a></li>
           <li>
-            <a href="/specs/activitypub.html" class="active">ActivityPub拡張</a>
+            <a href="/specs/activitypub.html" class="active">現在の連合形式</a>
           </li>
-          <li><a href="/specs/yurucommu.html">yurucommu仕様</a></li>
-          <li><a href="/specs/namespace.html">名前空間</a></li>
+          <li><a href="/specs/namespace.html">データ語彙</a></li>
         </ul>
 
         <div class="docs-sidebar-section">
-          <p class="docs-sidebar-title">ActivityPub拡張</p>
+          <p class="docs-sidebar-title">現在の連合形式</p>
           <ul class="docs-sidebar-nav">
-            <li><a href="/specs/apc.html">APC (Communities)</a></li>
-            <li><a href="/specs/single-user.html">Single-User Instance</a></li>
+            <li><a href="/specs/apc.html">コミュニティ</a></li>
             <li><a href="/specs/story.html">Story</a></li>
-            <li><a href="/specs/dmnote.html">DM Note</a></li>
+            <li><a href="/specs/dmnote.html">DM</a></li>
           </ul>
         </div>
 
         <div class="docs-sidebar-section">
-          <p class="docs-sidebar-title">yurucommu仕様</p>
+          <p class="docs-sidebar-title">使い方</p>
           <ul class="docs-sidebar-nav">
-            <li><a href="/specs/qr-exchange.html">QR Exchange</a></li>
+            <li><a href="/specs/single-user.html">アカウント構成</a></li>
+            <li><a href="/specs/qr-exchange.html">QRでアカウント交換</a></li>
           </ul>
         </div>
 
@@ -94,96 +94,88 @@
       </aside>
 
       <main class="docs-content">
-        <span class="spec-scope federation">連合に配信</span>
-        <h1>ActivityPub拡張仕様</h1>
+        <span class="spec-status experimental">現行実装</span>
+        <h1>現在の連合形式</h1>
         <p class="lead">
-          ActivityPubプロトコルを拡張し、他のFediverse実装（Mastodon、Misskey等）との相互運用性を確保する仕様です。
-          これらの拡張は連合に配信され、対応する実装間で機能します。
+          yurucommuが現在、外部サーバーとの間で送受信しているActivityPubの形を
+          機能ごとに説明します。
         </p>
 
-        <h2>名前空間</h2>
-        <p>ActivityPub拡張プロパティは以下の名前空間を使用します：</p>
-        <pre><code>{
-  "@context": [
-    "https://www.w3.org/ns/activitystreams",
-    "https://yurucommu.com/ns"
-  ]
-}</code></pre>
-        <p>
-          詳細は<a href="/specs/namespace.html">名前空間</a>を参照してください。
-        </p>
-
-        <h2>設計方針</h2>
-        <ul>
-          <li>
-            <strong>標準相互運用</strong> - 標準のActivityPub実装で扱える
-            ActivityStreamsの構造を維持する
-          </li>
-          <li>
-            <strong>オプショナル</strong> -
-            拡張機能は必須ではなく、サポートしない実装でも基本機能は動作する
-          </li>
-          <li>
-            <strong>名前空間の使用</strong> -
-            拡張プロパティには必ず名前空間を指定する
-          </li>
-          <li>
-            <strong>ドキュメント</strong> -
-            実装の挙動を文書化し、テストケースを提供する
-          </li>
-        </ul>
-
-        <h2>仕様一覧</h2>
+        <div class="callout callout-info">
+          <strong>保証範囲:</strong>
+          ここで「送受信する」と書いているのはyurucommu同士を含む現行コードの挙動です。
+          Mastodon、Misskey、Lemmyなど個別製品との適合試験結果を示すものではありません。
+          相手が未知の型やプロパティをどう表示するかは、相手側の実装に依存します。
+        </div>
 
         <div class="card-grid">
           <a href="/specs/apc.html" class="card">
-            <span class="spec-status stable">Stable</span>
-            <h3 class="card-title">APC (ActivityPub Communities)</h3>
+            <h3 class="card-title">コミュニティ</h3>
             <p class="card-description">
-              コミュニティ（グループ）機能の仕様。Groupアクターを使用したコミュニティの作成、参加、投稿の配信について定義。
-            </p>
-          </a>
-          <a href="/specs/single-user.html" class="card">
-            <span class="spec-status stable">Stable</span>
-            <h3 class="card-title">Single-User Instance</h3>
-            <p class="card-description">
-              1インスタンス1ユーザーの設計に関する仕様。認証、権限、インスタンス管理について定義。
+              公開コミュニティを<code>Group</code>アクターとして公開します。
+              参加は<code>Follow</code>、投稿の外向け配信はGroupによる
+              <code>Announce</code>が中心です。
             </p>
           </a>
           <a href="/specs/story.html" class="card">
-            <span class="spec-status stable">Stable</span>
             <h3 class="card-title">Story</h3>
             <p class="card-description">
-              24時間で消えるストーリー機能の仕様。Noteを拡張し、endTimeや単一attachment、displayDurationを追加。
+              <code>["Story", "Note"]</code>、<code>endTime</code>、
+              1つのメディアと表示用プロパティを持つオブジェクトです。
             </p>
           </a>
           <a href="/specs/dmnote.html" class="card">
-            <span class="spec-status stable">Stable</span>
-            <h3 class="card-title">DM Note</h3>
+            <h3 class="card-title">DM</h3>
             <p class="card-description">
-              一時的なダイレクトメッセージの仕様。消えるメッセージをActivityPubで実現。
+              宛先1人だけを<code>to</code>に入れた
+              <code>Note</code>です。独自のDM型や有効期限は使いません。
             </p>
           </a>
         </div>
 
-        <h2>参考</h2>
-        <ul>
-          <li>
-            <a href="https://www.w3.org/TR/activitypub/"
-              >ActivityPub W3C Recommendation</a
-            >
-          </li>
-          <li>
-            <a href="https://www.w3.org/TR/activitystreams-core/"
-              >Activity Streams 2.0</a
-            >
-          </li>
-          <li>
-            <a href="https://www.w3.org/TR/activitystreams-vocabulary/"
-              >Activity Vocabulary</a
-            >
-          </li>
-        </ul>
+        <h2>共通して使うもの</h2>
+        <table class="docs-table">
+          <thead>
+            <tr>
+              <th>用途</th>
+              <th>現在の形式</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>ユーザー</td>
+              <td>
+                各アカウントを<code>Person</code>アクターとして公開し、
+                WebFingerで解決
+              </td>
+            </tr>
+            <tr>
+              <td>通常の投稿</td>
+              <td><code>Create</code>に<code>Note</code>を含めて配信</td>
+            </tr>
+            <tr>
+              <td>フォロー</td>
+              <td>
+                <code>Follow</code>と<code>Accept</code>または<code
+                  >Reject</code
+                >
+              </td>
+            </tr>
+            <tr>
+              <td>署名</td>
+              <td>アクターの公開鍵に対応するHTTP署名を受信時に検証</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2>標準語彙と独自語彙</h2>
+        <p>
+          DMとコミュニティの基本部分はActivityStreamsの型を使います。
+          Storyの<code>Story</code>、<code>displayDuration</code>、
+          <code>overlays</code>、<code>position</code>はyurucommuの語彙です。
+          公開している語彙のうち、現在の出力で使っていないものもあります。詳しくは
+          <a href="/specs/namespace.html">データ語彙</a>を参照してください。
+        </p>
       </main>
     </div>
 

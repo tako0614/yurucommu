@@ -7,7 +7,7 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta
       name="description"
-      content="yurucommu は、自分ひとりのためのセルフホスト型 ActivityPub SNS です。アルゴリズムも、知らない誰かもいません。つながる相手は自分で選んで、輪をすこしずつ広げていけます。"
+      content="yurucommu は、自分で運用できる一人用の ActivityPub SNS です。フォローした相手の投稿を時間順に読み、小さなコミュニティを作れます。"
     />
     <meta
       property="og:title"
@@ -625,13 +625,15 @@
         <h1>自分の輪を、<br />自分でつくる。</h1>
         <p>
           自分ひとりのための、小さな SNS
-          です。アルゴリズムも、知らない誰かもいません。つながる相手は自分で選んで、輪をすこしずつ広げていけます。
+          です。フォローした相手の投稿を時間順に読みながら、つながる相手と
+          コミュニティを自分で選べます。
         </p>
         <div class="hero-act">
           <span class="arrow unavailable" aria-disabled="true"
             >Takosumi Cloud での追加は準備中</span
           >
-          <a href="#start" class="link">セルフホスト手順</a>
+          <a href="/help/getting-started.html" class="link">ローカルで試す</a>
+          <a href="#start" class="link">運用方法</a>
           <a href="https://github.com/tako0614/yurucommu" class="link"
             >GitHub</a
           >
@@ -691,7 +693,7 @@
           <div>
             <h2>アルゴリズムを、手放す。</h2>
             <p>
-              タイムラインはただの時系列です。勝手に並べ替えるアルゴリズムも、バズもありません。流れてくるのは、自分がフォローした人の声だけです。
+              タイムラインはおすすめ順に並べ替えません。自分がフォローした相手の投稿を、時間順に表示します。
             </p>
           </div>
         </div>
@@ -709,8 +711,9 @@
           <div>
             <h2>居場所は、自分のもの。</h2>
             <p>
-              セルフホストだから、データも、続けるかどうかも、すべて自分の手の中にあります。凍結も、サービス終了もありません。ActivityPub
-              で、外の世界とは繋がったままです。
+              セルフホストでは、運用先やデータの置き場所を自分で選べます。
+              ActivityPubに対応する別のサーバーとも、フォローや投稿を
+              やり取りできます。
             </p>
           </div>
         </div>
@@ -732,7 +735,8 @@
             <div class="feat-label">できること — 01</div>
             <h2>時系列だけの、<br />タイムライン。</h2>
             <p>
-              フォローした人の声だけが、ただ時間順に流れます。バズもトレンドもない、静かで心地いい場所です。
+              フォローした相手の投稿を、時間順に表示します。おすすめ順への
+              並べ替えを気にせず、自分のペースで読めます。
             </p>
           </div>
           <div class="feat-mock">
@@ -825,27 +829,28 @@
     <!-- Deploy Steps -->
     <section class="deploy" id="start">
       <div class="wrap">
-        <span class="mono">動かす場所</span>
-        <h2>Cloudflare に、<br />自分の場所をつくる。</h2>
+        <span class="mono">はじめかた</span>
+        <h2>まず、手元で試す。</h2>
         <div class="step-row reveal">
           <span class="step-n">01</span>
-          <b>選ぶ</b>
-          <span>導入手順に沿って、必要なリソースと secret を用意します</span>
+          <b>準備</b>
+          <span>リポジトリを取得して、Bunで依存関係を入れます</span>
         </div>
         <div class="step-row reveal">
           <span class="step-n">02</span>
-          <b>確認して反映</b>
-          <span>変更内容を確認して、自分の Cloudflare 環境へ公開します</span>
+          <b>試す</b>
+          <span><code>bun run dev:mock</code>で画面と機能を確認します</span>
         </div>
         <div class="step-row reveal">
           <span class="step-n">03</span>
-          <b>アカウント作成</b>
-          <span>自分だけのインスタンスが完成します</span>
+          <b>運用先を選ぶ</b>
+          <span>管理ホストか、Cloudflareでのセルフホストを選びます</span>
         </div>
         <p class="deploy-note">
-          Cloudflare への直接デプロイは利用できます。Takosumi Cloud
-          の選択式インストールは、provider・migration・rollback
-          の証跡が揃うまで公開しません。
+          管理ホストでは <code>deploy/takoform</code>、Cloudflareで
+          セルフホストする場合はルートの <code>main.tf</code> または
+          <code>wrangler.jsonc</code> を使います。詳しい手順は
+          <a href="/help/deployment.html">デプロイガイド</a>にあります。
         </p>
       </div>
     </section>
@@ -856,7 +861,8 @@
     <section class="federation reveal">
       <div class="wrap">
         <p>
-          Mastodon、Misskey、そして ActivityPub の世界と繋がります。<br />小さくても、孤立しません。
+          ActivityPubに対応する別のサーバーと、フォローや投稿を
+          やり取りできます。<br />小さな場所から、必要な相手へつながれます。
         </p>
       </div>
     </section>
@@ -869,15 +875,10 @@
         <h2>自分の場所を、<br />自分の手で。</h2>
         <div class="act">
           <span class="arrow unavailable" aria-disabled="true"
-            >Takosumi Cloud でのインストールは準備中</span
+            >Takosumi Cloud での追加は準備中</span
           >
-          <a
-            href="https://deploy.workers.cloudflare.com/?url=https://github.com/tako0614/yurucommu"
-            class="link"
-            rel="noopener"
-            >Cloudflare に直接デプロイ</a
-          >
-          <a href="/help/deployment.html" class="link">導入手順</a>
+          <a href="/help/getting-started.html" class="link">ローカルで試す</a>
+          <a href="/help/deployment.html" class="link">運用方法を見る</a>
           <a
             href="https://github.com/tako0614/yurucommu"
             class="link"

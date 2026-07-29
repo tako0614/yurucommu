@@ -4,7 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>クイックスタート - yurucommu</title>
-    <meta name="description" content="yurucommuを5分でセットアップする手順" />
+    <meta
+      name="description"
+      content="yurucommuをローカルで試し、運用方法を選ぶまでの手順"
+    />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="yurucommu" />
     <meta property="og:image" content="https://yurucommu.com/img/og.png" />
@@ -64,7 +67,7 @@
           <ul class="docs-sidebar-nav">
             <li><a href="/help/cloudflare-setup.html">Cloudflare設定</a></li>
             <li><a href="/help/deployment.html">デプロイ</a></li>
-            <li><a href="/help/configuration.html">環境変数</a></li>
+            <li><a href="/help/configuration.html">設定</a></li>
             <li><a href="/help/custom-domain.html">カスタムドメイン</a></li>
           </ul>
         </div>
@@ -83,7 +86,7 @@
           <ul class="docs-sidebar-nav">
             <li><a href="/help/api.html">API</a></li>
             <li><a href="/help/database.html">データベース</a></li>
-            <li><a href="/specs/">ActivityPub拡張</a></li>
+            <li><a href="/specs/">連合の仕組み</a></li>
           </ul>
         </div>
       </aside>
@@ -91,83 +94,72 @@
       <main class="docs-content">
         <h1>クイックスタート</h1>
         <p class="lead">
-          5分でyurucommuをセットアップしてデプロイする手順です。
+          最初はモックデータで動かします。クラウドの設定は必要ありません。
         </p>
 
         <h2>前提条件</h2>
         <ul>
-          <li>Bun 1.3系</li>
-          <li>Cloudflareアカウント（無料プランで可）</li>
+          <li>Bun 1.3以降</li>
           <li>Git</li>
         </ul>
 
-        <h2>デプロイ方法を選ぶ</h2>
-        <p>
-          Cloudflare へ直接デプロイする経路と、Takosumi
-          による管理付き経路があります。どちらも同じ fullstack Worker と D1
-          マイグレーションを使います。
-        </p>
-        <p><a href="/help/deployment.html">デプロイガイドを開く</a></p>
-
         <h2>ローカルで確認する</h2>
-        <p>まずリポジトリをクローンして、ローカルで Worker を起動します：</p>
+        <p>リポジトリをクローンし、モックAPI付きの開発画面を起動します。</p>
         <pre><code>git clone https://github.com/tako0614/yurucommu.git
 cd yurucommu
 bun install
-bun run dev</code></pre>
+bun run dev:mock</code></pre>
         <p>
-          mock API も必要なら <code>bun run dev:mock</code> を使います。Worker
-          bundle は <code>bun run build:worker</code> で確認し、基本 gate は
-          <code>bun run check</code> と <code>bun run test</code> です。
+          ブラウザで <code>http://localhost:5173</code>
+          を開きます。モックのデータはメモリに保存されるため、コマンドを止めると
+          消えます。
         </p>
 
-        <h2>本番導入</h2>
-        <h3>Cloudflareへ直接</h3>
+        <h3>ログアウト状態から試す</h3>
+        <pre><code>YURUCOMMU_MOCK_AUTH=signed-out bun run dev:mock</code></pre>
+
+        <h3>既存のAPIにつなぐ</h3>
         <p>
-          これは利用者または operator が所有する self-host
-          経路です。credential・承認・migration・rollback は、その operator
-          自身の runbook と authority で管理します。公式 distribution artifact
-          の公開とは別です。詳細は
+          <code>bun run dev</code> はWeb画面だけを起動します。すでに動いている
+          Yurucommu APIへ接続する場合は、接続先を指定します。
+        </p>
+        <pre><code>YURUCOMMU_DEV_PROXY_TARGET=http://localhost:8787 bun run dev</code></pre>
+
+        <h2>本番で使う場所を選ぶ</h2>
+        <p>
+          ローカルのモックは試用向けです。データを残して使うときは、次のどちらかを
+          選びます。
+        </p>
+
+        <h3>Takosumiなどの管理ホスト</h3>
+        <p>Gitからアプリの定義を読み込めるホストでは、次の内容を指定します。</p>
+        <pre><code>Git URL: https://github.com/tako0614/yurucommu.git
+ref: 安定版のタグ、または確認済みのコミット
+path: deploy/takoform</code></pre>
+        <p>
+          ホストが作成するサービスを表示したら内容を確認し、適用します。
+          Cloudflare用のルート設定はこの方法では使いません。
+        </p>
+
+        <h3>Cloudflareでセルフホスト</h3>
+        <p>
+          ルートの <code>main.tf</code> は、Worker、データベース、
+          ストレージ、キーバリューストア、キューをまとめて作るための設定です。
+          すでにCloudflare上のリソースを用意している場合は
+          <code>wrangler.jsonc</code> を使えます。
+        </p>
+        <p>
+          必要なCloudflareサービス、認証、データ移行を自分で管理します。詳しくは
+          <a href="/help/cloudflare-setup.html">Cloudflare設定</a>と
           <a href="/help/deployment.html">デプロイガイド</a>を参照してください。
         </p>
 
-        <h3>Takosumiでインストール</h3>
-        <p>
-          operator が運用する Takosumi では通常の OpenTofu module
-          として扱え、専用 manifest は不要です。Takosumi Cloud の選択式 Store
-          インストールは、provider・migration・rollback
-          の実環境証跡が揃うまで公開していません。
-        </p>
-
-        <h4>Step 1: リポジトリを登録</h4>
-        <p>
-          yurucommu の Git URL・ブランチ・パスを登録すると、Takosumi
-          がコードを読み込んで内容を検証し、変更内容（Plan）を作成します。
-        </p>
-
-        <h4>Step 2: 接続と変数を確認</h4>
-        <p>
-          D1・R2・KV・Queue・ドメインの割り当ては Plan に含まれます。使う
-          Cloudflare アカウントの接続設定と、必要な環境変数・secret
-          を確認します。
-        </p>
-
-        <h4>Step 3: レビューして適用</h4>
-        <p>
-          作成された変更内容をレビューして承認すると、Worker・D1・R2・KV・Queue
-          が作成され、公開 URL が発行されます。変更は履歴に残るので、問題が
-          起きた場合は以前の状態に戻すこともできます。詳しい仕組みは
-          <a href="/help/deployment.html">デプロイガイド</a>を参照してください。
-        </p>
-
-        <h2>初期設定</h2>
-        <p>デプロイした URL にアクセスし、初回セットアップを行います：</p>
+        <h2>公開後に確認する</h2>
         <ol>
-          <li>ユーザー名を設定</li>
-          <li>表示名を設定</li>
-          <li>
-            パスワードを設定（<code>AUTH_PASSWORD_HASH</code> を設定した場合）
-          </li>
+          <li>公開URLを開けることを確認する</li>
+          <li><code>/readyz</code> が準備完了を返すことを確認する</li>
+          <li>設定したパスワードまたはOIDCでログインする</li>
+          <li>プロフィールを設定し、テスト投稿を作成する</li>
         </ol>
 
         <h2>次のステップ</h2>
@@ -176,7 +168,7 @@ bun run dev</code></pre>
             <a href="/help/custom-domain.html">カスタムドメインを設定する</a>
           </li>
           <li>
-            <a href="/help/configuration.html">環境変数を詳しく設定する</a>
+            <a href="/help/configuration.html">本番の設定を確認する</a>
           </li>
           <li><a href="/help/first-post.html">最初の投稿をする</a></li>
         </ul>
