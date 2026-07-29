@@ -4,37 +4,48 @@ import { readFile } from "node:fs/promises";
 const rootUrl = new URL("../", import.meta.url);
 const manifestUrl = new URL(".well-known/takosumi.json", rootUrl);
 const manifestText = await readFile(manifestUrl, "utf8");
-const manifest = JSON.parse(manifestText) as {
-  schemaVersion: string;
-  modules: Record<
-    string,
-    {
-      inputs: Array<{
-        name: string;
-        source: { kind: string };
-        type?: string;
-        format?: string;
-        required?: boolean;
-        label: { ja: string; en: string };
-        helper?: { ja: string; en: string };
-        placeholder?: string;
-        advanced?: boolean;
-        secret?: boolean;
-      }>;
-      installExperience?: {
-        projections?: Array<Record<string, unknown>>;
-      };
-      features?: Array<{
-        id: string;
-        optional: boolean;
-        label: { ja: string; en: string };
-        inputs: string[];
-      }>;
-    }
-  >;
+const sourceOptions = JSON.parse(
+  await readFile(new URL("install-options.json", rootUrl), "utf8"),
+) as {
+  options: Array<{
+    id: string;
+    source: { url: string; path: string };
+  }>;
 };
-const rootModule = manifest.modules["."];
-const managedModule = manifest.modules["deploy/takoform"];
+const manifest = JSON.parse(manifestText) as {
+  apiVersion: string;
+  kind: string;
+  install: {
+    modules: Record<
+      string,
+      {
+        inputs: Array<{
+          name: string;
+          source: { kind: string };
+          type?: string;
+          format?: string;
+          required?: boolean;
+          label: { ja: string; en: string };
+          helper?: { ja: string; en: string };
+          placeholder?: string;
+          advanced?: boolean;
+          secret?: boolean;
+        }>;
+        installExperience?: {
+          projections?: Array<Record<string, unknown>>;
+        };
+        features?: Array<{
+          id: string;
+          optional: boolean;
+          label: { ja: string; en: string };
+          inputs: string[];
+        }>;
+      }
+    >;
+  };
+};
+const rootModule = manifest.install.modules["."];
+const managedModule = manifest.install.modules["deploy/takoform"];
 const rootModuleSource = await readFile(new URL("main.tf", rootUrl), "utf8");
 const managedModuleSource = await readFile(
   new URL("deploy/takoform/main.tf", rootUrl),
@@ -131,16 +142,45 @@ function collectForbiddenKeys(
 }
 
 describe("repository-owned Takosumi install UX", () => {
+  test("presents the managed graph as the ordinary source option without hiding direct BYOC", () => {
+    expect(
+      sourceOptions.options.map(({ id, source }) => ({ id, source })),
+    ).toEqual([
+      {
+        id: "takosumi-managed",
+        source: {
+          url: "https://github.com/tako0614/yurucommu.git",
+          path: "deploy/takoform",
+        },
+      },
+      {
+        id: "cloudflare",
+        source: {
+          url: "https://github.com/tako0614/yurucommu.git",
+          path: ".",
+        },
+      },
+    ]);
+  });
+
   test("keeps the transitional root and declares the exact managed module", () => {
     expect(
       new TextEncoder().encode(manifestText).byteLength,
     ).toBeLessThanOrEqual(128 * 1024);
     assertExactKeys(manifest as unknown as Record<string, unknown>, [
-      "schemaVersion",
+      "apiVersion",
+      "kind",
+      "install",
+    ]);
+    expect(manifest.apiVersion).toBe("takosumi.com/v1alpha1");
+    expect(manifest.kind).toBe("Repository");
+    assertExactKeys(manifest.install as unknown as Record<string, unknown>, [
       "modules",
     ]);
-    expect(manifest.schemaVersion).toBe("takosumi.install-ux/v1");
-    expect(Object.keys(manifest.modules)).toEqual([".", "deploy/takoform"]);
+    expect(Object.keys(manifest.install.modules)).toEqual([
+      ".",
+      "deploy/takoform",
+    ]);
     expect(rootModule).toBeDefined();
     expect(managedModule).toBeDefined();
     for (const module of [rootModule, managedModule]) {
@@ -162,7 +202,7 @@ describe("repository-owned Takosumi install UX", () => {
   });
 
   test("uses only the bounded v1 presentation vocabulary", () => {
-    for (const module of Object.values(manifest.modules)) {
+    for (const module of Object.values(manifest.install.modules)) {
       for (const input of module.inputs) {
         expect(sourceKinds.has(input.source.kind)).toBe(true);
         assertExactKeys(input.source as unknown as Record<string, unknown>, [

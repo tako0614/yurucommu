@@ -4,7 +4,7 @@
     "module": "Preserve",
     "moduleResolution": "bundler",
     "target": "ESNext",
-    "types": ["bun", "node"],
+    "types": ["bun", "node", "@cloudflare/workers-types"],
     "jsx": "preserve",
     "jsxImportSource": "solid-js",
     "allowImportingTsExtensions": true,
@@ -14,5 +14,12 @@
     "skipLibCheck": true,
     "baseUrl": "."
   },
-  "include": ["src", "plugin.ts", "public.ts", "vite.config.ts", "shims", "scripts"]
+  "include": [
+    "src",
+    "plugin.ts",
+    "public.ts",
+    "vite.config.ts",
+    "shims",
+    "scripts"
+  ]
 }

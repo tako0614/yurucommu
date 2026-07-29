@@ -105,36 +105,31 @@ async function run(command: string[]): Promise<void> {
 }
 
 export function createEntrySource(assets: Record<string, StaticAsset>): string {
-  return `import yurucommuCore, {
+  return `import {
   createYurucommuBackendApp,
-  handleYurucommuQueueBatch,
-  wrapCloudflareBindings,
+  runYurucommuRetention,
 } from "@takosjp/yurucommu-core/server";
 import type {
   DeliveryDlqMessageV1,
   DeliveryQueueMessageV1,
   Env,
-  EnvVars,
 } from "@takosjp/yurucommu-core/server";
+import {
+  defaultTakosumiBackgroundQueueHandler,
+  handleTakosumiBackgroundEventInvocation,
+  wrapYurucommuWorkerBindings,
+} from "../scripts/takosumi-managed-worker.ts";
 import type {
-  D1Database,
+  YurucommuWorkerBindings,
+} from "../scripts/takosumi-managed-worker.ts";
+import type {
   Fetcher,
-  KVNamespace,
   MessageBatch,
-  Queue,
-  R2Bucket,
   ScheduledController,
 } from "@cloudflare/workers-types";
 
-type RuntimeEnv = Omit<Env, "ASSETS"> & { ASSETS?: Fetcher };
-type WorkerBindings = EnvVars & {
-  DB: D1Database;
-  MEDIA?: R2Bucket;
-  KV: KVNamespace;
-  ASSETS?: Fetcher;
-  DELIVERY_QUEUE?: Queue<DeliveryQueueMessageV1>;
-  DELIVERY_DLQ?: Queue<DeliveryDlqMessageV1>;
-};
+type RuntimeEnv = Env;
+type WorkerBindings = YurucommuWorkerBindings;
 
 const backendApp = createYurucommuBackendApp({
   discovery: ${JSON.stringify(discovery, null, 2)},
@@ -217,6 +212,10 @@ function withRequiredBackgroundAppUrl(env: RuntimeEnv): RuntimeEnv {
   return { ...env, APP_URL: appUrl.origin };
 }
 
+async function runRetention(runtimeEnv: RuntimeEnv): Promise<void> {
+  await runYurucommuRetention(withRequiredBackgroundAppUrl(runtimeEnv));
+}
+
 function withRequiredQueueIdentity(
   batch: MessageBatch<DeliveryQueueMessageV1 | DeliveryDlqMessageV1>,
   env: RuntimeEnv,
@@ -262,7 +261,23 @@ export default {
     env: WorkerBindings,
     ctx: ExecutionContext,
   ): Promise<Response> {
-    const envWithAppUrl = withDefaultAppUrl(request, wrapCloudflareBindings(env));
+    const background = await handleTakosumiBackgroundEventInvocation({
+      request,
+      bindings: env,
+      ctx,
+      handlers: {
+        queue: defaultTakosumiBackgroundQueueHandler,
+        scheduled: async (_controller, runtimeEnv, _executionContext) => {
+          await runRetention(runtimeEnv);
+        },
+      },
+    });
+    if (background) return background;
+
+    const envWithAppUrl = withDefaultAppUrl(
+      request,
+      wrapYurucommuWorkerBindings(env),
+    );
     const runtimeEnv = envWithAppUrl.ASSETS
       ? envWithAppUrl
       : { ...envWithAppUrl, ASSETS: embeddedAssetsFetcher };
@@ -277,39 +292,27 @@ export default {
   ): Promise<void> {
     const runtimeEnv = withRequiredQueueIdentity(
       batch,
-      withRequiredBackgroundAppUrl(wrapCloudflareBindings(env)),
+      withRequiredBackgroundAppUrl(wrapYurucommuWorkerBindings(env)),
     );
-    return handleYurucommuQueueBatch(batch, runtimeEnv as Env);
+    return defaultTakosumiBackgroundQueueHandler(batch, runtimeEnv as Env);
   },
 
   // Cron-triggered retention (delivery/session/call-session purge, media-orphan
   // GC, story expiry, tombstone reap). This entry builds its own default object
   // instead of re-exporting the core one, so a cron trigger alone would fire at
   // a module that exports no \`scheduled\` and nothing would ever be purged —
-  // the handler has to be forwarded here. It is read off the core default at
-  // call time so a core release without the retention handler fails loudly on
-  // the first tick rather than silently sweeping nothing.
+  // the handler has to be forwarded here. The runtime-neutral core entrypoint
+  // receives the already materialized native or managed Env; an older core
+  // fails loudly rather than silently sweeping nothing.
   async scheduled(
     controller: ScheduledController,
     env: WorkerBindings,
     ctx: ExecutionContext,
   ): Promise<void> {
-    const runRetention = (yurucommuCore as {
-      scheduled?: (
-        controller: ScheduledController,
-        env: WorkerBindings,
-        ctx: ExecutionContext,
-      ) => Promise<void>;
-    }).scheduled;
-    if (typeof runRetention !== "function") {
-      throw new Error(
-        "@takosjp/yurucommu-core exposes no scheduled() retention handler; upgrade @takosjp/yurucommu-core",
-      );
-    }
     const runtimeEnv = withRequiredBackgroundAppUrl(
-      wrapCloudflareBindings(env),
+      wrapYurucommuWorkerBindings(env),
     );
-    await runRetention(controller, runtimeEnv as WorkerBindings, ctx);
+    await runRetention(runtimeEnv);
   },
 };
 `;

@@ -6,8 +6,8 @@ import {
 } from "./check-core-release.mjs";
 
 const readyLock = `
-"@takosjp/yurucommu-api": ["@takosjp/yurucommu-api@3.1.0", "", {}],
-"@takosjp/yurucommu-core": ["@takosjp/yurucommu-core@3.1.0", "", {}],
+"@takosjp/yurucommu-api": ["@takosjp/yurucommu-api@3.4.3", "", {}],
+"@takosjp/yurucommu-core": ["@takosjp/yurucommu-core@3.4.3", "", {}],
 `;
 
 const apiExports = [
@@ -18,27 +18,35 @@ const apiExports = [
   "getBrowserNotificationPushState",
   "refreshBrowserNotificationPush",
 ];
+const coreExports = [
+  "createManagedRuntimeKeyValueStore",
+  "createManagedRuntimeObjectStorage",
+  "createManagedRuntimeQueueProducer",
+  "createManagedRelationalDatabase",
+  "runYurucommuRetention",
+];
 
-describe("core notification release gate", () => {
+describe("registry core/API product release gate", () => {
   test("accepts independently locked registry packages at the required release", () => {
     const result = evaluateCoreRelease({
       packageJson: {
         dependencies: {
-          "@takosjp/yurucommu-api": "^3.1.0",
-          "@takosjp/yurucommu-core": "^3.1.0",
+          "@takosjp/yurucommu-api": "^3.4.3",
+          "@takosjp/yurucommu-core": "^3.4.3",
         },
       },
       lockText: readyLock,
       installedVersions: {
-        "@takosjp/yurucommu-api": "3.1.0",
-        "@takosjp/yurucommu-core": "3.1.0",
+        "@takosjp/yurucommu-api": "3.4.3",
+        "@takosjp/yurucommu-core": "3.4.3",
       },
       hasNotificationMigration: true,
       apiExports,
+      coreExports,
     });
     expect(result).toEqual({ ok: true, blockers: [] });
     expect(lockedPackageVersion(readyLock, "@takosjp/yurucommu-core")).toBe(
-      "3.1.0",
+      "3.4.3",
     );
   });
 
@@ -57,6 +65,7 @@ describe("core notification release gate", () => {
       },
       hasNotificationMigration: false,
       apiExports: [],
+      coreExports: [],
     });
     expect(result.ok).toBe(false);
     expect(result.blockers).toContain(

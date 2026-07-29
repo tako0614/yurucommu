@@ -21,9 +21,9 @@ describe("generated worker entry", () => {
   // missing scheduled() here means the retention sweep never runs anywhere.
   test("exports a scheduled handler that forwards to the core retention sweep", () => {
     expect(entrySource).toContain("async scheduled(");
-    expect(entrySource).toContain("yurucommuCore");
+    expect(entrySource).toContain("runYurucommuRetention");
     expect(entrySource).toContain(
-      "runRetention(controller, runtimeEnv as WorkerBindings, ctx)",
+      "await runYurucommuRetention(withRequiredBackgroundAppUrl(runtimeEnv))",
     );
   });
 
@@ -36,10 +36,10 @@ describe("generated worker entry", () => {
       "APP_URL must be an HTTPS origin for background invocations",
     );
     expect(entrySource).toContain(
-      "handleYurucommuQueueBatch(batch, runtimeEnv as Env)",
+      "defaultTakosumiBackgroundQueueHandler(batch, runtimeEnv as Env)",
     );
     expect(entrySource).toContain(
-      "runRetention(controller, runtimeEnv as WorkerBindings, ctx)",
+      "await runYurucommuRetention(withRequiredBackgroundAppUrl(runtimeEnv))",
     );
   });
 
@@ -52,7 +52,15 @@ describe("generated worker entry", () => {
       "Queue invocation does not match the managed queue identity",
     );
     expect(entrySource).toContain(
-      "withRequiredBackgroundAppUrl(wrapCloudflareBindings(env))",
+      "withRequiredBackgroundAppUrl(wrapYurucommuWorkerBindings(env))",
+    );
+  });
+
+  test("routes the host-authenticated background HTTP ABI before app routes", () => {
+    expect(entrySource).toContain("handleTakosumiBackgroundEventInvocation({");
+    expect(entrySource).toContain("if (background) return background");
+    expect(entrySource).toContain(
+      "queue: defaultTakosumiBackgroundQueueHandler",
     );
   });
 });
