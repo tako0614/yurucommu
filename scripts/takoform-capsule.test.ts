@@ -16,13 +16,14 @@ describe("portable Takoform Capsule", () => {
   test("owns the complete Yurucommu portable resource graph", () => {
     expect(resourceTypes.sort()).toEqual(
       [
-        "takoform_edge_worker",
-        "takoform_kv_store",
+        "takoform_http_service",
+        "takoform_interface",
+        "takoform_key_value_store",
         "takoform_object_bucket",
         "takoform_queue",
         "takoform_queue",
+        "takoform_relational_database",
         "takoform_schedule",
-        "takoform_sql_database",
       ].sort(),
     );
     for (const binding of [
@@ -35,7 +36,10 @@ describe("portable Takoform Capsule", () => {
       expect(main).toContain(`name        = "${binding}"`);
     }
     expect(main).toContain('permissions = ["consume", "publish"]');
-    expect(main).toContain('projection  = "schedule_trigger"');
+    expect(main).toContain('projection  = "schedule.trigger.v1"');
+    expect(main).toContain('name          = "yurucommu.launcher"');
+    expect(main).toContain('resource_kind = "HttpService"');
+    expect(main).toContain('originInput = "origin"');
   });
 
   test("does not route first-party desired state through Cloudflare compatibility", () => {

@@ -4,7 +4,7 @@ terraform {
   required_providers {
     takoform = {
       source  = "registry.opentofu.org/tako0614/takoform"
-      version = "= 0.1.2"
+      version = "= 0.2.0"
     }
   }
 }
@@ -53,23 +53,6 @@ variable "worker_bundle_sha256" {
   }
 }
 
-variable "worker_compatibility_date" {
-  description = "Portable edge runtime compatibility date requested by the Yurucommu Worker."
-  type        = string
-  default     = "2026-04-01"
-
-  validation {
-    condition     = can(regex("^[0-9]{4}-[0-9]{2}-[0-9]{2}$", var.worker_compatibility_date))
-    error_message = "worker_compatibility_date must use YYYY-MM-DD."
-  }
-}
-
-variable "worker_compatibility_flags" {
-  description = "Portable edge runtime compatibility flags requested by the Yurucommu Worker."
-  type        = set(string)
-  default     = ["nodejs_compat", "global_fetch_strictly_public"]
-}
-
 locals {
   release_tag             = trimspace(var.worker_release_tag)
   artifact_url            = trimspace(var.worker_bundle_url)
@@ -78,7 +61,7 @@ locals {
   prefix                  = var.project_name
 }
 
-resource "takoform_sql_database" "database" {
+resource "takoform_relational_database" "database" {
   name   = "${local.prefix}-db"
   engine = "sqlite"
 }
@@ -88,7 +71,7 @@ resource "takoform_object_bucket" "media" {
   storage_class = "standard"
 }
 
-resource "takoform_kv_store" "kv" {
+resource "takoform_key_value_store" "kv" {
   name        = "${local.prefix}-kv"
   consistency = "eventual"
 }
@@ -105,44 +88,42 @@ resource "takoform_queue" "delivery_dlq" {
   max_batch_size = 10
 }
 
-resource "takoform_edge_worker" "worker" {
-  name                = local.prefix
-  artifact_url        = local.artifact_url
-  artifact_sha256     = local.artifact_sha256_checked
-  compatibility_date  = var.worker_compatibility_date
-  compatibility_flags = var.worker_compatibility_flags
-  profiles            = ["workers_bindings"]
+resource "takoform_http_service" "worker" {
+  name            = local.prefix
+  artifact_url    = local.artifact_url
+  artifact_sha256 = local.artifact_sha256_checked
+  runtime         = "javascript"
 
   connections = [
     {
       name        = "DB"
-      resource    = takoform_sql_database.database.id
+      resource    = takoform_relational_database.database.id
       permissions = ["connect", "read", "write"]
-      projection  = "runtime_binding"
+      projection  = "sql.binding.v1"
     },
     {
       name        = "MEDIA"
       resource    = takoform_object_bucket.media.id
       permissions = ["read", "write"]
-      projection  = "runtime_binding"
+      projection  = "object.binding.v1"
     },
     {
       name        = "KV"
-      resource    = takoform_kv_store.kv.id
+      resource    = takoform_key_value_store.kv.id
       permissions = ["read", "write"]
-      projection  = "runtime_binding"
+      projection  = "keyvalue.binding.v1"
     },
     {
       name        = "DELIVERY_QUEUE"
       resource    = takoform_queue.delivery.id
       permissions = ["consume", "publish"]
-      projection  = "runtime_binding"
+      projection  = "queue.binding.v1"
     },
     {
       name        = "DELIVERY_DLQ"
       resource    = takoform_queue.delivery_dlq.id
       permissions = ["consume", "publish"]
-      projection  = "runtime_binding"
+      projection  = "queue.binding.v1"
     },
   ]
 
@@ -167,9 +148,35 @@ resource "takoform_schedule" "retention" {
   connections = [
     {
       name        = "WORKER"
-      resource    = takoform_edge_worker.worker.id
+      resource    = takoform_http_service.worker.id
       permissions = ["invoke"]
-      projection  = "schedule_trigger"
+      projection  = "schedule.trigger.v1"
     },
   ]
+}
+
+resource "takoform_interface" "launcher" {
+  name          = "yurucommu.launcher"
+  version       = "1"
+  resource_kind = "HttpService"
+  resource_name = takoform_http_service.worker.name
+
+  document_json = jsonencode({
+    launcher = true
+    display = {
+      title = "Yurucommu"
+      icon  = "/icons/yurucommu.svg"
+    }
+    endpoint = {
+      originInput = "origin"
+      path        = "/"
+    }
+  })
+  inputs_json = jsonencode([
+    {
+      name    = "origin"
+      source  = "output"
+      pointer = "/url"
+    }
+  ])
 }

@@ -4,13 +4,14 @@ This directory is the canonical managed desired-resource definition for a
 Yurucommu install on any conforming Takoform host, including Takosumi. It uses
 only typed Takoform Service Forms:
 
-- one `EdgeWorker`;
-- one SQLite `SQLDatabase`;
+- one JavaScript `HttpService`;
+- one SQLite `RelationalDatabase`;
 - one media `ObjectBucket`;
-- one `KVStore`;
+- one `KeyValueStore`;
 - delivery and dead-letter `Queue` resources;
 - one hourly `Schedule` targeting the Worker;
 - explicit non-secret runtime connections.
+- one app-owned opaque launcher Interface declaration.
 
 The selected Worker release URL and SHA-256 are pinned in this Capsule. A
 product release updates the tag, URL, and digest together.
@@ -18,6 +19,11 @@ product release updates the tag, URL, and digest together.
 The repository-root OpenTofu module and `wrangler.jsonc` remain the direct
 Cloudflare deployment path. They are not imported by this module and the
 Takoform provider is never pointed at a Cloudflare compatibility endpoint.
+
+The launcher document is ordinary app-owned JSON in `takoform_interface`.
+Takoform does not define a UI-specific resource type. The host resolves the
+service origin from the `HttpService` output; a runtime consumer discovers the
+Interface from the host and calls the resolved application endpoint directly.
 
 ## Host-owned configuration
 
