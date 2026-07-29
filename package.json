@@ -18,7 +18,7 @@
     "dev:site": "bunx serve site",
     "check": "bun run fmt:check && bun run lint && bun run check:opentofu && bun run test && bun run build:worker",
     "deploy": "bun scripts/deploy.mjs",
-    "test": "bun test src/ scripts/worker-entry-contract.test.ts scripts/product-identity-contract.test.ts scripts/release-version.test.ts scripts/takoform-capsule.test.ts scripts/takosumi-release.test.ts scripts/check-core-release.test.ts",
+    "test": "bun test src/ scripts/worker-entry-contract.test.ts scripts/product-identity-contract.test.ts scripts/release-version.test.ts scripts/takoform-capsule.test.ts scripts/takosumi-install-ux.test.ts scripts/takosumi-release.test.ts scripts/check-core-release.test.ts",
     "build": "bun run build:client",
     "build:client": "bunx vite build --config vite.config.ts",
     "build:worker": "bun scripts/build-yurucommu-worker.ts",
