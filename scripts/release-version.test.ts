@@ -42,6 +42,30 @@ describe("release version", () => {
 });
 
 describe("release surface status", () => {
+  test("declares create-only publication for the managed Worker artifact", () => {
+    const result = Bun.spawnSync(["bun", "scripts/deploy.mjs", "--contract"], {
+      cwd: new URL("../", import.meta.url).pathname,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    expect(result.exitCode).toBe(0);
+    const contract = JSON.parse(result.stdout.toString()) as {
+      surfaces: Array<{
+        surface: string;
+        triggers: string[];
+        obligations: Record<string, string>;
+      }>;
+    };
+    const release = contract.surfaces.find(
+      (surface) => surface.surface === "yurucommu-worker-release",
+    );
+
+    expect(release?.triggers).toEqual(["published-identity"]);
+    expect(release?.obligations["no-overwrite"]).toContain("create-only");
+    expect(release?.obligations.provenance).toContain("unpushed");
+    expect(release?.obligations["post-conditions"]).toContain("downloads");
+  });
+
   test("does not expose legacy release or deployment aliases", () => {
     for (const script of [
       "release:plan",

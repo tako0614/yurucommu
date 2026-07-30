@@ -16,7 +16,16 @@
 
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import process from "node:process";
@@ -32,6 +41,14 @@ const W = {
   build: ["bun", "run", "build:worker"],
   url: "https://test.yurucommu.com",
   smoke: ["bun", "run", "smoke:postdeploy"],
+};
+
+const R = {
+  surface: "yurucommu-worker-release",
+  repository: "tako0614/yurucommu",
+  bundle: W.bundle,
+  manifest: "takosumi-artifact.json",
+  checksum: "yurucommu-worker.js.sha256",
 };
 
 const CONTRACT = {
@@ -56,6 +73,31 @@ const CONTRACT = {
           "prints the provider's own stdout and stderr, names whether the failure was before or after publication, and on a failed post-condition exits non-zero naming the previous version instead of retrying",
       },
     },
+    {
+      surface: R.surface,
+      target: `github-release:${R.repository}/v<package-version>`,
+      covers: [
+        "package.json",
+        "scripts/build-yurucommu-worker.ts",
+        "scripts/takosumi-managed-worker.ts",
+      ],
+      requiresScripts: ["check", "build:worker"],
+      requiresTools: ["git", "bun", "gh"],
+      requiresEnv: [],
+      triggers: ["published-identity"],
+      obligations: {
+        provenance:
+          "refuses a dirty, detached, non-main, or unpushed worktree; runs `bun run check`; builds the embedded Worker from that exact commit; and records the source commit plus SHA-256 in the release manifest",
+        "post-conditions":
+          "reads the create-only tag and GitHub Release back, requires the tag to resolve to the source commit, downloads all three assets, and requires their exact SHA-256 digests",
+        reversal:
+          "the release identity is never replaced or deleted by this entrypoint; consumers remain able to pin the preceding release, and a defect is repaired by publishing a higher version",
+        "failure-handling":
+          "fails before mutation when the tag or release already exists; after release creation starts it reports an indeterminate publication and requires authoritative tag/release readback before any retry",
+        "no-overwrite":
+          "derives one SemVer tag from package.json, refuses any existing local/remote tag or GitHub Release, and uses GitHub create-only release publication without update or delete paths",
+      },
+    },
   ],
 };
 
@@ -64,9 +106,12 @@ if (process.argv.includes("--contract")) {
   process.exit(0);
 }
 
-const requested = process.argv.slice(2).filter((a) => !a.startsWith("--"));
-if (requested.length !== 1 || requested[0] !== W.surface) {
-  process.stderr.write(`usage: bun run deploy -- ${W.surface}\n`);
+const requestedSurface = process.argv[2];
+if (![W.surface, R.surface].includes(requestedSurface)) {
+  process.stderr.write(
+    `usage: bun run deploy -- ${W.surface}\n` +
+      `       bun run deploy -- ${R.surface} [--execute]\n`,
+  );
   process.exit(1);
 }
 
@@ -85,6 +130,226 @@ const run = (c, a) =>
     maxBuffer: 64 * 1024 * 1024,
   });
 const digest = (b) => createHash("sha256").update(b).digest("hex");
+
+function requireCleanPushedMain() {
+  const dirty = git("status", "--porcelain");
+  if (dirty !== "") {
+    die(
+      "the worktree is not clean; the published bytes must belong to one commit",
+      dirty.split("\n").slice(0, 20),
+    );
+  }
+  const branch = git("rev-parse", "--abbrev-ref", "HEAD");
+  if (branch !== "main") {
+    die(`release publication requires main, found ${branch}`);
+  }
+  const commit = git("rev-parse", "HEAD");
+  execFileSync("git", ["fetch", "--quiet", "origin", "main"], { cwd: repo });
+  const remoteMain = git("rev-parse", "origin/main");
+  if (commit !== remoteMain) {
+    die(`local main ${commit} does not equal origin/main ${remoteMain}`);
+  }
+  return commit;
+}
+
+function publishWorkerRelease() {
+  const execute = process.argv.includes("--execute");
+  const commit = requireCleanPushedMain();
+  const packageJson = JSON.parse(
+    readFileSync(resolve(repo, "package.json"), "utf8"),
+  );
+  const version = String(packageJson.version ?? "");
+  if (!/^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/u.test(version)) {
+    die(`package.json version ${JSON.stringify(version)} is not SemVer`);
+  }
+  const tag = `v${version}`;
+  const localTag = git("tag", "--list", tag);
+  if (localTag !== "") die(`local tag ${tag} already exists`);
+  const remoteTag = run("git", [
+    "ls-remote",
+    "--tags",
+    "origin",
+    `refs/tags/${tag}`,
+  ]).trim();
+  if (remoteTag !== "") die(`remote tag ${tag} already exists`);
+  try {
+    run("gh", ["release", "view", tag, "--repo", R.repository]);
+    die(`GitHub Release ${tag} already exists`);
+  } catch (error) {
+    const stderr = String(error.stderr ?? "");
+    if (!/release not found|HTTP 404/iu.test(stderr)) {
+      die(`cannot prove GitHub Release ${tag} is absent: ${stderr.trim()}`);
+    }
+  }
+
+  process.stdout.write(`source ${commit} (main)\n`);
+  process.stdout.write(`\n==> ${OWNER_GATE}\n`);
+  execFileSync("bun", ["run", "check"], { cwd: repo, stdio: "inherit" });
+
+  const bundlePath = resolve(repo, R.bundle);
+  if (!existsSync(bundlePath)) die(`${R.bundle} is missing after the build`);
+  const bundleBytes = readFileSync(bundlePath);
+  const bundleDigest = digest(bundleBytes);
+  const assetUrl = `https://github.com/${R.repository}/releases/download/${tag}/yurucommu-worker.js`;
+  const manifestUrl = `https://github.com/${R.repository}/releases/download/${tag}/${R.manifest}`;
+  const manifest = {
+    kind: "takosumi.worker-artifact@v1",
+    app: "yurucommu",
+    commit,
+    ref: tag,
+    releaseTag: tag,
+    artifact: {
+      filename: "yurucommu-worker.js",
+      url: assetUrl,
+      sha256: bundleDigest,
+      sha256Prefixed: `sha256:${bundleDigest}`,
+      contentType: "application/javascript",
+    },
+    manifestUrl,
+  };
+
+  const releaseDir = mkdtempSync(resolve(tmpdir(), "yurucommu-release-"));
+  const artifactPath = resolve(releaseDir, "yurucommu-worker.js");
+  const manifestPath = resolve(releaseDir, R.manifest);
+  const checksumPath = resolve(releaseDir, R.checksum);
+  copyFileSync(bundlePath, artifactPath);
+  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  writeFileSync(checksumPath, `${bundleDigest}  yurucommu-worker.js\n`);
+  const expectedDigests = {
+    "yurucommu-worker.js": bundleDigest,
+    [R.manifest]: digest(readFileSync(manifestPath)),
+    [R.checksum]: digest(readFileSync(checksumPath)),
+  };
+
+  process.stdout.write(`candidate ${tag} ${R.bundle} sha256:${bundleDigest}\n`);
+  if (!execute) {
+    process.stdout.write(
+      `${JSON.stringify(
+        {
+          kind: "takos.deploy-result@v1",
+          surface: R.surface,
+          target: `github-release:${R.repository}/${tag}`,
+          commit,
+          tag,
+          assetDigests: expectedDigests,
+          status: "DRY_RUN_VERIFIED",
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    rmSync(releaseDir, { recursive: true, force: true });
+    return;
+  }
+
+  process.stdout.write(`\n==> create-only GitHub Release ${tag}\n`);
+  try {
+    const output = run("gh", [
+      "release",
+      "create",
+      tag,
+      artifactPath,
+      manifestPath,
+      checksumPath,
+      "--repo",
+      R.repository,
+      "--target",
+      commit,
+      "--title",
+      `Yurucommu ${tag}`,
+      "--notes",
+      `Worker release built from ${commit}.`,
+    ]);
+    process.stdout.write(output);
+  } catch (error) {
+    process.stderr.write(`${error.stdout ?? ""}${error.stderr ?? ""}\n`);
+    die(
+      `publication of ${tag} started but did not complete cleanly; inspect the remote tag and Release before retrying`,
+    );
+  }
+
+  const publishedTag = run("git", [
+    "ls-remote",
+    "--tags",
+    "origin",
+    `refs/tags/${tag}`,
+  ])
+    .trim()
+    .split(/\s+/u)[0];
+  if (publishedTag !== commit) {
+    die(
+      `published tag ${tag} resolves to ${publishedTag || "<missing>"}, expected ${commit}`,
+    );
+  }
+  const release = JSON.parse(
+    run("gh", [
+      "release",
+      "view",
+      tag,
+      "--repo",
+      R.repository,
+      "--json",
+      "isDraft,isPrerelease,tagName,url,assets",
+    ]),
+  );
+  if (release.isDraft || release.isPrerelease || release.tagName !== tag) {
+    die(`published Release ${tag} has unexpected state`);
+  }
+  const remoteAssets = new Map(
+    release.assets.map((asset) => [asset.name, asset.digest]),
+  );
+  for (const [name, expected] of Object.entries(expectedDigests)) {
+    if (remoteAssets.get(name) !== `sha256:${expected}`) {
+      die(
+        `published asset ${name} digest ${remoteAssets.get(name) ?? "<missing>"} does not equal sha256:${expected}`,
+      );
+    }
+  }
+
+  const downloadDir = resolve(releaseDir, "readback");
+  mkdirSync(downloadDir);
+  run("gh", [
+    "release",
+    "download",
+    tag,
+    "--repo",
+    R.repository,
+    "--dir",
+    downloadDir,
+  ]);
+  for (const [name, expected] of Object.entries(expectedDigests)) {
+    const actual = digest(readFileSync(resolve(downloadDir, name)));
+    if (actual !== expected) {
+      die(
+        `downloaded asset ${name} digest ${actual} does not equal ${expected}`,
+      );
+    }
+  }
+
+  process.stdout.write(
+    `\n${JSON.stringify(
+      {
+        kind: "takos.deploy-result@v1",
+        surface: R.surface,
+        target: `github-release:${R.repository}/${tag}`,
+        commit,
+        tag,
+        releaseUrl: release.url,
+        assetDigests: expectedDigests,
+        postConditions: "EXACT_RELEASE_READBACK",
+        status: "PUBLISHED",
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  rmSync(releaseDir, { recursive: true, force: true });
+}
+
+if (requestedSurface === R.surface) {
+  publishWorkerRelease();
+  process.exit(0);
+}
 
 // operator の realized config を受け取れるようにします。repo の wrangler config が
 // self-host 向け placeholder を含んだままなら止めます。本番と取り違えて publish

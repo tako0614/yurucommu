@@ -23,7 +23,7 @@ variable "project_name" {
 variable "worker_release_tag" {
   description = "Yurucommu GitHub release containing takosumi-artifact.json."
   type        = string
-  default     = "v2.1.2"
+  default     = "v2.1.3"
 
   validation {
     condition     = trimspace(var.worker_release_tag) == "" || can(regex("^v[0-9]+\\.[0-9]+\\.[0-9]+([-+][0-9A-Za-z.-]+)?$", trimspace(var.worker_release_tag)))
@@ -34,7 +34,7 @@ variable "worker_release_tag" {
 variable "worker_bundle_url" {
   description = "Immutable HTTPS Worker artifact URL pinned by this Yurucommu release."
   type        = string
-  default     = "https://github.com/tako0614/yurucommu/releases/download/v2.1.2/yurucommu-worker.js"
+  default     = "https://github.com/tako0614/yurucommu/releases/download/v2.1.3/yurucommu-worker.js"
 
   validation {
     condition     = can(regex("^https://[^[:space:]]+$", trimspace(var.worker_bundle_url)))
@@ -45,7 +45,7 @@ variable "worker_bundle_url" {
 variable "worker_bundle_sha256" {
   description = "Expected SHA-256 for the pinned Worker artifact."
   type        = string
-  default     = "sha256:95ca02d637366e9f134d4236874609c612d0b40b2af42825d49795ed9c852182"
+  default     = "sha256:bdc5660bfbfc230c9f95803c190f5ea31d71750f61ad4931d1d364238a4afe0c"
 
   validation {
     condition     = can(regex("^(sha256:)?[a-f0-9]{64}$", trimspace(var.worker_bundle_sha256)))
