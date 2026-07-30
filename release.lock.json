@@ -27,6 +27,19 @@
       },
       "commit": "6c4817a61ae515f8073a397250f61b3d63a07247",
       "seededFrom": "release source commit and locally verified immutable Worker artifact prepared for the v2.1.2 GitHub Release on 2026-07-29"
+    },
+    "v2.1.3": {
+      "artifact": {
+        "filename": "yurucommu-worker.js",
+        "url": "https://github.com/tako0614/yurucommu/releases/download/v2.1.3/yurucommu-worker.js",
+        "sha256": "sha256:bdc5660bfbfc230c9f95803c190f5ea31d71750f61ad4931d1d364238a4afe0c"
+      },
+      "manifest": {
+        "url": "https://github.com/tako0614/yurucommu/releases/download/v2.1.3/takosumi-artifact.json",
+        "sha256": "sha256:4683855985b123140fde144064bfea309a498f08ab5abd7e819e590aae3abec6"
+      },
+      "commit": "88c672f1fd5fa65d24377dc74fec00664e444b2e",
+      "seededFrom": "owner deploy exact release readback on 2026-07-30"
     }
   }
 }

@@ -1,19 +1,35 @@
 import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 
-const [packageSource, moduleSource, takoformModuleSource, siteSource] =
-  await Promise.all([
-    readFile(new URL("../package.json", import.meta.url), "utf8"),
-    readFile(new URL("../main.tf", import.meta.url), "utf8"),
-    readFile(new URL("../deploy/takoform/main.tf", import.meta.url), "utf8"),
-    readFile(new URL("../site/index.html", import.meta.url), "utf8"),
-  ]);
+const [
+  packageSource,
+  moduleSource,
+  takoformModuleSource,
+  releaseLockSource,
+  siteSource,
+] = await Promise.all([
+  readFile(new URL("../package.json", import.meta.url), "utf8"),
+  readFile(new URL("../main.tf", import.meta.url), "utf8"),
+  readFile(new URL("../deploy/takoform/main.tf", import.meta.url), "utf8"),
+  readFile(new URL("../release.lock.json", import.meta.url), "utf8"),
+  readFile(new URL("../site/index.html", import.meta.url), "utf8"),
+]);
 
 const packageJson = JSON.parse(packageSource) as {
   version: string;
   scripts: Record<string, string>;
 };
 const packageVersion = packageJson.version;
+const releaseLock = JSON.parse(releaseLockSource) as {
+  releases: Record<
+    string,
+    {
+      artifact: { url: string; sha256: string };
+      manifest: { url: string; sha256: string };
+      commit: string;
+    }
+  >;
+};
 
 describe("release version", () => {
   test("keeps the OpenTofu artifact default aligned", () => {
@@ -31,6 +47,24 @@ describe("release version", () => {
         expect(source).toMatch(/default\s+=\s+"sha256:[a-f0-9]{64}"/);
       }
     }
+  });
+
+  test("pins the current Worker release for both deployment modules", () => {
+    const tag = `v${packageVersion}`;
+    const pin = releaseLock.releases[tag];
+
+    expect(pin).toBeDefined();
+    expect(pin.commit).toMatch(/^[a-f0-9]{40}$/);
+    expect(pin.artifact.url).toBe(
+      `https://github.com/tako0614/yurucommu/releases/download/${tag}/yurucommu-worker.js`,
+    );
+    expect(pin.artifact.sha256).toMatch(/^sha256:[a-f0-9]{64}$/);
+    expect(pin.manifest.url).toBe(
+      `https://github.com/tako0614/yurucommu/releases/download/${tag}/takosumi-artifact.json`,
+    );
+    expect(pin.manifest.sha256).toMatch(/^sha256:[a-f0-9]{64}$/);
+    expect(takoformModuleSource).toContain(pin.artifact.url);
+    expect(takoformModuleSource).toContain(pin.artifact.sha256);
   });
 
   test("matches the Git tag when the release workflow runs", () => {
