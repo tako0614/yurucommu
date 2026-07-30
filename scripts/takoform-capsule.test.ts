@@ -25,13 +25,16 @@ const resourceTypes = Array.from(
   main.matchAll(/resource\s+"([^"]+)"\s+"[^"]+"\s*\{/g),
   (match) => match[1],
 );
+const dataSourceTypes = Array.from(
+  main.matchAll(/data\s+"([^"]+)"\s+"[^"]+"\s*\{/g),
+  (match) => match[1],
+);
 
 describe("portable Takoform Capsule", () => {
   test("owns the complete Yurucommu portable resource graph", () => {
     expect(resourceTypes.sort()).toEqual(
       [
-        "takoform_http_service",
-        "takoform_interface",
+        "takoform_edge_worker",
         "takoform_key_value_store",
         "takoform_object_bucket",
         "takoform_queue",
@@ -51,9 +54,10 @@ describe("portable Takoform Capsule", () => {
     }
     expect(main).toContain('permissions = ["consume", "publish"]');
     expect(main).toContain('projection  = "schedule.trigger.v1"');
-    expect(main).toContain('name          = "yurucommu.launcher"');
-    expect(main).toContain('resource_kind = "HttpService"');
-    expect(main).toContain('originInput = "origin"');
+    expect(dataSourceTypes).toEqual(["takoform_interface"]);
+    expect(main).toContain('name          = "http.request"');
+    expect(main).toContain('resource_kind = "EdgeWorker"');
+    expect(outputs).toContain("resource_uri");
     expect(main).toContain('DELIVERY_QUEUE_NAME = "${local.prefix}-delivery"');
     expect(main).toContain(
       'DELIVERY_DLQ_NAME   = "${local.prefix}-delivery-dlq"',

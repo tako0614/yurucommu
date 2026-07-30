@@ -5,18 +5,18 @@ output "worker_name" {
 
 output "launch_url" {
   description = "Canonical public URL allocated by the selected Takoform host."
-  value       = try(takoform_http_service.worker.outputs["url"], null)
+  value       = data.takoform_interface.worker_http.resource_uri
 }
 
 output "api_url" {
   description = "Primary Yurucommu social API endpoint."
-  value       = try("${trimsuffix(takoform_http_service.worker.outputs["url"], "/")}/api", null)
+  value       = data.takoform_interface.worker_http.resource_uri != null ? "${trimsuffix(data.takoform_interface.worker_http.resource_uri, "/")}/api" : null
 }
 
 output "takoform_resource_ids" {
   description = "Canonical portable Resource identities created for this Yurucommu instance."
   value = {
-    worker       = takoform_http_service.worker.id
+    worker       = takoform_edge_worker.worker.id
     database     = takoform_relational_database.database.id
     media        = takoform_object_bucket.media.id
     kv           = takoform_key_value_store.kv.id

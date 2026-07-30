@@ -82,15 +82,15 @@ Takosumi の「新しいアプリ」または `/install` 画面で、次を指�
 4. Apply を実行する
 5. Apps 画面から Yurucommu を開く
 
-インストール後のアプリ URL は、Yurucommu が宣言する `yurucommu.launcher` から
-Takosumi が解決します。ここでいう Interface は、作成した HTTP サービスが提供する
-URL と開き方を伝える宣言です。誰が開けるかは、Takosumi が別の権限情報として管理
-します。Apps 画面は Interface と利用者の権限を確認してリンクを表示し、Cloudflare
-などのリソース ID から URL を推測しません。
+インストール後、`EdgeWorker` が宣言する `http.request@1` Interface を使って
+Takosumi が公開 URL を解決します。IaC はその `resource_uri` を通常の
+`launch_url` Output として取り出し、Takosumi はそこから Apps 画面用の UI surface
+を作ります。誰が開けるかは別の権限情報です。Cloudflare などのリソース ID から
+URL を推測しません。
 
 自動処理向けには、通常の OpenTofu Output として `launch_url` と `api_url` も
-取得できます。Apps 画面にリンクが出ない場合は、まず Apply の成功、HTTP サービスの
-URL、`yurucommu.launcher` の解決状態、インストールした利用者の権限を確認してください。
+取得できます。Apps 画面にリンクが出ない場合は、Apply の成功、`EdgeWorker` の
+`http.request@1`、`launch_url`、インストールした利用者の権限を確認してください。
 
 管理用の定義が作るものと、ホスト側が用意するものは
 [`deploy/takoform/README.md`](deploy/takoform/README.md) にまとめています。
@@ -200,9 +200,9 @@ OIDC を使う場合は issuer、client ID、callback URL、最初の owner に�
 
 ### Apps 画面に Yurucommu が表示されない
 
-Takosumi の Apply が成功していても、公開 URL を持つ HTTP サービス、
-`yurucommu.launcher`、開く権限のいずれかが未解決ならリンクは表示されません。
-Output 名やクラウド内部のリソース ID から URL を作らず、Interface の状態を確認します。
+Takosumi の Apply が成功していても、`http.request@1` の `resource_uri`、
+`launch_url`、UI surface、開く権限のいずれかが未解決ならリンクは表示されません。
+クラウド内部のリソース ID から URL を作らず、Interface と Output を確認します。
 
 ### プッシュ通知が届かない
 

@@ -4,7 +4,7 @@ terraform {
   required_providers {
     takoform = {
       source  = "registry.terraform.io/tako0614/takoform"
-      version = "= 0.2.1"
+      version = "= 1.0.2"
     }
   }
 }
@@ -77,22 +77,20 @@ resource "takoform_key_value_store" "kv" {
 }
 
 resource "takoform_queue" "delivery" {
-  name           = "${local.prefix}-delivery"
-  max_retries    = 3
-  max_batch_size = 10
+  name = "${local.prefix}-delivery"
 }
 
 resource "takoform_queue" "delivery_dlq" {
-  name           = "${local.prefix}-delivery-dlq"
-  max_retries    = 1
-  max_batch_size = 10
+  name = "${local.prefix}-delivery-dlq"
 }
 
-resource "takoform_http_service" "worker" {
-  name            = local.prefix
-  artifact_url    = local.artifact_url
-  artifact_sha256 = local.artifact_sha256_checked
-  runtime         = "javascript"
+resource "takoform_edge_worker" "worker" {
+  name                = local.prefix
+  artifact_url        = local.artifact_url
+  artifact_sha256     = local.artifact_sha256_checked
+  artifact_media_type = "application/javascript+module"
+  entrypoint          = "yurucommu-worker.js"
+  runtime             = "javascript"
   configuration = {
     DELIVERY_QUEUE_NAME = "${local.prefix}-delivery"
     DELIVERY_DLQ_NAME   = "${local.prefix}-delivery-dlq"
@@ -146,41 +144,24 @@ resource "takoform_http_service" "worker" {
 
 resource "takoform_schedule" "retention" {
   name     = "${local.prefix}-retention"
-  cron     = "0 * * * *"
+  cron     = "0 3 * * *"
   timezone = "UTC"
 
   connections = [
     {
       name        = "WORKER"
-      resource    = takoform_http_service.worker.id
+      resource    = takoform_edge_worker.worker.id
       permissions = ["invoke"]
       projection  = "schedule.trigger.v1"
     },
   ]
 }
 
-resource "takoform_interface" "launcher" {
-  name          = "yurucommu.launcher"
+data "takoform_interface" "worker_http" {
+  name          = "http.request"
   version       = "1"
-  resource_kind = "HttpService"
-  resource_name = takoform_http_service.worker.name
+  resource_kind = "EdgeWorker"
+  resource_name = takoform_edge_worker.worker.name
 
-  document_json = jsonencode({
-    launcher = true
-    display = {
-      title = "Yurucommu"
-      icon  = "/icons/yurucommu.svg"
-    }
-    endpoint = {
-      originInput = "origin"
-      path        = "/"
-    }
-  })
-  inputs_json = jsonencode([
-    {
-      name    = "origin"
-      source  = "output"
-      pointer = "/url"
-    }
-  ])
+  depends_on = [takoform_edge_worker.worker]
 }

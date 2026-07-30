@@ -20,9 +20,9 @@ import {
 
 const workspaceId = "ws_managed_test";
 const target = {
-  kind: "HttpService" as const,
+  kind: "EdgeWorker" as const,
   workspaceId,
-  resourceId: `tkrn:${workspaceId}:HttpService:yurucommu`,
+  resourceId: `tkrn:${workspaceId}:EdgeWorker:yurucommu`,
   resourceGeneration: 1,
   resourceRevisionId: "rev_http_1",
   entrypoint: "yurucommu.delivery",

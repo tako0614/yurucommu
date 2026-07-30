@@ -43,7 +43,7 @@
     "@ffmpeg/ffmpeg": "^0.12.15",
     "@ffmpeg/util": "^0.12.2",
     "@solidjs/router": "^0.15.0",
-    "@takosjp/takosumi-contract": "^1.0.0",
+    "@takosjp/takosumi-contract": "^2.0.0",
     "@takosjp/yurucommu-api": "^3.4.3",
     "@takosjp/yurucommu-core": "^3.4.3",
     "html5-qrcode": "^2.3.8",

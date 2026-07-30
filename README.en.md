@@ -83,15 +83,15 @@ authorization.
 4. Run Apply.
 5. Open Yurucommu from the Apps screen.
 
-After installation, Takosumi resolves the app URL through Yurucommu's
-`yurucommu.launcher` Interface. An Interface describes the URL offered by the
-HTTP service and how to open it. Takosumi keeps permission to open that
-Interface as a separate record. The Apps screen checks both records instead of
-guessing a URL from provider-specific resource IDs.
+After installation, Takosumi resolves the public URL through the EdgeWorker's
+declared `http.request@1` Interface. IaC reads its `resource_uri` as the ordinary
+`launch_url` output, and Takosumi turns that output into the Apps-screen UI
+surface. Permission to open it remains a separate record. No layer guesses a
+URL from provider-specific resource IDs.
 
 Automation can also read the ordinary `launch_url` and `api_url` OpenTofu
-outputs. If the Apps screen has no link, check the Apply result, the HTTP
-service URL, the resolved `yurucommu.launcher`, and the installer's access.
+outputs. If the Apps screen has no link, check the Apply result, the
+EdgeWorker's `http.request@1`, `launch_url`, and the installer's access.
 
 See [`deploy/takoform/README.md`](deploy/takoform/README.md) for the resources
 declared by the app and the configuration that remains the host's
@@ -210,10 +210,10 @@ issues.
 
 ### Yurucommu is missing from the Apps screen
 
-A successful Apply is not enough if the HTTP service has no public URL, the
-`yurucommu.launcher` Interface is unresolved, or the current account lacks
-permission to open it. Inspect the Interface instead of constructing a URL
-from an output name or cloud resource ID.
+A successful Apply is not enough if `http.request@1` has no `resource_uri`,
+`launch_url` or the UI surface is unresolved, or the current account lacks
+permission to open it. Inspect the Interface and Output instead of constructing
+a URL from a cloud resource ID.
 
 ### Browser push does not arrive
 

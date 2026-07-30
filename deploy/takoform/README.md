@@ -4,7 +4,7 @@ This directory describes the resources Yurucommu needs when it is installed on
 Takosumi or another compatible host.
 
 It uses Takoform, an OpenTofu provider whose resource types describe portable
-services such as an HTTP app, a SQL database, and an object bucket. The host
+services such as an edge application, a SQL database, and an object bucket. The host
 decides how to implement those services. The definition does not contain
 Cloudflare account IDs, credentials, or Cloudflare-specific resource types.
 
@@ -31,13 +31,13 @@ come from repository metadata.
 
 | Resource              | Purpose                                                                  |
 | --------------------- | ------------------------------------------------------------------------ |
-| `HttpService`         | Runs the Yurucommu web app and API                                       |
+| `EdgeWorker`          | Runs the Yurucommu web app and API                                       |
 | `RelationalDatabase`  | Stores accounts, posts, follows, messages, and notifications in SQLite   |
 | `ObjectBucket`        | Stores uploaded images and video                                         |
 | `KeyValueStore`       | Stores sessions, sign-in attempt limits, and rate limits                 |
 | two `Queue` resources | Handles delivery retries and keeps exhausted work in a dead-letter queue |
-| `Schedule`            | Invokes the retention task once per hour                                 |
-| `Interface`           | Describes the app URL and open action for an Apps screen                 |
+| `Schedule`            | Invokes the retention task daily at 03:00 UTC                            |
+| `http.request@1`      | Lets OpenTofu read the host-resolved HTTPS endpoint                      |
 
 The HTTP service connects to the other resources through the names expected by
 the Yurucommu runtime:
@@ -74,19 +74,19 @@ run SQL.
 
 ## How the app URL is discovered
 
-The `HttpService` returns its allocated URL. The module exposes that value as:
+The `EdgeWorker` Form declares `http.request@1`. After the Resource is Ready,
+the host resolves that Interface to a credential-free HTTPS `resource_uri`.
+The module reads it through the read-only `takoform_interface` data source and
+exposes:
 
 - `launch_url` for the web app;
 - `api_url` for the `/api` endpoint.
 
-It also declares `yurucommu.launcher`. This Interface links the HTTP service's
-`url` output to `/` and labels it as Yurucommu. The Interface describes what
-URL the installed resource offers. Permission to open it is a separate,
-host-owned record.
-
-Takosumi grants the installer permission to use this launcher, resolves it
-after Apply, and reads it for the Apps screen. The dashboard does not guess the
-URL from `launch_url`, a Worker name, or a cloud resource ID.
+`resource_uri` is runtime discovery metadata, not a Resource output, credential,
+or authorization grant. Takosumi uses the ordinary `launch_url` module output
+to materialize the Yurucommu Apps-screen surface and grants the installer
+permission separately. The dashboard never guesses a URL from a Worker name or
+cloud resource ID.
 
 ## What remains the host's responsibility
 
@@ -98,9 +98,9 @@ host must provide:
 - an `ENCRYPTION_KEY` secret;
 - password authentication or a complete OIDC setup;
 - working database, media, key-value, and queue connections;
-- queue consumers, dead-letter handling, and the hourly scheduled invocation;
+- queue consumers, dead-letter handling, and the daily scheduled invocation;
 - execution of the pinned database migration;
-- authorization for the person allowed to open `yurucommu.launcher`;
+- authorization for the person allowed to open the Yurucommu UI surface;
 - logs, backup, restore, update, and removal procedures.
 
 Browser Web Push is optional and is not stored in this module's state. A host
@@ -131,9 +131,9 @@ bun test scripts/takoform-capsule.test.ts scripts/takosumi-install-ux.test.ts
 Check, in this order:
 
 1. Apply completed successfully.
-2. The `HttpService` has a non-secret `url` output.
-3. `yurucommu.launcher` is resolved for the current resource revision.
-4. The current principal has permission to open that Interface.
+2. `EdgeWorker` is Ready with exact canonical native-resource evidence.
+3. `http.request@1` returns a non-secret `resource_uri`.
+4. `launch_url` resolved and the current principal has `ui.open` permission.
 
 Do not build a fallback URL from a provider ID. A missing launcher is an
 incomplete installation, not a naming problem.
