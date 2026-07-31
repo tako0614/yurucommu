@@ -260,6 +260,10 @@
               "ja": "リリース",
               "en": "Release"
             },
+            "helper": {
+              "ja": "配信する Yurucommu のリリースタグです。既定はこのリポジトリが固定した版です。",
+              "en": "The Yurucommu release tag to serve. Defaults to the version this repository pins."
+            },
             "advanced": true
           },
           {
@@ -273,6 +277,10 @@
               "ja": "リリースURL",
               "en": "Release URL"
             },
+            "helper": {
+              "ja": "Worker 成果物の不変な HTTPS URL です。リリースタグと一致している必要があります。",
+              "en": "Immutable HTTPS URL of the Worker artifact. It must match the release tag."
+            },
             "advanced": true
           },
           {
@@ -284,6 +292,10 @@
             "label": {
               "ja": "リリースSHA-256",
               "en": "Release SHA-256"
+            },
+            "helper": {
+              "ja": "取得した成果物を検証する SHA-256 です。",
+              "en": "SHA-256 that verifies the fetched artifact."
             },
             "advanced": true
           }
