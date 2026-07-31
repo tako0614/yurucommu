@@ -1,5 +1,5 @@
 {
-  "apiVersion": "takosumi.com/v1alpha1",
+  "apiVersion": "takosumi.com/v1",
   "kind": "Repository",
   "install": {
     "modules": {
@@ -10,6 +10,7 @@
             "source": {
               "kind": "capsule_name"
             },
+            "role": "service_name",
             "type": "string",
             "format": "subdomain",
             "label": {
@@ -70,6 +71,7 @@
             "source": {
               "kind": "user"
             },
+            "role": "initial_secret",
             "type": "string",
             "format": "password",
             "required": false,
@@ -109,8 +111,8 @@
               "ja": "Pushゲートウェイトークン",
               "en": "Push gateway token"
             },
-            "secret": true,
-            "advanced": true
+            "advanced": true,
+            "secret": true
           },
           {
             "name": "notification_push_web_push_public_key",
@@ -175,43 +177,32 @@
             "advanced": true
           }
         ],
-        "installExperience": {
-          "projections": [
-            {
-              "kind": "service_name",
-              "variable": "project_name"
-            },
-            {
-              "kind": "public_endpoint",
+        "requires": [
+          {
+            "kind": "http.endpoint",
+            "deliver": {
               "variables": {
                 "url": "app_url",
                 "subdomain": "project_name"
               }
-            },
-            {
-              "kind": "initial_secret",
-              "variable": "auth_password_hash",
-              "secretKind": "password_or_hash",
-              "optional": true
-            },
-            {
-              "kind": "oidc_client",
+            }
+          },
+          {
+            "kind": "identity.oidc",
+            "callbackPath": "/api/auth/callback/takos",
+            "scopes": [
+              "openid",
+              "profile",
+              "email"
+            ],
+            "deliver": {
               "variables": {
                 "issuerUrl": "takosumi_accounts_issuer_url",
                 "clientId": "takosumi_accounts_client_id"
-              },
-              "callbackPath": "/api/auth/callback/takos",
-              "scopes": ["openid", "profile", "email"]
-            },
-            {
-              "kind": "artifact",
-              "variables": {
-                "url": "worker_bundle_url",
-                "sha256": "worker_bundle_sha256"
               }
             }
-          ]
-        },
+          }
+        ],
         "features": [
           {
             "id": "password-authentication",
@@ -220,7 +211,9 @@
               "ja": "パスワードでログイン",
               "en": "Sign in with a password"
             },
-            "inputs": ["auth_password_hash"]
+            "inputs": [
+              "auth_password_hash"
+            ]
           },
           {
             "id": "notification-push",
@@ -244,6 +237,7 @@
             "source": {
               "kind": "capsule_name"
             },
+            "role": "service_name",
             "type": "string",
             "format": "subdomain",
             "label": {
@@ -294,14 +288,34 @@
             "advanced": true
           }
         ],
-        "installExperience": {
-          "projections": [
-            {
-              "kind": "service_name",
-              "variable": "project_name"
+        "requires": [
+          {
+            "kind": "secret.generated",
+            "bytes": 32,
+            "encoding": "base64url",
+            "deliver": {
+              "bindings": {
+                "value": "ENCRYPTION_KEY"
+              }
             }
-          ]
-        }
+          },
+          {
+            "kind": "identity.oidc",
+            "callbackPath": "/api/auth/callback/takos",
+            "scopes": [
+              "openid",
+              "profile"
+            ],
+            "deliver": {
+              "bindings": {
+                "issuerUrl": "TAKOSUMI_ACCOUNTS_ISSUER_URL",
+                "clientId": "TAKOSUMI_ACCOUNTS_CLIENT_ID",
+                "ownerSubject": "TAKOSUMI_ACCOUNTS_OWNER_SUB",
+                "redirectUri": "TAKOSUMI_ACCOUNTS_REDIRECT_URI"
+              }
+            }
+          }
+        ]
       }
     }
   }
