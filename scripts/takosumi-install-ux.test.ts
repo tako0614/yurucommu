@@ -31,9 +31,7 @@ const manifest = JSON.parse(manifestText) as {
           advanced?: boolean;
           secret?: boolean;
         }>;
-        installExperience?: {
-          projections?: Array<Record<string, unknown>>;
-        };
+        requires?: Array<Record<string, unknown>>;
         features?: Array<{
           id: string;
           optional: boolean;
@@ -72,12 +70,10 @@ const sourceKinds = new Set([
   "workspace_scoped_capsule_name",
   "module_default",
 ]);
-const projectionKinds = new Set([
-  "service_name",
-  "public_endpoint",
-  "initial_secret",
-  "oidc_client",
-  "artifact",
+const requirementKinds = new Set([
+  "http.endpoint",
+  "identity.oidc",
+  "secret.generated",
 ]);
 
 function assertExactKeys(
@@ -87,19 +83,23 @@ function assertExactKeys(
   expect(Object.keys(value).sort()).toEqual([...allowedKeys].sort());
 }
 
-function collectProjectionVariables(
-  projection: Record<string, unknown>,
+function collectDeliveredVariables(
+  requirement: Record<string, unknown>,
 ): string[] {
   const variables: string[] = [];
-  if (typeof projection.variable === "string") {
-    variables.push(projection.variable);
-  }
+  const deliver = requirement.deliver;
   if (
-    projection.variables &&
-    typeof projection.variables === "object" &&
-    !Array.isArray(projection.variables)
+    deliver &&
+    typeof deliver === "object" &&
+    !Array.isArray(deliver) &&
+    "variables" in deliver &&
+    deliver.variables &&
+    typeof deliver.variables === "object" &&
+    !Array.isArray(deliver.variables)
   ) {
-    for (const value of Object.values(projection.variables)) {
+    for (const value of Object.values(
+      deliver.variables as Record<string, unknown>,
+    )) {
       if (typeof value === "string") variables.push(value);
     }
   }
@@ -131,7 +131,6 @@ function collectForbiddenKeys(
     "secretValue",
     "target",
     "targetId",
-    "value",
   ]);
   return Object.entries(value as Record<string, unknown>).flatMap(
     ([key, child]) => [
@@ -172,7 +171,7 @@ describe("repository-owned Takosumi install UX", () => {
       "kind",
       "install",
     ]);
-    expect(manifest.apiVersion).toBe("takosumi.com/v1alpha1");
+    expect(manifest.apiVersion).toBe("takosumi.com/v1");
     expect(manifest.kind).toBe("Repository");
     assertExactKeys(manifest.install as unknown as Record<string, unknown>, [
       "modules",
@@ -185,19 +184,17 @@ describe("repository-owned Takosumi install UX", () => {
     expect(managedModule).toBeDefined();
     for (const module of [rootModule, managedModule]) {
       expect(module.inputs.length).toBeLessThanOrEqual(128);
-      expect(
-        module.installExperience?.projections?.length ?? 0,
-      ).toBeLessThanOrEqual(16);
+      expect(module.requires?.length ?? 0).toBeLessThanOrEqual(16);
       expect(module.features?.length ?? 0).toBeLessThanOrEqual(32);
     }
     assertExactKeys(rootModule as unknown as Record<string, unknown>, [
       "inputs",
-      "installExperience",
+      "requires",
       "features",
     ]);
     assertExactKeys(managedModule as unknown as Record<string, unknown>, [
       "inputs",
-      "installExperience",
+      "requires",
     ]);
   });
 
@@ -214,8 +211,8 @@ describe("repository-owned Takosumi install UX", () => {
         expect(input.label.ja.length).toBeLessThanOrEqual(512);
         expect(input.label.en.length).toBeLessThanOrEqual(512);
       }
-      for (const projection of module.installExperience?.projections ?? []) {
-        expect(projectionKinds.has(String(projection.kind))).toBe(true);
+      for (const requirement of module.requires ?? []) {
+        expect(requirementKinds.has(String(requirement.kind))).toBe(true);
       }
       for (const feature of module.features ?? []) {
         expect(feature.id.length).toBeLessThanOrEqual(64);
@@ -247,9 +244,7 @@ describe("repository-owned Takosumi install UX", () => {
     );
     const declaredVariables = new Set([
       ...rootModule.inputs.map((input) => input.name),
-      ...(rootModule.installExperience?.projections ?? []).flatMap(
-        collectProjectionVariables,
-      ),
+      ...(rootModule.requires ?? []).flatMap(collectDeliveredVariables),
       ...(rootModule.features ?? []).flatMap((feature) => feature.inputs),
     ]);
     expect(
@@ -268,10 +263,10 @@ describe("repository-owned Takosumi install UX", () => {
       expect(block).toMatch(/\n\s+default\s+=/);
     }
 
-    const oidcProjection = rootModule.installExperience?.projections?.find(
-      (projection) => projection.kind === "oidc_client",
+    const oidcRequirement = rootModule.requires?.find(
+      (requirement) => requirement.kind === "identity.oidc",
     );
-    expect(oidcProjection?.callbackPath).toBe("/api/auth/callback/takos");
+    expect(oidcRequirement?.callbackPath).toBe("/api/auth/callback/takos");
     expect(coreAuthRoutes).toContain('auth.get("/callback/:provider"');
     expect(coreOauthProviders).toContain('id: "takos"');
   });
@@ -329,13 +324,12 @@ describe("repository-owned Takosumi install UX", () => {
       "cloudflare",
       "provider",
       "credential",
-      "binding",
       "encryption_key",
       "oidc_client_id",
       "database_id",
       "queue_id",
     ]) {
-      expect(JSON.stringify(managedModule).toLowerCase()).not.toContain(
+      expect(JSON.stringify(managedModule.inputs).toLowerCase()).not.toContain(
         forbidden,
       );
     }

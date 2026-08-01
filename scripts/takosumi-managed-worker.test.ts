@@ -47,39 +47,6 @@ const principal = {
   installingPrincipalId: "acct_owner",
 };
 
-function managedMaterialization(): string {
-  const kinds = {
-    DB: "RelationalDatabase",
-    MEDIA: "ObjectBucket",
-    KV: "KeyValueStore",
-    DELIVERY_QUEUE: "Queue",
-    DELIVERY_DLQ: "Queue",
-  } as const;
-  return JSON.stringify({
-    contract: "takosumi.managed-runtime-connection/v1",
-    gateway: {
-      binding: "TAKOSUMI_MANAGED_RUNTIME",
-      transport: "fetch",
-    },
-    connections: Object.entries(kinds).map(([alias, resourceKind], index) => ({
-      alias,
-      authority: {
-        workspaceId,
-        subject: "capsule:cap_yurucommu",
-        resourceId: `tkrn:${workspaceId}:${resourceKind}:${alias.toLowerCase()}`,
-        resourceKind,
-        resourceGeneration: 1,
-        permissions: ["takosumi.managed-runtime.invoke"],
-        interfaceId: `if_${index}`,
-        interfaceBindingId: `ifb_${index}`,
-        interfaceResolvedRevision: 1,
-        audience: "https://runtime.example.test/v1/resources",
-        capabilityRef: `secret:runtime/${alias.toLowerCase()}`,
-      },
-    })),
-  });
-}
-
 function queueEnvelope(): TakosumiBackgroundEventEnvelope {
   return {
     abi: TAKOSUMI_BACKGROUND_EVENT_ABI,
@@ -175,77 +142,114 @@ function handlers(
   };
 }
 
-describe("Yurucommu managed runtime selection", () => {
-  test("rejects the former capability-ref-as-native-binding overlay", () => {
+describe("Yurucommu native Cloudflare binding selection", () => {
+  test("requires native DB and KV bindings", () => {
     expect(() =>
       wrapYurucommuWorkerBindings({
         APP_URL: "https://yurucommu.example.test",
-        DB: "capability:yurucommu/database",
-        MEDIA: "capability:yurucommu/media",
-        KV: "capability:yurucommu/key-value",
-        DELIVERY_QUEUE: "capability:yurucommu/delivery-queue",
-        DELIVERY_DLQ: "capability:yurucommu/delivery-dlq",
+        DB: "not-a-native-binding" as never,
+        KV: "not-a-native-binding" as never,
       }),
-    ).toThrow(
-      "managed runtime must not expose DB as a native or capability-ref binding",
-    );
+    ).toThrow("native DB and KV bindings are required");
   });
 
-  test("rejects an incomplete managed selection instead of falling back to native", () => {
+  test("validates an explicit app origin", () => {
     expect(() =>
       wrapYurucommuWorkerBindings({
-        APP_URL: "https://yurucommu.example.test",
-        TAKOSUMI_MANAGED_RUNTIME_MATERIALIZATION: "{}",
+        APP_URL: "http://yurucommu.example.test",
+        DB: nativeBindings().DB,
+        KV: nativeBindings().KV,
       }),
-    ).toThrow(
-      "managed runtime requires its exact materialization and Fetch gateway",
-    );
+    ).toThrow("APP_URL must be an exact HTTPS origin");
   });
 
-  test("materializes the declared KV and queue through the Fetch gateway", async () => {
-    const requests: Array<{
-      readonly url: string;
-      readonly headers: Headers;
-    }> = [];
-    const runtime = wrapYurucommuWorkerBindings({
+  test("adapts native DB, KV, R2, and queue bindings", async () => {
+    const kvCalls: string[] = [];
+    const objectCalls: string[] = [];
+    const queueMessages: unknown[] = [];
+    const dlqMessages: unknown[] = [];
+    const bindings: YurucommuWorkerBindings = {
       APP_URL: "https://yurucommu.example.test",
       DELIVERY_QUEUE_NAME: "yurucommu-delivery",
       DELIVERY_DLQ_NAME: "yurucommu-delivery-dlq",
-      TAKOSUMI_MANAGED_RUNTIME_MATERIALIZATION: managedMaterialization(),
-      TAKOSUMI_MANAGED_RUNTIME: {
-        async fetch(request: Request) {
-          requests.push({
-            url: request.url,
-            headers: new Headers(request.headers),
-          });
-          return request.method === "POST"
-            ? Response.json({ accepted: true, messageId: "message_1" })
-            : Response.json({ ok: true });
+      DB: {
+        prepare() {
+          throw new Error("DB must not be called by this adapter test");
         },
-      } as unknown as YurucommuWorkerBindings["TAKOSUMI_MANAGED_RUNTIME"],
-    });
+      } as never,
+      KV: {
+        get: async (key: string) => {
+          kvCalls.push(`get:${key}`);
+          return null;
+        },
+        put: async (key: string) => {
+          kvCalls.push(`put:${key}`);
+        },
+        delete: async (key: string) => {
+          kvCalls.push(`delete:${key}`);
+        },
+        list: async () => ({ keys: [], list_complete: true }),
+      } as never,
+      MEDIA: {
+        put: async (key: string) => {
+          objectCalls.push(`put:${key}`);
+        },
+        get: async () => null,
+        delete: async (key: string) => {
+          objectCalls.push(`delete:${key}`);
+        },
+        list: async () => ({
+          objects: [],
+          truncated: false,
+          delimitedPrefixes: [],
+        }),
+        head: async () => null,
+      } as never,
+      DELIVERY_QUEUE: {
+        send: async (body: unknown) => {
+          queueMessages.push(body);
+        },
+        sendBatch: async () => undefined,
+      } as never,
+      DELIVERY_DLQ: {
+        send: async (body: unknown) => {
+          dlqMessages.push(body);
+        },
+        sendBatch: async () => undefined,
+      } as never,
+    };
+    const runtime = wrapYurucommuWorkerBindings(bindings);
+
+    expect(runtime.DB_INSTANCE).toBeDefined();
+    expect(runtime.KV).not.toBe(bindings.KV);
+    expect(runtime.MEDIA).not.toBe(bindings.MEDIA);
+    expect(runtime.DELIVERY_QUEUE).not.toBe(bindings.DELIVERY_QUEUE);
+    expect(runtime.DELIVERY_DLQ).not.toBe(bindings.DELIVERY_DLQ);
 
     await runtime.KV.put("session:test", "value");
+    await runtime.KV.get("session:test");
+    await runtime.MEDIA!.put("media:test", "value");
     await runtime.DELIVERY_QUEUE!.send({
       version: 1,
       type: "deliver_endpoint",
       jobId: "job_1",
       scheduledAt: "2026-07-29T12:00:00.000Z",
     });
+    await runtime.DELIVERY_DLQ!.send({
+      version: 1,
+      type: "dlq",
+      jobId: "job_2",
+      activityId: "activity_2",
+      endpoint: "https://remote.example.test/inbox",
+      attempts: 1,
+      lastError: null,
+      deadLetteredAt: "2026-07-29T12:00:00.000Z",
+    });
 
-    expect(requests).toHaveLength(2);
-    expect(new URL(requests[0]!.url).pathname).toBe(
-      `/v1/resources/${encodeURIComponent(`tkrn:${workspaceId}:KeyValueStore:kv`)}/kv/keys/session%3Atest`,
-    );
-    expect(
-      requests[0]!.headers.get("x-takosumi-managed-runtime-capability-ref"),
-    ).toBe("secret:runtime/kv");
-    expect(new URL(requests[1]!.url).pathname).toBe(
-      `/v1/resources/${encodeURIComponent(`tkrn:${workspaceId}:Queue:delivery_queue`)}/queue/messages`,
-    );
-    expect(
-      requests[1]!.headers.get("x-takosumi-managed-runtime-capability-ref"),
-    ).toBe("secret:runtime/delivery_queue");
+    expect(kvCalls).toEqual(["put:session:test", "get:session:test"]);
+    expect(objectCalls).toEqual(["put:media:test"]);
+    expect(queueMessages).toHaveLength(1);
+    expect(dlqMessages).toHaveLength(1);
   });
 });
 

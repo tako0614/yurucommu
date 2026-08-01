@@ -1,8 +1,4 @@
 import {
-  createManagedRelationalDatabase,
-  createManagedRuntimeKeyValueStore,
-  createManagedRuntimeObjectStorage,
-  createManagedRuntimeQueueProducer,
   handleYurucommuQueueBatch,
   wrapCloudflareBindings,
 } from "@takosjp/yurucommu-core/server";
@@ -26,11 +22,6 @@ import {
   type TakosumiBackgroundEvent,
   type TakosumiBackgroundEventEnvelope,
 } from "@takosjp/takosumi-contract/background-events";
-import {
-  TAKOSUMI_MANAGED_RUNTIME_GATEWAY_BINDING,
-  parseManagedRuntimeConnectionMaterialization,
-  type ManagedRuntimeConnectionMaterialization,
-} from "@takosjp/takosumi-contract/managed-runtime-connections";
 import type {
   D1Database,
   ExecutionContext,
@@ -41,20 +32,7 @@ import type {
   ScheduledController,
 } from "@cloudflare/workers-types";
 
-// This binding is part of the host/runtime ABI. The npm contract is still
-// 1.0.0, so keep the exact name local until its next published version exports
-// the constant as well.
-export const TAKOSUMI_MANAGED_RUNTIME_MATERIALIZATION_BINDING =
-  "TAKOSUMI_MANAGED_RUNTIME_MATERIALIZATION" as const;
-
 const MAX_BACKGROUND_EVENT_BYTES = 2 * 1024 * 1024;
-const MANAGED_ALIASES = [
-  "DB",
-  "MEDIA",
-  "KV",
-  "DELIVERY_QUEUE",
-  "DELIVERY_DLQ",
-] as const;
 
 type NativeWorkerBindings = EnvVars & {
   DB: D1Database;
@@ -70,125 +48,58 @@ export type YurucommuWorkerBindings = Omit<
   "DB" | "MEDIA" | "KV" | "DELIVERY_QUEUE" | "DELIVERY_DLQ" | "APP_URL"
 > & {
   APP_URL?: string;
-  DB?: D1Database | string;
-  MEDIA?: R2Bucket | string;
-  KV?: KVNamespace | string;
-  DELIVERY_QUEUE?: Queue<DeliveryQueueMessageV1> | string;
-  DELIVERY_DLQ?: Queue<DeliveryDlqMessageV1> | string;
-  TAKOSUMI_MANAGED_RUNTIME?: Fetcher;
-  TAKOSUMI_MANAGED_RUNTIME_MATERIALIZATION?: string;
+  DB?: D1Database;
+  MEDIA?: R2Bucket;
+  KV?: KVNamespace;
+  DELIVERY_QUEUE?: Queue<DeliveryQueueMessageV1>;
+  DELIVERY_DLQ?: Queue<DeliveryDlqMessageV1>;
 };
 
 /**
- * Selects exactly one runtime substrate.
- *
- * A direct Cloudflare deployment keeps native bindings. A managed host must
- * provide one exact materialization, one Fetch-compatible gateway, and the
- * canonical public origin. Individual capability references are deliberately
- * rejected: they are host authority, not D1/R2/KV/Queue objects.
+ * Wraps the native Cloudflare bindings used by both direct and hosted
+ * deployments. The host supplies actual D1/KV/R2/Queue objects under the
+ * normal binding names, so both paths share one runtime adapter.
  */
 export function wrapYurucommuWorkerBindings(
   bindings: YurucommuWorkerBindings,
 ): Env {
-  const managedMarkers = [
-    bindings.TAKOSUMI_MANAGED_RUNTIME_MATERIALIZATION,
-    bindings.TAKOSUMI_MANAGED_RUNTIME,
-    bindings.DB,
-    bindings.MEDIA,
-    bindings.KV,
-    bindings.DELIVERY_QUEUE,
-    bindings.DELIVERY_DLQ,
-  ];
-  const managedSelected =
-    typeof bindings.TAKOSUMI_MANAGED_RUNTIME_MATERIALIZATION === "string" ||
-    bindings.TAKOSUMI_MANAGED_RUNTIME !== undefined ||
-    managedMarkers.some((value) => typeof value === "string");
-
-  if (!managedSelected) {
-    if (
-      !isObjectBinding(bindings.DB, "prepare") ||
-      !isObjectBinding(bindings.KV, "get")
-    ) {
-      throw new Error("native DB and KV bindings are required");
-    }
-    return wrapCloudflareBindings(bindings as NativeWorkerBindings) as Env;
+  if (
+    !isObjectBinding(bindings.DB, "prepare") ||
+    !isObjectBinding(bindings.KV, "get")
+  ) {
+    throw new Error("native DB and KV bindings are required");
   }
-
-  for (const alias of MANAGED_ALIASES) {
-    if (bindings[alias] !== undefined) {
-      throw new Error(
-        `managed runtime must not expose ${alias} as a native or capability-ref binding`,
-      );
-    }
+  if (bindings.MEDIA !== undefined && !isObjectBinding(bindings.MEDIA, "put")) {
+    throw new Error("native MEDIA binding must implement put");
   }
   if (
-    typeof bindings.TAKOSUMI_MANAGED_RUNTIME_MATERIALIZATION !== "string" ||
-    !isObjectBinding(bindings.TAKOSUMI_MANAGED_RUNTIME, "fetch")
+    bindings.ASSETS !== undefined &&
+    !isObjectBinding(bindings.ASSETS, "fetch")
   ) {
-    throw new Error(
-      "managed runtime requires its exact materialization and Fetch gateway",
-    );
+    throw new Error("native ASSETS binding must implement fetch");
   }
-  const appUrl = canonicalAppOrigin(bindings.APP_URL);
-  const materialization = managedMaterialization(
-    bindings.TAKOSUMI_MANAGED_RUNTIME_MATERIALIZATION,
-  );
-  const gateway = {
-    fetch: async (request: Request) =>
-      (await bindings.TAKOSUMI_MANAGED_RUNTIME!.fetch(
-        request as never,
-      )) as unknown as Response,
-  };
-  const {
-    TAKOSUMI_MANAGED_RUNTIME: _gateway,
-    TAKOSUMI_MANAGED_RUNTIME_MATERIALIZATION: _materialization,
-    DB: _db,
-    MEDIA: _media,
-    KV: _kv,
-    DELIVERY_QUEUE: _deliveryQueue,
-    DELIVERY_DLQ: _deliveryDlq,
-    ...rest
-  } = bindings;
+  if (
+    bindings.DELIVERY_QUEUE !== undefined &&
+    !isObjectBinding(bindings.DELIVERY_QUEUE, "send")
+  ) {
+    throw new Error("native DELIVERY_QUEUE binding must implement send");
+  }
+  if (
+    bindings.DELIVERY_DLQ !== undefined &&
+    !isObjectBinding(bindings.DELIVERY_DLQ, "send")
+  ) {
+    throw new Error("native DELIVERY_DLQ binding must implement send");
+  }
 
-  return {
-    ...rest,
-    APP_URL: appUrl,
-    DB_INSTANCE: createManagedRelationalDatabase({
-      materialization,
-      gateway,
-      alias: "DB",
-    }),
-    MEDIA: createManagedRuntimeObjectStorage({
-      materialization,
-      gateway,
-      alias: "MEDIA",
-    }),
-    KV: createManagedRuntimeKeyValueStore({
-      materialization,
-      gateway,
-      alias: "KV",
-    }),
-    DELIVERY_QUEUE: createManagedRuntimeQueueProducer<DeliveryQueueMessageV1>({
-      materialization,
-      gateway,
-      alias: "DELIVERY_QUEUE",
-    }),
-    DELIVERY_DLQ: createManagedRuntimeQueueProducer<DeliveryDlqMessageV1>({
-      materialization,
-      gateway,
-      alias: "DELIVERY_DLQ",
-    }),
-    ...(bindings.ASSETS === undefined
-      ? {}
-      : {
-          ASSETS: {
-            fetch: (request: Request) =>
-              bindings.ASSETS!.fetch(
-                request as never,
-              ) as unknown as Promise<Response>,
-          },
-        }),
-  } as unknown as Env;
+  const appUrl =
+    bindings.APP_URL === undefined || bindings.APP_URL.trim().length === 0
+      ? bindings.APP_URL
+      : canonicalAppOrigin(bindings.APP_URL);
+  const normalizedBindings =
+    appUrl === bindings.APP_URL ? bindings : { ...bindings, APP_URL: appUrl };
+  return wrapCloudflareBindings(
+    normalizedBindings as NativeWorkerBindings,
+  ) as Env;
 }
 
 export type TakosumiBackgroundExecutionContext = ExecutionContext & {
@@ -286,7 +197,10 @@ export async function handleTakosumiBackgroundEventInvocation(input: {
     );
   }
 
-  const runtimeEnv = wrapYurucommuWorkerBindings(input.bindings);
+  const runtimeEnv = wrapYurucommuWorkerBindings({
+    ...input.bindings,
+    APP_URL: canonicalAppOrigin(input.bindings.APP_URL),
+  });
   if (
     envelope.target.entrypoint === "yurucommu.delivery" &&
     envelope.source.kind === "Queue" &&
@@ -335,41 +249,6 @@ export async function handleTakosumiBackgroundEventInvocation(input: {
 }
 
 export const defaultTakosumiBackgroundQueueHandler = handleYurucommuQueueBatch;
-
-function managedMaterialization(
-  value: string,
-): ManagedRuntimeConnectionMaterialization {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(value);
-  } catch {
-    throw new Error("managed runtime materialization is not valid JSON");
-  }
-  const materialization = parseManagedRuntimeConnectionMaterialization(parsed);
-  if (
-    materialization.gateway.binding !== TAKOSUMI_MANAGED_RUNTIME_GATEWAY_BINDING
-  ) {
-    throw new Error("managed runtime materialization selects another gateway");
-  }
-  const expected = new Map([
-    ["DB", "RelationalDatabase"],
-    ["MEDIA", "ObjectBucket"],
-    ["KV", "KeyValueStore"],
-    ["DELIVERY_QUEUE", "Queue"],
-    ["DELIVERY_DLQ", "Queue"],
-  ]);
-  if (
-    materialization.connections.length !== expected.size ||
-    materialization.connections.some(
-      ({ alias, authority }) => expected.get(alias) !== authority.resourceKind,
-    )
-  ) {
-    throw new Error(
-      "managed runtime materialization does not cover the exact Yurucommu graph",
-    );
-  }
-  return materialization;
-}
 
 function backgroundQueueBatch(
   event: Extract<TakosumiBackgroundEvent, { readonly kind: "queue" }>,
@@ -424,13 +303,13 @@ function backgroundQueueBatch(
 
 function canonicalAppOrigin(value: unknown): string {
   if (typeof value !== "string") {
-    throw new Error("managed runtime requires APP_URL");
+    throw new Error("APP_URL is required for background invocations");
   }
   let url: URL;
   try {
     url = new URL(value);
   } catch {
-    throw new Error("managed runtime APP_URL is invalid");
+    throw new Error("APP_URL is invalid");
   }
   if (
     url.protocol !== "https:" ||
@@ -441,7 +320,7 @@ function canonicalAppOrigin(value: unknown): string {
     url.pathname !== "/" ||
     value !== url.origin
   ) {
-    throw new Error("managed runtime APP_URL must be an exact HTTPS origin");
+    throw new Error("APP_URL must be an exact HTTPS origin");
   }
   return url.origin;
 }
@@ -481,7 +360,7 @@ async function boundedResponse(
     declared !== null &&
     (!/^\d+$/u.test(declared) || Number(declared) > maxBytes)
   ) {
-    throw new Error("managed runtime response is too large");
+    throw new Error("background response is too large");
   }
   const reader = response.body?.getReader();
   if (!reader) {
@@ -500,7 +379,7 @@ async function boundedResponse(
       size += value.byteLength;
       if (size > maxBytes) {
         await reader.cancel();
-        throw new Error("managed runtime response is too large");
+        throw new Error("background response is too large");
       }
       chunks.push(value);
     }

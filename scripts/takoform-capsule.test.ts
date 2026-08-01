@@ -66,7 +66,7 @@ describe("portable Takoform Capsule", () => {
 
   test("does not route first-party desired state through Cloudflare compatibility", () => {
     expect(main).toContain(
-      'source  = "registry.terraform.io/tako0614/takoform"',
+      'source  = "registry.opentofu.org/tako0614/takoform"',
     );
     for (const forbidden of [
       "cloudflare/cloudflare",
