@@ -84,9 +84,12 @@ Takosumi の「新しいアプリ」または `/install` 画面で、次を指�
 
 インストール後、`EdgeWorker` が宣言する `http.request@1` Interface を使って
 Takosumi が公開 URL を解決します。IaC はその `resource_uri` を通常の
-`launch_url` Output として取り出し、Takosumi はそこから Apps 画面用の UI surface
-を作ります。誰が開けるかは別の権限情報です。Cloudflare などのリソース ID から
-URL を推測しません。
+`launch_url` Output として取り出します。リポジトリの v2
+[`interfaces`](.well-known/takosumi.json) 宣言がレビュー済みの
+`interface.ui.surface@1` Interface に compile され、その `inputs.url` が
+`launch_url` Output を明示的に参照します。Output だけでは Apps 画面用の surface
+は作られず、誰が開けるかは別の binding 権限情報です。Cloudflare などのリソース ID
+から URL を推測しません。
 
 自動処理向けには、通常の OpenTofu Output として `launch_url` と `api_url` も
 取得できます。Apps 画面にリンクが出ない場合は、Apply の成功、`EdgeWorker` の
@@ -201,7 +204,8 @@ OIDC を使う場合は issuer、client ID、callback URL、最初の owner に�
 ### Apps 画面に Yurucommu が表示されない
 
 Takosumi の Apply が成功していても、`http.request@1` の `resource_uri`、
-`launch_url`、UI surface、開く権限のいずれかが未解決ならリンクは表示されません。
+`launch_url`、v2 `interfaces` 宣言から compile された UI surface、開く binding
+権限のいずれかが未解決ならリンクは表示されません。Output 単独の fallback や
 クラウド内部のリソース ID から URL を作らず、Interface と Output を確認します。
 
 ### プッシュ通知が届かない

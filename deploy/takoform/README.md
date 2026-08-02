@@ -83,10 +83,12 @@ exposes:
 - `api_url` for the `/api` endpoint.
 
 `resource_uri` is runtime discovery metadata, not a Resource output, credential,
-or authorization grant. Takosumi uses the ordinary `launch_url` module output
-to materialize the Yurucommu Apps-screen surface and grants the installer
-permission separately. The dashboard never guesses a URL from a Worker name or
-cloud resource ID.
+or authorization grant. The reviewed v2 `interfaces` declaration in the repository
+manifest compiles to a Capsule-owned `interface.ui.surface@1` Interface. Its
+`inputs.url` explicitly maps to the ordinary `launch_url` module output; an output
+alone does not materialize the Apps-screen surface. Takosumi grants the installer
+permission through the declared binding request separately. The dashboard never
+guesses a URL from a Worker name or cloud resource ID.
 
 ## What remains the host's responsibility
 

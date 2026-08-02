@@ -1,5 +1,5 @@
 {
-  "apiVersion": "takosumi.com/v1",
+  "apiVersion": "takosumi.com/v2",
   "kind": "Repository",
   "install": {
     "modules": {
@@ -228,6 +228,45 @@
               "notification_push_web_push_public_key"
             ]
           }
+        ],
+        "interfaces": [
+          {
+            "key": "launcher",
+            "name": "yurucommu.launcher",
+            "spec": {
+              "type": "interface.ui.surface",
+              "version": "1",
+              "document": {
+                "launcher": true,
+                "display": {
+                  "title": "Yurucommu",
+                  "icon": "/icons/yurucommu.svg"
+                }
+              },
+              "inputs": {
+                "url": {
+                  "source": "output",
+                  "outputName": "launch_url",
+                  "outputType": "url"
+                }
+              },
+              "access": {
+                "visibility": "workspace"
+              }
+            },
+            "bindingRequests": [
+              {
+                "key": "installer",
+                "subject": {
+                  "source": "installing_principal"
+                },
+                "permissions": ["ui.open"],
+                "delivery": {
+                  "type": "none"
+                }
+              }
+            ]
+          }
         ]
       },
       "deploy/takoform": {
@@ -326,6 +365,45 @@
                 "redirectUri": "TAKOSUMI_ACCOUNTS_REDIRECT_URI"
               }
             }
+          }
+        ],
+        "interfaces": [
+          {
+            "key": "launcher",
+            "name": "yurucommu.launcher",
+            "spec": {
+              "type": "interface.ui.surface",
+              "version": "1",
+              "document": {
+                "launcher": true,
+                "display": {
+                  "title": "Yurucommu",
+                  "icon": "/icons/yurucommu.svg"
+                }
+              },
+              "inputs": {
+                "url": {
+                  "source": "output",
+                  "outputName": "launch_url",
+                  "outputType": "url"
+                }
+              },
+              "access": {
+                "visibility": "workspace"
+              }
+            },
+            "bindingRequests": [
+              {
+                "key": "installer",
+                "subject": {
+                  "source": "installing_principal"
+                },
+                "permissions": ["ui.open"],
+                "delivery": {
+                  "type": "none"
+                }
+              }
+            ]
           }
         ]
       }

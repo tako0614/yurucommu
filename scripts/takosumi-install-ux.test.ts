@@ -38,6 +38,33 @@ const manifest = JSON.parse(manifestText) as {
           label: { ja: string; en: string };
           inputs: string[];
         }>;
+        interfaces: Array<{
+          key: string;
+          name: string;
+          spec: {
+            type: string;
+            version: string;
+            document: {
+              launcher: boolean;
+              display: { title: string; icon?: string };
+            };
+            inputs: Record<
+              string,
+              {
+                source: string;
+                outputName?: string;
+                outputType?: string;
+              }
+            >;
+            access: { visibility: string };
+          };
+          bindingRequests: Array<{
+            key: string;
+            subject: { source: string };
+            permissions: string[];
+            delivery: { type: string };
+          }>;
+        }>;
       }
     >;
   };
@@ -45,8 +72,16 @@ const manifest = JSON.parse(manifestText) as {
 const rootModule = manifest.install.modules["."];
 const managedModule = manifest.install.modules["deploy/takoform"];
 const rootModuleSource = await readFile(new URL("main.tf", rootUrl), "utf8");
+const rootOutputsSource = await readFile(
+  new URL("outputs.tf", rootUrl),
+  "utf8",
+);
 const managedModuleSource = await readFile(
   new URL("deploy/takoform/main.tf", rootUrl),
+  "utf8",
+);
+const managedOutputsSource = await readFile(
+  new URL("deploy/takoform/outputs.tf", rootUrl),
   "utf8",
 );
 const coreAuthRoutes = await readFile(
@@ -140,6 +175,68 @@ function collectForbiddenKeys(
   );
 }
 
+function assertLauncherInterface(
+  module: (typeof manifest.install.modules)[string],
+  expectedName: string,
+): void {
+  expect(module.interfaces).toHaveLength(1);
+  const launcher = module.interfaces[0];
+  assertExactKeys(launcher as unknown as Record<string, unknown>, [
+    "bindingRequests",
+    "key",
+    "name",
+    "spec",
+  ]);
+  expect(launcher.key).toBe("launcher");
+  expect(launcher.name).toBe(expectedName);
+  assertExactKeys(launcher.spec as unknown as Record<string, unknown>, [
+    "access",
+    "document",
+    "inputs",
+    "type",
+    "version",
+  ]);
+  expect(launcher.spec.type).toBe("interface.ui.surface");
+  expect(launcher.spec.version).toBe("1");
+  assertExactKeys(
+    launcher.spec.document as unknown as Record<string, unknown>,
+    ["display", "launcher"],
+  );
+  expect(launcher.spec.document.launcher).toBe(true);
+  assertExactKeys(
+    launcher.spec.document.display as unknown as Record<string, unknown>,
+    ["icon", "title"],
+  );
+  expect(launcher.spec.document.display.title).toBe("Yurucommu");
+  expect(launcher.spec.document.display.icon).toBe("/icons/yurucommu.svg");
+  assertExactKeys(launcher.spec.inputs as Record<string, unknown>, ["url"]);
+  assertExactKeys(
+    launcher.spec.inputs.url as unknown as Record<string, unknown>,
+    ["outputName", "outputType", "source"],
+  );
+  expect(launcher.spec.inputs.url).toEqual({
+    source: "output",
+    outputName: "launch_url",
+    outputType: "url",
+  });
+  assertExactKeys(launcher.spec.access as Record<string, unknown>, [
+    "visibility",
+  ]);
+  expect(launcher.spec.access.visibility).toBe("workspace");
+  expect(launcher.bindingRequests).toHaveLength(1);
+  const [installer] = launcher.bindingRequests;
+  assertExactKeys(installer as unknown as Record<string, unknown>, [
+    "delivery",
+    "key",
+    "permissions",
+    "subject",
+  ]);
+  expect(installer.key).toBe("installer");
+  expect(installer.subject).toEqual({ source: "installing_principal" });
+  expect(installer.permissions).toEqual(["ui.open"]);
+  expect(installer.delivery).toEqual({ type: "none" });
+}
+
 describe("repository-owned Takosumi install UX", () => {
   test("presents the managed graph as the ordinary source option without hiding direct BYOC", () => {
     expect(
@@ -171,7 +268,7 @@ describe("repository-owned Takosumi install UX", () => {
       "kind",
       "install",
     ]);
-    expect(manifest.apiVersion).toBe("takosumi.com/v1");
+    expect(manifest.apiVersion).toBe("takosumi.com/v2");
     expect(manifest.kind).toBe("Repository");
     assertExactKeys(manifest.install as unknown as Record<string, unknown>, [
       "modules",
@@ -191,14 +288,18 @@ describe("repository-owned Takosumi install UX", () => {
       "inputs",
       "requires",
       "features",
+      "interfaces",
     ]);
     assertExactKeys(managedModule as unknown as Record<string, unknown>, [
       "inputs",
       "requires",
+      "interfaces",
     ]);
+    assertLauncherInterface(rootModule, "yurucommu.launcher");
+    assertLauncherInterface(managedModule, "yurucommu.launcher");
   });
 
-  test("uses only the bounded v1 presentation vocabulary", () => {
+  test("uses only the bounded v2 presentation vocabulary", () => {
     for (const module of Object.values(manifest.install.modules)) {
       for (const input of module.inputs) {
         expect(sourceKinds.has(input.source.kind)).toBe(true);
@@ -231,6 +332,26 @@ describe("repository-owned Takosumi install UX", () => {
                 .kind !== "user",
           ),
         ).toEqual([]);
+      }
+      for (const declaration of module.interfaces) {
+        expect(declaration.key.length).toBeLessThanOrEqual(128);
+        expect(declaration.name.length).toBeLessThanOrEqual(256);
+        expect(declaration.spec.type.length).toBeLessThanOrEqual(128);
+        expect(declaration.spec.version.length).toBeLessThanOrEqual(64);
+        for (const [inputName, input] of Object.entries(
+          declaration.spec.inputs,
+        )) {
+          expect(inputName.length).toBeLessThanOrEqual(128);
+          expect(input.source).toBe("output");
+          expect(input.outputName).toBe("launch_url");
+          expect(input.outputType).toBe("url");
+        }
+        expect(declaration.bindingRequests.length).toBeLessThanOrEqual(16);
+        for (const request of declaration.bindingRequests) {
+          expect(request.subject).toEqual({ source: "installing_principal" });
+          expect(request.permissions).toEqual(["ui.open"]);
+          expect(request.delivery).toEqual({ type: "none" });
+        }
       }
     }
   });
@@ -269,6 +390,8 @@ describe("repository-owned Takosumi install UX", () => {
     expect(oidcRequirement?.callbackPath).toBe("/api/auth/callback/takos");
     expect(coreAuthRoutes).toContain('auth.get("/callback/:provider"');
     expect(coreOauthProviders).toContain('id: "takos"');
+    expect(rootOutputsSource).toContain('output "launch_url"');
+    expect(managedOutputsSource).toContain('output "launch_url"');
   });
 
   test("keeps host authority, secret values, and raw owner bootstrap out of repository metadata", () => {

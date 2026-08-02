@@ -85,9 +85,11 @@ authorization.
 
 After installation, Takosumi resolves the public URL through the EdgeWorker's
 declared `http.request@1` Interface. IaC reads its `resource_uri` as the ordinary
-`launch_url` output, and Takosumi turns that output into the Apps-screen UI
-surface. Permission to open it remains a separate record. No layer guesses a
-URL from provider-specific resource IDs.
+`launch_url` output. The reviewed v2 [`interfaces`](.well-known/takosumi.json)
+declaration compiles to an `interface.ui.surface@1` Interface whose `inputs.url`
+explicitly references that `launch_url` output. The output alone does not create
+an Apps-screen surface; permission to open it remains a separate binding. No layer
+guesses a URL from provider-specific resource IDs.
 
 Automation can also read the ordinary `launch_url` and `api_url` OpenTofu
 outputs. If the Apps screen has no link, check the Apply result, the
@@ -211,9 +213,10 @@ issues.
 ### Yurucommu is missing from the Apps screen
 
 A successful Apply is not enough if `http.request@1` has no `resource_uri`,
-`launch_url` or the UI surface is unresolved, or the current account lacks
-permission to open it. Inspect the Interface and Output instead of constructing
-a URL from a cloud resource ID.
+`launch_url`, or the UI surface compiled from the v2 `interfaces` declaration is
+unresolved, or the current account lacks permission to open it. An output alone is
+not a launcher fallback. Inspect the Interface and Output instead of constructing a
+URL from a cloud resource ID.
 
 ### Browser push does not arrive
 
