@@ -355,7 +355,8 @@
             "callbackPath": "/api/auth/callback/takos",
             "scopes": [
               "openid",
-              "profile"
+              "profile",
+              "email"
             ],
             "deliver": {
               "bindings": {

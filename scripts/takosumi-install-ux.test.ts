@@ -394,6 +394,20 @@ describe("repository-owned Takosumi install UX", () => {
     expect(managedOutputsSource).toContain('output "launch_url"');
   });
 
+  test("keeps the managed OIDC grant aligned with the Yurucommu runtime", () => {
+    const managedOidcRequirement = managedModule.requires?.find(
+      (requirement) => requirement.kind === "identity.oidc",
+    );
+    expect(managedOidcRequirement?.scopes).toEqual([
+      "openid",
+      "profile",
+      "email",
+    ]);
+    expect(coreOauthProviders).toMatch(
+      /id: "takos",[\s\S]*?scopes: \["openid", "profile", "email"\]/,
+    );
+  });
+
   test("keeps host authority, secret values, and raw owner bootstrap out of repository metadata", () => {
     expect(collectForbiddenKeys(manifest)).toEqual([]);
     expect(manifestText).not.toContain("cloudflare_account_id");
