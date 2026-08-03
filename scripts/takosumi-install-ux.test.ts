@@ -16,6 +16,7 @@ const manifest = JSON.parse(manifestText) as {
   apiVersion: string;
   kind: string;
   install: {
+    defaultModule: string;
     modules: Record<
       string,
       {
@@ -268,11 +269,13 @@ describe("repository-owned Takosumi install UX", () => {
       "kind",
       "install",
     ]);
-    expect(manifest.apiVersion).toBe("takosumi.com/v2");
+    expect(manifest.apiVersion).toBe("takosumi.com/v2.1");
     expect(manifest.kind).toBe("Repository");
     assertExactKeys(manifest.install as unknown as Record<string, unknown>, [
+      "defaultModule",
       "modules",
     ]);
+    expect(manifest.install.defaultModule).toBe("deploy/takoform");
     expect(Object.keys(manifest.install.modules)).toEqual([
       ".",
       "deploy/takoform",
@@ -299,7 +302,7 @@ describe("repository-owned Takosumi install UX", () => {
     assertLauncherInterface(managedModule, "yurucommu.launcher");
   });
 
-  test("uses only the bounded v2 presentation vocabulary", () => {
+  test("uses only the bounded v2.1 presentation vocabulary", () => {
     for (const module of Object.values(manifest.install.modules)) {
       for (const input of module.inputs) {
         expect(sourceKinds.has(input.source.kind)).toBe(true);

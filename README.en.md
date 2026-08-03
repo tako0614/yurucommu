@@ -85,7 +85,7 @@ authorization.
 
 After installation, Takosumi resolves the public URL through the EdgeWorker's
 declared `http.request@1` Interface. IaC reads its `resource_uri` as the ordinary
-`launch_url` output. The reviewed v2 [`interfaces`](.well-known/takosumi.json)
+`launch_url` output. The reviewed v2.1 [`interfaces`](.well-known/takosumi.json)
 declaration compiles to an `interface.ui.surface@1` Interface whose `inputs.url`
 explicitly references that `launch_url` output. The output alone does not create
 an Apps-screen surface; permission to open it remains a separate binding. No layer

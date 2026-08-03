@@ -84,7 +84,7 @@ Takosumi の「新しいアプリ」または `/install` 画面で、次を指�
 
 インストール後、`EdgeWorker` が宣言する `http.request@1` Interface を使って
 Takosumi が公開 URL を解決します。IaC はその `resource_uri` を通常の
-`launch_url` Output として取り出します。リポジトリの v2
+`launch_url` Output として取り出します。リポジトリの v2.1
 [`interfaces`](.well-known/takosumi.json) 宣言がレビュー済みの
 `interface.ui.surface@1` Interface に compile され、その `inputs.url` が
 `launch_url` Output を明示的に参照します。Output だけでは Apps 画面用の surface
