@@ -4,7 +4,7 @@ terraform {
   required_providers {
     takoform = {
       source  = "registry.opentofu.org/tako0614/takoform"
-      version = "= 1.0.2"
+      version = "= 1.0.3"
     }
   }
 }
@@ -62,8 +62,11 @@ locals {
 }
 
 resource "takoform_relational_database" "database" {
-  name   = "${local.prefix}-db"
-  engine = "sqlite"
+  name          = "${local.prefix}-db"
+  engine        = "sqlite"
+  schema_url    = "https://raw.githubusercontent.com/tako0614/yurucommu/bf7a3bdb55d9bd562ac895ada10ac42ce09a11b9/deploy/takoform/migrations/schema-bundle.json"
+  schema_sha256 = "f14135367b4b00a520f0ef8abc41f67d53c6abb9ef8577d946fb199987f5abaa"
+  schema_format = "takosumi.resource-migrations"
 }
 
 resource "takoform_object_bucket" "media" {
