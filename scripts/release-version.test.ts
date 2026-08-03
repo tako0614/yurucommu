@@ -20,6 +20,7 @@ const packageJson = JSON.parse(packageSource) as {
   scripts: Record<string, string>;
 };
 const packageVersion = packageJson.version;
+const packageTag = `v${packageVersion}`;
 const releaseLock = JSON.parse(releaseLockSource) as {
   releases: Record<
     string,
@@ -31,36 +32,75 @@ const releaseLock = JSON.parse(releaseLockSource) as {
   >;
 };
 
-describe("release version", () => {
-  test("keeps the OpenTofu artifact default aligned", () => {
-    for (const source of [moduleSource, takoformModuleSource]) {
-      const releaseVariable = source.match(
-        /variable\s+"worker_release_tag"\s*\{([\s\S]*?)\n\}/,
-      )?.[1];
+const pinnedTags = Object.keys(releaseLock.releases).sort(compareSemverTags);
+const latestPinnedTag = pinnedTags.at(-1);
+const latestPinnedRelease = latestPinnedTag
+  ? releaseLock.releases[latestPinnedTag]
+  : undefined;
 
-      expect(releaseVariable).toBeDefined();
-      expect(releaseVariable).toContain(`default     = "v${packageVersion}"`);
+function compareSemverTags(left: string, right: string): number {
+  const parse = (tag: string): readonly number[] =>
+    tag
+      .replace(/^v/u, "")
+      .split(".")
+      .map((value) => Number.parseInt(value, 10));
+  const leftParts = parse(left);
+  const rightParts = parse(right);
+  for (let index = 0; index < 3; index += 1) {
+    const difference = (leftParts[index] ?? 0) - (rightParts[index] ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return left.localeCompare(right);
+}
+
+function deploymentDefaultTag(source: string): string | undefined {
+  return source
+    .match(/variable\s+"worker_release_tag"\s*\{([\s\S]*?)\n\}/u)?.[1]
+    ?.match(/default\s+=\s+"(v[^"]+)"/u)?.[1];
+}
+
+describe("release version", () => {
+  test("keeps deployment defaults on an immutable published release", () => {
+    const currentPin = releaseLock.releases[packageTag];
+    const deployedTag = currentPin ? packageTag : latestPinnedTag;
+    const deployedPin = currentPin ?? latestPinnedRelease;
+
+    expect(deployedTag).toBeDefined();
+    expect(deployedPin).toBeDefined();
+    if (!currentPin) {
+      // Publication is two-phase. A clean candidate may advance package.json,
+      // but deploy defaults stay on the last immutable release until the owner
+      // entrypoint publishes the new bytes and the follow-up pin records their
+      // read-back digests. This avoids the impossible cycle
+      // commit -> manifest digest -> lock contents -> commit.
+      expect(compareSemverTags(packageTag, deployedTag!)).toBeGreaterThan(0);
+    }
+
+    for (const source of [moduleSource, takoformModuleSource]) {
+      expect(deploymentDefaultTag(source)).toBe(deployedTag);
       if (source === takoformModuleSource) {
-        expect(source).toContain(
-          `/releases/download/v${packageVersion}/yurucommu-worker.js`,
-        );
-        expect(source).toMatch(/default\s+=\s+"sha256:[a-f0-9]{64}"/);
+        expect(source).toContain(deployedPin!.artifact.url);
+        expect(source).toContain(deployedPin!.artifact.sha256);
       }
     }
   });
 
-  test("pins the current Worker release for both deployment modules", () => {
-    const tag = `v${packageVersion}`;
-    const pin = releaseLock.releases[tag];
+  test("pins the current Worker release after publication", () => {
+    const pin = releaseLock.releases[packageTag];
+    if (!pin) {
+      // Candidate phase is safe only because the previous test proves every
+      // deployment default still consumes the latest published pin.
+      expect(packageTag).not.toBe(latestPinnedTag);
+      return;
+    }
 
-    expect(pin).toBeDefined();
     expect(pin.commit).toMatch(/^[a-f0-9]{40}$/);
     expect(pin.artifact.url).toBe(
-      `https://github.com/tako0614/yurucommu/releases/download/${tag}/yurucommu-worker.js`,
+      `https://github.com/tako0614/yurucommu/releases/download/${packageTag}/yurucommu-worker.js`,
     );
     expect(pin.artifact.sha256).toMatch(/^sha256:[a-f0-9]{64}$/);
     expect(pin.manifest.url).toBe(
-      `https://github.com/tako0614/yurucommu/releases/download/${tag}/takosumi-artifact.json`,
+      `https://github.com/tako0614/yurucommu/releases/download/${packageTag}/takosumi-artifact.json`,
     );
     expect(pin.manifest.sha256).toMatch(/^sha256:[a-f0-9]{64}$/);
     expect(takoformModuleSource).toContain(pin.artifact.url);
@@ -71,7 +111,7 @@ describe("release version", () => {
     const gitRef = process.env.GITHUB_REF_NAME;
     if (!gitRef?.startsWith("v")) return;
 
-    expect(gitRef).toBe(`v${packageVersion}`);
+    expect(gitRef).toBe(packageTag);
   });
 });
 
