@@ -104,16 +104,10 @@ resource "takoform_edge_worker" "worker" {
       projection  = "sql.binding.v1"
     },
     {
-      name        = "MEDIA"
-      resource    = takoform_object_bucket.media.id
-      permissions = ["read", "write"]
-      projection  = "object.binding.v1"
-    },
-    {
-      name        = "KV"
-      resource    = takoform_key_value_store.kv.id
-      permissions = ["read", "write"]
-      projection  = "keyvalue.binding.v1"
+      name        = "DELIVERY_DLQ"
+      resource    = takoform_queue.delivery_dlq.id
+      permissions = ["consume", "publish"]
+      projection  = "queue.binding.v1"
     },
     {
       name        = "DELIVERY_QUEUE"
@@ -122,10 +116,16 @@ resource "takoform_edge_worker" "worker" {
       projection  = "queue.binding.v1"
     },
     {
-      name        = "DELIVERY_DLQ"
-      resource    = takoform_queue.delivery_dlq.id
-      permissions = ["consume", "publish"]
-      projection  = "queue.binding.v1"
+      name        = "KV"
+      resource    = takoform_key_value_store.kv.id
+      permissions = ["read", "write"]
+      projection  = "keyvalue.binding.v1"
+    },
+    {
+      name        = "MEDIA"
+      resource    = takoform_object_bucket.media.id
+      permissions = ["read", "write"]
+      projection  = "object.binding.v1"
     },
   ]
 

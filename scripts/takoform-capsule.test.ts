@@ -29,6 +29,15 @@ const dataSourceTypes = Array.from(
   main.matchAll(/data\s+"([^"]+)"\s+"[^"]+"\s*\{/g),
   (match) => match[1],
 );
+const edgeWorkerConnectionsText = main.match(
+  /resource "takoform_edge_worker" "worker" \{[\s\S]*?\n  connections = \[\n([\s\S]*?)\n  \]\n\n  lifecycle \{/,
+)?.[1];
+const edgeWorkerConnectionNames = edgeWorkerConnectionsText
+  ? Array.from(
+      edgeWorkerConnectionsText.matchAll(/^\s+name\s+=\s+"([^"]+)"/gm),
+      (match) => match[1],
+    )
+  : [];
 
 describe("portable Takoform Capsule", () => {
   test("owns the complete Yurucommu portable resource graph", () => {
@@ -61,6 +70,19 @@ describe("portable Takoform Capsule", () => {
     expect(main).toContain('DELIVERY_QUEUE_NAME = "${local.prefix}-delivery"');
     expect(main).toContain(
       'DELIVERY_DLQ_NAME   = "${local.prefix}-delivery-dlq"',
+    );
+  });
+
+  test("keeps EdgeWorker connections in canonical order without duplicates", () => {
+    expect(edgeWorkerConnectionNames).toEqual([
+      "DB",
+      "DELIVERY_DLQ",
+      "DELIVERY_QUEUE",
+      "KV",
+      "MEDIA",
+    ]);
+    expect(new Set(edgeWorkerConnectionNames).size).toBe(
+      edgeWorkerConnectionNames.length,
     );
   });
 
