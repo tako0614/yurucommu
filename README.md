@@ -134,8 +134,10 @@ Yurucommu は、実行先が変わっても次の役割を必要とします。
 | HTTP サービス          | Web アプリと API                             | Worker                                |
 
 データベースのスキーマは `@takosjp/yurucommu-core` が管理します。Takosumi の管理経路は
-[`deploy/takoform/migrations/manifest.json`](deploy/takoform/migrations/manifest.json)
-で対象バージョンと SQL のハッシュを固定し、Apply 後のデータ移行として実行します。
+[`deploy/takoform/migrations/schema-bundle.json`](deploy/takoform/migrations/schema-bundle.json)
+で、インストール済みかつロック済みの core パッケージから生成した SQL 本文と各ハッシュを
+1つの自己完結したバンドルとして固定します。選択されたホストはデータベースリソースの
+Apply中にスキーマを収束させ、完了するまでそのリソースをReadyにしません。
 Cloudflare のセルフホストでは、運用者が同じマイグレーション履歴と復旧手順を管理します。
 
 Web アプリは Solid と Vite で構築されています。サーバーの ActivityPub、認証、API、

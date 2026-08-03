@@ -64,13 +64,13 @@ The module pins three values together:
 An update must change all three to the same release. This prevents an
 installation from downloading different bytes under an unchanged definition.
 
-[`migrations/manifest.json`](migrations/manifest.json) pins the
-`@takosjp/yurucommu-core` package and the digest of every SQL file. On
-Takosumi, the host selects this manifest as a database migration to run after
-Apply.
-The host resolves the exact database created by this installation immediately
-before executing it. Ordinary OpenTofu outputs are not used as permission to
-run SQL.
+[`migrations/schema-bundle.json`](migrations/schema-bundle.json) is one
+self-contained immutable database artifact. It is generated from the exact
+installed and locked `@takosjp/yurucommu-core` migration files, with each SQL
+body and its SHA-256 digest inline. The database resource declares this bundle;
+the selected host verifies and converges it during that resource's Apply, before
+the resource can become Ready. Ordinary OpenTofu outputs are not used as
+permission to run SQL.
 
 ## How the app URL is discovered
 
@@ -148,15 +148,13 @@ service revision.
 
 ### Apply succeeds but the schema is missing
 
-Creating the resources and changing the database are separate steps. Check
-that the host selected the exact
-`migrations/manifest.json`, targeted
-`takoform_relational_database.database`, and recorded a successful
-migration after Apply. Do not choose a database by a similar name and run SQL
-against it.
+Check that `takoform_relational_database.database` declares the exact immutable
+`migrations/schema-bundle.json` URL and digest, and that the host recorded a
+successful migration before reporting that database Ready. Do not choose a
+database by a similar name and run SQL against it.
 
 ### A release update is rejected
 
 Confirm that the release tag, artifact URL, and SHA-256 all refer to the same
 published Yurucommu release. Also confirm that the source ref includes the
-matching migration manifest.
+matching schema bundle.

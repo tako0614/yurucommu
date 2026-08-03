@@ -137,10 +137,13 @@ Yurucommu needs the following roles on every supported host:
 | HTTP service    | Web app and API                                            | Worker                         |
 
 `@takosjp/yurucommu-core` owns the database schema. The Takosumi-managed path
-pins the package version and every SQL digest in
-[`deploy/takoform/migrations/manifest.json`](deploy/takoform/migrations/manifest.json),
-then runs that migration after Apply. The person maintaining a Cloudflare
-self-host owns the equivalent migration history and recovery procedure.
+pins one self-contained bundle generated from the exact installed and locked
+core package, including every SQL body and digest, in
+[`deploy/takoform/migrations/schema-bundle.json`](deploy/takoform/migrations/schema-bundle.json),
+then asks the selected host to converge the schema as part of the database
+resource Apply. The database is not Ready until that finishes. The person
+maintaining a Cloudflare self-host owns the equivalent migration history and
+recovery procedure.
 
 The web app uses Solid and Vite. `@takosjp/yurucommu-core` supplies the
 ActivityPub, authentication, API, and database behavior, while
