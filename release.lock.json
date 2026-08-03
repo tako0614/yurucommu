@@ -40,6 +40,19 @@
       },
       "commit": "88c672f1fd5fa65d24377dc74fec00664e444b2e",
       "seededFrom": "owner deploy exact release readback on 2026-07-30"
+    },
+    "v2.1.4": {
+      "artifact": {
+        "filename": "yurucommu-worker.js",
+        "url": "https://github.com/tako0614/yurucommu/releases/download/v2.1.4/yurucommu-worker.js",
+        "sha256": "sha256:31acde4dd22cca1d87015e10c9b682c4fcd0af1d8b3d758ec891f701b8a3261f"
+      },
+      "manifest": {
+        "url": "https://github.com/tako0614/yurucommu/releases/download/v2.1.4/takosumi-artifact.json",
+        "sha256": "sha256:d4f763d1a67e3143c75daa875441fbf305dd56729cb4d3dde7fa94c0b85bdf8c"
+      },
+      "commit": "90b0da9a075ba19f54927ce4c8e216c0da89ad49",
+      "seededFrom": "owner deploy exact release readback on 2026-08-03"
     }
   }
 }
