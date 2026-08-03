@@ -1,4 +1,8 @@
 import {
+  createManagedRelationalDatabase,
+  createManagedRuntimeKeyValueStore,
+  createManagedRuntimeObjectStorage,
+  createManagedRuntimeQueueProducer,
   handleYurucommuQueueBatch,
   wrapCloudflareBindings,
 } from "@takosjp/yurucommu-core/server";
@@ -11,6 +15,12 @@ import type {
   IQueueMessage,
   QueueSendOptions,
 } from "@takosjp/yurucommu-core/server";
+import {
+  TAKOSUMI_MANAGED_RUNTIME_GATEWAY_BINDING,
+  TAKOSUMI_MANAGED_RUNTIME_MATERIALIZATION_BINDING,
+  parseManagedRuntimeConnectionMaterialization,
+  type ManagedRuntimeConnectionMaterialization,
+} from "@takosjp/takosumi-contract/managed-runtime-connections";
 import {
   TAKOSUMI_BACKGROUND_EVENT_ABI,
   TAKOSUMI_BACKGROUND_EVENT_AUTHORITY_PROP,
@@ -32,7 +42,24 @@ import type {
   ScheduledController,
 } from "@cloudflare/workers-types";
 
+export { TAKOSUMI_MANAGED_RUNTIME_MATERIALIZATION_BINDING };
+
 const MAX_BACKGROUND_EVENT_BYTES = 2 * 1024 * 1024;
+const MANAGED_ALIASES = [
+  "DB",
+  "MEDIA",
+  "KV",
+  "DELIVERY_QUEUE",
+  "DELIVERY_DLQ",
+] as const;
+
+const EXPECTED_MANAGED_CONNECTIONS = new Map<string, string>([
+  ["DB", "RelationalDatabase"],
+  ["MEDIA", "ObjectBucket"],
+  ["KV", "KeyValueStore"],
+  ["DELIVERY_QUEUE", "Queue"],
+  ["DELIVERY_DLQ", "Queue"],
+] as const);
 
 type NativeWorkerBindings = EnvVars & {
   DB: D1Database;
@@ -48,21 +75,111 @@ export type YurucommuWorkerBindings = Omit<
   "DB" | "MEDIA" | "KV" | "DELIVERY_QUEUE" | "DELIVERY_DLQ" | "APP_URL"
 > & {
   APP_URL?: string;
-  DB?: D1Database;
-  MEDIA?: R2Bucket;
-  KV?: KVNamespace;
-  DELIVERY_QUEUE?: Queue<DeliveryQueueMessageV1>;
-  DELIVERY_DLQ?: Queue<DeliveryDlqMessageV1>;
+  DB?: D1Database | string;
+  MEDIA?: R2Bucket | string;
+  KV?: KVNamespace | string;
+  DELIVERY_QUEUE?: Queue<DeliveryQueueMessageV1> | string;
+  DELIVERY_DLQ?: Queue<DeliveryDlqMessageV1> | string;
+  TAKOSUMI_MANAGED_RUNTIME?: Fetcher;
+  TAKOSUMI_MANAGED_RUNTIME_MATERIALIZATION?: string;
 };
 
 /**
- * Wraps the native Cloudflare bindings used by both direct and hosted
- * deployments. The host supplies actual D1/KV/R2/Queue objects under the
- * normal binding names, so both paths share one runtime adapter.
+ * Selects exactly one runtime substrate.
+ *
+ * A direct Cloudflare deployment keeps native bindings. A managed host must
+ * provide one exact materialization, one Fetch-compatible gateway, and the
+ * canonical public origin. Individual capability references are deliberately
+ * rejected: they are host authority, not D1/R2/KV/Queue objects.
  */
 export function wrapYurucommuWorkerBindings(
   bindings: YurucommuWorkerBindings,
 ): Env {
+  const managedSelected =
+    bindings.TAKOSUMI_MANAGED_RUNTIME_MATERIALIZATION !== undefined ||
+    bindings.TAKOSUMI_MANAGED_RUNTIME !== undefined ||
+    MANAGED_ALIASES.some((alias) => typeof bindings[alias] === "string");
+
+  if (managedSelected) {
+    for (const alias of MANAGED_ALIASES) {
+      if (bindings[alias] !== undefined) {
+        throw new Error(
+          `managed runtime must not expose ${alias} as a native or capability-ref binding`,
+        );
+      }
+    }
+    if (
+      typeof bindings.TAKOSUMI_MANAGED_RUNTIME_MATERIALIZATION !== "string" ||
+      !isObjectBinding(bindings.TAKOSUMI_MANAGED_RUNTIME, "fetch")
+    ) {
+      throw new Error(
+        "managed runtime requires its exact materialization and Fetch gateway",
+      );
+    }
+    const appUrl = canonicalAppOrigin(bindings.APP_URL);
+    const materialization = managedMaterialization(
+      bindings.TAKOSUMI_MANAGED_RUNTIME_MATERIALIZATION,
+    );
+    const gateway = {
+      fetch: async (request: Request) =>
+        (await bindings.TAKOSUMI_MANAGED_RUNTIME!.fetch(
+          request as never,
+        )) as unknown as Response,
+    };
+    const {
+      TAKOSUMI_MANAGED_RUNTIME: _gateway,
+      TAKOSUMI_MANAGED_RUNTIME_MATERIALIZATION: _materialization,
+      DB: _db,
+      MEDIA: _media,
+      KV: _kv,
+      DELIVERY_QUEUE: _deliveryQueue,
+      DELIVERY_DLQ: _deliveryDlq,
+      ...rest
+    } = bindings;
+
+    return {
+      ...rest,
+      APP_URL: appUrl,
+      DB_INSTANCE: createManagedRelationalDatabase({
+        materialization,
+        gateway,
+        alias: "DB",
+      }),
+      MEDIA: createManagedRuntimeObjectStorage({
+        materialization,
+        gateway,
+        alias: "MEDIA",
+      }),
+      KV: createManagedRuntimeKeyValueStore({
+        materialization,
+        gateway,
+        alias: "KV",
+      }),
+      DELIVERY_QUEUE: createManagedRuntimeQueueProducer<DeliveryQueueMessageV1>(
+        {
+          materialization,
+          gateway,
+          alias: "DELIVERY_QUEUE",
+        },
+      ),
+      DELIVERY_DLQ: createManagedRuntimeQueueProducer<DeliveryDlqMessageV1>({
+        materialization,
+        gateway,
+        alias: "DELIVERY_DLQ",
+      }),
+      ...(bindings.ASSETS === undefined
+        ? {}
+        : {
+            ASSETS: {
+              fetch: (request: Request) =>
+                bindings.ASSETS!.fetch(
+                  request as never,
+                ) as unknown as Promise<Response>,
+            },
+          }),
+    } as unknown as Env;
+  }
+
   if (
     !isObjectBinding(bindings.DB, "prepare") ||
     !isObjectBinding(bindings.KV, "get")
@@ -249,6 +366,37 @@ export async function handleTakosumiBackgroundEventInvocation(input: {
 }
 
 export const defaultTakosumiBackgroundQueueHandler = handleYurucommuQueueBatch;
+
+function managedMaterialization(
+  value: string,
+): ManagedRuntimeConnectionMaterialization {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new Error("managed runtime materialization is not valid JSON");
+  }
+  const materialization = parseManagedRuntimeConnectionMaterialization(parsed);
+  if (
+    materialization.gateway.binding !== TAKOSUMI_MANAGED_RUNTIME_GATEWAY_BINDING
+  ) {
+    throw new Error("managed runtime materialization selects another gateway");
+  }
+  if (
+    materialization.connections.length !== EXPECTED_MANAGED_CONNECTIONS.size ||
+    materialization.connections.some(
+      ({ alias, authority }) =>
+        EXPECTED_MANAGED_CONNECTIONS.get(alias) !== authority.resourceKind,
+    ) ||
+    new Set(materialization.connections.map(({ alias }) => alias)).size !==
+      EXPECTED_MANAGED_CONNECTIONS.size
+  ) {
+    throw new Error(
+      "managed runtime materialization does not cover the exact Yurucommu graph",
+    );
+  }
+  return materialization;
+}
 
 function backgroundQueueBatch(
   event: Extract<TakosumiBackgroundEvent, { readonly kind: "queue" }>,

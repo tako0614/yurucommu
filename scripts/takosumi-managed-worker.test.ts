@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { sql } from "drizzle-orm";
 
 import {
   TAKOSUMI_BACKGROUND_EVENT_ABI,
@@ -47,6 +48,111 @@ const principal = {
   installingPrincipalId: "acct_owner",
 };
 
+const scheduleSource = {
+  kind: "Schedule" as const,
+  workspaceId,
+  resourceId: `tkrn:${workspaceId}:Schedule:retention`,
+  resourceGeneration: 1,
+  resourceRevisionId: "rev_schedule_1",
+};
+const scheduleTarget = {
+  ...target,
+  resourceRevisionId: "rev_retention_1",
+  entrypoint: "yurucommu.retention",
+};
+
+function managedMaterialization(): string {
+  const kinds = {
+    DB: "RelationalDatabase",
+    MEDIA: "ObjectBucket",
+    KV: "KeyValueStore",
+    DELIVERY_QUEUE: "Queue",
+    DELIVERY_DLQ: "Queue",
+  } as const;
+  return JSON.stringify({
+    contract: "takosumi.managed-runtime-connection/v1",
+    gateway: {
+      binding: "TAKOSUMI_MANAGED_RUNTIME",
+      transport: "fetch",
+    },
+    connections: Object.entries(kinds).map(([alias, resourceKind], index) => ({
+      alias,
+      authority: {
+        workspaceId,
+        subject: "capsule:cap_yurucommu",
+        resourceId: `tkrn:${workspaceId}:${resourceKind}:${alias.toLowerCase()}`,
+        resourceKind,
+        resourceGeneration: 1,
+        permissions: ["takosumi.managed-runtime.invoke"],
+        interfaceId: `if_${index}`,
+        interfaceBindingId: `ifb_${index}`,
+        interfaceResolvedRevision: 1,
+        audience: "https://runtime.example.test/v1/resources",
+        capabilityRef: `secret:runtime/${alias.toLowerCase()}`,
+      },
+    })),
+  });
+}
+
+function managedBindings(
+  fetch: (request: Request) => Promise<Response> = async (request) => {
+    const pathname = new URL(request.url).pathname;
+    if (request.url.includes("/relational/v1/batch")) {
+      const body = (await request.clone().json()) as {
+        statements: readonly unknown[];
+      };
+      return Response.json({
+        contract: "takosumi.managed-relational-runtime/v1",
+        results: body.statements.map(() => ({
+          success: true,
+          columns: [],
+          rows: [],
+          meta: {
+            changed_db: false,
+            changes: 0,
+            duration: 0,
+            last_row_id: 0,
+            size_after: 0,
+            rows_read: 0,
+            rows_written: 0,
+          },
+        })),
+      });
+    }
+    if (pathname.endsWith("/kv/keys")) {
+      return Response.json({ keys: [] });
+    }
+    if (pathname.endsWith("/objects")) {
+      return Response.json({ objects: [], truncated: false });
+    }
+    if (request.method === "GET") return new Response("managed-value");
+    if (request.url.includes("/queue/messages")) {
+      return Response.json({ accepted: true, messageId: "message_1" });
+    }
+    return Response.json({ ok: true });
+  },
+): {
+  readonly bindings: YurucommuWorkerBindings;
+  readonly requests: Request[];
+} {
+  const requests: Request[] = [];
+  return {
+    bindings: {
+      APP_URL: "https://yurucommu.example.test",
+      DELIVERY_QUEUE_NAME: "yurucommu-delivery",
+      DELIVERY_DLQ_NAME: "yurucommu-delivery-dlq",
+      TAKOSUMI_MANAGED_RUNTIME_MATERIALIZATION: managedMaterialization(),
+      TAKOSUMI_MANAGED_RUNTIME: {
+        async fetch(request: Request) {
+          requests.push(request.clone() as unknown as globalThis.Request);
+          return fetch(request);
+        },
+      } as unknown as YurucommuWorkerBindings["TAKOSUMI_MANAGED_RUNTIME"],
+    },
+    requests,
+  };
+}
+
 function queueEnvelope(): TakosumiBackgroundEventEnvelope {
   return {
     abi: TAKOSUMI_BACKGROUND_EVENT_ABI,
@@ -74,6 +180,31 @@ function queueEnvelope(): TakosumiBackgroundEventEnvelope {
           body: { type: "deliver_endpoint", jobId: "job_1" },
         },
       ],
+    },
+  };
+}
+
+function scheduleEnvelope(): TakosumiBackgroundEventEnvelope {
+  return {
+    abi: TAKOSUMI_BACKGROUND_EVENT_ABI,
+    activationId: "activation_retention",
+    activationRevisionId: "activation_retention_rev_1",
+    principal,
+    source: scheduleSource,
+    target: scheduleTarget,
+    retry: {
+      maxAttempts: 1,
+      retryDelaySeconds: 0,
+      onExhausted: "fail",
+    },
+    event: {
+      kind: "schedule",
+      deliveryId: "retention_1",
+      occurredAt: "2026-07-29T12:00:00.000Z",
+      attempt: 1,
+      source: scheduleSource,
+      scheduledAt: "2026-07-29T12:00:00.000Z",
+      cron: "0 * * * *",
     },
   };
 }
@@ -147,8 +278,6 @@ describe("Yurucommu native Cloudflare binding selection", () => {
     expect(() =>
       wrapYurucommuWorkerBindings({
         APP_URL: "https://yurucommu.example.test",
-        DB: "not-a-native-binding" as never,
-        KV: "not-a-native-binding" as never,
       }),
     ).toThrow("native DB and KV bindings are required");
   });
@@ -253,6 +382,170 @@ describe("Yurucommu native Cloudflare binding selection", () => {
   });
 });
 
+describe("Yurucommu managed runtime binding selection", () => {
+  test("rejects stale alias capability refs and mixed native/gateway bindings", () => {
+    const managed = managedBindings();
+    expect(() =>
+      wrapYurucommuWorkerBindings({
+        ...managed.bindings,
+        DB: "capability:yurucommu/database",
+      }),
+    ).toThrow(
+      "managed runtime must not expose DB as a native or capability-ref binding",
+    );
+
+    expect(() =>
+      wrapYurucommuWorkerBindings({
+        ...managed.bindings,
+        KV: nativeBindings().KV,
+      }),
+    ).toThrow(
+      "managed runtime must not expose KV as a native or capability-ref binding",
+    );
+  });
+
+  test("rejects missing gateway/materialization instead of falling back to native", () => {
+    expect(() =>
+      wrapYurucommuWorkerBindings({
+        APP_URL: "https://yurucommu.example.test",
+        TAKOSUMI_MANAGED_RUNTIME_MATERIALIZATION: "{}",
+      }),
+    ).toThrow(
+      "managed runtime requires its exact materialization and Fetch gateway",
+    );
+
+    expect(() =>
+      wrapYurucommuWorkerBindings({
+        APP_URL: "https://yurucommu.example.test",
+        TAKOSUMI_MANAGED_RUNTIME: {} as never,
+      }),
+    ).toThrow(
+      "managed runtime requires its exact materialization and Fetch gateway",
+    );
+  });
+
+  test("rejects stale or partial materialization", () => {
+    const staleGateway = JSON.parse(managedMaterialization()) as Record<
+      string,
+      unknown
+    >;
+    staleGateway.gateway = {
+      binding: "YURUCOMMU_MANAGED_RUNTIME",
+      transport: "fetch",
+    };
+    expect(() =>
+      wrapYurucommuWorkerBindings({
+        ...managedBindings().bindings,
+        TAKOSUMI_MANAGED_RUNTIME_MATERIALIZATION: JSON.stringify(staleGateway),
+      }),
+    ).toThrow("managed runtime materialization selects another gateway");
+
+    const partial = JSON.parse(managedMaterialization()) as {
+      connections: unknown[];
+    };
+    partial.connections.pop();
+    expect(() =>
+      wrapYurucommuWorkerBindings({
+        ...managedBindings().bindings,
+        TAKOSUMI_MANAGED_RUNTIME_MATERIALIZATION: JSON.stringify(partial),
+      }),
+    ).toThrow(
+      "managed runtime materialization does not cover the exact Yurucommu graph",
+    );
+  });
+
+  test("materializes relational CRUD, KV/object storage, and both queues only through the gateway", async () => {
+    const managed = managedBindings();
+    const runtime = wrapYurucommuWorkerBindings(managed.bindings);
+
+    expect(runtime).not.toHaveProperty("TAKOSUMI_MANAGED_RUNTIME");
+    expect(runtime).not.toHaveProperty(
+      "TAKOSUMI_MANAGED_RUNTIME_MATERIALIZATION",
+    );
+    expect(Object.keys(runtime)).not.toContain(
+      "x-takosumi-managed-runtime-capability-ref",
+    );
+    expect(
+      Object.values(runtime).filter((value) => typeof value === "string"),
+    ).not.toContain("secret:runtime");
+
+    await runtime.DB_INSTANCE.run(sql.raw("INSERT INTO actors VALUES (1)"));
+    await runtime.DB_INSTANCE.run(sql.raw("SELECT * FROM actors"));
+    await runtime.DB_INSTANCE.run(sql.raw("UPDATE actors SET role = 'owner'"));
+    await runtime.DB_INSTANCE.run(sql.raw("DELETE FROM actors WHERE id = 1"));
+
+    const kv = runtime.KV;
+    await kv.put("session:test", "value", {
+      expirationTtl: 60,
+      metadata: { source: "test" },
+    });
+    expect(await kv.get("session:test")).toBe("managed-value");
+    expect(await kv.list()).toEqual({
+      keys: [],
+      list_complete: true,
+    });
+    await kv.delete("session:test");
+
+    const media = runtime.MEDIA!;
+    await media.put("media:test", "value", {
+      httpMetadata: { contentType: "text/plain" },
+      customMetadata: { source: "test" },
+    });
+    await media.get("media:test");
+    await media.head("media:test");
+    await media.list();
+    await media.delete("media:test");
+
+    await runtime.DELIVERY_QUEUE!.send({
+      version: 1,
+      type: "deliver_endpoint",
+      jobId: "job_1",
+      scheduledAt: "2026-07-29T12:00:00.000Z",
+    });
+    await runtime.DELIVERY_QUEUE!.sendBatch([
+      {
+        body: {
+          version: 1,
+          type: "deliver_endpoint",
+          jobId: "job_2",
+          scheduledAt: "2026-07-29T12:00:00.000Z",
+        },
+      },
+    ]);
+    await runtime.DELIVERY_DLQ!.send({
+      version: 1,
+      type: "dlq",
+      jobId: "job_3",
+      activityId: "activity_3",
+      endpoint: "https://remote.example.test/inbox",
+      attempts: 1,
+      lastError: null,
+      deadLetteredAt: "2026-07-29T12:00:00.000Z",
+    });
+
+    expect(managed.requests.length).toBeGreaterThanOrEqual(13);
+    expect(
+      managed.requests.every(
+        (request) =>
+          request.headers.get("x-takosumi-managed-runtime-capability-ref") !==
+          null,
+      ),
+    ).toBe(true);
+    expect(
+      managed.requests.map((request) => new URL(request.url).pathname),
+    ).toEqual(
+      expect.arrayContaining([
+        "/v1/resources/tkrn%3Aws_managed_test%3ARelationalDatabase%3Adb/relational/v1/batch",
+        "/v1/resources/tkrn%3Aws_managed_test%3AKeyValueStore%3Akv/kv/keys/session%3Atest",
+        "/v1/resources/tkrn%3Aws_managed_test%3AObjectBucket%3Amedia/objects/media%3Atest",
+        "/v1/resources/tkrn%3Aws_managed_test%3AQueue%3Adelivery_queue/queue/messages",
+        "/v1/resources/tkrn%3Aws_managed_test%3AQueue%3Adelivery_queue/queue/messages/batch",
+        "/v1/resources/tkrn%3Aws_managed_test%3AQueue%3Adelivery_dlq/queue/messages",
+      ]),
+    );
+  });
+});
+
 describe("Takosumi background-event HTTP ABI", () => {
   test("rejects an internet request before dispatching application code", async () => {
     const envelope = queueEnvelope();
@@ -332,5 +625,93 @@ describe("Takosumi background-event HTTP ABI", () => {
 
     expect(response?.status).toBe(400);
     expect(called).toBe(false);
+  });
+
+  test("rejects a forged managed background invocation before gateway or handler", async () => {
+    const managed = managedBindings();
+    let called = false;
+    const response = await handleTakosumiBackgroundEventInvocation({
+      request: await requestFor(queueEnvelope()),
+      bindings: managed.bindings,
+      ctx: {} as TakosumiBackgroundExecutionContext,
+      handlers: handlers(async () => {
+        called = true;
+      }),
+    });
+
+    expect(response?.status).toBe(403);
+    expect(called).toBe(false);
+    expect(managed.requests).toHaveLength(0);
+  });
+
+  test("dispatches an authenticated managed queue event through the gateway", async () => {
+    const managed = managedBindings();
+    const envelope = queueEnvelope();
+    let called = false;
+    const response = await handleTakosumiBackgroundEventInvocation({
+      request: await requestFor(envelope),
+      bindings: managed.bindings,
+      ctx: await contextFor(envelope),
+      handlers: {
+        queue: async (batch, env) => {
+          called = true;
+          expect(env).not.toHaveProperty("TAKOSUMI_MANAGED_RUNTIME");
+          expect(env).not.toHaveProperty(
+            "TAKOSUMI_MANAGED_RUNTIME_MATERIALIZATION",
+          );
+          expect(await env.KV.get("background:probe")).toBe("managed-value");
+          batch.ackAll();
+        },
+        scheduled: async () => {
+          throw new Error("schedule handler must not be called");
+        },
+      },
+    });
+
+    expect(called).toBe(true);
+    expect(response?.status).toBe(200);
+    expect(managed.requests).toHaveLength(1);
+    expect((await response!.json()) as unknown).toEqual({
+      version: TAKOSUMI_BACKGROUND_EVENT_RESULT_VERSION,
+      deliveryId: "delivery_1",
+      activationRevisionId: "activation_delivery_rev_1",
+      targetResourceRevisionId: "rev_http_1",
+      outcome: "ack",
+    });
+  });
+
+  test("dispatches an authenticated managed schedule event and preserves the cron", async () => {
+    const managed = managedBindings();
+    const envelope = scheduleEnvelope();
+    let called = false;
+    const response = await handleTakosumiBackgroundEventInvocation({
+      request: await requestFor(envelope),
+      bindings: managed.bindings,
+      ctx: await contextFor(envelope),
+      handlers: {
+        queue: async () => {
+          throw new Error("queue handler must not be called");
+        },
+        scheduled: async (controller, env) => {
+          called = true;
+          expect(controller.cron).toBe("0 * * * *");
+          expect(controller.scheduledTime).toBe(
+            Date.parse("2026-07-29T12:00:00.000Z"),
+          );
+          expect(await env.KV.get("retention:probe")).toBe("managed-value");
+        },
+      },
+    });
+
+    expect(called).toBe(true);
+    expect(response?.status).toBe(200);
+    expect(managed.requests).toHaveLength(1);
+    expect((await response!.json()) as unknown).toEqual({
+      version: TAKOSUMI_BACKGROUND_EVENT_RESULT_VERSION,
+      deliveryId: "retention_1",
+      activationRevisionId: "activation_retention_rev_1",
+      targetResourceRevisionId: "rev_retention_1",
+      outcome: "ack",
+    });
   });
 });
