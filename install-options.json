@@ -8,9 +8,9 @@
   },
   "options": [
     {
-      "id": "takosumi-managed",
-      "title": "Takosumi managed",
-      "description": "Run Yurucommu on services managed by Takosumi.",
+      "id": "takosumi-cloud",
+      "title": "Takosumi Cloud",
+      "description": "Run Yurucommu on cloud resources provided by Takosumi Cloud.",
       "source": {
         "url": "https://github.com/tako0614/yurucommu.git",
         "path": "deploy/takoform"

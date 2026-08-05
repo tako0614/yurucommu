@@ -1,4 +1,9 @@
-# Managed Yurucommu deployment
+# Yurucommu Takoform adapter
+
+This directory is the Takoform adapter for the product-owned neutral resource
+contract in [`../product-resources.json`](../product-resources.json). The
+direct Cloudflare root module is another adapter for the same roles and
+connection names; neither provider is part of Yurucommu domain logic.
 
 This directory describes the resources Yurucommu needs when it is installed on
 Takosumi or another compatible host.

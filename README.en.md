@@ -6,8 +6,9 @@ Yurucommu is a self-hostable social network for feeds, stories, profiles,
 communities, and direct messages. It supports ActivityPub, the standard that
 lets independent social servers exchange follows and posts.
 
-This repository contains the web app, the server Worker, a mock API for local
-development, deployment definitions, and the `yurucommu.com` website.
+This repository contains the web app and server, a mock API for local
+development, a provider-neutral [resource contract](deploy/product-resources.json),
+deployment adapters, and the `yurucommu.com` website.
 
 ## Quick local start
 
@@ -45,16 +46,16 @@ YURUCOMMU_DEV_PROXY_TARGET=http://localhost:8787 bun run dev
 
 ## Choose where to run it
 
-| Goal                    | Use                                            | Data location                                 |
-| ----------------------- | ---------------------------------------------- | --------------------------------------------- |
-| Try the UI              | `bun run dev:mock`                             | Memory; cleared on exit                       |
-| Run on Takosumi         | [`deploy/takoform`](deploy/takoform/README.md) | The database and storage selected by the host |
-| Self-host on Cloudflare | Root `main.tf` or `wrangler.jsonc`             | D1, R2, Workers KV, and Queues                |
+| Goal                    | Use                                            | Data location                                   |
+| ----------------------- | ---------------------------------------------- | ----------------------------------------------- |
+| Try the UI              | `bun run dev:mock`                             | Memory; cleared on exit                         |
+| Run on Takosumi Cloud   | [`deploy/takoform`](deploy/takoform/README.md) | Database and storage provided by Takosumi Cloud |
+| Self-host on Cloudflare | Root `main.tf` or `wrangler.jsonc`             | D1, R2, Workers KV, and Queues                  |
 
-Takosumi is a host that creates runtime resources from Git and records plans,
-applies, outputs, and change history. A Takosumi-managed installation and a
-Cloudflare self-host are separate paths. The managed path does not require
-Cloudflare to be part of the app definition.
+Yurucommu owns the logical resource roles and connection names. The
+`deploy/takoform` module and root `main.tf` map that same contract to a
+Takoform host and direct Cloudflare respectively. Takosumi runs either as an
+ordinary OpenTofu module; product code does not know which adapter was chosen.
 
 ### Install on Takosumi
 

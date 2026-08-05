@@ -1,3 +1,9 @@
+# Direct Cloudflare deployment adapter.
+#
+# Yurucommu's provider-neutral resource authority is
+# deploy/product-resources.json. This compatibility root keeps the historical
+# module path stable for existing self-hosters while mapping that contract to
+# cloudflare/cloudflare resources.
 terraform {
   required_version = ">= 1.5"
 

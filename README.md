@@ -7,8 +7,9 @@ Yurucommu は、フィード、ストーリー、プロフィール、コミュ�
 （異なる SNS サーバー同士をつなぐ共通仕様）を通じて、ほかのサーバーのユーザーとも
 やり取りできます。
 
-このリポジトリには Web アプリとサーバー用の Worker、ローカル開発用のモック API、
-デプロイ設定、`yurucommu.com` のサイトが入っています。
+このリポジトリには Web アプリとサーバー、ローカル開発用のモック API、
+中立な[リソース契約](deploy/product-resources.json)、デプロイadapter、
+`yurucommu.com` のサイトが入っています。
 
 ## 最短でローカル起動
 
@@ -47,15 +48,16 @@ YURUCOMMU_DEV_PROXY_TARGET=http://localhost:8787 bun run dev
 
 ## どこで動かすか
 
-| 目的                        | 使うもの                                       | データの置き場所                                          |
-| --------------------------- | ---------------------------------------------- | --------------------------------------------------------- |
-| UI をすぐ試す               | `bun run dev:mock`                             | メモリ。終了時に消える                                    |
-| Takosumi で運用する         | [`deploy/takoform`](deploy/takoform/README.md) | Takosumi が選んだデータベース、オブジェクトストレージなど |
-| Cloudflare で自分で運用する | ルートの `main.tf` または `wrangler.jsonc`     | D1、R2、Workers KV、Queues                                |
+| 目的                        | 使うもの                                       | データの置き場所                                      |
+| --------------------------- | ---------------------------------------------- | ----------------------------------------------------- |
+| UI をすぐ試す               | `bun run dev:mock`                             | メモリ。終了時に消える                                |
+| Takosumi Cloud で運用する   | [`deploy/takoform`](deploy/takoform/README.md) | Takosumi Cloud が提供するデータベース、ストレージなど |
+| Cloudflare で自分で運用する | ルートの `main.tf` または `wrangler.jsonc`     | D1、R2、Workers KV、Queues                            |
 
-Takosumi は、Git に置かれた設定から実行環境を作り、変更計画、適用結果、履歴を管理する
-ホストです。Takosumi での運用と Cloudflare へのセルフホストは別の経路です。
-Cloudflare を Takosumi の内部実装として前提にする必要はありません。
+Yurucommu本体が所有するのは必要な役割と接続名です。`deploy/takoform`とルートの
+`main.tf`は、その同じ契約をそれぞれTakoform hostとCloudflareへ写すadapterです。
+Takosumiは通常のOpenTofu moduleを実行するだけで、製品コードはどちらを選んだかを
+知りません。
 
 ### Takosumi でインストール
 

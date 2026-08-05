@@ -239,12 +239,12 @@ function assertLauncherInterface(
 }
 
 describe("repository-owned Takosumi install UX", () => {
-  test("presents the managed graph as the ordinary source option without hiding direct BYOC", () => {
+  test("presents Takosumi Cloud as an ordinary source option without hiding direct BYOC", () => {
     expect(
       sourceOptions.options.map(({ id, source }) => ({ id, source })),
     ).toEqual([
       {
-        id: "takosumi-managed",
+        id: "takosumi-cloud",
         source: {
           url: "https://github.com/tako0614/yurucommu.git",
           path: "deploy/takoform",
@@ -422,7 +422,7 @@ describe("repository-owned Takosumi install UX", () => {
     expect(manifestText).not.toContain("encryption_key");
   });
 
-  test("managed install asks no provider or runtime-internal questions", () => {
+  test("Takosumi Cloud install asks no provider or runtime-internal questions", () => {
     const moduleVariables = new Set(
       Array.from(
         managedModuleSource.matchAll(/variable\s+"([^"]+)"\s*\{/g),
