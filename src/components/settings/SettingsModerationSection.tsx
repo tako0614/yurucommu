@@ -14,6 +14,7 @@ import {
   unblockDomain,
 } from "../../lib/api/moderation.ts";
 import { ApiError } from "../../lib/api/fetch.ts";
+import { humanFacingApiErrorMessage } from "../../lib/api-error-message.ts";
 import type { Translate } from "../../lib/i18n.tsx";
 
 interface SettingsModerationSectionProps {
@@ -71,7 +72,7 @@ export function SettingsModerationSection(
         setForbidden(true);
       } else {
         console.error("Failed to load moderation data:", e);
-        setError(props.t("common.error"));
+        setError(humanFacingApiErrorMessage(e, props.t("common.error")));
       }
     } finally {
       setLoading(false);
@@ -84,13 +85,14 @@ export function SettingsModerationSection(
     const value = domainInput().trim();
     if (!value || busy()) return;
     setBusy(true);
+    setError(null);
     try {
       await blockDomain(value);
       setDomainInput("");
       setDomains(await fetchBlockedDomains());
     } catch (e) {
       console.error("Failed to block domain:", e);
-      setError(props.t("common.error"));
+      setError(humanFacingApiErrorMessage(e, props.t("common.error")));
     } finally {
       setBusy(false);
     }
@@ -98,12 +100,13 @@ export function SettingsModerationSection(
 
   const handleUnblockDomain = (domain: string) =>
     withPending(`domain:${domain}`, async () => {
+      setError(null);
       try {
         await unblockDomain(domain);
         setDomains((prev) => prev.filter((d) => d.domain !== domain));
       } catch (e) {
         console.error("Failed to unblock domain:", e);
-        setError(props.t("common.error"));
+        setError(humanFacingApiErrorMessage(e, props.t("common.error")));
       }
     });
 
@@ -111,13 +114,14 @@ export function SettingsModerationSection(
     const value = actorInput().trim();
     if (!value || busy()) return;
     setBusy(true);
+    setError(null);
     try {
       await blockActor(value);
       setActorInput("");
       setActors(await fetchBlockedActors());
     } catch (e) {
       console.error("Failed to block actor:", e);
-      setError(props.t("common.error"));
+      setError(humanFacingApiErrorMessage(e, props.t("common.error")));
     } finally {
       setBusy(false);
     }
@@ -125,17 +129,19 @@ export function SettingsModerationSection(
 
   const handleUnblockActor = (apId: string) =>
     withPending(`actor:${apId}`, async () => {
+      setError(null);
       try {
         await unblockActor(apId);
         setActors((prev) => prev.filter((a) => a.actor_ap_id !== apId));
       } catch (e) {
         console.error("Failed to unblock actor:", e);
-        setError(props.t("common.error"));
+        setError(humanFacingApiErrorMessage(e, props.t("common.error")));
       }
     });
 
   const handleResolve = (id: string) =>
     withPending(`report:${id}`, async () => {
+      setError(null);
       try {
         await resolveReport(id);
         setReports((prev) =>
@@ -145,7 +151,7 @@ export function SettingsModerationSection(
         );
       } catch (e) {
         console.error("Failed to resolve report:", e);
-        setError(props.t("common.error"));
+        setError(humanFacingApiErrorMessage(e, props.t("common.error")));
       }
     });
 
@@ -160,7 +166,10 @@ export function SettingsModerationSection(
       />
       <div class="flex-1 overflow-y-auto">
         <Show when={error()}>
-          <div class="mx-4 mt-4 p-2 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
+          <div
+            role="alert"
+            class="mx-4 mt-4 p-2 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm"
+          >
             {error()}
           </div>
         </Show>
