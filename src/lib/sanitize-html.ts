@@ -241,32 +241,35 @@ export function sanitizeHtml(input: string): string {
   const len = source.length;
   // Stack of open allowed tags we have emitted (for matching close tags).
   const openStack: string[] = [];
-  // When > 0, we are inside a drop-content element and skip everything.
-  let dropDepth = 0;
-  let dropTagName: string | null = null;
+  // Exact stack of drop-content elements. Tracking only a depth plus the outer
+  // name gets stuck when differently named dangerous elements are nested:
+  // `<script><style>...</style></script>` increments twice, but the inner close
+  // cannot decrement the outer name's depth. The sanitizer would then discard
+  // every safe sibling after the script as well.
+  const dropStack: string[] = [];
 
   while (i < len) {
     const lt = source.indexOf("<", i);
     if (lt === -1) {
-      if (dropDepth === 0) out += escapeText(source.slice(i));
+      if (dropStack.length === 0) out += escapeText(source.slice(i));
       break;
     }
     // Text before the next tag.
     if (lt > i) {
-      if (dropDepth === 0) out += escapeText(source.slice(i, lt));
+      if (dropStack.length === 0) out += escapeText(source.slice(i, lt));
     }
     // A real tag opens with `<` immediately followed by a name char, `/`, `!`,
     // or `?`. Anything else (e.g. `< b`, `a < b`) is a literal `<` in text.
     const next = source[lt + 1];
     if (!next || !/[a-zA-Z/!?]/.test(next)) {
-      if (dropDepth === 0) out += escapeText("<");
+      if (dropStack.length === 0) out += escapeText("<");
       i = lt + 1;
       continue;
     }
     const gt = findTagEnd(source, lt + 1);
     if (gt === -1) {
       // Unterminated `<`: treat the remainder as literal text.
-      if (dropDepth === 0) out += escapeText(source.slice(lt));
+      if (dropStack.length === 0) out += escapeText(source.slice(lt));
       break;
     }
     const inner = source.slice(lt + 1, gt);
@@ -280,20 +283,22 @@ export function sanitizeHtml(input: string): string {
     const tag = parseTag(inner);
     if (!tag) {
       // Not a real tag (e.g. `< b`): emit the literal text so it is visible.
-      if (dropDepth === 0) out += escapeText(source.slice(lt, gt + 1));
+      if (dropStack.length === 0) out += escapeText(source.slice(lt, gt + 1));
       continue;
     }
 
     // Inside a drop-content subtree: only watch for its matching close tag.
-    if (dropDepth > 0) {
+    if (dropStack.length > 0) {
       if (DROP_CONTENT_TAGS.has(tag.name)) {
         if (tag.isClosing) {
-          if (tag.name === dropTagName) {
-            dropDepth -= 1;
-            if (dropDepth === 0) dropTagName = null;
+          const idx = dropStack.lastIndexOf(tag.name);
+          if (idx !== -1) {
+            // Close the matching dangerous element and any malformed nested
+            // elements above it, mirroring the allowed-tag stack behavior.
+            dropStack.length = idx;
           }
-        } else if (!tag.isSelfClosing) {
-          dropDepth += 1;
+        } else if (!tag.isSelfClosing && !VOID_DROP_TAGS.has(tag.name)) {
+          dropStack.push(tag.name);
         }
       }
       continue;
@@ -305,8 +310,7 @@ export function sanitizeHtml(input: string): string {
         !tag.isSelfClosing &&
         !VOID_DROP_TAGS.has(tag.name)
       ) {
-        dropDepth = 1;
-        dropTagName = tag.name;
+        dropStack.push(tag.name);
       }
       // Void drop tags, stray closing tags, and self-closing drop tags emit
       // nothing themselves but do not swallow following content.

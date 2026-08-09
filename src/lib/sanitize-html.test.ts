@@ -17,6 +17,15 @@ test("sanitizeHtml - drops <style> tag bodies", () => {
   assertEquals(out, "<p>x</p>");
 });
 
+test("sanitizeHtml - resumes after differently nested drop-content tags", () => {
+  assertEquals(
+    sanitizeHtml(
+      `<p>before</p><script><style>.x{}</style></script><p>after</p>`,
+    ),
+    "<p>before</p><p>after</p>",
+  );
+});
+
 test("sanitizeHtml - removes <img onerror> entirely (img not allowlisted)", () => {
   const out = sanitizeHtml(`<img src="x" onerror="alert(1)">text`);
   assertFalse(out.toLowerCase().includes("onerror"), "no event handler");
