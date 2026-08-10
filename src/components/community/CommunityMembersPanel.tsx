@@ -7,6 +7,7 @@ import type {
 } from "../../lib/api/communities.ts";
 import { UserAvatar } from "../UserAvatar.tsx";
 import type { Translate } from "../../lib/i18n.tsx";
+import { canChangeCommunityMemberRole } from "../../lib/community-member-capabilities.ts";
 
 interface CommunityMembersPanelProps {
   members: CommunityMember[];
@@ -159,7 +160,13 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
                 </div>
                 <div class="text-neutral-500 truncate">@{member.username}</div>
               </div>
-              <Show when={props.isOwner && member.ap_id !== props.actorApId}>
+              <Show
+                when={
+                  props.isOwner &&
+                  member.ap_id !== props.actorApId &&
+                  canChangeCommunityMemberRole(member)
+                }
+              >
                 <select
                   value={member.role}
                   aria-label={props
