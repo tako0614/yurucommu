@@ -40,6 +40,10 @@ const QRCodeModal = lazy(() =>
 );
 import { ConfirmSheet } from "../components/ConfirmSheet.tsx";
 import { PostSkeleton } from "../components/timeline/PostSkeleton.tsx";
+import {
+  classifyProfileLoadFailure,
+  type ProfileLoadFailure,
+} from "../lib/profile-load-failure.ts";
 
 const PROFILE_POSTS_PAGE = 20;
 
@@ -54,6 +58,9 @@ export function ProfilePage() {
   const clearError = () => setError(null);
   const params = useParams();
   const [profile, setProfile] = createSignal<Actor | null>(null);
+  const [loadFailure, setLoadFailure] = createSignal<ProfileLoadFailure | null>(
+    null,
+  );
   const [posts, setPosts] = createSignal<Post[]>([]);
   const [loading, setLoading] = createSignal(true);
   const [postsHasMore, setPostsHasMore] = createSignal(false);
@@ -124,6 +131,20 @@ export function ProfilePage() {
   // must not leak the viewer's handle, so we show an empty header instead.
   const displayUsername = () =>
     profile()?.username || (isOwnProfile() ? actor.username : "");
+  const loadFailureMessage = () => {
+    switch (loadFailure()?.kind) {
+      case "not_found":
+        return t("profile.notFound");
+      case "gone":
+        return t("profile.gone");
+      case "unavailable":
+        return t("profile.remoteUnavailable");
+      case "invalid":
+        return t("profile.remoteInvalid");
+      default:
+        return t("common.loadFailed");
+    }
+  };
 
   // Generation guard: a fast profile→profile navigation must not let a slow
   // prior load overwrite the new one, and the id is captured ONCE so the actor
@@ -137,6 +158,7 @@ export function ProfilePage() {
     // otherwise leave the dismissible top error banner stuck above the
     // freshly-loaded profile and skip the loading state.
     setError(null);
+    setLoadFailure(null);
     setLoading(true);
     try {
       const profileData = await fetchActor(id);
@@ -153,7 +175,7 @@ export function ProfilePage() {
     } catch (e) {
       if (gen !== profileLoadGen) return;
       console.error("Failed to load profile:", e);
-      setError(t("common.error"));
+      setLoadFailure(classifyProfileLoadFailure(e));
     } finally {
       if (gen === profileLoadGen) setLoading(false);
     }
@@ -200,6 +222,7 @@ export function ProfilePage() {
       setIsFollowing(false);
       setFollowPending(false);
       setError(null);
+      setLoadFailure(null);
       setLoading(true);
       setShowEditModal(false);
       setShowFollowModal(null);
@@ -451,11 +474,23 @@ export function ProfilePage() {
           handle={displayUsername()}
           onOpenQr={() => setShowQr(true)}
         />
-        <InlineErrorRetry
-          message={t("common.loadFailed")}
-          retryLabel={t("common.retry")}
-          onRetry={loadProfile}
-        />
+        <Show
+          when={loadFailure()?.retryable}
+          fallback={
+            <div
+              role="alert"
+              class="flex min-h-[40vh] items-center justify-center p-8 text-center text-neutral-400"
+            >
+              {loadFailureMessage()}
+            </div>
+          }
+        >
+          <InlineErrorRetry
+            message={loadFailureMessage()}
+            retryLabel={t("common.retry")}
+            onRetry={loadProfile}
+          />
+        </Show>
       </Show>
 
       <Show when={!loading() && profile()}>

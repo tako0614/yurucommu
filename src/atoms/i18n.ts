@@ -144,6 +144,12 @@ const translations = {
     "profile.viewGrid": "グリッド表示",
     "profile.viewList": "リスト表示",
     "profile.noMedia": "メディア付きの投稿はまだありません",
+    "profile.notFound": "ユーザーが見つかりません",
+    "profile.gone": "このアカウントは削除されたか、利用できなくなっています",
+    "profile.remoteUnavailable":
+      "相手のサーバーに一時的に接続できません。少し待ってから再試行してください",
+    "profile.remoteInvalid":
+      "相手のサーバーから有効なプロフィール情報を確認できませんでした",
     "timeline.communities": "コミュニティ",
     "groups.title": "コミュニティ",
     "groups.noGroups": "コミュニティがありません",
@@ -852,6 +858,12 @@ const translations = {
     "profile.viewGrid": "Grid view",
     "profile.viewList": "List view",
     "profile.noMedia": "No posts with media yet",
+    "profile.notFound": "User not found",
+    "profile.gone": "This account was deleted or is no longer available",
+    "profile.remoteUnavailable":
+      "The remote server is temporarily unavailable. Wait a moment and try again.",
+    "profile.remoteInvalid":
+      "The remote server did not provide a valid profile.",
     "timeline.communities": "Communities",
     "groups.title": "Communities",
     "groups.noGroups": "No communities",
