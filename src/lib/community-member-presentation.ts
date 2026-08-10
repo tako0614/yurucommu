@@ -8,3 +8,22 @@ export function canChangeCommunityMemberRole(
   // Follow-backed membership, which has no local role row to mutate.
   return member.can_change_role !== false;
 }
+
+type CommunityMemberIdentity = {
+  ap_id: string;
+  username?: string | null;
+  preferred_username?: string | null;
+  name?: string | null;
+};
+
+/** Never render a blank member or destructive confirmation label. */
+export function communityMemberDisplayName(
+  member: CommunityMemberIdentity,
+): string {
+  return (
+    member.name?.trim() ||
+    member.preferred_username?.trim() ||
+    member.username?.trim() ||
+    member.ap_id
+  );
+}

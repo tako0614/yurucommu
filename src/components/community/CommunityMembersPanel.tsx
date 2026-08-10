@@ -7,7 +7,10 @@ import type {
 } from "../../lib/api/communities.ts";
 import { UserAvatar } from "../UserAvatar.tsx";
 import type { Translate } from "../../lib/i18n.tsx";
-import { canChangeCommunityMemberRole } from "../../lib/community-member-capabilities.ts";
+import {
+  canChangeCommunityMemberRole,
+  communityMemberDisplayName,
+} from "../../lib/community-member-presentation.ts";
 
 interface CommunityMembersPanelProps {
   members: CommunityMember[];
@@ -139,13 +142,13 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
             >
               <UserAvatar
                 avatarUrl={member.icon_url}
-                name={member.name || member.preferred_username}
+                name={communityMemberDisplayName(member)}
                 size={48}
               />
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-2">
                   <span class="font-bold text-white truncate">
-                    {member.name || member.preferred_username}
+                    {communityMemberDisplayName(member)}
                   </span>
                   <Show when={member.role === "owner"}>
                     <span class="px-1.5 py-0.5 text-xs bg-yellow-500/20 text-yellow-400 rounded">
@@ -171,10 +174,7 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
                   value={member.role}
                   aria-label={props
                     .t("members.changeRole")
-                    .replace(
-                      "{name}",
-                      member.name || member.preferred_username,
-                    )}
+                    .replace("{name}", communityMemberDisplayName(member))}
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
@@ -213,10 +213,7 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
                   type="button"
                   aria-label={props
                     .t("members.removeConfirm")
-                    .replace(
-                      "{name}",
-                      member.name || member.preferred_username,
-                    )}
+                    .replace("{name}", communityMemberDisplayName(member))}
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();

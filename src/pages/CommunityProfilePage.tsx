@@ -36,6 +36,7 @@ import { CommunityAboutPanel } from "../components/community/CommunityAboutPanel
 import { CommunityMembersPanel } from "../components/community/CommunityMembersPanel.tsx";
 import { CommunitySettingsPanel } from "../components/community/CommunitySettingsPanel.tsx";
 import type { CommunityMember } from "../lib/api/communities.ts";
+import { communityMemberDisplayName } from "../lib/community-member-presentation.ts";
 
 export function CommunityProfilePage() {
   const actor = useRequiredActor();
@@ -93,6 +94,10 @@ export function CommunityProfilePage() {
   // Member removal (kick) staged behind the shared ConfirmSheet.
   const [pendingMemberRemoval, setPendingMemberRemoval] =
     createSignal<CommunityMember | null>(null);
+  const pendingMemberRemovalLabel = () => {
+    const member = pendingMemberRemoval();
+    return member ? communityMemberDisplayName(member) : "";
+  };
   // Settings state
   const [settingsForm, setSettingsForm] = createSignal<CommunitySettings>({});
   const [savingSettings, setSavingSettings] = createSignal(false);
@@ -745,9 +750,7 @@ export function CommunityProfilePage() {
         open={pendingMemberRemoval() !== null}
         title={t("members.removeConfirm").replace(
           "{name}",
-          pendingMemberRemoval()?.name ||
-            pendingMemberRemoval()?.preferred_username ||
-            "",
+          pendingMemberRemovalLabel(),
         )}
         confirmLabel={t("members.remove")}
         destructive
