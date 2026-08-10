@@ -157,6 +157,11 @@
             <code>&lt;Pack URI&gt;/stamps/&lt;key&gt;</code
             >と一致し、別パックのIDを 名乗れません
           </li>
+          <li>
+            <code>publisher</code> ActorはPack
+            URIと同じoriginに属します。署名のない
+            Manifestだけで別サーバーのActorを発行者として名乗ることはできません
+          </li>
           <li>1つのManifestに含められるStampは最大20個です</li>
           <li>画像は静止PNGまたはWebP、最大512×512、最大2 MiBです</li>
           <li>価格や販売条件はManifestに含めません</li>

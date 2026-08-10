@@ -21,7 +21,12 @@
     "release": { "type": "integer", "minimum": 1 },
     "name": { "$ref": "#/$defs/nameText" },
     "description": { "$ref": "#/$defs/descriptionText" },
-    "publisher": { "type": "string", "format": "uri", "maxLength": 2048 },
+    "publisher": {
+      "type": "string",
+      "format": "uri",
+      "maxLength": 2048,
+      "description": "Must have the same origin as the manifest id."
+    },
     "visibility": { "enum": ["public", "unlisted"] },
     "icon": { "$ref": "#/$defs/asset" },
     "stamps": {
