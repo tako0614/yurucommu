@@ -1,8 +1,7 @@
 import { createEffect, createSignal, For, on, onCleanup, Show } from "solid-js";
 import { A } from "@solidjs/router";
-import { Actor, DMMessage } from "../../types/index.ts";
+import type { Actor } from "../../types/index.ts";
 import {
-  CommunityMessage,
   deleteCommunityMessage,
   DMContact,
   fetchCommunityMessages,
@@ -19,6 +18,14 @@ import { formatTime } from "../../lib/datetime.ts";
 import { useI18n } from "../../lib/i18n.tsx";
 import { ConfirmSheet } from "../ConfirmSheet.tsx";
 import { UserAvatar } from "../UserAvatar.tsx";
+import {
+  type MessageStampSnapshot,
+  sendCommunityStamp,
+  sendUserDMStamp,
+} from "../../lib/api/stamps.ts";
+import { StampPicker } from "./StampPicker.tsx";
+import { StampPackSheet } from "./StampPackSheet.tsx";
+import { type ChatMessage, mergeMessagesById } from "./chat-message-merge.ts";
 
 interface DMChatPanelProps {
   contact: DMContact;
@@ -27,43 +34,17 @@ interface DMChatPanelProps {
   onRead?: () => void;
 }
 
-type ChatMessage = DMMessage | CommunityMessage;
-
 // Poll interval for re-fetching incoming messages on the open conversation.
 const MESSAGE_POLL_MS = 4000;
-
-/**
- * Merge a freshly-fetched message list into the existing list, deduplicating
- * by message id. The server-ordered `fetched` list is authoritative; any
- * existing message not yet present in it (e.g. an optimistic send the server
- * has not indexed yet) is appended at the end so it does not flicker out.
- */
-function mergeMessagesById(
-  existing: ChatMessage[],
-  fetched: ChatMessage[],
-): ChatMessage[] {
-  const fetchedIds = new Set(fetched.map((m) => m.id));
-  const pending = existing.filter((m) => !fetchedIds.has(m.id));
-  const merged = pending.length > 0 ? [...fetched, ...pending] : fetched;
-
-  // No-op guard: if the merged id-sequence is identical to the existing one,
-  // return the PREVIOUS array reference so the `messages` signal does not
-  // change identity on a poll that fetched nothing new. This stops the
-  // scroll-to-bottom effect from re-firing every poll interval.
-  if (
-    merged.length === existing.length &&
-    merged.every((m, i) => m.id === existing[i].id)
-  ) {
-    return existing;
-  }
-  return merged;
-}
 
 export function DMChatPanel(props: DMChatPanelProps) {
   const [messages, setMessages] = createSignal<ChatMessage[]>([]);
   const [loading, setLoading] = createSignal(true);
   const [input, setInput] = createSignal("");
   const [sending, setSending] = createSignal(false);
+  const [stampPickerOpen, setStampPickerOpen] = createSignal(false);
+  const [selectedStamp, setSelectedStamp] =
+    createSignal<MessageStampSnapshot | null>(null);
   const [deletingMessage, setDeletingMessage] = createSignal<
     Record<string, boolean>
   >({});
@@ -256,6 +237,8 @@ export function DMChatPanel(props: DMChatPanelProps) {
         // B's header + the error line.
         setMessages([]);
         setHasMoreOlder(false);
+        setStampPickerOpen(false);
+        setSelectedStamp(null);
 
         void refreshMessages(contactApId, contactType, "initial", isCancelled);
 
@@ -414,7 +397,44 @@ export function DMChatPanel(props: DMChatPanelProps) {
     void sendTyping(value);
   };
 
-  const getSenderApId = (msg: DMMessage | CommunityMessage): string => {
+  const handleSendStamp = async (stampId: string): Promise<boolean> => {
+    if (sending()) return false;
+
+    setSending(true);
+    setErrorMessage(null);
+    const sentApId = props.contact.ap_id;
+    const sentType = props.contact.type;
+    const stillOnConversation = () =>
+      props.contact.ap_id === sentApId && props.contact.type === sentType;
+    try {
+      const message =
+        sentType === "community"
+          ? await sendCommunityStamp(sentApId, stampId)
+          : (await sendUserDMStamp(sentApId, stampId)).message;
+      if (stillOnConversation()) {
+        setMessages((current) =>
+          current.some((candidate) => candidate.id === message.id)
+            ? current
+            : [...current, message],
+        );
+      }
+      return true;
+    } catch (cause) {
+      console.error("Failed to send Stamp:", cause);
+      if (stillOnConversation()) {
+        setErrorMessage(
+          cause instanceof ApiError && cause.status === 403
+            ? cause.message
+            : t("common.error"),
+        );
+      }
+      return false;
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const getSenderApId = (msg: ChatMessage): string => {
     return msg.sender.ap_id;
   };
 
@@ -584,17 +604,39 @@ export function DMChatPanel(props: DMChatPanelProps) {
                           {msg.sender.name || msg.sender.preferred_username}
                         </div>
                       </Show>
-                      <div
-                        class={`inline-block px-4 py-2 rounded-2xl ${
-                          isMine()
-                            ? "bg-accent text-white rounded-br-sm"
-                            : "bg-neutral-800 text-white rounded-bl-sm"
-                        }`}
+                      <Show
+                        when={msg.stamp}
+                        fallback={
+                          <div
+                            class={`inline-block px-4 py-2 rounded-2xl ${
+                              isMine()
+                                ? "bg-accent text-white rounded-br-sm"
+                                : "bg-neutral-800 text-white rounded-bl-sm"
+                            }`}
+                          >
+                            <p class="text-sm whitespace-pre-wrap break-words">
+                              {msg.content}
+                            </p>
+                          </div>
+                        }
                       >
-                        <p class="text-sm whitespace-pre-wrap break-words">
-                          {msg.content}
-                        </p>
-                      </div>
+                        {(stamp) => (
+                          <button
+                            type="button"
+                            onClick={() => setSelectedStamp(stamp())}
+                            aria-label={stamp().alt}
+                            title={stamp().alt}
+                            class="block rounded-2xl p-1 transition-transform hover:scale-[1.03] focus:outline-none focus:ring-2 focus:ring-accent"
+                          >
+                            <img
+                              src={stamp().asset.url}
+                              alt={stamp().alt}
+                              loading="lazy"
+                              class="h-36 w-36 object-contain sm:h-40 sm:w-40"
+                            />
+                          </button>
+                        )}
+                      </Show>
                       <div class="text-xs text-neutral-500 mt-1">
                         {formatTime(msg.created_at, language())}
                         <Show
@@ -628,10 +670,49 @@ export function DMChatPanel(props: DMChatPanelProps) {
         <div ref={messagesEndRef!} />
       </div>
 
+      <StampPicker
+        open={stampPickerOpen()}
+        language={language()}
+        onClose={() => setStampPickerOpen(false)}
+        onSelect={handleSendStamp}
+      />
+
       <form onSubmit={handleSend} class="p-4 border-t border-neutral-900">
         <div class="flex gap-2">
+          <button
+            type="button"
+            onClick={() => setStampPickerOpen((open) => !open)}
+            disabled={sending()}
+            aria-label={t("dm.stamps")}
+            aria-expanded={stampPickerOpen()}
+            class={`grid h-10 w-10 flex-shrink-0 place-items-center rounded-full border transition-colors disabled:opacity-50 ${
+              stampPickerOpen()
+                ? "border-accent bg-accent/15 text-accent"
+                : "border-neutral-800 bg-neutral-900 text-neutral-400 hover:text-white"
+            }`}
+          >
+            <svg
+              class="h-5 w-5"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.8"
+                d="M7 3h7a5 5 0 015 5v7a6 6 0 01-6 6H7a4 4 0 01-4-4V7a4 4 0 014-4z"
+              />
+              <path
+                stroke-linecap="round"
+                stroke-width="1.8"
+                d="M8 10h.01M14 10h.01M8.5 15c1.7 1.4 3.3 1.4 5 0"
+              />
+            </svg>
+          </button>
           <input
             type="text"
+            name="message"
             value={input()}
             onInput={handleInputChange}
             placeholder={t("dm.placeholder")}
@@ -664,6 +745,11 @@ export function DMChatPanel(props: DMChatPanelProps) {
           if (msg) void handleDeleteCommunityMessage(msg);
         }}
         onCancel={() => setPendingDeleteMessage(null)}
+      />
+
+      <StampPackSheet
+        stamp={selectedStamp()}
+        onClose={() => setSelectedStamp(null)}
       />
     </div>
   );

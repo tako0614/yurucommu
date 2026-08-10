@@ -67,7 +67,9 @@
                   ><code>https://yurucommu.com/ns/context.jsonld</code></a
                 >
               </td>
-              <td>Contains both current Story terms and proposed APC terms</td>
+              <td>
+                Contains current Story and Stamp terms plus proposed APC terms
+              </td>
             </tr>
             <tr>
               <td>Story</td>
@@ -77,6 +79,15 @@
                 >
               </td>
               <td>Used by the current Story object model</td>
+            </tr>
+            <tr>
+              <td>Stamp</td>
+              <td>
+                <a href="/ns/stamp/context.jsonld"
+                  ><code>https://yurucommu.com/ns/stamp/context.jsonld</code></a
+                >
+              </td>
+              <td>Used by current Stamp image attachments</td>
             </tr>
             <tr>
               <td>APC</td>
@@ -92,6 +103,20 @@
             </tr>
           </tbody>
         </table>
+
+        <h2>Current Stamp terms</h2>
+        <p>
+          Stamp messages use standard ActivityStreams <code>Note</code> and
+          <code>Image</code> objects. The image adds
+          <code>yurucommu:stamp</code>, <code>yurucommu:pack</code>,
+          <code>yurucommu:revision</code>, and
+          <code>yurucommu:sha256</code> from
+          <code>https://yurucommu.com/ns/stamp#</code>.
+        </p>
+        <p>
+          The logical Stamp and Pack values are IRIs. Revision and image digest
+          values make the sent Message projection immutable and verifiable.
+        </p>
 
         <h2>Current Story terms</h2>
         <p>

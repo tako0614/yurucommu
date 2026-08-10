@@ -1,0 +1,18 @@
+{
+  "@context": {
+    "yurucommu": {
+      "@id": "https://yurucommu.com/ns/stamp#",
+      "@prefix": true
+    },
+    "stamp": {
+      "@id": "yurucommu:stamp",
+      "@type": "@id"
+    },
+    "pack": {
+      "@id": "yurucommu:pack",
+      "@type": "@id"
+    },
+    "revision": "yurucommu:revision",
+    "sha256": "yurucommu:sha256"
+  }
+}

@@ -112,7 +112,7 @@
             <tr>
               <td>まとめて参照</td>
               <td><code>https://yurucommu.com/ns/context.jsonld</code></td>
-              <td>Story語彙と提案中のコミュニティ語彙を収録</td>
+              <td>Story・Stamp語彙と提案中のコミュニティ語彙を収録</td>
             </tr>
             <tr>
               <td>Story</td>
@@ -122,12 +122,57 @@
               <td>現在のStory出力で使う語彙</td>
             </tr>
             <tr>
+              <td>Stamp</td>
+              <td>
+                <code>https://yurucommu.com/ns/stamp/context.jsonld</code>
+              </td>
+              <td>現在のStamp画像添付で使う語彙</td>
+            </tr>
+            <tr>
               <td>コミュニティ</td>
               <td><code>https://yurucommu.com/ns/apc/context.jsonld</code></td>
               <td>公開済みだが、現在のGroupアクターでは未使用の提案語彙</td>
             </tr>
           </tbody>
         </table>
+
+        <h2>現在使っているStamp語彙</h2>
+        <table class="docs-table">
+          <thead>
+            <tr>
+              <th>語彙</th>
+              <th>URI</th>
+              <th>用途</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>stamp</code></td>
+              <td><code>https://yurucommu.com/ns/stamp#stamp</code></td>
+              <td>論理Stamp URI</td>
+            </tr>
+            <tr>
+              <td><code>pack</code></td>
+              <td><code>https://yurucommu.com/ns/stamp#pack</code></td>
+              <td>配布ManifestのURI</td>
+            </tr>
+            <tr>
+              <td><code>revision</code></td>
+              <td><code>https://yurucommu.com/ns/stamp#revision</code></td>
+              <td>送信時点の不変Revision digest</td>
+            </tr>
+            <tr>
+              <td><code>sha256</code></td>
+              <td><code>https://yurucommu.com/ns/stamp#sha256</code></td>
+              <td>画像バイト列のSHA-256</td>
+            </tr>
+          </tbody>
+        </table>
+        <p>
+          Stampは標準のNoteとImageをフォールバックとして保ちます。詳しい
+          送受信形式は<a href="/specs/stamp.html">Stampの連合形式</a
+          >を参照してください。
+        </p>
 
         <h2>現在使っているStory語彙</h2>
         <table class="docs-table">

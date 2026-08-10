@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Stampの連合形式 - yurucommu</title>
+    <meta
+      name="description"
+      content="yurucommuが現在送受信するStampメッセージとパックManifestの形式"
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="../styles.css?v=2" />
+  </head>
+  <body>
+    <header class="header">
+      <div class="header-inner">
+        <a href="/" class="logo">yurucommu</a>
+        <div class="header-links">
+          <a href="/help/" class="header-link">Docs</a>
+          <a href="/specs/" class="header-link active">Specs</a>
+        </div>
+        <a href="https://github.com/tako0614/yurucommu" class="header-cta">
+          GitHub
+        </a>
+      </div>
+    </header>
+
+    <div class="docs-layout">
+      <aside class="docs-sidebar">
+        <p class="docs-sidebar-title">ドキュメント</p>
+        <ul class="docs-sidebar-nav">
+          <li><a href="/specs/">概要</a></li>
+          <li><a href="/specs/activitypub.html">現在の連合形式</a></li>
+          <li><a href="/specs/namespace.html">データ語彙</a></li>
+        </ul>
+        <div class="docs-sidebar-section">
+          <p class="docs-sidebar-title">現在の連合形式</p>
+          <ul class="docs-sidebar-nav">
+            <li><a href="/specs/apc.html">コミュニティ</a></li>
+            <li><a href="/specs/story.html">Story</a></li>
+            <li><a href="/specs/dmnote.html">DM</a></li>
+            <li><a href="/specs/stamp.html" class="active">Stamp</a></li>
+          </ul>
+        </div>
+      </aside>
+
+      <main class="docs-content">
+        <span class="spec-status experimental">現行実装</span>
+        <h1>Stampの連合形式</h1>
+        <p class="lead">
+          Stampは論理オブジェクト、StampRevisionは不変な表示物、
+          StampPackは配布単位です。送信済みMessageは送信時点のRevisionと
+          表示情報をスナップショットとして保持します。
+        </p>
+
+        <div class="callout callout-info">
+          <strong>互換性:</strong>
+          独自の<code>Stamp</code>型だけは送りません。標準の
+          <code>Note</code>と<code>Image</code>を送り、対応サーバー向けの
+          拡張プロパティを画像に追加します。
+        </div>
+
+        <h2>送信時に固定する情報</h2>
+        <table class="docs-table">
+          <thead>
+            <tr>
+              <th>値</th>
+              <th>役割</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>論理Stamp URI</td>
+              <td>お気に入りやパック内での同一性</td>
+            </tr>
+            <tr>
+              <td>Pack URI</td>
+              <td>受信したStampから配布Manifestを開くための共有リンク</td>
+            </tr>
+            <tr>
+              <td>Revision digest</td>
+              <td>送信後に作者が画像を差し替えても履歴を変えない</td>
+            </tr>
+            <tr>
+              <td>画像URL・形式・寸法・SHA-256</td>
+              <td>受信サーバーが検証してローカルへミラーする</td>
+            </tr>
+            <tr>
+              <td>alt text</td>
+              <td>通知、読み上げ、非対応クライアントのフォールバック</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2>ActivityPub例</h2>
+        <pre><code>{
+  "@context": [
+    "https://www.w3.org/ns/activitystreams",
+    {
+      "yurucommu": {
+        "@id": "https://yurucommu.com/ns/stamp#",
+        "@prefix": true
+      }
+    }
+  ],
+  "type": "Create",
+  "actor": "https://alice.example/users/alice",
+  "object": {
+    "type": "Note",
+    "content": "[Stamp: OK]",
+    "attachment": [{
+      "type": "Image",
+      "name": "OK",
+      "mediaType": "image/webp",
+      "url": "https://alice.example/media/stamps/9518f60000000000000000000000000000000000000000000000000000000000.webp",
+      "width": 512,
+      "height": 512,
+      "yurucommu:stamp": "https://alice.example/stamp-packs/cat/stamps/okay",
+      "yurucommu:pack": "https://alice.example/stamp-packs/cat",
+      "yurucommu:revision": "sha256:9518f60000000000000000000000000000000000000000000000000000000000",
+      "yurucommu:sha256": "9518f60000000000000000000000000000000000000000000000000000000000"
+    }]
+  }
+}</code></pre>
+
+        <h2>受信時の処理</h2>
+        <ol>
+          <li>通常のHTTP Signature、宛先、ブロック、可視性検証を行う</li>
+          <li>拡張値が完全で安全な場合だけStampスナップショットへ昇格する</li>
+          <li>画像を取得し、形式・寸法・SHA-256を検証する</li>
+          <li>ハッシュベースのローカル保存先へミラーする</li>
+          <li>以後は送信元ではなく検証済みローカル画像を表示する</li>
+        </ol>
+        <p>
+          拡張値が不正または欠けている場合、Note自体は拒否せず通常の画像投稿として
+          扱います。画像取得に失敗してもMessageスナップショットは保持し、
+          有界回数で再試行します。
+        </p>
+
+        <h2>Stamp Pack Manifest</h2>
+        <p>
+          Pack URIはそのままJSON Manifestの共有リンクです。現在のスキーマは
+          <a href="/schemas/stamp-pack/v1"
+            ><code>https://yurucommu.com/schemas/stamp-pack/v1</code></a
+          >です。公開・限定公開の無料パックを追加でき、更新確認には
+          <code>ETag</code>と<code>If-None-Match</code>を使います。
+        </p>
+        <ul>
+          <li>Release番号は単調増加し、公開済みReleaseは変更しません</li>
+          <li>
+            論理Stamp URIは必ず
+            <code>&lt;Pack URI&gt;/stamps/&lt;key&gt;</code
+            >と一致し、別パックのIDを 名乗れません
+          </li>
+          <li>1つのManifestに含められるStampは最大20個です</li>
+          <li>画像は静止PNGまたはWebP、最大512×512、最大2 MiBです</li>
+          <li>価格や販売条件はManifestに含めません</li>
+          <li>利用権とスタンプ欄へのインストール状態は別に管理します</li>
+        </ul>
+
+        <h2>削除と更新</h2>
+        <ul>
+          <li>画像差し替えは新しいStampRevisionを作ります</li>
+          <li>パック更新は新しいStampPackReleaseを作ります</li>
+          <li>既存Messageは古いRevisionのまま表示します</li>
+          <li>アンインストールや利用権失効後も受信済み履歴は表示します</li>
+          <li>パック公開停止後は新規追加を拒否します</li>
+        </ul>
+
+        <p style="margin-top: 3rem">
+          <a href="/ns/stamp/">Stamp namespace</a>
+          &nbsp;·&nbsp;
+          <a href="/specs/namespace.html">Data vocabulary</a>
+        </p>
+      </main>
+    </div>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        <span class="footer-logo">yurucommu</span>
+        <span class="footer-copy">© 2026 · AGPL-3.0-only</span>
+      </div>
+    </footer>
+  </body>
+</html>

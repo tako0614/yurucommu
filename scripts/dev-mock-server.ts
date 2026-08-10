@@ -89,7 +89,33 @@ type Message = {
   id: string;
   sender: PostAuthor;
   content: string;
+  stamp?: MessageStampSnapshot;
   created_at: string;
+};
+
+type StampAsset = {
+  url: string;
+  media_type: "image/webp" | "image/png";
+  width: number;
+  height: number;
+  sha256: string;
+};
+
+type MessageStampSnapshot = {
+  id: string;
+  pack_id: string;
+  revision: `sha256:${string}`;
+  asset: StampAsset;
+  alt: string;
+};
+
+type MockStamp = {
+  id: string;
+  key: string;
+  digest: string;
+  asset: StampAsset;
+  alt: Record<string, string>;
+  tags: string[];
 };
 
 type ActorNote = {
@@ -206,6 +232,167 @@ const communities: CommunityDetail[] = [
     last_message_at: "2026-07-05T04:35:00.000Z",
   },
 ];
+
+const mockStampPackId = `${origin}/stamp-packs/yuru-faces`;
+const mockStampPackReleaseId = `${mockStampPackId}/releases/1`;
+const mockStampManifestDigest = "a".repeat(64);
+const mockStampManifestEtag = `"sha256-${mockStampManifestDigest}"`;
+
+function mockStamp(
+  key: string,
+  seed: string,
+  digestCharacter: string,
+  alt: Record<string, string>,
+  tags: string[],
+): MockStamp {
+  const digest = digestCharacter.repeat(64);
+  return {
+    id: `${mockStampPackId}/stamps/${key}`,
+    key,
+    digest,
+    asset: {
+      // The rest of the developer mock already uses DiceBear for local-fixture
+      // avatars. Its PNG endpoint keeps this Stamp fixture inside the real
+      // PNG/WebP contract instead of teaching the UI to accept SVG Stamps.
+      url: `https://api.dicebear.com/9.x/fun-emoji/png?seed=${seed}&size=512`,
+      media_type: "image/png",
+      width: 512,
+      height: 512,
+      sha256: digest,
+    },
+    alt,
+    tags,
+  };
+}
+
+const mockStamps = [
+  mockStamp("okay", "yuru-okay", "1", { ja: "了解！", en: "Got it!" }, [
+    "了解",
+    "OK",
+    "わかった",
+    "okay",
+  ]),
+  mockStamp(
+    "thanks",
+    "yuru-thanks",
+    "2",
+    { ja: "ありがとう", en: "Thank you" },
+    ["ありがとう", "感謝", "thanks"],
+  ),
+  mockStamp("cheer", "yuru-cheer", "3", { ja: "いいね！", en: "Nice!" }, [
+    "いいね",
+    "応援",
+    "nice",
+    "cheer",
+  ]),
+] as const;
+
+let mockStampInstalled = true;
+const mockStampFavoriteIds = new Set<string>([mockStamps[1].id]);
+const mockStampRecents = new Map<
+  string,
+  { last_used_at: string; use_count: number }
+>([
+  [
+    mockStamps[0].id,
+    { last_used_at: "2026-07-05T05:43:00.000Z", use_count: 4 },
+  ],
+  [
+    mockStamps[1].id,
+    { last_used_at: "2026-07-05T05:15:00.000Z", use_count: 2 },
+  ],
+]);
+
+function findMockStamp(stampId: unknown): MockStamp | null {
+  if (typeof stampId !== "string") return null;
+  return mockStamps.find((stamp) => stamp.id === stampId) ?? null;
+}
+
+function localizedMockStampAlt(stamp: MockStamp): string {
+  return stamp.alt.ja ?? stamp.alt.en ?? stamp.key;
+}
+
+function mockStampSnapshot(stamp: MockStamp): MessageStampSnapshot {
+  return {
+    id: stamp.id,
+    pack_id: mockStampPackId,
+    revision: `sha256:${stamp.digest}`,
+    asset: { ...stamp.asset },
+    alt: localizedMockStampAlt(stamp),
+  };
+}
+
+function recordMockStampUse(stampId: string): void {
+  const previous = mockStampRecents.get(stampId);
+  mockStampRecents.set(stampId, {
+    last_used_at: new Date().toISOString(),
+    use_count: (previous?.use_count ?? 0) + 1,
+  });
+}
+
+function mockInstalledStampPack(): JsonValue {
+  return {
+    id: mockStampPackId,
+    share_url: mockStampPackId,
+    publisher_actor_id: me.ap_id,
+    slug: "yuru-faces",
+    name: { ja: "ゆるフェイス", en: "Yuru Faces" },
+    description: {
+      ja: "少人数の会話で使いやすい3つの表情",
+      en: "Three friendly expressions for small conversations",
+    },
+    release: {
+      id: mockStampPackReleaseId,
+      number: 1,
+      published_at: "2026-08-10T00:00:00.000Z",
+    },
+    rights: ["install", "send"],
+    stamps: mockStamps.map((stamp) => ({
+      id: stamp.id,
+      key: stamp.key,
+      favorite: mockStampFavoriteIds.has(stamp.id),
+      recent: mockStampRecents.get(stamp.id) ?? null,
+      revision: {
+        id: `${stamp.id}/revisions/sha256-${stamp.digest}`,
+        digest: `sha256:${stamp.digest}`,
+        asset: stamp.asset,
+        alt: stamp.alt,
+        tags: stamp.tags,
+      },
+    })),
+  };
+}
+
+function mockStampPackManifest(): JsonValue {
+  return {
+    schema: "https://yurucommu.com/schemas/stamp-pack/v1",
+    id: mockStampPackId,
+    release: 1,
+    name: { ja: "ゆるフェイス", en: "Yuru Faces" },
+    description: {
+      ja: "少人数の会話で使いやすい3つの表情",
+      en: "Three friendly expressions for small conversations",
+    },
+    publisher: me.ap_id,
+    visibility: "public",
+    stamps: mockStamps.map((stamp) => ({
+      id: stamp.id,
+      key: stamp.key,
+      revision: `sha256:${stamp.digest}`,
+      alt: stamp.alt,
+      tags: stamp.tags,
+      assets: [
+        {
+          url: stamp.asset.url,
+          mediaType: stamp.asset.media_type,
+          width: stamp.asset.width,
+          height: stamp.asset.height,
+          sha256: stamp.asset.sha256,
+        },
+      ],
+    })),
+  };
+}
 
 let posts: Post[] = [
   {
@@ -372,6 +559,13 @@ let userMessages: Record<string, Message[]> = {
       content: "Good. I want to debug the client UI without a backend.",
       created_at: "2026-07-05T05:02:00.000Z",
     },
+    {
+      id: "dm-stamp-1",
+      sender: postAuthor(akari),
+      content: `[Stamp: ${localizedMockStampAlt(mockStamps[0])}]`,
+      stamp: mockStampSnapshot(mockStamps[0]),
+      created_at: "2026-07-05T05:03:00.000Z",
+    },
   ],
   [ren.ap_id]: [
     {
@@ -396,6 +590,13 @@ let communityMessages: Record<string, Message[]> = {
       sender: postAuthor(akari),
       content: "Stories and VOOM-like feed data are mocked too.",
       created_at: "2026-07-05T05:42:00.000Z",
+    },
+    {
+      id: "cm-stamp-1",
+      sender: postAuthor(ren),
+      content: `[Stamp: ${localizedMockStampAlt(mockStamps[2])}]`,
+      stamp: mockStampSnapshot(mockStamps[2]),
+      created_at: "2026-07-05T05:43:00.000Z",
     },
   ],
   [communities[1].ap_id]: [
@@ -760,6 +961,7 @@ function discovery(request: Request): JsonValue {
       "notes",
       "dm",
       "communities",
+      "stamps",
     ],
     endpoints: {
       api: `${apiBaseUrl}/api`,
@@ -848,6 +1050,108 @@ async function handleAuth(
   return null;
 }
 
+async function handleStamps(
+  request: Request,
+  method: string,
+  path: string,
+): Promise<Response | null> {
+  if (method === "GET" && path === "/api/stamps/packs") {
+    return json(request, {
+      packs: mockStampInstalled ? [mockInstalledStampPack()] : [],
+    });
+  }
+
+  if (method === "POST" && path === "/api/stamps/install") {
+    const body = await readJson(request);
+    if (body.pack_id !== mockStampPackId) {
+      return json(request, { error: "Stamp pack not found" }, { status: 404 });
+    }
+    mockStampInstalled = true;
+    return json(request, {
+      success: true,
+      pack_id: mockStampPackId,
+      installed_release_id: mockStampPackReleaseId,
+    });
+  }
+
+  if (method === "DELETE" && path === "/api/stamps/install") {
+    const body = await readJson(request);
+    if (body.pack_id !== mockStampPackId) {
+      return json(request, { error: "Stamp pack not found" }, { status: 404 });
+    }
+    mockStampInstalled = false;
+    return json(request, { success: true, pack_id: mockStampPackId });
+  }
+
+  if (method === "POST" && path === "/api/stamps/favorite") {
+    const body = await readJson(request);
+    const stamp = findMockStamp(body.stamp_id);
+    if (!stamp || typeof body.favorite !== "boolean") {
+      return json(
+        request,
+        { error: "stamp_id and favorite are required" },
+        { status: 400 },
+      );
+    }
+    if (body.favorite) mockStampFavoriteIds.add(stamp.id);
+    else mockStampFavoriteIds.delete(stamp.id);
+    return json(request, {
+      success: true,
+      stamp_id: stamp.id,
+      favorite: body.favorite,
+    });
+  }
+
+  if (method === "GET" && path === "/stamp-packs/yuru-faces") {
+    const responseHeaders = headers(request);
+    responseHeaders.set("ETag", mockStampManifestEtag);
+    responseHeaders.set(
+      "Cache-Control",
+      "public, max-age=300, must-revalidate",
+    );
+    responseHeaders.set("Vary", "Accept");
+    if (request.headers.get("If-None-Match") === mockStampManifestEtag) {
+      return new Response(null, { status: 304, headers: responseHeaders });
+    }
+    return new Response(JSON.stringify(mockStampPackManifest()), {
+      status: 200,
+      headers: responseHeaders,
+    });
+  }
+
+  return null;
+}
+
+function stampFromMessageBody(body: Record<string, unknown>): MockStamp | null {
+  if (!body.stamp || typeof body.stamp !== "object") return null;
+  return findMockStamp((body.stamp as Record<string, unknown>).stamp_id);
+}
+
+function createMockMessage(
+  idPrefix: "dm" | "cm",
+  body: Record<string, unknown>,
+): Message | null {
+  if (Object.hasOwn(body, "stamp")) {
+    const stamp = stampFromMessageBody(body);
+    if (!stamp) return null;
+    recordMockStampUse(stamp.id);
+    return {
+      id: `${idPrefix}-${Date.now()}`,
+      sender: postAuthor(me),
+      content: `[Stamp: ${localizedMockStampAlt(stamp)}]`,
+      stamp: mockStampSnapshot(stamp),
+      created_at: new Date().toISOString(),
+    };
+  }
+
+  return {
+    id: `${idPrefix}-${Date.now()}`,
+    sender: postAuthor(me),
+    content: typeof body.content === "string" ? body.content : "",
+    created_at: new Date().toISOString(),
+  };
+}
+
 async function handleDm(
   request: Request,
   method: string,
@@ -865,12 +1169,14 @@ async function handleDm(
     }
     if (method === "POST") {
       const body = await readJson(request);
-      const message: Message = {
-        id: `dm-${Date.now()}`,
-        sender: postAuthor(me),
-        content: typeof body.content === "string" ? body.content : "",
-        created_at: new Date().toISOString(),
-      };
+      const message = createMockMessage("dm", body);
+      if (!message) {
+        return json(
+          request,
+          { error: "Valid stamp.stamp_id is required" },
+          { status: 400 },
+        );
+      }
       userMessages[actorData.ap_id] = [
         ...(userMessages[actorData.ap_id] ?? []),
         message,
@@ -989,12 +1295,14 @@ async function handleCommunities(
     }
     if (method === "POST") {
       const body = await readJson(request);
-      const message: Message = {
-        id: `cm-${Date.now()}`,
-        sender: postAuthor(me),
-        content: typeof body.content === "string" ? body.content : "",
-        created_at: new Date().toISOString(),
-      };
+      const message = createMockMessage("cm", body);
+      if (!message) {
+        return json(
+          request,
+          { error: "Valid stamp.stamp_id is required" },
+          { status: 400 },
+        );
+      }
       communityMessages[community.ap_id] = [
         ...(communityMessages[community.ap_id] ?? []),
         message,
@@ -1426,6 +1734,9 @@ async function handleRequest(request: Request): Promise<Response> {
   const authResponse = await handleAuth(request, method, path);
   if (authResponse) return authResponse;
 
+  const stampResponse = await handleStamps(request, method, path);
+  if (stampResponse) return stampResponse;
+
   const dmResponse = await handleDm(request, method, path);
   if (dmResponse) return dmResponse;
 
@@ -1447,6 +1758,12 @@ async function handleRequest(request: Request): Promise<Response> {
   const searchResponse = await handleSearch(request, method, path, url);
   if (searchResponse) return searchResponse;
 
+  if (path === "/api/notifications/pushers/config" && method === "GET") {
+    return json(request, {
+      gateway_url: null,
+      web_push_public_key: null,
+    });
+  }
   if (path === "/api/notifications/pushers" && method === "POST") {
     const body = await readJson(request);
     const pusher =
@@ -1562,6 +1879,9 @@ async function runSelfTest(): Promise<void> {
     ["GET", "/api/stories", 200],
     ["GET", "/api/dm/contacts", 200],
     ["GET", "/api/communities", 200],
+    ["GET", "/api/stamps/packs", 200],
+    ["GET", "/stamp-packs/yuru-faces", 200],
+    ["GET", "/api/notifications/pushers/config", 200],
     ["GET", "/api/search/hashtags/trending", 200],
   ];
 
@@ -1575,6 +1895,63 @@ async function runSelfTest(): Promise<void> {
       );
     }
     await response.text();
+  }
+
+  const manifestNotModified = await handleRequest(
+    new Request("http://mock.local/stamp-packs/yuru-faces", {
+      headers: { "If-None-Match": mockStampManifestEtag },
+    }),
+  );
+  if (manifestNotModified.status !== 304) {
+    throw new Error(
+      `conditional Stamp manifest returned ${manifestNotModified.status}; expected 304`,
+    );
+  }
+
+  const uninstallRequest = () =>
+    new Request("http://mock.local/api/stamps/install", {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ pack_id: mockStampPackId }),
+    });
+  const uninstallResponse = await handleRequest(uninstallRequest());
+  const afterUninstall = (await (
+    await handleRequest(new Request("http://mock.local/api/stamps/packs"))
+  ).json()) as { packs?: unknown[] };
+  if (uninstallResponse.status !== 200 || afterUninstall.packs?.length !== 0) {
+    throw new Error("Stamp uninstall did not remove the picker installation");
+  }
+  const reinstallResponse = await handleRequest(
+    new Request("http://mock.local/api/stamps/install", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ pack_id: mockStampPackId }),
+    }),
+  );
+  if (reinstallResponse.status !== 200) {
+    throw new Error("Stamp reinstall failed after uninstall");
+  }
+
+  const sentStampResponse = await handleRequest(
+    new Request(
+      `http://mock.local/api/dm/user/${encodeURIComponent(akari.ap_id)}/messages`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          stamp: { stamp_id: mockStamps[1].id },
+        }),
+      },
+    ),
+  );
+  const sentStampBody = (await sentStampResponse.json()) as {
+    message?: { stamp?: MessageStampSnapshot };
+  };
+  if (
+    sentStampResponse.status !== 200 ||
+    sentStampBody.message?.stamp?.revision !== `sha256:${mockStamps[1].digest}`
+  ) {
+    throw new Error("Stamp DM response is missing its immutable snapshot");
   }
 
   const registerResponse = await handleRequest(

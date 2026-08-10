@@ -2,6 +2,10 @@
   "@context": {
     "story": "https://yurucommu.com/ns/story#",
     "apc": "https://yurucommu.com/ns/apc#",
+    "yurucommu": {
+      "@id": "https://yurucommu.com/ns/stamp#",
+      "@prefix": true
+    },
     "xsd": "http://www.w3.org/2001/XMLSchema#",
 
     "Story": "story:Story",
@@ -21,6 +25,16 @@
     },
     "joinPolicy": "apc:joinPolicy",
     "postPolicy": "apc:postPolicy",
-    "visibility": "apc:visibility"
+    "visibility": "apc:visibility",
+    "stamp": {
+      "@id": "yurucommu:stamp",
+      "@type": "@id"
+    },
+    "pack": {
+      "@id": "yurucommu:pack",
+      "@type": "@id"
+    },
+    "revision": "yurucommu:revision",
+    "sha256": "yurucommu:sha256"
   }
 }

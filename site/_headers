@@ -13,6 +13,14 @@
   Content-Type: application/ld+json
   Access-Control-Allow-Origin: *
   Cache-Control: public, max-age=3600
+/ns/stamp/context.jsonld
+  Content-Type: application/ld+json
+  Access-Control-Allow-Origin: *
+  Cache-Control: public, max-age=3600
+/schemas/stamp-pack/v1
+  Content-Type: application/schema+json
+  Access-Control-Allow-Origin: *
+  Cache-Control: public, max-age=3600
 # Worked examples (newline-delimited JSON).
 /ns/story/examples.jsonl
   Content-Type: application/x-ndjson
