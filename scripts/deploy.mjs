@@ -49,6 +49,7 @@ const R = {
   bundle: W.bundle,
   manifest: "takosumi-artifact.json",
   checksum: "yurucommu-worker.js.sha256",
+  smokeScript: "smoke:release-artifact",
 };
 
 const CONTRACT = {
@@ -77,19 +78,24 @@ const CONTRACT = {
       surface: R.surface,
       target: `github-release:${R.repository}/v<package-version>`,
       covers: [
+        "bun.lock",
+        "deploy/takoform/main.tf",
+        "install-options.json",
+        "main.tf",
         "package.json",
         "scripts/build-yurucommu-worker.ts",
+        "scripts/smoke-release-worker.mjs",
         "scripts/takosumi-managed-worker.ts",
       ],
-      requiresScripts: ["check", "build:worker"],
+      requiresScripts: ["check", "build:worker", R.smokeScript],
       requiresTools: ["git", "bun", "gh"],
       requiresEnv: [],
       triggers: ["published-identity"],
       obligations: {
         provenance:
-          "refuses a dirty, detached, non-main, or unpushed worktree; runs `bun run check`; builds the embedded Worker from that exact commit; and records the source commit plus SHA-256 in the release manifest",
+          "refuses a dirty, detached, or unpushed worktree; requires main for publication; runs `bun run check`; builds and boots the embedded Worker from that exact commit; requires Store sources and module defaults to select its tag, URL, and SHA-256; and records the source commit plus SHA-256 in the release manifest",
         "post-conditions":
-          "reads the create-only tag and GitHub Release back, requires the tag to resolve to the source commit, downloads all three assets, and requires their exact SHA-256 digests",
+          "reads the create-only tag and GitHub Release back, requires the tag to resolve to the source commit, downloads all three assets, requires their exact SHA-256 digests, and boots the downloaded Worker in workerd with the Takosumi managed-runtime materialization",
         reversal:
           "the release identity is never replaced or deleted by this entrypoint; consumers remain able to pin the preceding release, and a defect is repaired by publishing a higher version",
         "failure-handling":
@@ -110,7 +116,7 @@ const requestedSurface = process.argv[2];
 if (![W.surface, R.surface].includes(requestedSurface)) {
   process.stderr.write(
     `usage: bun run deploy -- ${W.surface}\n` +
-      `       bun run deploy -- ${R.surface} [--execute]\n`,
+      `       bun run deploy -- ${R.surface} [--dry-run|--execute]\n`,
   );
   process.exit(1);
 }
@@ -131,7 +137,92 @@ const run = (c, a) =>
   });
 const digest = (b) => createHash("sha256").update(b).digest("hex");
 
-function requireCleanPushedMain() {
+function terraformStringDefault(source, variable) {
+  return source
+    .match(
+      new RegExp(`variable\\s+"${variable}"\\s*\\{([\\s\\S]*?)\\n\\}`, "u"),
+    )?.[1]
+    ?.match(/default\s+=\s+"([^"]*)"/u)?.[1];
+}
+
+function requireReleaseIdentity(tag, artifactUrl, bundleDigest) {
+  const expectedDigest = `sha256:${bundleDigest}`;
+  const failures = [];
+  const installOptions = JSON.parse(
+    readFileSync(resolve(repo, "install-options.json"), "utf8"),
+  );
+  if (
+    !Array.isArray(installOptions.options) ||
+    installOptions.options.length === 0
+  ) {
+    failures.push("install-options.json has no Store source options");
+  } else {
+    for (const option of installOptions.options) {
+      if (option?.source?.ref !== tag) {
+        failures.push(
+          `Store source ${option?.id ?? "<unknown>"} selects ${option?.source?.ref ?? "<missing>"}, expected ${tag}`,
+        );
+      }
+    }
+  }
+
+  for (const modulePath of ["main.tf", "deploy/takoform/main.tf"]) {
+    const source = readFileSync(resolve(repo, modulePath), "utf8");
+    const actual = {
+      tag: terraformStringDefault(source, "worker_release_tag"),
+      url: terraformStringDefault(source, "worker_bundle_url"),
+      digest: terraformStringDefault(source, "worker_bundle_sha256"),
+    };
+    for (const [field, value, expected] of [
+      ["worker_release_tag", actual.tag, tag],
+      ["worker_bundle_url", actual.url, artifactUrl],
+      ["worker_bundle_sha256", actual.digest, expectedDigest],
+    ]) {
+      if (value !== expected) {
+        failures.push(
+          `${modulePath} ${field} is ${value ?? "<missing>"}, expected ${expected}`,
+        );
+      }
+    }
+  }
+
+  if (failures.length > 0) {
+    die(
+      "package, Store source, module defaults, and built Worker do not identify one release",
+      failures,
+    );
+  }
+}
+
+function smokeReleaseArtifact(artifactPath, expectedDigest, publishedTag) {
+  process.stdout.write(
+    `\n==> bun run ${R.smokeScript} -- ${artifactPath} sha256:${expectedDigest}\n`,
+  );
+  try {
+    const output = run("bun", [
+      "run",
+      R.smokeScript,
+      "--",
+      artifactPath,
+      `sha256:${expectedDigest}`,
+    ]);
+    process.stdout.write(output);
+  } catch (error) {
+    const detail = `${error.stdout ?? ""}${error.stderr ?? ""}`.trim();
+    if (publishedTag) {
+      die(
+        `publication of ${publishedTag} completed but the downloaded Worker failed its managed-runtime smoke; inspect the immutable Release before any new-version repair`,
+        detail ? detail.split("\n").slice(0, 40) : [],
+      );
+    }
+    die(
+      "the candidate Worker failed its managed-runtime smoke before publication",
+      detail ? detail.split("\n").slice(0, 40) : [],
+    );
+  }
+}
+
+function requireCleanPushedSource(execute) {
   const dirty = git("status", "--porcelain");
   if (dirty !== "") {
     die(
@@ -140,21 +231,53 @@ function requireCleanPushedMain() {
     );
   }
   const branch = git("rev-parse", "--abbrev-ref", "HEAD");
-  if (branch !== "main") {
+  if (branch === "HEAD") {
+    die("release verification requires a branch, found detached HEAD");
+  }
+  if (execute && branch !== "main") {
     die(`release publication requires main, found ${branch}`);
   }
   const commit = git("rev-parse", "HEAD");
-  execFileSync("git", ["fetch", "--quiet", "origin", "main"], { cwd: repo });
-  const remoteMain = git("rev-parse", "origin/main");
-  if (commit !== remoteMain) {
-    die(`local main ${commit} does not equal origin/main ${remoteMain}`);
+  let upstream;
+  try {
+    upstream = git(
+      "rev-parse",
+      "--abbrev-ref",
+      "--symbolic-full-name",
+      "@{upstream}",
+    );
+  } catch {
+    die(`branch ${branch} has no pushed upstream`);
   }
-  return commit;
+  if (upstream !== `origin/${branch}`) {
+    die(`branch ${branch} must track origin/${branch}, found ${upstream}`);
+  }
+  execFileSync(
+    "git",
+    [
+      "fetch",
+      "--quiet",
+      "origin",
+      `refs/heads/${branch}:refs/remotes/origin/${branch}`,
+    ],
+    { cwd: repo },
+  );
+  const remoteCommit = git("rev-parse", upstream);
+  if (commit !== remoteCommit) {
+    die(`local ${branch} ${commit} does not equal ${upstream} ${remoteCommit}`);
+  }
+  return { branch, commit };
 }
 
 function publishWorkerRelease() {
+  if (
+    process.argv.includes("--execute") &&
+    process.argv.includes("--dry-run")
+  ) {
+    die("choose exactly one of --dry-run or --execute");
+  }
   const execute = process.argv.includes("--execute");
-  const commit = requireCleanPushedMain();
+  const { branch, commit } = requireCleanPushedSource(execute);
   const packageJson = JSON.parse(
     readFileSync(resolve(repo, "package.json"), "utf8"),
   );
@@ -182,7 +305,7 @@ function publishWorkerRelease() {
     }
   }
 
-  process.stdout.write(`source ${commit} (main)\n`);
+  process.stdout.write(`source ${commit} (${branch})\n`);
   process.stdout.write(`\n==> ${OWNER_GATE}\n`);
   execFileSync("bun", ["run", "check"], { cwd: repo, stdio: "inherit" });
 
@@ -192,6 +315,7 @@ function publishWorkerRelease() {
   const bundleDigest = digest(bundleBytes);
   const assetUrl = `https://github.com/${R.repository}/releases/download/${tag}/yurucommu-worker.js`;
   const manifestUrl = `https://github.com/${R.repository}/releases/download/${tag}/${R.manifest}`;
+  requireReleaseIdentity(tag, assetUrl, bundleDigest);
   const manifest = {
     kind: "takosumi.worker-artifact@v1",
     app: "yurucommu",
@@ -221,6 +345,7 @@ function publishWorkerRelease() {
     [R.checksum]: digest(readFileSync(checksumPath)),
   };
 
+  smokeReleaseArtifact(artifactPath, bundleDigest);
   process.stdout.write(`candidate ${tag} ${R.bundle} sha256:${bundleDigest}\n`);
   if (!execute) {
     process.stdout.write(
@@ -231,6 +356,7 @@ function publishWorkerRelease() {
           target: `github-release:${R.repository}/${tag}`,
           commit,
           tag,
+          sourceIdentity: "PACKAGE_STORE_MODULE_ARTIFACT_ALIGNED",
           assetDigests: expectedDigests,
           status: "DRY_RUN_VERIFIED",
         },
@@ -325,6 +451,11 @@ function publishWorkerRelease() {
       );
     }
   }
+  smokeReleaseArtifact(
+    resolve(downloadDir, "yurucommu-worker.js"),
+    bundleDigest,
+    tag,
+  );
 
   process.stdout.write(
     `\n${JSON.stringify(
@@ -334,9 +465,10 @@ function publishWorkerRelease() {
         target: `github-release:${R.repository}/${tag}`,
         commit,
         tag,
+        sourceIdentity: "PACKAGE_STORE_MODULE_ARTIFACT_ALIGNED",
         releaseUrl: release.url,
         assetDigests: expectedDigests,
-        postConditions: "EXACT_RELEASE_READBACK",
+        postConditions: "EXACT_RELEASE_READBACK_AND_MANAGED_RUNTIME_SMOKE",
         status: "PUBLISHED",
       },
       null,

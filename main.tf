@@ -221,9 +221,9 @@ variable "worker_bundle_path" {
 }
 
 variable "worker_release_tag" {
-  description = "GitHub release tag selected from the append-only release.lock.json. The fetched takosumi-artifact.json must match the pinned manifest digest. Set empty to use worker_bundle_path."
+  description = "Immutable GitHub release identity for the Worker artifact. With no explicit worker_bundle_url it selects the append-only release.lock.json entry; with an explicit URL the URL must select this exact tag. Set both empty to use worker_bundle_path."
   type        = string
-  default     = "v2.1.4"
+  default     = "v2.1.5"
 
   validation {
     condition     = trimspace(var.worker_release_tag) == "" || can(regex("^v[0-9]+\\.[0-9]+\\.[0-9]+([-+][0-9A-Za-z.-]+)?$", trimspace(var.worker_release_tag)))
@@ -234,7 +234,7 @@ variable "worker_release_tag" {
 variable "worker_bundle_url" {
   description = "Optional HTTPS URL for a prebuilt Worker module JS artifact. When set, OpenTofu downloads this artifact and verifies worker_bundle_sha256 before upload."
   type        = string
-  default     = ""
+  default     = "https://github.com/tako0614/yurucommu/releases/download/v2.1.5/yurucommu-worker.js"
 
   validation {
     condition     = trimspace(var.worker_bundle_url) == "" || can(regex("^https://[^[:space:]]+$", trimspace(var.worker_bundle_url)))
@@ -243,9 +243,9 @@ variable "worker_bundle_url" {
 }
 
 variable "worker_bundle_sha256" {
-  description = "Expected SHA-256 assertion for an explicit worker_bundle_url or local worker_bundle_path. Accepts lowercase hex or sha256:<hex>. In worker_release_tag mode release.lock.json is authoritative; a supplied value must equal its pin."
+  description = "Expected SHA-256 assertion for an explicit worker_bundle_url or local worker_bundle_path. Accepts lowercase hex or sha256:<hex>. When worker_bundle_url is empty and worker_release_tag selects release.lock.json, a supplied value must equal that pin."
   type        = string
-  default     = ""
+  default     = "sha256:6e39a18ea95172affd2d4b12d24f2e59ab9f5f1af7a14a80ec3989275bed66bd"
 
   validation {
     condition     = trimspace(var.worker_bundle_sha256) == "" || can(regex("^(sha256:)?[a-f0-9]{64}$", trimspace(var.worker_bundle_sha256)))
@@ -629,6 +629,11 @@ resource "cloudflare_workers_script" "worker" {
     precondition {
       condition     = !local.worker_bundle_uses_manifest || local.worker_bundle_sha256_override == "" || local.worker_bundle_sha256_override == local.worker_release_expected_artifact_sha256
       error_message = "worker_bundle_sha256 cannot override a worker_release_tag pin; omit it or set it to the release.lock.json artifact digest."
+    }
+
+    precondition {
+      condition     = local.worker_bundle_explicit_url == "" || local.worker_release_tag == "" || strcontains(local.worker_bundle_explicit_url, "/releases/download/${local.worker_release_tag}/")
+      error_message = "An explicit worker_bundle_url must select the exact worker_release_tag."
     }
 
     precondition {

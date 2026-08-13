@@ -3,12 +3,14 @@ import { readFile } from "node:fs/promises";
 
 const [
   packageSource,
+  installOptionsSource,
   moduleSource,
   takoformModuleSource,
   releaseLockSource,
   siteSource,
 ] = await Promise.all([
   readFile(new URL("../package.json", import.meta.url), "utf8"),
+  readFile(new URL("../install-options.json", import.meta.url), "utf8"),
   readFile(new URL("../main.tf", import.meta.url), "utf8"),
   readFile(new URL("../deploy/takoform/main.tf", import.meta.url), "utf8"),
   readFile(new URL("../release.lock.json", import.meta.url), "utf8"),
@@ -21,6 +23,11 @@ const packageJson = JSON.parse(packageSource) as {
 };
 const packageVersion = packageJson.version;
 const packageTag = `v${packageVersion}`;
+const installOptions = JSON.parse(installOptionsSource) as {
+  options: Array<{
+    source: { url: string; ref?: string; path: string };
+  }>;
+};
 const releaseLock = JSON.parse(releaseLockSource) as {
   releases: Record<
     string,
@@ -32,79 +39,47 @@ const releaseLock = JSON.parse(releaseLockSource) as {
   >;
 };
 
-const pinnedTags = Object.keys(releaseLock.releases).sort(compareSemverTags);
-const latestPinnedTag = pinnedTags.at(-1);
-const latestPinnedRelease = latestPinnedTag
-  ? releaseLock.releases[latestPinnedTag]
-  : undefined;
-
-function compareSemverTags(left: string, right: string): number {
-  const parse = (tag: string): readonly number[] =>
-    tag
-      .replace(/^v/u, "")
-      .split(".")
-      .map((value) => Number.parseInt(value, 10));
-  const leftParts = parse(left);
-  const rightParts = parse(right);
-  for (let index = 0; index < 3; index += 1) {
-    const difference = (leftParts[index] ?? 0) - (rightParts[index] ?? 0);
-    if (difference !== 0) return difference;
-  }
-  return left.localeCompare(right);
-}
-
-function deploymentDefaultTag(source: string): string | undefined {
+function deploymentDefault(
+  source: string,
+  variable: string,
+): string | undefined {
   return source
-    .match(/variable\s+"worker_release_tag"\s*\{([\s\S]*?)\n\}/u)?.[1]
-    ?.match(/default\s+=\s+"(v[^"]+)"/u)?.[1];
+    .match(
+      new RegExp(`variable\\s+"${variable}"\\s*\\{([\\s\\S]*?)\\n\\}`, "u"),
+    )?.[1]
+    ?.match(/default\s+=\s+"([^"]*)"/u)?.[1];
 }
 
 describe("release version", () => {
-  test("keeps deployment defaults on an immutable published release", () => {
-    const currentPin = releaseLock.releases[packageTag];
-    const deployedTag = currentPin ? packageTag : latestPinnedTag;
-    const deployedPin = currentPin ?? latestPinnedRelease;
+  test("binds Store sources and deployment defaults to one package release", () => {
+    const artifactUrl = `https://github.com/tako0614/yurucommu/releases/download/${packageTag}/yurucommu-worker.js`;
+    const artifactDigests = new Set<string>();
 
-    expect(deployedTag).toBeDefined();
-    expect(deployedPin).toBeDefined();
-    if (!currentPin) {
-      // Publication is two-phase. A clean candidate may advance package.json,
-      // but deploy defaults stay on the last immutable release until the owner
-      // entrypoint publishes the new bytes and the follow-up pin records their
-      // read-back digests. This avoids the impossible cycle
-      // commit -> manifest digest -> lock contents -> commit.
-      expect(compareSemverTags(packageTag, deployedTag!)).toBeGreaterThan(0);
+    for (const option of installOptions.options) {
+      expect(option.source.ref).toBe(packageTag);
     }
-
     for (const source of [moduleSource, takoformModuleSource]) {
-      expect(deploymentDefaultTag(source)).toBe(deployedTag);
-      if (source === takoformModuleSource) {
-        expect(source).toContain(deployedPin!.artifact.url);
-        expect(source).toContain(deployedPin!.artifact.sha256);
-      }
+      expect(deploymentDefault(source, "worker_release_tag")).toBe(packageTag);
+      expect(deploymentDefault(source, "worker_bundle_url")).toBe(artifactUrl);
+      const artifactDigest = deploymentDefault(source, "worker_bundle_sha256");
+      expect(artifactDigest).toMatch(/^sha256:[a-f0-9]{64}$/u);
+      artifactDigests.add(artifactDigest!);
     }
+    expect(artifactDigests.size).toBe(1);
   });
 
-  test("pins the current Worker release after publication", () => {
-    const pin = releaseLock.releases[packageTag];
-    if (!pin) {
-      // Candidate phase is safe only because the previous test proves every
-      // deployment default still consumes the latest published pin.
-      expect(packageTag).not.toBe(latestPinnedTag);
-      return;
+  test("keeps every published release lock entry internally consistent", () => {
+    for (const [tag, pin] of Object.entries(releaseLock.releases)) {
+      expect(pin.commit).toMatch(/^[a-f0-9]{40}$/u);
+      expect(pin.artifact.url).toBe(
+        `https://github.com/tako0614/yurucommu/releases/download/${tag}/yurucommu-worker.js`,
+      );
+      expect(pin.artifact.sha256).toMatch(/^sha256:[a-f0-9]{64}$/u);
+      expect(pin.manifest.url).toBe(
+        `https://github.com/tako0614/yurucommu/releases/download/${tag}/takosumi-artifact.json`,
+      );
+      expect(pin.manifest.sha256).toMatch(/^sha256:[a-f0-9]{64}$/u);
     }
-
-    expect(pin.commit).toMatch(/^[a-f0-9]{40}$/);
-    expect(pin.artifact.url).toBe(
-      `https://github.com/tako0614/yurucommu/releases/download/${packageTag}/yurucommu-worker.js`,
-    );
-    expect(pin.artifact.sha256).toMatch(/^sha256:[a-f0-9]{64}$/);
-    expect(pin.manifest.url).toBe(
-      `https://github.com/tako0614/yurucommu/releases/download/${packageTag}/takosumi-artifact.json`,
-    );
-    expect(pin.manifest.sha256).toMatch(/^sha256:[a-f0-9]{64}$/);
-    expect(takoformModuleSource).toContain(pin.artifact.url);
-    expect(takoformModuleSource).toContain(pin.artifact.sha256);
   });
 
   test("matches the Git tag when the release workflow runs", () => {
@@ -127,6 +102,8 @@ describe("release surface status", () => {
       surfaces: Array<{
         surface: string;
         triggers: string[];
+        covers: string[];
+        requiresScripts: string[];
         obligations: Record<string, string>;
       }>;
     };
@@ -136,8 +113,25 @@ describe("release surface status", () => {
 
     expect(release?.triggers).toEqual(["published-identity"]);
     expect(release?.obligations["no-overwrite"]).toContain("create-only");
+    expect(release?.covers).toEqual(
+      expect.arrayContaining([
+        "bun.lock",
+        "install-options.json",
+        "main.tf",
+        "deploy/takoform/main.tf",
+      ]),
+    );
     expect(release?.obligations.provenance).toContain("unpushed");
-    expect(release?.obligations["post-conditions"]).toContain("downloads");
+    expect(release?.obligations.provenance).toContain(
+      "Store sources and module defaults",
+    );
+    expect(release?.requiresScripts).toContain("smoke:release-artifact");
+    expect(release?.obligations["post-conditions"]).toContain(
+      "downloaded Worker in workerd",
+    );
+    expect(release?.obligations["post-conditions"]).toContain(
+      "Takosumi managed-runtime",
+    );
   });
 
   test("does not expose legacy release or deployment aliases", () => {
@@ -151,6 +145,15 @@ describe("release surface status", () => {
       expect(packageJson.scripts[script]).toBeUndefined();
     }
     expect(packageJson.scripts.deploy).toBe("bun scripts/deploy.mjs");
+    expect(packageJson.scripts.test).toContain(
+      "scripts/release-worker-smoke.test.ts",
+    );
+    expect(packageJson.scripts.check).toContain(
+      "bun run smoke:release-artifact",
+    );
+    expect(packageJson.scripts["smoke:release-artifact"]).toBe(
+      "bun scripts/smoke-release-worker.mjs",
+    );
     expect(Object.values(packageJson.scripts).join("\n")).not.toContain(
       "scripts/release-safety/",
     );
