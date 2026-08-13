@@ -9,7 +9,7 @@ const sourceOptions = JSON.parse(
 ) as {
   options: Array<{
     id: string;
-    source: { url: string; path: string };
+    source: { url: string; ref: string; path: string };
   }>;
 };
 const manifest = JSON.parse(manifestText) as {
@@ -247,6 +247,7 @@ describe("repository-owned Takosumi install UX", () => {
         id: "takosumi-cloud",
         source: {
           url: "https://github.com/tako0614/yurucommu.git",
+          ref: "v2.1.5",
           path: "deploy/takoform",
         },
       },
@@ -254,6 +255,7 @@ describe("repository-owned Takosumi install UX", () => {
         id: "cloudflare",
         source: {
           url: "https://github.com/tako0614/yurucommu.git",
+          ref: "v2.1.5",
           path: ".",
         },
       },
