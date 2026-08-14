@@ -66,6 +66,19 @@
       },
       "commit": "3a62adf2767824159935de3fff6331b5d222ed8b",
       "seededFrom": "read-only GitHub tag, Release API, and downloaded asset readback on 2026-08-14; reconciled against manifest identity, source commit, URLs, Worker digest, manifest digest, and checksum"
+    },
+    "v2.1.6": {
+      "artifact": {
+        "filename": "yurucommu-worker.js",
+        "url": "https://github.com/tako0614/yurucommu/releases/download/v2.1.6/yurucommu-worker.js",
+        "sha256": "sha256:6e39a18ea95172affd2d4b12d24f2e59ab9f5f1af7a14a80ec3989275bed66bd"
+      },
+      "manifest": {
+        "url": "https://github.com/tako0614/yurucommu/releases/download/v2.1.6/takosumi-artifact.json",
+        "sha256": "sha256:d58a0f955ba75aadbc16622773e0ec4f4204b43397fd5a69523d13e389faa59f"
+      },
+      "commit": "ab0089c47827383c6ef2014def5bbef3be01bbc7",
+      "seededFrom": "owner deploy exact immutable GitHub Release/tag/downloaded asset readback on 2026-08-14"
     }
   }
 }
