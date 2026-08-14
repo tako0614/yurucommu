@@ -360,15 +360,12 @@
         "sourceBuild": {
           "commands": [
             {
-              "argv": ["bun", "install", "--frozen-lockfile"]
-            },
-            {
-              "argv": ["bun", "run", "build:worker"]
+              "argv": ["bun", "scripts/materialize-takoform-current.ts"]
             }
           ],
           "outputs": [
             "dist/yurucommu-worker.js",
-            "node_modules/@takosjp/yurucommu-core/migrations"
+            "dist/takoform-current-migrations"
           ]
         },
         "interfaces": [

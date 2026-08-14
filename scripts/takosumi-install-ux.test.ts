@@ -475,15 +475,12 @@ describe("repository-owned Takosumi install UX", () => {
       );
     }
     expect(managedModule.sourceBuild).toEqual({
-      commands: [
-        { argv: ["bun", "install", "--frozen-lockfile"] },
-        { argv: ["bun", "run", "build:worker"] },
-      ],
-      outputs: [
-        "dist/yurucommu-worker.js",
-        "node_modules/@takosjp/yurucommu-core/migrations",
-      ],
+      commands: [{ argv: ["bun", "scripts/materialize-takoform-current.ts"] }],
+      outputs: ["dist/yurucommu-worker.js", "dist/takoform-current-migrations"],
     });
+    expect(managedModuleSource).toContain(
+      'migration_root     = "${path.module}/../../dist/takoform-current-migrations"',
+    );
     expect(managedModuleSource).toContain('version = "= 2.1.1"');
   });
 });
