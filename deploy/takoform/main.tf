@@ -4,7 +4,7 @@ terraform {
   required_providers {
     takoform = {
       source  = "registry.opentofu.org/tako0614/takoform"
-      version = "= 1.0.3"
+      version = "= 1.0.4"
     }
   }
 }
@@ -23,7 +23,7 @@ variable "project_name" {
 variable "worker_release_tag" {
   description = "Yurucommu GitHub release containing takosumi-artifact.json."
   type        = string
-  default     = "v2.1.5"
+  default     = "v2.1.6"
 
   validation {
     condition     = trimspace(var.worker_release_tag) == "" || can(regex("^v[0-9]+\\.[0-9]+\\.[0-9]+([-+][0-9A-Za-z.-]+)?$", trimspace(var.worker_release_tag)))
@@ -34,7 +34,7 @@ variable "worker_release_tag" {
 variable "worker_bundle_url" {
   description = "Immutable HTTPS Worker artifact URL pinned by this Yurucommu release."
   type        = string
-  default     = "https://github.com/tako0614/yurucommu/releases/download/v2.1.5/yurucommu-worker.js"
+  default     = "https://github.com/tako0614/yurucommu/releases/download/v2.1.6/yurucommu-worker.js"
 
   validation {
     condition     = can(regex("^https://[^[:space:]]+$", trimspace(var.worker_bundle_url)))
@@ -62,11 +62,12 @@ locals {
 }
 
 resource "takoform_relational_database" "database" {
-  name          = "${local.prefix}-db"
-  engine        = "sqlite"
-  schema_url    = "https://raw.githubusercontent.com/tako0614/yurucommu/bf7a3bdb55d9bd562ac895ada10ac42ce09a11b9/deploy/takoform/migrations/schema-bundle.json"
-  schema_sha256 = "f14135367b4b00a520f0ef8abc41f67d53c6abb9ef8577d946fb199987f5abaa"
-  schema_format = "takosumi.resource-migrations"
+  name            = "${local.prefix}-db"
+  engine          = "sqlite"
+  schema_url      = "https://raw.githubusercontent.com/tako0614/yurucommu/bf7a3bdb55d9bd562ac895ada10ac42ce09a11b9/deploy/takoform/migrations/schema-bundle.json"
+  schema_sha256   = "f14135367b4b00a520f0ef8abc41f67d53c6abb9ef8577d946fb199987f5abaa"
+  schema_format   = "takosumi.resource-migrations"
+  form_transition = "relational-database-v2-to-v3"
 }
 
 resource "takoform_object_bucket" "media" {

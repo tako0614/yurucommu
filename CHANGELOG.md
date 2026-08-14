@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.1.6 - Unreleased
+
+- Pin the Takoform adapter to provider `1.0.4` and request the explicit
+  RelationalDatabase v2-to-v3 Form transition for existing installations.
+- Keep EdgeWorker updates on the recorded Form3 identity while advancing the
+  immutable Worker release reference.
+
 ## 2.1.1 - 2026-07-19
 
 - Publish the optional Capsule Source Options chooser for the existing

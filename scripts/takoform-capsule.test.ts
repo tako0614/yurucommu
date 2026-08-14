@@ -24,6 +24,12 @@ const edgeWorkerConnectionNames = edgeWorkerConnectionsText
       (match) => match[1],
     )
   : [];
+const databaseResourceText = main.match(
+  /resource "takoform_relational_database" "database" \{([\s\S]*?)\n\}\n\nresource "takoform_object_bucket"/,
+)?.[1];
+const edgeWorkerResourceText = main.match(
+  /resource "takoform_edge_worker" "worker" \{([\s\S]*?)\n\}\n\nresource "takoform_schedule"/,
+)?.[1];
 
 describe("portable Takoform Capsule", () => {
   test("owns the complete Yurucommu portable resource graph", () => {
@@ -89,14 +95,23 @@ describe("portable Takoform Capsule", () => {
   });
 
   test("declares the immutable schema bundle on the database resource", () => {
-    expect(main).toContain('version = "= 1.0.3"');
+    expect(main).toContain('version = "= 1.0.4"');
     expect(main).toContain(
-      'schema_url    = "https://raw.githubusercontent.com/tako0614/yurucommu/bf7a3bdb55d9bd562ac895ada10ac42ce09a11b9/deploy/takoform/migrations/schema-bundle.json"',
+      'schema_url      = "https://raw.githubusercontent.com/tako0614/yurucommu/bf7a3bdb55d9bd562ac895ada10ac42ce09a11b9/deploy/takoform/migrations/schema-bundle.json"',
     );
     expect(main).toContain(
-      'schema_sha256 = "f14135367b4b00a520f0ef8abc41f67d53c6abb9ef8577d946fb199987f5abaa"',
+      'schema_sha256   = "f14135367b4b00a520f0ef8abc41f67d53c6abb9ef8577d946fb199987f5abaa"',
     );
-    expect(main).toContain('schema_format = "takosumi.resource-migrations"');
+    expect(main).toContain('schema_format   = "takosumi.resource-migrations"');
+    expect(main).toContain('form_transition = "relational-database-v2-to-v3"');
+    expect(main.match(/form_transition\s*=\s*"[^"]+"/g) ?? []).toHaveLength(1);
+    expect(databaseResourceText).toContain(
+      'form_transition = "relational-database-v2-to-v3"',
+    );
+    expect(edgeWorkerResourceText).toBeDefined();
+    expect(edgeWorkerResourceText).not.toContain("form_transition");
+    expect(edgeWorkerResourceText).not.toContain("assets_path");
+    expect(edgeWorkerResourceText).not.toContain("assets_not_found_handling");
     expect(main).not.toContain("resource_migration");
     expect(main).not.toContain("manifest.json");
   });

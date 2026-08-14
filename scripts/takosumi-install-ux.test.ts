@@ -247,7 +247,7 @@ describe("repository-owned Takosumi install UX", () => {
         id: "takosumi-cloud",
         source: {
           url: "https://github.com/tako0614/yurucommu.git",
-          ref: "v2.1.5",
+          ref: "v2.1.6",
           path: "deploy/takoform",
         },
       },
@@ -255,7 +255,7 @@ describe("repository-owned Takosumi install UX", () => {
         id: "cloudflare",
         source: {
           url: "https://github.com/tako0614/yurucommu.git",
-          ref: "v2.1.5",
+          ref: "v2.1.6",
           path: ".",
         },
       },
