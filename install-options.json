@@ -13,7 +13,7 @@
       "description": "Run Yurucommu on cloud resources provided by Takosumi Cloud.",
       "source": {
         "url": "https://github.com/tako0614/yurucommu.git",
-        "ref": "v2.1.5",
+        "ref": "v2.1.6",
         "path": "deploy/takoform"
       }
     },
@@ -23,7 +23,7 @@
       "description": "Advanced: run Yurucommu in your own Cloudflare account.",
       "source": {
         "url": "https://github.com/tako0614/yurucommu.git",
-        "ref": "v2.1.5",
+        "ref": "v2.1.6",
         "path": "."
       }
     }

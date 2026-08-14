@@ -69,6 +69,24 @@ The module pins three values together:
 An update must change all three to the same release. This prevents an
 installation from downloading different bytes under an unchanged definition.
 
+### Existing provider-v1 Form transition
+
+The v2.1.6 adapter pins Takoform provider `1.0.4`. For an existing
+RelationalDatabase recorded as Form2, the module sets the provider-only marker
+`form_transition = "relational-database-v2-to-v3"` together with the immutable
+schema bundle. The provider performs the host's exact transition protocol and
+keeps the old Form identity in state until the host returns committed proof for
+the same Resource, request, revision, and native identity. This is a
+same-resource database/data migration: retain the backend state backup and
+recovery evidence before Apply, and do not retry an indeterminate operation by
+editing state.
+
+The marker is accepted only on `takoform_relational_database.database`; it is
+not a generic resource switch and must not be copied to the EdgeWorker or other
+resources. An existing EdgeWorker recorded as Form3 receives an ordinary
+artifact update and remains Form3. EdgeWorker Form4-only fields are not added
+to this module. Fresh resources use the provider's current Forms.
+
 [`migrations/schema-bundle.json`](migrations/schema-bundle.json) is one
 self-contained immutable database artifact. It is generated from the exact
 installed and locked `@takosjp/yurucommu-core` migration files, with each SQL
