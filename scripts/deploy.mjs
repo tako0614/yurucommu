@@ -95,13 +95,13 @@ const CONTRACT = {
         provenance:
           "refuses a dirty, detached, or unpushed worktree; requires main for publication; runs `bun run check`; builds and boots the embedded Worker from that exact commit; requires Store sources and module defaults to select its tag, URL, and SHA-256; and records the source commit plus SHA-256 in the release manifest",
         "post-conditions":
-          "reads the create-only tag and GitHub Release back, requires the tag to resolve to the source commit, downloads all three assets, requires their exact SHA-256 digests, and boots the downloaded Worker in workerd with the Takosumi managed-runtime materialization",
+          "reads the create-only tag and GitHub Release back, requires the tag to resolve to the source commit and the Release to report isImmutable:true, downloads all three assets, requires their exact SHA-256 digests, and boots the downloaded Worker in workerd with the Takosumi managed-runtime materialization",
         reversal:
           "the release identity is never replaced or deleted by this entrypoint; consumers remain able to pin the preceding release, and a defect is repaired by publishing a higher version",
         "failure-handling":
           "fails before mutation when the tag or release already exists; after release creation starts it reports an indeterminate publication and requires authoritative tag/release readback before any retry",
         "no-overwrite":
-          "derives one SemVer tag from package.json, refuses any existing local/remote tag or GitHub Release, and uses GitHub create-only release publication without update or delete paths",
+          "derives one SemVer tag from package.json, refuses any existing local/remote tag or GitHub Release, reads repos/tako0614/yurucommu/immutable-releases immediately before create and requires enabled:true, requires post-readback isImmutable:true, and uses GitHub create-only release publication without update or delete paths",
       },
     },
   ],
@@ -269,6 +269,36 @@ function requireCleanPushedSource(execute) {
   return { branch, commit };
 }
 
+function requireRepositoryImmutableReleases() {
+  const endpoint = `repos/${R.repository}/immutable-releases`;
+  let body;
+  try {
+    body = run("gh", ["api", endpoint]);
+  } catch (error) {
+    const detail = `${error.stdout ?? ""}${error.stderr ?? ""}`.trim();
+    die(
+      `cannot read ${endpoint} immediately before release creation; refusing to publish without authoritative immutable-release settings`,
+      detail ? detail.split("\n").slice(0, 20) : [],
+    );
+  }
+
+  let settings;
+  try {
+    settings = JSON.parse(body);
+  } catch (error) {
+    die(
+      `${endpoint} returned invalid JSON; refusing to publish without authoritative immutable-release settings`,
+      [String(error.message)],
+    );
+  }
+  if (settings?.enabled !== true) {
+    die(
+      `${endpoint} is not enabled (enabled=${String(settings?.enabled)}); refusing to create a mutable Release`,
+    );
+  }
+  process.stdout.write(`${endpoint} enabled:true\n`);
+}
+
 function publishWorkerRelease() {
   if (
     process.argv.includes("--execute") &&
@@ -369,6 +399,7 @@ function publishWorkerRelease() {
   }
 
   process.stdout.write(`\n==> create-only GitHub Release ${tag}\n`);
+  requireRepositoryImmutableReleases();
   try {
     const output = run("gh", [
       "release",
@@ -415,11 +446,18 @@ function publishWorkerRelease() {
       "--repo",
       R.repository,
       "--json",
-      "isDraft,isPrerelease,tagName,url,assets",
+      "isDraft,isPrerelease,isImmutable,tagName,url,assets",
     ]),
   );
-  if (release.isDraft || release.isPrerelease || release.tagName !== tag) {
-    die(`published Release ${tag} has unexpected state`);
+  if (
+    release.isDraft ||
+    release.isPrerelease ||
+    release.isImmutable !== true ||
+    release.tagName !== tag
+  ) {
+    die(
+      `published Release ${tag} has unexpected state (isImmutable=${String(release.isImmutable)})`,
+    );
   }
   const remoteAssets = new Map(
     release.assets.map((asset) => [asset.name, asset.digest]),
