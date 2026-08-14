@@ -33,6 +33,10 @@ const manifest = JSON.parse(manifestText) as {
           secret?: boolean;
         }>;
         requires?: Array<Record<string, unknown>>;
+        sourceBuild?: {
+          commands: Array<{ argv: string[] }>;
+          outputs: string[];
+        };
         features?: Array<{
           id: string;
           optional: boolean;
@@ -71,18 +75,14 @@ const manifest = JSON.parse(manifestText) as {
   };
 };
 const rootModule = manifest.install.modules["."];
-const managedModule = manifest.install.modules["deploy/takoform"];
+const managedModule = manifest.install.modules["deploy/takoform-current"];
 const rootModuleSource = await readFile(new URL("main.tf", rootUrl), "utf8");
 const rootOutputsSource = await readFile(
   new URL("outputs.tf", rootUrl),
   "utf8",
 );
 const managedModuleSource = await readFile(
-  new URL("deploy/takoform/main.tf", rootUrl),
-  "utf8",
-);
-const managedOutputsSource = await readFile(
-  new URL("deploy/takoform/outputs.tf", rootUrl),
+  new URL("deploy/takoform-current/main.tf", rootUrl),
   "utf8",
 );
 const coreAuthRoutes = await readFile(
@@ -271,16 +271,16 @@ describe("repository-owned Takosumi install UX", () => {
       "kind",
       "install",
     ]);
-    expect(manifest.apiVersion).toBe("takosumi.com/v2.1");
+    expect(manifest.apiVersion).toBe("takosumi.com/v2.3");
     expect(manifest.kind).toBe("Repository");
     assertExactKeys(manifest.install as unknown as Record<string, unknown>, [
       "defaultModule",
       "modules",
     ]);
-    expect(manifest.install.defaultModule).toBe("deploy/takoform");
+    expect(manifest.install.defaultModule).toBe("deploy/takoform-current");
     expect(Object.keys(manifest.install.modules)).toEqual([
       ".",
-      "deploy/takoform",
+      "deploy/takoform-current",
     ]);
     expect(rootModule).toBeDefined();
     expect(managedModule).toBeDefined();
@@ -298,13 +298,14 @@ describe("repository-owned Takosumi install UX", () => {
     assertExactKeys(managedModule as unknown as Record<string, unknown>, [
       "inputs",
       "requires",
+      "sourceBuild",
       "interfaces",
     ]);
     assertLauncherInterface(rootModule, "yurucommu.launcher");
     assertLauncherInterface(managedModule, "yurucommu.launcher");
   });
 
-  test("uses only the bounded v2.1 presentation vocabulary", () => {
+  test("uses only the bounded repository presentation vocabulary", () => {
     for (const module of Object.values(manifest.install.modules)) {
       for (const input of module.inputs) {
         expect(sourceKinds.has(input.source.kind)).toBe(true);
@@ -396,7 +397,7 @@ describe("repository-owned Takosumi install UX", () => {
     expect(coreAuthRoutes).toContain('auth.get("/callback/:provider"');
     expect(coreOauthProviders).toContain('id: "takos"');
     expect(rootOutputsSource).toContain('output "launch_url"');
-    expect(managedOutputsSource).toContain('output "launch_url"');
+    expect(managedModuleSource).toContain('output "launch_url"');
   });
 
   test("keeps the managed OIDC grant aligned with the Yurucommu runtime", () => {
@@ -413,14 +414,13 @@ describe("repository-owned Takosumi install UX", () => {
     );
   });
 
-  test("keeps host authority, secret values, and raw owner bootstrap out of repository metadata", () => {
+  test("keeps host authority and secret values out of repository metadata", () => {
     expect(collectForbiddenKeys(manifest)).toEqual([]);
     expect(manifestText).not.toContain("cloudflare_account_id");
     expect(manifestText).not.toContain("enable_cloudflare_resources");
     expect(manifestText).not.toContain("enable_cloudflare_worker_script");
     expect(manifestText).not.toContain("oidc_owner_sub");
     expect(manifestText).not.toContain("oidc_allowed_subs");
-    expect(manifestText).not.toContain("allow_unpinned_owner_claim");
     expect(manifestText).not.toContain("encryption_key");
   });
 
@@ -433,9 +433,9 @@ describe("repository-owned Takosumi install UX", () => {
     );
     expect(managedModule.inputs.map((input) => input.name)).toEqual([
       "project_name",
-      "worker_release_tag",
-      "worker_bundle_url",
-      "worker_bundle_sha256",
+      "takosumi_accounts_issuer_url",
+      "takosumi_accounts_client_id",
+      "allow_unpinned_owner_claim",
     ]);
     expect(
       managedModule.inputs.filter((input) => input.source.kind === "user"),
@@ -467,7 +467,6 @@ describe("repository-owned Takosumi install UX", () => {
       "provider",
       "credential",
       "encryption_key",
-      "oidc_client_id",
       "database_id",
       "queue_id",
     ]) {
@@ -475,5 +474,16 @@ describe("repository-owned Takosumi install UX", () => {
         forbidden,
       );
     }
+    expect(managedModule.sourceBuild).toEqual({
+      commands: [
+        { argv: ["bun", "install", "--frozen-lockfile"] },
+        { argv: ["bun", "run", "build:worker"] },
+      ],
+      outputs: [
+        "dist/yurucommu-worker.js",
+        "node_modules/@takosjp/yurucommu-core/migrations",
+      ],
+    });
+    expect(managedModuleSource).toContain('version = "= 2.1.1"');
   });
 });

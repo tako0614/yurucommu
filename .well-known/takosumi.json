@@ -1,8 +1,8 @@
 {
-  "apiVersion": "takosumi.com/v2.1",
+  "apiVersion": "takosumi.com/v2.3",
   "kind": "Repository",
   "install": {
-    "defaultModule": "deploy/takoform",
+    "defaultModule": "deploy/takoform-current",
     "modules": {
       ".": {
         "inputs": [
@@ -270,7 +270,7 @@
           }
         ]
       },
-      "deploy/takoform": {
+      "deploy/takoform-current": {
         "inputs": [
           {
             "name": "project_name",
@@ -291,51 +291,39 @@
             "advanced": true
           },
           {
-            "name": "worker_release_tag",
-            "source": {
-              "kind": "module_default"
-            },
-            "type": "string",
-            "label": {
-              "ja": "リリース",
-              "en": "Release"
-            },
-            "helper": {
-              "ja": "配信する Yurucommu のリリースタグです。既定はこのリポジトリが固定した版です。",
-              "en": "The Yurucommu release tag to serve. Defaults to the version this repository pins."
-            },
-            "advanced": true
-          },
-          {
-            "name": "worker_bundle_url",
+            "name": "takosumi_accounts_issuer_url",
             "source": {
               "kind": "module_default"
             },
             "type": "string",
             "format": "url",
             "label": {
-              "ja": "リリースURL",
-              "en": "Release URL"
-            },
-            "helper": {
-              "ja": "Worker 成果物の不変な HTTPS URL です。リリースタグと一致している必要があります。",
-              "en": "Immutable HTTPS URL of the Worker artifact. It must match the release tag."
+              "ja": "Takosumi Accounts発行者",
+              "en": "Takosumi Accounts issuer"
             },
             "advanced": true
           },
           {
-            "name": "worker_bundle_sha256",
+            "name": "takosumi_accounts_client_id",
             "source": {
               "kind": "module_default"
             },
             "type": "string",
             "label": {
-              "ja": "リリースSHA-256",
-              "en": "Release SHA-256"
+              "ja": "Takosumi Accountsクライアント",
+              "en": "Takosumi Accounts client"
             },
-            "helper": {
-              "ja": "取得した成果物を検証する SHA-256 です。",
-              "en": "SHA-256 that verifies the fetched artifact."
+            "advanced": true
+          },
+          {
+            "name": "allow_unpinned_owner_claim",
+            "source": {
+              "kind": "module_default"
+            },
+            "type": "boolean",
+            "label": {
+              "ja": "最初のサインインを所有者にする",
+              "en": "Let the first sign-in claim ownership"
             },
             "advanced": true
           }
@@ -369,6 +357,20 @@
             }
           }
         ],
+        "sourceBuild": {
+          "commands": [
+            {
+              "argv": ["bun", "install", "--frozen-lockfile"]
+            },
+            {
+              "argv": ["bun", "run", "build:worker"]
+            }
+          ],
+          "outputs": [
+            "dist/yurucommu-worker.js",
+            "node_modules/@takosjp/yurucommu-core/migrations"
+          ]
+        },
         "interfaces": [
           {
             "key": "launcher",
