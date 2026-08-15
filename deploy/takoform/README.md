@@ -89,8 +89,14 @@ to this module. Fresh resources use the provider's current Forms.
 
 [`migrations/schema-bundle.json`](migrations/schema-bundle.json) is one
 self-contained immutable database artifact. It is generated from the exact
-installed and locked `@takosjp/yurucommu-core` migration files, with each SQL
-body and its SHA-256 digest inline. The database resource declares this bundle;
+installed and locked `@takosjp/yurucommu-core` migration files, plus the one
+explicit D1-safe `0003` override under `migrations/takoform-overrides/`. The
+override is accepted only while the locked package migration has its exact
+recorded digest; it rebuilds the referencing `inbox` table before replacing
+`activities`, so atomic hosts never depend on an ineffective
+`foreign_keys=OFF` pragma or cascade-delete existing rows. Remove the override
+when the locked core package publishes the same safe migration bytes. Every SQL
+body and its SHA-256 digest remains inline. The database resource declares this bundle;
 the selected host verifies and converges it during that resource's Apply, before
 the resource can become Ready. Ordinary OpenTofu outputs are not used as
 permission to run SQL.
