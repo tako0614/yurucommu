@@ -476,11 +476,20 @@ describe("repository-owned Takosumi install UX", () => {
     }
     expect(managedModule.sourceBuild).toEqual({
       commands: [{ argv: ["bun", "scripts/materialize-takoform-current.ts"] }],
-      outputs: ["dist/yurucommu-worker.js", "dist/takoform-current-migrations"],
+      outputs: [
+        "deploy/takoform-current/.generated/yurucommu-worker.js",
+        "deploy/takoform-current/.generated/migrations",
+      ],
     });
+    expect(
+      managedModule.sourceBuild?.outputs.every((output) =>
+        output.startsWith("deploy/takoform-current/"),
+      ),
+    ).toBe(true);
     expect(managedModuleSource).toContain(
-      'migration_root     = "${path.module}/../../dist/takoform-current-migrations"',
+      'migration_root     = "${path.module}/.generated/migrations"',
     );
+    expect(managedModuleSource).not.toContain("${path.module}/../");
     expect(managedModuleSource).toContain('version = "= 2.1.1"');
   });
 });

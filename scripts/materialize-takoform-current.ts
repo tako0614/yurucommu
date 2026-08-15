@@ -11,9 +11,10 @@ export const WORKER_ARTIFACT_SHA256 =
   "sha256:6e39a18ea95172affd2d4b12d24f2e59ab9f5f1af7a14a80ec3989275bed66bd";
 export const SCHEMA_BUNDLE_RELATIVE_PATH =
   "deploy/takoform/migrations/schema-bundle.json";
-export const WORKER_OUTPUT_RELATIVE_PATH = "dist/yurucommu-worker.js";
+export const WORKER_OUTPUT_RELATIVE_PATH =
+  "deploy/takoform-current/.generated/yurucommu-worker.js";
 export const MIGRATION_OUTPUT_RELATIVE_PATH =
-  "dist/takoform-current-migrations";
+  "deploy/takoform-current/.generated/migrations";
 
 const MAX_WORKER_BYTES = 8 * 1024 * 1024;
 const MIGRATION_NAME_RE = /^[0-9]{4}_[A-Za-z0-9_-]+\.sql$/u;

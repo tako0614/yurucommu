@@ -40,8 +40,8 @@ variable "allow_unpinned_owner_claim" {
 
 locals {
   prefix             = var.project_name
-  worker_bundle_path = "${path.module}/../../dist/yurucommu-worker.js"
-  migration_root     = "${path.module}/../../dist/takoform-current-migrations"
+  worker_bundle_path = "${path.module}/.generated/yurucommu-worker.js"
+  migration_root     = "${path.module}/.generated/migrations"
   migration_files    = fileset(local.migration_root, "*.sql")
   has_accounts_oidc  = trimspace(var.takosumi_accounts_issuer_url) != "" && trimspace(var.takosumi_accounts_client_id) != ""
   worker_plain_values = merge(

@@ -364,8 +364,8 @@
             }
           ],
           "outputs": [
-            "dist/yurucommu-worker.js",
-            "dist/takoform-current-migrations"
+            "deploy/takoform-current/.generated/yurucommu-worker.js",
+            "deploy/takoform-current/.generated/migrations"
           ]
         },
         "interfaces": [
