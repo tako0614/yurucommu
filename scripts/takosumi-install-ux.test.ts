@@ -99,6 +99,13 @@ const coreOauthProviders = await readFile(
   ),
   "utf8",
 );
+const coreCrypto = await readFile(
+  new URL(
+    "node_modules/@takosjp/yurucommu-core/src/backend/lib/crypto.ts",
+    rootUrl,
+  ),
+  "utf8",
+);
 
 const sourceKinds = new Set([
   "user",
@@ -411,6 +418,25 @@ describe("repository-owned Takosumi install UX", () => {
     ]);
     expect(coreOauthProviders).toMatch(
       /id: "takos",[\s\S]*?scopes: \["openid", "profile", "email"\]/,
+    );
+  });
+
+  test("generates the exact 32-byte hex encryption key required by the runtime", () => {
+    const generatedSecret = managedModule.requires?.find(
+      (requirement) => requirement.kind === "secret.generated",
+    );
+    expect(generatedSecret).toEqual({
+      kind: "secret.generated",
+      bytes: 32,
+      encoding: "hex",
+      deliver: {
+        bindings: {
+          value: "ENCRYPTION_KEY",
+        },
+      },
+    });
+    expect(coreCrypto).toContain(
+      "must be exactly 64 hex characters (0-9, a-f, A-F)",
     );
   });
 

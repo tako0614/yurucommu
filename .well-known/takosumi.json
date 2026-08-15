@@ -332,7 +332,7 @@
           {
             "kind": "secret.generated",
             "bytes": 32,
-            "encoding": "base64url",
+            "encoding": "hex",
             "deliver": {
               "bindings": {
                 "value": "ENCRYPTION_KEY"
