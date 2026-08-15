@@ -111,6 +111,11 @@ resource "takoform_worker_bundle" "worker" {
   revision_owner = local.prefix
   main_module    = "yurucommu-worker.js"
 
+  # Both the migration application and bundle upload materialize bounded
+  # artifact buffers in the same Host isolate. Keep them sequential so a
+  # normal first install never turns the isolate safety lease into a retry.
+  depends_on = [takoform_sqlite_migration_application.schema]
+
   modules = [
     {
       name         = "yurucommu-worker.js"
