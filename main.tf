@@ -278,7 +278,7 @@ variable "enable_workers_dev_subdomain" {
 }
 
 variable "cloudflare_route_zone_id" {
-  description = "Optional Cloudflare zone id used to create a Worker route. For Takosumi Cloud compat this is the virtual zone id."
+  description = "Optional Cloudflare zone id used to create a Worker route. For the portable adapter this is the host-provided virtual zone id."
   type        = string
   default     = ""
 }

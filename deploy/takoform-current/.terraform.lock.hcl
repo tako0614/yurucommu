@@ -1,15 +1,11 @@
 # This file is maintained automatically by "tofu init".
 # Manual edits may be lost in future updates.
 
-provider "registry.opentofu.org/tako0614/takoform" {
+provider "registry.terraform.io/tako0614/takoform" {
   version     = "2.1.1"
   constraints = "2.1.1"
   hashes = [
-    "h1:/SWTLK7jp186QN4C6CviDQmhYsb1qCUMg6rXfdb7vQ0=",
-    "h1:8XBHsX/DtVBarv9qN+9OjdK98BlBC/SX2dfa6HX4FZo=",
     "h1:EB58ej8cod9fVaA0/WYY1/+FsPJYRgFjhUFGGw/6wpI=",
-    "h1:kwgreRiEGK3+KymDb0U+MT1z0eVbml39fGD5vwuAQ3s=",
-    "h1:vnOKt/IyHhlOHynXYRTRMC8xEW2EGGfg3aVOK10J9y8=",
     "zh:1754ec427c6449acb28b316b257385628166effdbfbaf9f2ab4e33df69914210",
     "zh:6aaff46bfe34c1dc5f4be75e5fc2abf896feefdb2f6a7a7ee42b54829d76963f",
     "zh:92346100be2fcc867e41aec030724632385864b8d4a6f651baeb4c8647947375",

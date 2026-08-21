@@ -362,9 +362,9 @@ describe("release surface status", () => {
     );
   });
 
-  test("does not advertise a selectable Takosumi Cloud install before its gates pass", () => {
+  test("does not advertise a selectable Takoserver install before its gates pass", () => {
     expect(siteSource).not.toContain("app.takosumi.com/install");
-    expect(siteSource).toContain("Takosumi Cloud での追加は準備中");
+    expect(siteSource).toContain("Takosumi から Takoserver への追加は準備中");
   });
 });
 

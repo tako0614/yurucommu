@@ -49,11 +49,11 @@ YURUCOMMU_DEV_PROXY_TARGET=http://localhost:8787 bun run dev
 | Goal                    | Use                                            | Data location                                   |
 | ----------------------- | ---------------------------------------------- | ----------------------------------------------- |
 | Try the UI              | `bun run dev:mock`                             | Memory; cleared on exit                         |
-| Run on Takosumi Cloud   | [`deploy/takoform`](deploy/takoform/README.md) | Database and storage provided by Takosumi Cloud |
+| Run on Takoserver       | [`deploy/takoform-current`](deploy/takoform/README.md) | Independent Resources provided by Takoserver    |
 | Self-host on Cloudflare | Root `main.tf` or `wrangler.jsonc`             | D1, R2, Workers KV, and Queues                  |
 
 Yurucommu owns the logical resource roles and connection names. The
-`deploy/takoform` module and root `main.tf` map that same contract to a
+`deploy/takoform-current` module and root `main.tf` map that same contract to a
 Takoform host and direct Cloudflare respectively. Takosumi runs either as an
 ordinary OpenTofu module; product code does not know which adapter was chosen.
 
