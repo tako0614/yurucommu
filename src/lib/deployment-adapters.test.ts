@@ -38,7 +38,7 @@ test("Cloudflare direct and Takoform adapt the same runtime connections", () => 
   }
   expect(cloudflare).toContain('source  = "cloudflare/cloudflare"');
   expect(takoform).toContain(
-    'source  = "registry.opentofu.org/tako0614/takoform"',
+    'source  = "registry.terraform.io/tako0614/takoform"',
   );
   expect(takoform).not.toContain("cloudflare_");
   expect(takoform).not.toContain("CLOUDFLARE_");

@@ -24,7 +24,7 @@
     "build:worker": "bun scripts/build-yurucommu-worker.ts",
     "check:core-release": "bun scripts/check-core-release.mjs",
     "generate:schema-bundle": "bun scripts/generate-schema-bundle.ts",
-    "check:opentofu": "tofu fmt -check -recursive && tofu init -backend=false -input=false -lockfile=readonly && tofu validate && tofu -chdir=deploy/takoform init -backend=false -input=false -lockfile=readonly && tofu -chdir=deploy/takoform validate",
+    "check:opentofu": "tofu fmt -check -recursive && tofu init -backend=false -input=false -lockfile=readonly && tofu validate && tofu -chdir=deploy/takoform init -backend=false -input=false -lockfile=readonly && tofu -chdir=deploy/takoform validate && bun scripts/materialize-takoform-current.ts && tofu -chdir=deploy/takoform-current init -backend=false -input=false -lockfile=readonly && tofu -chdir=deploy/takoform-current validate",
     "smoke:postdeploy": "bun scripts/post-deploy-smoke.ts",
     "smoke:release-artifact": "bun scripts/smoke-release-worker.mjs",
     "lint": "tsc --noEmit",
