@@ -20,41 +20,15 @@ variable "project_name" {
   }
 }
 
-variable "takosumi_accounts_issuer_url" {
-  description = "Optional Takosumi Accounts OIDC issuer URL."
-  type        = string
-  default     = ""
-}
-
-variable "takosumi_accounts_client_id" {
-  description = "Optional Takosumi Accounts public OIDC client id."
-  type        = string
-  default     = ""
-}
-
-variable "allow_unpinned_owner_claim" {
-  description = "Allow the first OIDC sign-in to claim the initial owner slot."
-  type        = bool
-  default     = true
-}
-
 locals {
   prefix             = var.project_name
   worker_bundle_path = "${path.module}/.generated/yurucommu-worker.js"
   migration_root     = "${path.module}/.generated/migrations"
   migration_files    = fileset(local.migration_root, "*.sql")
-  has_accounts_oidc  = trimspace(var.takosumi_accounts_issuer_url) != "" && trimspace(var.takosumi_accounts_client_id) != ""
-  worker_plain_values = merge(
-    {
-      DELIVERY_QUEUE_NAME = "${local.prefix}-delivery"
-      DELIVERY_DLQ_NAME   = "${local.prefix}-delivery-dlq"
-    },
-    local.has_accounts_oidc ? {
-      TAKOSUMI_ACCOUNTS_ISSUER_URL = trimspace(var.takosumi_accounts_issuer_url)
-      TAKOSUMI_ACCOUNTS_CLIENT_ID  = trimspace(var.takosumi_accounts_client_id)
-      ALLOW_UNPINNED_OWNER_CLAIM   = var.allow_unpinned_owner_claim ? "true" : "false"
-    } : {},
-  )
+  worker_plain_values = {
+    DELIVERY_QUEUE_NAME = "${local.prefix}-delivery"
+    DELIVERY_DLQ_NAME   = "${local.prefix}-delivery-dlq"
+  }
 }
 
 resource "takoform_sqlite_database" "database" {
@@ -130,12 +104,18 @@ resource "takoform_worker_bundle" "worker" {
 }
 
 resource "takoform_worker_version" "worker" {
-  revision_owner          = local.prefix
-  worker                  = takoform_module_worker.worker.name
-  bundle                  = takoform_worker_bundle.worker.name
-  handlers                = ["fetch", "queue", "scheduled"]
-  vars_json               = jsonencode(local.worker_plain_values)
-  required_sensitive_vars = ["ENCRYPTION_KEY"]
+  revision_owner = local.prefix
+  worker         = takoform_module_worker.worker.name
+  bundle         = takoform_worker_bundle.worker.name
+  handlers       = ["fetch", "queue", "scheduled"]
+  vars_json      = jsonencode(local.worker_plain_values)
+  required_sensitive_vars = [
+    "ENCRYPTION_KEY",
+    "TAKOSUMI_ACCOUNTS_ISSUER_URL",
+    "TAKOSUMI_ACCOUNTS_CLIENT_ID",
+    "TAKOSUMI_ACCOUNTS_OWNER_SUB",
+    "TAKOSUMI_ACCOUNTS_REDIRECT_URI",
+  ]
 
   kv_bindings = [
     {

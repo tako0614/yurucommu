@@ -459,9 +459,6 @@ describe("repository-owned Takosumi install UX", () => {
     );
     expect(managedModule.inputs.map((input) => input.name)).toEqual([
       "project_name",
-      "takosumi_accounts_issuer_url",
-      "takosumi_accounts_client_id",
-      "allow_unpinned_owner_claim",
     ]);
     expect(
       managedModule.inputs.filter((input) => input.source.kind === "user"),

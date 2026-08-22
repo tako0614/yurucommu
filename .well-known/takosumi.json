@@ -289,43 +289,6 @@
               "en": "The name of this Yurucommu service in the workspace."
             },
             "advanced": true
-          },
-          {
-            "name": "takosumi_accounts_issuer_url",
-            "source": {
-              "kind": "module_default"
-            },
-            "type": "string",
-            "format": "url",
-            "label": {
-              "ja": "Takosumi Accounts発行者",
-              "en": "Takosumi Accounts issuer"
-            },
-            "advanced": true
-          },
-          {
-            "name": "takosumi_accounts_client_id",
-            "source": {
-              "kind": "module_default"
-            },
-            "type": "string",
-            "label": {
-              "ja": "Takosumi Accountsクライアント",
-              "en": "Takosumi Accounts client"
-            },
-            "advanced": true
-          },
-          {
-            "name": "allow_unpinned_owner_claim",
-            "source": {
-              "kind": "module_default"
-            },
-            "type": "boolean",
-            "label": {
-              "ja": "最初のサインインを所有者にする",
-              "en": "Let the first sign-in claim ownership"
-            },
-            "advanced": true
           }
         ],
         "requires": [
