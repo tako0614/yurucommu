@@ -107,6 +107,7 @@ async function run(command: string[]): Promise<void> {
 export function createEntrySource(assets: Record<string, StaticAsset>): string {
   return `import {
   createYurucommuBackendApp,
+  handleYurucommuQueueBatch,
   runYurucommuRetention,
 } from "@takosjp/yurucommu-core/server";
 import type {
@@ -115,21 +116,22 @@ import type {
   Env,
 } from "@takosjp/yurucommu-core/server";
 import {
-  defaultTakosumiBackgroundQueueHandler,
-  handleTakosumiBackgroundEventInvocation,
   wrapYurucommuWorkerBindings,
-} from "../scripts/takosumi-managed-worker.ts";
+} from "../scripts/yurucommu-worker-bindings.ts";
 import type {
+  YurucommuRuntimeEnv,
   YurucommuWorkerBindings,
-} from "../scripts/takosumi-managed-worker.ts";
+} from "../scripts/yurucommu-worker-bindings.ts";
 import type {
   Fetcher,
   MessageBatch,
   ScheduledController,
 } from "@cloudflare/workers-types";
 
-type RuntimeEnv = Env;
+type RuntimeEnv = YurucommuRuntimeEnv;
 type WorkerBindings = YurucommuWorkerBindings;
+
+const CANONICAL_ORIGIN_KV_KEY = "__yurucommu/runtime/canonical-origin/v1";
 
 const backendApp = createYurucommuBackendApp({
   discovery: ${JSON.stringify(discovery, null, 2)},
@@ -192,52 +194,86 @@ const embeddedAssetsFetcher: Fetcher = {
   },
 };
 
-function withDefaultAppUrl(request: Request, env: RuntimeEnv): RuntimeEnv {
+async function withRequestAppUrl(
+  request: Request,
+  env: RuntimeEnv,
+): Promise<RuntimeEnv & { APP_URL: string }> {
   if (typeof env.APP_URL === "string" && env.APP_URL.trim().length > 0) {
-    return env;
+    return { ...env, APP_URL: canonicalPublicOrigin(env.APP_URL) };
   }
-  return { ...env, APP_URL: new URL(request.url).origin };
+  const stored = await env.KV.get(CANONICAL_ORIGIN_KV_KEY);
+  if (stored !== null) {
+    return { ...env, APP_URL: canonicalPublicOrigin(stored) };
+  }
+
+  const requestOrigin = canonicalPublicOrigin(new URL(request.url).origin);
+  await env.KV.put(CANONICAL_ORIGIN_KV_KEY, requestOrigin);
+  const readback = await env.KV.get(CANONICAL_ORIGIN_KV_KEY);
+  if (readback !== null && canonicalPublicOrigin(readback) !== requestOrigin) {
+    throw new Error("canonical request origin was concurrently pinned to another endpoint");
+  }
+  return { ...env, APP_URL: requestOrigin };
 }
 
-function withRequiredBackgroundAppUrl(env: RuntimeEnv): RuntimeEnv {
-  if (typeof env.APP_URL !== "string" || env.APP_URL.trim().length === 0) {
+async function withRequiredQueueAppUrl(
+  env: RuntimeEnv,
+): Promise<RuntimeEnv & { APP_URL: string }> {
+  if (typeof env.APP_URL === "string" && env.APP_URL.trim().length > 0) {
+    return { ...env, APP_URL: canonicalPublicOrigin(env.APP_URL) };
+  }
+  const stored = await env.KV.get(CANONICAL_ORIGIN_KV_KEY);
+  if (stored === null) {
     throw new Error(
-      "APP_URL is required for queue and scheduled invocations because they have no request origin",
+      "canonical request origin has not been observed; make one successful fetch before queue delivery",
     );
   }
-  const appUrl = new URL(env.APP_URL);
-  if (appUrl.protocol !== "https:" || appUrl.origin !== appUrl.href.replace(/\\/$/, "")) {
-    throw new Error("APP_URL must be an HTTPS origin for background invocations");
+  return { ...env, APP_URL: canonicalPublicOrigin(stored) };
+}
+
+function canonicalPublicOrigin(value: string): string {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error("canonical request origin is invalid");
   }
-  return { ...env, APP_URL: appUrl.origin };
+  const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+  if (
+    (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash ||
+    url.pathname !== "/"
+  ) {
+    throw new Error("canonical request origin must be an HTTPS origin (or loopback HTTP)");
+  }
+  return url.origin;
 }
 
 async function runRetention(runtimeEnv: RuntimeEnv): Promise<void> {
-  await runYurucommuRetention(withRequiredBackgroundAppUrl(runtimeEnv));
+  // The core retention implementation consumes DB/MEDIA/queue only. APP_URL
+  // is intentionally not invented for this native scheduled invocation.
+  await runYurucommuRetention(runtimeEnv as Env);
 }
 
-function withRequiredQueueIdentity(
+function withDeliveryConsumerIdentity(
   batch: MessageBatch<DeliveryQueueMessageV1 | DeliveryDlqMessageV1>,
   env: RuntimeEnv,
 ): RuntimeEnv {
-  const deliveryQueueName = env.DELIVERY_QUEUE_NAME?.trim();
-  const deliveryDlqName = env.DELIVERY_DLQ_NAME?.trim();
-  if (
-    !deliveryQueueName ||
-    !deliveryDlqName ||
-    deliveryQueueName === deliveryDlqName
-  ) {
-    throw new Error(
-      "DELIVERY_QUEUE_NAME and DELIVERY_DLQ_NAME must identify distinct managed queues",
-    );
+  const queueName = batch.queue.trim();
+  if (!queueName) {
+    throw new Error("Queue invocation has no native identity");
   }
-  if (batch.queue !== deliveryQueueName && batch.queue !== deliveryDlqName) {
-    throw new Error("Queue invocation does not match the managed queue identity");
-  }
+  // The deployed graph attaches exactly one QueueConsumer to this Worker, and
+  // that relation targets the delivery queue. The Provider is free to replace
+  // the logical Resource name with a collision-safe native name, so the app
+  // must use the authenticated invocation identity rather than compare it to
+  // desired state. There is no DLQ consumer in this graph.
   return {
     ...env,
-    DELIVERY_QUEUE_NAME: deliveryQueueName,
-    DELIVERY_DLQ_NAME: deliveryDlqName,
+    DELIVERY_QUEUE_NAME: queueName,
+    DELIVERY_DLQ_NAME: "__unbound_dlq__:" + queueName,
   };
 }
 
@@ -261,20 +297,7 @@ export default {
     env: WorkerBindings,
     ctx: ExecutionContext,
   ): Promise<Response> {
-    const background = await handleTakosumiBackgroundEventInvocation({
-      request,
-      bindings: env,
-      ctx,
-      handlers: {
-        queue: defaultTakosumiBackgroundQueueHandler,
-        scheduled: async (_controller, runtimeEnv, _executionContext) => {
-          await runRetention(runtimeEnv);
-        },
-      },
-    });
-    if (background) return background;
-
-    const envWithAppUrl = withDefaultAppUrl(
+    const envWithAppUrl = await withRequestAppUrl(
       request,
       wrapYurucommuWorkerBindings(env),
     );
@@ -289,12 +312,14 @@ export default {
   async queue(
     batch: MessageBatch<DeliveryQueueMessageV1 | DeliveryDlqMessageV1>,
     env: WorkerBindings,
+    ctx: ExecutionContext,
   ): Promise<void> {
-    const runtimeEnv = withRequiredQueueIdentity(
+    const runtimeEnv = withDeliveryConsumerIdentity(
       batch,
-      withRequiredBackgroundAppUrl(wrapYurucommuWorkerBindings(env)),
+      await withRequiredQueueAppUrl(wrapYurucommuWorkerBindings(env)),
     );
-    return defaultTakosumiBackgroundQueueHandler(batch, runtimeEnv as Env);
+    void ctx;
+    return handleYurucommuQueueBatch(batch, runtimeEnv as Env);
   },
 
   // Cron-triggered retention (delivery/session/call-session purge, media-orphan
@@ -302,16 +327,16 @@ export default {
   // instead of re-exporting the core one, so a cron trigger alone would fire at
   // a module that exports no \`scheduled\` and nothing would ever be purged —
   // the handler has to be forwarded here. The runtime-neutral core entrypoint
-  // receives the already materialized native or managed Env; an older core
+  // receives the already adapted native Env; an older core
   // fails loudly rather than silently sweeping nothing.
   async scheduled(
     controller: ScheduledController,
     env: WorkerBindings,
     ctx: ExecutionContext,
   ): Promise<void> {
-    const runtimeEnv = withRequiredBackgroundAppUrl(
-      wrapYurucommuWorkerBindings(env),
-    );
+    void controller;
+    void ctx;
+    const runtimeEnv = wrapYurucommuWorkerBindings(env);
     await runRetention(runtimeEnv);
   },
 };

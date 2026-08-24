@@ -48,13 +48,13 @@ YURUCOMMU_DEV_PROXY_TARGET=http://localhost:8787 bun run dev
 
 ## どこで動かすか
 
-| 目的                        | 使うもの                                       | データの置き場所                                      |
-| --------------------------- | ---------------------------------------------- | ----------------------------------------------------- |
-| UI をすぐ試す               | `bun run dev:mock`                             | メモリ。終了時に消える                                |
-| Takoserver で運用する       | [`deploy/takoform-current`](deploy/takoform/README.md) | Takoserver が提供する独立リソース                      |
-| Cloudflare で自分で運用する | ルートの `main.tf` または `wrangler.jsonc`     | D1、R2、Workers KV、Queues                            |
+| 目的                        | 使うもの                                       | データの置き場所                  |
+| --------------------------- | ---------------------------------------------- | --------------------------------- |
+| UI をすぐ試す               | `bun run dev:mock`                             | メモリ。終了時に消える            |
+| Takoserver で運用する       | [`deploy/takoform`](deploy/takoform/README.md) | Takoserver が提供する独立リソース |
+| Cloudflare で自分で運用する | ルートの `main.tf` または `wrangler.jsonc`     | D1、R2、Workers KV、Queues        |
 
-Yurucommu本体が所有するのは必要な役割と接続名です。`deploy/takoform-current`とルートの
+Yurucommu本体が所有するのは必要な役割と接続名です。`deploy/takoform`とルートの
 `main.tf`は、その同じ契約をそれぞれTakoform hostとCloudflareへ写すadapterです。
 Takosumiは通常のOpenTofu moduleを実行するだけで、製品コードはどちらを選んだかを
 知りません。
@@ -84,9 +84,8 @@ Takosumi の「新しいアプリ」または `/install` 画面で、次を指�
 4. Apply を実行する
 5. Apps 画面から Yurucommu を開く
 
-インストール後、`EdgeWorker` が宣言する `http.request@1` Interface を使って
-Takosumi が公開 URL を解決します。IaC はその `resource_uri` を通常の
-`launch_url` Output として取り出します。リポジトリの v2.1
+インストール後、`WorkerDeployment` の後に作られる `WorkerEndpoint`
+が通常の `launch_url` Output を返します。リポジリの v2.3
 [`interfaces`](.well-known/takosumi.json) 宣言がレビュー済みの
 `interface.ui.surface@1` Interface に compile され、その `inputs.url` が
 `launch_url` Output を明示的に参照します。Output だけでは Apps 画面用の surface
@@ -94,8 +93,9 @@ Takosumi が公開 URL を解決します。IaC はその `resource_uri` を通�
 から URL を推測しません。
 
 自動処理向けには、通常の OpenTofu Output として `launch_url` と `api_url` も
-取得できます。Apps 画面にリンクが出ない場合は、Apply の成功、`EdgeWorker` の
-`http.request@1`、`launch_url`、インストールした利用者の権限を確認してください。
+取得できます。Apps 画面にリンクが出ない場合は、Apply の成功、
+`WorkerDeployment` と `WorkerEndpoint` の Ready、`launch_url`、インストールした
+利用者の権限を確認してください。
 
 管理用の定義が作るものと、ホスト側が用意するものは
 [`deploy/takoform/README.md`](deploy/takoform/README.md) にまとめています。
@@ -207,10 +207,10 @@ OIDC を使う場合は issuer、client ID、callback URL、最初の owner に�
 
 ### Apps 画面に Yurucommu が表示されない
 
-Takosumi の Apply が成功していても、`http.request@1` の `resource_uri`、
-`launch_url`、v2 `interfaces` 宣言から compile された UI surface、開く binding
-権限のいずれかが未解決ならリンクは表示されません。Output 単独の fallback や
-クラウド内部のリソース ID から URL を作らず、Interface と Output を確認します。
+Takosumi の Apply が成功していても、`WorkerEndpoint.url` 由来の
+`launch_url`、v2.3 `interfaces` 宣言から compile された UI surface、開く
+binding 権限のいずれかが未解決ならリンクは表示されません。クラウド
+内部のリソース ID から URL を作らず、Endpoint Output と Interface を確認します。
 
 ### プッシュ通知が届かない
 

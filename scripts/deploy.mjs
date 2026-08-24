@@ -85,7 +85,7 @@ const CONTRACT = {
         "package.json",
         "scripts/build-yurucommu-worker.ts",
         "scripts/smoke-release-worker.mjs",
-        "scripts/takosumi-managed-worker.ts",
+        "scripts/yurucommu-worker-bindings.ts",
       ],
       requiresScripts: ["check", "build:worker", R.smokeScript],
       requiresTools: ["git", "bun", "gh"],
@@ -93,9 +93,9 @@ const CONTRACT = {
       triggers: ["published-identity"],
       obligations: {
         provenance:
-          "refuses a dirty, detached, or unpushed worktree; requires main for publication; runs `bun run check`; builds and boots the embedded Worker from that exact commit; requires Store sources and module defaults to select its tag, URL, and SHA-256; and records the source commit plus SHA-256 in the release manifest",
+          "refuses a dirty, detached, or unpushed worktree; requires main for publication; runs `bun run check`; builds and boots the embedded Worker from that exact commit; requires Store source refs and the direct-Cloudflare module defaults to select its tag while the Takoform sourceBuild consumes that same tagged worktree; and records the source commit plus SHA-256 in the release manifest",
         "post-conditions":
-          "reads the create-only tag and GitHub Release back, requires the tag to resolve to the source commit and the Release to report isImmutable:true, downloads all three assets, requires their exact SHA-256 digests, and boots the downloaded Worker in workerd with the Takosumi managed-runtime materialization",
+          "reads the create-only tag and GitHub Release back, requires the tag to resolve to the source commit and the Release to report isImmutable:true, downloads all three assets, requires their exact SHA-256 digests, and boots the downloaded Worker in workerd with runtime-native DB/KV/MEDIA/queue bindings",
         reversal:
           "the release identity is never replaced or deleted by this entrypoint; consumers remain able to pin the preceding release, and a defect is repaired by publishing a higher version",
         "failure-handling":
@@ -166,7 +166,7 @@ function requireReleaseIdentity(tag, artifactUrl, bundleDigest) {
     }
   }
 
-  for (const modulePath of ["main.tf", "deploy/takoform/main.tf"]) {
+  for (const modulePath of ["main.tf"]) {
     const source = readFileSync(resolve(repo, modulePath), "utf8");
     const actual = {
       tag: terraformStringDefault(source, "worker_release_tag"),
@@ -186,9 +186,41 @@ function requireReleaseIdentity(tag, artifactUrl, bundleDigest) {
     }
   }
 
+  const repository = JSON.parse(
+    readFileSync(resolve(repo, ".well-known/takosumi.json"), "utf8"),
+  );
+  const takoformModule = repository?.install?.modules?.["deploy/takoform"];
+  const sourceBuildCommands = takoformModule?.sourceBuild?.commands?.map(
+    (command) => command?.argv,
+  );
+  if (
+    JSON.stringify(sourceBuildCommands) !==
+    JSON.stringify([
+      ["bun", "run", "build:worker"],
+      ["bun", "scripts/prepare-takoform-v1-source.ts"],
+    ])
+  ) {
+    failures.push(
+      "deploy/takoform sourceBuild does not build and prepare the selected source worktree",
+    );
+  }
+  const takoformSource = readFileSync(
+    resolve(repo, "deploy/takoform/main.tf"),
+    "utf8",
+  );
+  if (
+    !takoformSource.includes(
+      'worker_bundle_path = "${path.module}/.generated/yurucommu-worker.js"',
+    )
+  ) {
+    failures.push(
+      "deploy/takoform does not consume the Worker prepared from its selected source worktree",
+    );
+  }
+
   if (failures.length > 0) {
     die(
-      "package, Store source, module defaults, and built Worker do not identify one release",
+      "package, Store source, deployment sourceBuild, and built Worker do not identify one release",
       failures,
     );
   }
@@ -211,12 +243,12 @@ function smokeReleaseArtifact(artifactPath, expectedDigest, publishedTag) {
     const detail = `${error.stdout ?? ""}${error.stderr ?? ""}`.trim();
     if (publishedTag) {
       die(
-        `publication of ${publishedTag} completed but the downloaded Worker failed its managed-runtime smoke; inspect the immutable Release before any new-version repair`,
+        `publication of ${publishedTag} completed but the downloaded Worker failed its runtime-native smoke; inspect the immutable Release before any new-version repair`,
         detail ? detail.split("\n").slice(0, 40) : [],
       );
     }
     die(
-      "the candidate Worker failed its managed-runtime smoke before publication",
+      "the candidate Worker failed its runtime-native smoke before publication",
       detail ? detail.split("\n").slice(0, 40) : [],
     );
   }
@@ -506,7 +538,7 @@ function publishWorkerRelease() {
         sourceIdentity: "PACKAGE_STORE_MODULE_ARTIFACT_ALIGNED",
         releaseUrl: release.url,
         assetDigests: expectedDigests,
-        postConditions: "EXACT_RELEASE_READBACK_AND_MANAGED_RUNTIME_SMOKE",
+        postConditions: "EXACT_RELEASE_READBACK_AND_RUNTIME_NATIVE_SMOKE",
         status: "PUBLISHED",
       },
       null,

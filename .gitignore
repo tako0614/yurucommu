@@ -10,4 +10,4 @@ dist/
 .DS_Store
 .wrangler/
 .terraform/
-deploy/takoform-current/.generated/
+deploy/takoform/.generated/

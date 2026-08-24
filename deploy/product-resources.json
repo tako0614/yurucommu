@@ -3,31 +3,36 @@
   "kind": "ProductResourceContract",
   "product": "yurucommu",
   "resources": [
-    { "name": "app", "shape": "EdgeWorker" },
-    { "name": "database", "shape": "RelationalDatabase" },
-    { "name": "media", "shape": "ObjectBucket" },
-    { "name": "cache", "shape": "KeyValueStore" },
-    { "name": "delivery", "shape": "Queue" },
-    { "name": "delivery-dlq", "shape": "Queue" },
-    { "name": "retention", "shape": "Schedule" }
+    { "name": "app", "shape": "ModuleWorker" },
+    { "name": "bundle", "shape": "WorkerBundle" },
+    { "name": "version", "shape": "WorkerVersion" },
+    { "name": "deployment", "shape": "WorkerDeployment" },
+    { "name": "endpoint", "shape": "WorkerEndpoint" },
+    { "name": "database", "shape": "SQLiteDatabase" },
+    { "name": "schema", "shape": "SQLiteMigrationSet" },
+    { "name": "schema-application", "shape": "SQLiteMigrationApplication" },
+    { "name": "cache", "shape": "EdgeKVNamespace" },
+    { "name": "delivery", "shape": "AtLeastOnceQueue" },
+    { "name": "delivery-dlq", "shape": "AtLeastOnceQueue" },
+    { "name": "delivery-consumer", "shape": "QueueConsumer" },
+    { "name": "retention", "shape": "WorkerCronTrigger" }
   ],
   "runtimeConnections": [
-    { "name": "DB", "resource": "database", "projection": "sql.binding.v1" },
-    { "name": "MEDIA", "resource": "media", "projection": "object.binding.v1" },
-    { "name": "KV", "resource": "cache", "projection": "keyvalue.binding.v1" },
-    {
-      "name": "DELIVERY_QUEUE",
-      "resource": "delivery",
-      "projection": "queue.binding.v1"
-    },
-    {
-      "name": "DELIVERY_DLQ",
-      "resource": "delivery-dlq",
-      "projection": "queue.binding.v1"
-    }
+    { "name": "DB", "resource": "database" },
+    { "name": "KV", "resource": "cache" },
+    { "name": "DELIVERY_QUEUE", "resource": "delivery" },
+    { "name": "DELIVERY_DLQ", "resource": "delivery-dlq" }
+  ],
+  "standardServices": [
+    { "name": "MEDIA", "protocol": "com.amazonaws.s3", "required": true }
+  ],
+  "nativeHandlers": [
+    { "name": "fetch", "resource": "endpoint" },
+    { "name": "queue", "resource": "delivery-consumer" },
+    { "name": "scheduled", "resource": "retention" }
   ],
   "outputs": [
-    { "name": "launch_url", "interface": "http.request@1" },
-    { "name": "api_url", "interface": "http.request@1" }
+    { "name": "launch_url", "resource": "endpoint", "attribute": "url" },
+    { "name": "api_url", "resource": "endpoint", "attribute": "url" }
   ]
 }

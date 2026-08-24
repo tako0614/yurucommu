@@ -14,7 +14,7 @@
       "source": {
         "url": "https://github.com/tako0614/yurucommu.git",
         "ref": "v2.1.6",
-        "path": "deploy/takoform-current"
+        "path": "deploy/takoform"
       }
     },
     {

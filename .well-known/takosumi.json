@@ -2,7 +2,7 @@
   "apiVersion": "takosumi.com/v2.3",
   "kind": "Repository",
   "install": {
-    "defaultModule": "deploy/takoform-current",
+    "defaultModule": "deploy/takoform",
     "modules": {
       ".": {
         "inputs": [
@@ -37,8 +37,8 @@
               "en": "Public URL"
             },
             "helper": {
-              "ja": "空欄の場合はTakosumiが利用可能な公開URLを割り当てます。",
-              "en": "Takosumi allocates an available public URL when omitted."
+              "ja": "空欄の場合は選択したproviderまたはoperatorが公開URLを決定します。",
+              "en": "When omitted, the selected provider or operator determines the public URL."
             },
             "placeholder": "https://yurucommu.example.com"
           },
@@ -178,32 +178,6 @@
             "advanced": true
           }
         ],
-        "requires": [
-          {
-            "kind": "http.endpoint",
-            "deliver": {
-              "variables": {
-                "url": "app_url",
-                "subdomain": "project_name"
-              }
-            }
-          },
-          {
-            "kind": "identity.oidc",
-            "callbackPath": "/api/auth/callback/takos",
-            "scopes": [
-              "openid",
-              "profile",
-              "email"
-            ],
-            "deliver": {
-              "variables": {
-                "issuerUrl": "takosumi_accounts_issuer_url",
-                "clientId": "takosumi_accounts_client_id"
-              }
-            }
-          }
-        ],
         "features": [
           {
             "id": "password-authentication",
@@ -212,9 +186,7 @@
               "ja": "パスワードでログイン",
               "en": "Sign in with a password"
             },
-            "inputs": [
-              "auth_password_hash"
-            ]
+            "inputs": ["auth_password_hash"]
           },
           {
             "id": "notification-push",
@@ -270,7 +242,7 @@
           }
         ]
       },
-      "deploy/takoform-current": {
+      "deploy/takoform": {
         "inputs": [
           {
             "name": "project_name",
@@ -291,44 +263,18 @@
             "advanced": true
           }
         ],
-        "requires": [
-          {
-            "kind": "secret.generated",
-            "bytes": 32,
-            "encoding": "hex",
-            "deliver": {
-              "bindings": {
-                "value": "ENCRYPTION_KEY"
-              }
-            }
-          },
-          {
-            "kind": "identity.oidc",
-            "callbackPath": "/api/auth/callback/takos",
-            "scopes": [
-              "openid",
-              "profile",
-              "email"
-            ],
-            "deliver": {
-              "bindings": {
-                "issuerUrl": "TAKOSUMI_ACCOUNTS_ISSUER_URL",
-                "clientId": "TAKOSUMI_ACCOUNTS_CLIENT_ID",
-                "ownerSubject": "TAKOSUMI_ACCOUNTS_OWNER_SUB",
-                "redirectUri": "TAKOSUMI_ACCOUNTS_REDIRECT_URI"
-              }
-            }
-          }
-        ],
         "sourceBuild": {
           "commands": [
             {
-              "argv": ["bun", "scripts/materialize-takoform-current.ts"]
+              "argv": ["bun", "run", "build:worker"]
+            },
+            {
+              "argv": ["bun", "scripts/prepare-takoform-v1-source.ts"]
             }
           ],
           "outputs": [
-            "deploy/takoform-current/.generated/yurucommu-worker.js",
-            "deploy/takoform-current/.generated/migrations"
+            "deploy/takoform/.generated/yurucommu-worker.js",
+            "deploy/takoform/.generated/migrations"
           ]
         },
         "interfaces": [

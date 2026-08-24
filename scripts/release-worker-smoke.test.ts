@@ -16,7 +16,7 @@ afterEach(async () => {
 });
 
 describe("release Worker smoke", () => {
-  test("boots the exact artifact in a managed workerd runtime", async () => {
+  test("boots the exact artifact with runtime-native bindings", async () => {
     const directory = await mkdtemp(join(tmpdir(), "yurucommu-smoke-test-"));
     temporaryDirectories.push(directory);
     const artifactPath = join(directory, "yurucommu-worker.js");
@@ -24,18 +24,16 @@ describe("release Worker smoke", () => {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    const managed =
-      typeof env.TAKOSUMI_MANAGED_RUNTIME_MATERIALIZATION === "string" &&
-      typeof env.TAKOSUMI_MANAGED_RUNTIME?.fetch === "function" &&
-      env.DB === undefined &&
-      env.KV === undefined &&
-      env.MEDIA === undefined;
+    const native =
+      typeof env.DB?.prepare === "function" &&
+      typeof env.KV?.get === "function" &&
+      typeof env.MEDIA?.put === "function";
     if (url.pathname === "/readyz") {
       return Response.json({
-        status: managed ? "ok" : "misconfigured",
+        status: native ? "ok" : "misconfigured",
         service: "yurucommu",
-        missingBindings: managed ? [] : ["TAKOSUMI_MANAGED_RUNTIME"],
-      }, { status: managed ? 200 : 503 });
+        missingBindings: native ? [] : ["DB", "KV", "MEDIA"],
+      }, { status: native ? 200 : 503 });
     }
     if (url.pathname === "/.well-known/yurucommu") {
       return Response.json({
@@ -73,11 +71,11 @@ export default {
       artifact: "yurucommu-worker.js",
       sha256: `sha256:${sha256}`,
       runtime: "workerd",
-      substrate: "takosumi-managed-runtime",
+      substrate: "runtime-native-bindings",
       checks: ["readyz", "discovery", "embedded-ui"],
       status: "PASSED",
     });
-  });
+  }, 30_000);
 
   test("rejects bytes that do not match the release digest", async () => {
     const directory = await mkdtemp(join(tmpdir(), "yurucommu-smoke-test-"));

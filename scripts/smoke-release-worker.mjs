@@ -10,45 +10,10 @@ import { unstable_readConfig } from "wrangler";
 
 const MAX_RESPONSE_BYTES = 1024 * 1024;
 const APP_ORIGIN = "https://release-smoke.yurucommu.invalid";
-const MANAGED_RUNTIME_BINDING = "TAKOSUMI_MANAGED_RUNTIME";
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
-}
-
-function managedMaterialization() {
-  const workspaceId = "ws_release_smoke";
-  const kinds = {
-    DB: "RelationalDatabase",
-    MEDIA: "ObjectBucket",
-    KV: "KeyValueStore",
-    DELIVERY_QUEUE: "Queue",
-    DELIVERY_DLQ: "Queue",
-  };
-  return JSON.stringify({
-    contract: "takosumi.managed-runtime-connection/v1",
-    gateway: {
-      binding: MANAGED_RUNTIME_BINDING,
-      transport: "fetch",
-    },
-    connections: Object.entries(kinds).map(([alias, resourceKind], index) => ({
-      alias,
-      authority: {
-        workspaceId,
-        subject: "capsule:cap_release_smoke",
-        resourceId: `tkrn:${workspaceId}:${resourceKind}:${alias.toLowerCase()}`,
-        resourceKind,
-        resourceGeneration: 1,
-        permissions: ["takosumi.managed-runtime.invoke"],
-        interfaceId: `if_${index}`,
-        interfaceBindingId: `ifb_${index}`,
-        interfaceResolvedRevision: 1,
-        audience: "https://runtime.example.test/v1/resources",
-        capabilityRef: `secret:runtime/${alias.toLowerCase()}`,
-      },
-    })),
-  });
 }
 
 async function boundedText(response) {
@@ -90,7 +55,7 @@ async function requireJson(response, label) {
   }
 }
 
-async function smokeManagedWorker(artifactPath, artifactDigest) {
+async function smokeNativeWorker(artifactPath, artifactDigest) {
   const sourceConfig = unstable_readConfig(
     { config: resolve(repo, "wrangler.jsonc") },
     { hideWarnings: true },
@@ -111,16 +76,11 @@ async function smokeManagedWorker(artifactPath, artifactDigest) {
       DELIVERY_QUEUE_NAME: "yurucommu-delivery",
       DELIVERY_DLQ_NAME: "yurucommu-delivery-dlq",
       ENCRYPTION_KEY: "00".repeat(32),
-      TAKOSUMI_MANAGED_RUNTIME_MATERIALIZATION: managedMaterialization(),
     },
-    serviceBindings: {
-      async [MANAGED_RUNTIME_BINDING]() {
-        return Response.json(
-          { error: "release_smoke_does_not_mutate_managed_resources" },
-          { status: 501 },
-        );
-      },
-    },
+    d1Databases: ["DB"],
+    kvNamespaces: ["KV"],
+    r2Buckets: ["MEDIA"],
+    queueProducers: ["DELIVERY_QUEUE", "DELIVERY_DLQ"],
   });
 
   try {
@@ -138,7 +98,7 @@ async function smokeManagedWorker(artifactPath, artifactDigest) {
       ready.missingBindings.length !== 0
     ) {
       throw new Error(
-        `/readyz did not accept the managed runtime: ${JSON.stringify(ready)}`,
+        `/readyz did not accept the runtime-native bindings: ${JSON.stringify(ready)}`,
       );
     }
 
@@ -180,7 +140,7 @@ async function smokeManagedWorker(artifactPath, artifactDigest) {
       runtime: "workerd",
       compatibilityDate: sourceConfig.compatibility_date,
       compatibilityFlags: sourceConfig.compatibility_flags,
-      substrate: "takosumi-managed-runtime",
+      substrate: "runtime-native-bindings",
       checks: ["readyz", "discovery", "embedded-ui"],
       status: "PASSED",
     };
@@ -209,7 +169,7 @@ async function main() {
       `artifact digest sha256:${artifactDigest} does not equal ${expectedDigestArgument}`,
     );
   }
-  const result = await smokeManagedWorker(artifactPath, artifactDigest);
+  const result = await smokeNativeWorker(artifactPath, artifactDigest);
   process.stdout.write(`${JSON.stringify(result)}\n`);
 }
 
