@@ -35,6 +35,11 @@ jobs:
           tofu_version: 1.12.1
           tofu_wrapper: false
 
+      - uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # pinned: v6.0.0
+        with:
+          go-version: "1.26.5"
+          cache: false
+
       - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # pinned: v5.0.5
         with:
           path: ${{ env.BUN_INSTALL_CACHE_DIR }}
@@ -43,4 +48,23 @@ jobs:
             ${{ runner.os }}-bun-yurucommu-
 
       - run: bun install --frozen-lockfile
-      - run: bun run check
+      - name: Build the exact integrated Provider 3 candidate
+        env:
+          TAKOFORM_SOURCE_COMMIT: c08651d9b39d1be34e4b803c3d32fdca82e3653e
+        run: |
+          set -eu
+          provider_root="$RUNNER_TEMP/takoform-provider"
+          git init "$provider_root"
+          git -C "$provider_root" remote add origin https://github.com/tako0614/terraform-provider-takoform.git
+          git -C "$provider_root" fetch --depth=1 origin "$TAKOFORM_SOURCE_COMMIT"
+          git -C "$provider_root" checkout --detach FETCH_HEAD
+          test "$(git -C "$provider_root" rev-parse HEAD)" = "$TAKOFORM_SOURCE_COMMIT"
+          go -C "$provider_root" build -trimpath -o "$RUNNER_TEMP/terraform-provider-takoform" .
+
+      - name: Run the complete portable product gate
+        env:
+          TAKOFORM_PROVIDER_BINARY: ${{ runner.temp }}/terraform-provider-takoform
+        run: |
+          set -eu
+          provider_sha="sha256:$(sha256sum "$TAKOFORM_PROVIDER_BINARY" | cut -d ' ' -f 1)"
+          TAKOFORM_PROVIDER_SHA256="$provider_sha" bun run check

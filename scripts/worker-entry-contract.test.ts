@@ -41,11 +41,15 @@ describe("generated worker entry", () => {
     expect(entrySource).not.toContain("worker_endpoint");
   });
 
-  test("uses the Host-authenticated QueueConsumer invocation identity instead of a logical Resource name", () => {
+  test("preserves direct delivery and DLQ identities and synthesizes only the single-consumer Host identity", () => {
     expect(entrySource).toContain("withDeliveryConsumerIdentity");
     expect(entrySource).toContain("Queue invocation has no native identity");
     expect(entrySource).toContain("The Provider is free to replace");
-    expect(entrySource).not.toContain("env.DELIVERY_QUEUE_NAME?.trim()");
+    expect(entrySource).toContain("env.DELIVERY_QUEUE_NAME?.trim()");
+    expect(entrySource).toContain("env.DELIVERY_DLQ_NAME?.trim()");
+    expect(entrySource).toContain(
+      "return env; // The direct adapter already declares both distinct queue identities.",
+    );
     expect(entrySource).toContain(
       "await withRequiredQueueAppUrl(wrapYurucommuWorkerBindings(env))",
     );

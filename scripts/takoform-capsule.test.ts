@@ -6,6 +6,9 @@ const [main, outputs] = await Promise.all([
   readFile(new URL("main.tf", moduleUrl), "utf8"),
   readFile(new URL("outputs.tf", moduleUrl), "utf8"),
 ]);
+const packageManifest = JSON.parse(
+  await readFile(new URL("../package.json", import.meta.url), "utf8"),
+) as { scripts?: Record<string, string> };
 
 const resourceTypes = Array.from(
   main.matchAll(/resource\s+"([^"]+)"\s+"[^"]+"\s*\{/g),
@@ -17,6 +20,12 @@ const dataSourceTypes = Array.from(
 );
 
 describe("portable Takoform v1 Capsule", () => {
+  test("validates the Provider 3 module in the portable repository gate", () => {
+    expect(packageManifest.scripts?.["check:opentofu"]).toContain(
+      "bun scripts/validate-takoform-v1.ts",
+    );
+  });
+
   test("owns the complete Provider 3 worker and service graph", () => {
     expect(resourceTypes.sort()).toEqual(
       [
