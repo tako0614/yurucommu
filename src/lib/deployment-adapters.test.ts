@@ -9,6 +9,11 @@ const contract = JSON.parse(
   product: string;
   resources: Array<{ name: string; shape: string }>;
   runtimeConnections: Array<{ name: string; resource: string }>;
+  standardServices: Array<{
+    name: string;
+    protocol: string;
+    required: boolean;
+  }>;
 };
 const cloudflare = await readFile(new URL("main.tf", root), "utf8");
 const takoform = await readFile(
@@ -29,10 +34,19 @@ test("Yurucommu resource requirements are provider-neutral", () => {
   for (const connection of contract.runtimeConnections) {
     expect(resources.has(connection.resource)).toBe(true);
   }
+  expect(contract.standardServices).toEqual([
+    { name: "MEDIA", protocol: "com.amazonaws.s3", required: true },
+  ]);
+  expect(contract.resources.some(({ shape }) => shape === "ObjectBucket")).toBe(
+    false,
+  );
 });
 
 test("Cloudflare direct and Takoform adapt the same runtime connections", () => {
-  for (const connection of contract.runtimeConnections) {
+  for (const connection of [
+    ...contract.runtimeConnections,
+    ...contract.standardServices,
+  ]) {
     expect(cloudflare).toContain(connection.name);
     expect(takoform).toContain(connection.name);
   }
@@ -42,4 +56,5 @@ test("Cloudflare direct and Takoform adapt the same runtime connections", () => 
   );
   expect(takoform).not.toContain("cloudflare_");
   expect(takoform).not.toContain("CLOUDFLARE_");
+  expect(takoform).toContain('protocol = "com.amazonaws.s3"');
 });

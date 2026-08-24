@@ -1,20 +1,17 @@
 #!/usr/bin/env bun
 
 import { createHash } from "node:crypto";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const WORKER_ARTIFACT_URL =
-  "https://github.com/tako0614/yurucommu/releases/download/v2.1.6/yurucommu-worker.js";
-export const WORKER_ARTIFACT_SHA256 =
-  "sha256:6e39a18ea95172affd2d4b12d24f2e59ab9f5f1af7a14a80ec3989275bed66bd";
+export const WORKER_INPUT_RELATIVE_PATH = "dist/yurucommu-worker.js";
 export const SCHEMA_BUNDLE_RELATIVE_PATH =
   "deploy/takoform/migrations/schema-bundle.json";
 export const WORKER_OUTPUT_RELATIVE_PATH =
-  "deploy/takoform-current/.generated/yurucommu-worker.js";
+  "deploy/takoform/.generated/yurucommu-worker.js";
 export const MIGRATION_OUTPUT_RELATIVE_PATH =
-  "deploy/takoform-current/.generated/migrations";
+  "deploy/takoform/.generated/migrations";
 
 const MAX_WORKER_BYTES = 8 * 1024 * 1024;
 const MIGRATION_NAME_RE = /^[0-9]{4}_[A-Za-z0-9_-]+\.sql$/u;
@@ -32,11 +29,9 @@ type SchemaBundle = {
   readonly entries: readonly SchemaBundleEntry[];
 };
 
-export type MaterializeTakoformCurrentOptions = {
+export type PrepareTakoformV1SourceOptions = {
   readonly repositoryRoot?: string;
-  readonly workerArtifactUrl?: string;
-  readonly workerArtifactSha256?: string;
-  readonly fetchImpl?: typeof fetch;
+  readonly workerInputRelativePath?: string;
 };
 
 function sha256(bytes: Uint8Array): string {
@@ -97,41 +92,40 @@ function parseSchemaBundle(text: string): SchemaBundle {
   return bundle as SchemaBundle;
 }
 
-export async function materializeTakoformCurrent(
-  options: MaterializeTakoformCurrentOptions = {},
-): Promise<{ workerBytes: number; migrationCount: number }> {
+export async function prepareTakoformV1Source(
+  options: PrepareTakoformV1SourceOptions = {},
+): Promise<{
+  workerBytes: number;
+  workerSha256: string;
+  migrationCount: number;
+}> {
   const repositoryRoot = resolve(options.repositoryRoot ?? REPOSITORY_ROOT);
-  const artifactUrl = options.workerArtifactUrl ?? WORKER_ARTIFACT_URL;
-  const expectedArtifactDigest =
-    options.workerArtifactSha256 ?? WORKER_ARTIFACT_SHA256;
-  const fetchImpl = options.fetchImpl ?? fetch;
+  const workerInput = join(
+    repositoryRoot,
+    options.workerInputRelativePath ?? WORKER_INPUT_RELATIVE_PATH,
+  );
   const bundle = parseSchemaBundle(
     await readFile(join(repositoryRoot, SCHEMA_BUNDLE_RELATIVE_PATH), "utf8"),
   );
 
-  const response = await fetchImpl(artifactUrl, {
-    headers: { accept: "application/javascript" },
-    redirect: "follow",
-  });
-  if (!response.ok) {
-    throw new Error(
-      "worker artifact request failed with status " + response.status,
-    );
-  }
-  const workerBytes = new Uint8Array(await response.arrayBuffer());
+  const workerBytes = new Uint8Array(await readFile(workerInput));
   if (workerBytes.length < 1 || workerBytes.length > MAX_WORKER_BYTES) {
     throw new Error("worker artifact size is outside the accepted range");
   }
-  if (sha256(workerBytes) !== expectedArtifactDigest) {
-    throw new Error("worker artifact digest mismatch");
-  }
+  const workerSha256 = sha256(workerBytes);
 
   const workerOutput = join(repositoryRoot, WORKER_OUTPUT_RELATIVE_PATH);
   const migrationOutput = join(repositoryRoot, MIGRATION_OUTPUT_RELATIVE_PATH);
   await rm(migrationOutput, { force: true, recursive: true });
   await mkdir(migrationOutput, { recursive: true });
   await mkdir(resolve(workerOutput, ".."), { recursive: true });
-  await writeFile(workerOutput, workerBytes, { mode: 0o644 });
+  await copyFile(workerInput, workerOutput);
+  const copiedWorkerSha256 = sha256(
+    new Uint8Array(await readFile(workerOutput)),
+  );
+  if (copiedWorkerSha256 !== workerSha256) {
+    throw new Error("prepared Worker artifact digest mismatch");
+  }
   for (const entry of bundle.entries) {
     await writeFile(join(migrationOutput, entry.name), entry.sql, {
       encoding: "utf8",
@@ -140,15 +134,16 @@ export async function materializeTakoformCurrent(
   }
   return {
     workerBytes: workerBytes.length,
+    workerSha256,
     migrationCount: bundle.entries.length,
   };
 }
 
 if (import.meta.main) {
-  const result = await materializeTakoformCurrent();
+  const result = await prepareTakoformV1Source();
   process.stdout.write(
     JSON.stringify({
-      kind: "yurucommu.takoform-current-source@v1",
+      kind: "yurucommu.takoform-v1-source@v1",
       ...result,
     }) + "\n",
   );

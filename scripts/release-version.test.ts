@@ -76,11 +76,13 @@ async function createReleaseHarness(scenario: ReleaseScenario) {
   const fakeBin = join(root, "bin");
   const scripts = join(root, "scripts");
   const takoform = join(root, "deploy", "takoform");
+  const wellKnown = join(root, ".well-known");
   const dist = join(root, "dist");
   const temp = join(root, "tmp");
   await mkdir(fakeBin, { recursive: true });
   await mkdir(scripts, { recursive: true });
   await mkdir(takoform, { recursive: true });
+  await mkdir(wellKnown, { recursive: true });
   await mkdir(dist, { recursive: true });
   await mkdir(temp, { recursive: true });
 
@@ -112,14 +114,21 @@ async function createReleaseHarness(scenario: ReleaseScenario) {
   const ghLogPath = join(root, "gh.log");
   const tagStatePath = join(root, "tag-created");
 
-  const [deploySource, packageText, installText, rootModule, takoformModule] =
-    await Promise.all([
-      readFile(new URL("./deploy.mjs", import.meta.url), "utf8"),
-      readFile(new URL("../package.json", import.meta.url), "utf8"),
-      readFile(new URL("../install-options.json", import.meta.url), "utf8"),
-      readFile(new URL("../main.tf", import.meta.url), "utf8"),
-      readFile(new URL("../deploy/takoform/main.tf", import.meta.url), "utf8"),
-    ]);
+  const [
+    deploySource,
+    packageText,
+    installText,
+    repositoryText,
+    rootModule,
+    takoformModule,
+  ] = await Promise.all([
+    readFile(new URL("./deploy.mjs", import.meta.url), "utf8"),
+    readFile(new URL("../package.json", import.meta.url), "utf8"),
+    readFile(new URL("../install-options.json", import.meta.url), "utf8"),
+    readFile(new URL("../.well-known/takosumi.json", import.meta.url), "utf8"),
+    readFile(new URL("../main.tf", import.meta.url), "utf8"),
+    readFile(new URL("../deploy/takoform/main.tf", import.meta.url), "utf8"),
+  ]);
   const replaceDigest = (source: string) =>
     source.replace(
       /(variable\s+"worker_bundle_sha256"[\s\S]*?default\s+=\s+")sha256:[^"]+/u,
@@ -129,6 +138,7 @@ async function createReleaseHarness(scenario: ReleaseScenario) {
     writeFile(join(scripts, "deploy.mjs"), deploySource),
     writeFile(join(root, "package.json"), packageText),
     writeFile(join(root, "install-options.json"), installText),
+    writeFile(join(wellKnown, "takosumi.json"), repositoryText),
     writeFile(join(root, "main.tf"), replaceDigest(rootModule)),
     writeFile(join(takoform, "main.tf"), replaceDigest(takoformModule)),
     writeFile(artifactPath, artifact),
@@ -253,7 +263,7 @@ describe("release version", () => {
     for (const option of installOptions.options) {
       expect(option.source.ref).toBe(packageTag);
     }
-    for (const source of [moduleSource, takoformModuleSource]) {
+    for (const source of [moduleSource]) {
       expect(deploymentDefault(source, "worker_release_tag")).toBe(packageTag);
       expect(deploymentDefault(source, "worker_bundle_url")).toBe(artifactUrl);
       const artifactDigest = deploymentDefault(source, "worker_bundle_sha256");
@@ -261,6 +271,11 @@ describe("release version", () => {
       artifactDigests.add(artifactDigest!);
     }
     expect(artifactDigests.size).toBe(1);
+    expect(takoformModuleSource).not.toContain('variable "worker_release_tag"');
+    expect(takoformModuleSource).not.toContain('variable "worker_bundle_url"');
+    expect(takoformModuleSource).toContain(
+      'worker_bundle_path = "${path.module}/.generated/yurucommu-worker.js"',
+    );
   });
 
   test("keeps every published release lock entry internally consistent", () => {
@@ -317,16 +332,13 @@ describe("release surface status", () => {
       ]),
     );
     expect(release?.obligations.provenance).toContain("unpushed");
-    expect(release?.obligations.provenance).toContain(
-      "Store sources and module defaults",
-    );
+    expect(release?.obligations.provenance).toContain("Store source refs");
+    expect(release?.obligations.provenance).toContain("sourceBuild");
     expect(release?.requiresScripts).toContain("smoke:release-artifact");
     expect(release?.obligations["post-conditions"]).toContain(
       "downloaded Worker in workerd",
     );
-    expect(release?.obligations["post-conditions"]).toContain(
-      "Takosumi managed-runtime",
-    );
+    expect(release?.obligations["post-conditions"]).toContain("runtime-native");
     expect(release?.obligations["post-conditions"]).toContain(
       "isImmutable:true",
     );

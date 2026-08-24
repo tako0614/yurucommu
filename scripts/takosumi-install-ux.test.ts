@@ -75,78 +75,31 @@ const manifest = JSON.parse(manifestText) as {
   };
 };
 const rootModule = manifest.install.modules["."];
-const managedModule = manifest.install.modules["deploy/takoform-current"];
+const managedModule = manifest.install.modules["deploy/takoform"];
 const rootModuleSource = await readFile(new URL("main.tf", rootUrl), "utf8");
 const rootOutputsSource = await readFile(
   new URL("outputs.tf", rootUrl),
   "utf8",
 );
 const managedModuleSource = await readFile(
-  new URL("deploy/takoform-current/main.tf", rootUrl),
+  new URL("deploy/takoform/main.tf", rootUrl),
   "utf8",
 );
-const coreAuthRoutes = await readFile(
-  new URL(
-    "node_modules/@takosjp/yurucommu-core/src/backend/routes/auth.ts",
-    rootUrl,
-  ),
+const managedModuleOutputsSource = await readFile(
+  new URL("deploy/takoform/outputs.tf", rootUrl),
   "utf8",
 );
-const coreOauthProviders = await readFile(
-  new URL(
-    "node_modules/@takosjp/yurucommu-core/src/backend/lib/oauth-providers.ts",
-    rootUrl,
-  ),
-  "utf8",
-);
-const coreCrypto = await readFile(
-  new URL(
-    "node_modules/@takosjp/yurucommu-core/src/backend/lib/crypto.ts",
-    rootUrl,
-  ),
-  "utf8",
-);
-
 const sourceKinds = new Set([
   "user",
   "capsule_name",
   "workspace_scoped_capsule_name",
   "module_default",
 ]);
-const requirementKinds = new Set([
-  "http.endpoint",
-  "identity.oidc",
-  "secret.generated",
-]);
-
 function assertExactKeys(
   value: Record<string, unknown>,
   allowedKeys: readonly string[],
 ): void {
   expect(Object.keys(value).sort()).toEqual([...allowedKeys].sort());
-}
-
-function collectDeliveredVariables(
-  requirement: Record<string, unknown>,
-): string[] {
-  const variables: string[] = [];
-  const deliver = requirement.deliver;
-  if (
-    deliver &&
-    typeof deliver === "object" &&
-    !Array.isArray(deliver) &&
-    "variables" in deliver &&
-    deliver.variables &&
-    typeof deliver.variables === "object" &&
-    !Array.isArray(deliver.variables)
-  ) {
-    for (const value of Object.values(
-      deliver.variables as Record<string, unknown>,
-    )) {
-      if (typeof value === "string") variables.push(value);
-    }
-  }
-  return variables;
 }
 
 function collectForbiddenKeys(
@@ -255,7 +208,7 @@ describe("repository-owned Takosumi install UX", () => {
         source: {
           url: "https://github.com/tako0614/yurucommu.git",
           ref: "v2.1.6",
-          path: "deploy/takoform-current",
+          path: "deploy/takoform",
         },
       },
       {
@@ -284,10 +237,10 @@ describe("repository-owned Takosumi install UX", () => {
       "defaultModule",
       "modules",
     ]);
-    expect(manifest.install.defaultModule).toBe("deploy/takoform-current");
+    expect(manifest.install.defaultModule).toBe("deploy/takoform");
     expect(Object.keys(manifest.install.modules)).toEqual([
       ".",
-      "deploy/takoform-current",
+      "deploy/takoform",
     ]);
     expect(rootModule).toBeDefined();
     expect(managedModule).toBeDefined();
@@ -298,13 +251,11 @@ describe("repository-owned Takosumi install UX", () => {
     }
     assertExactKeys(rootModule as unknown as Record<string, unknown>, [
       "inputs",
-      "requires",
       "features",
       "interfaces",
     ]);
     assertExactKeys(managedModule as unknown as Record<string, unknown>, [
       "inputs",
-      "requires",
       "sourceBuild",
       "interfaces",
     ]);
@@ -325,9 +276,7 @@ describe("repository-owned Takosumi install UX", () => {
         expect(input.label.ja.length).toBeLessThanOrEqual(512);
         expect(input.label.en.length).toBeLessThanOrEqual(512);
       }
-      for (const requirement of module.requires ?? []) {
-        expect(requirementKinds.has(String(requirement.kind))).toBe(true);
-      }
+      expect(module.requires).toBeUndefined();
       for (const feature of module.features ?? []) {
         expect(feature.id.length).toBeLessThanOrEqual(64);
         expect(feature.inputs.length).toBeLessThanOrEqual(32);
@@ -369,7 +318,7 @@ describe("repository-owned Takosumi install UX", () => {
     }
   });
 
-  test("references only variables and the OIDC callback implemented by Yurucommu", () => {
+  test("references only declared module variables and ordinary outputs", () => {
     const moduleVariables = new Set(
       Array.from(
         rootModuleSource.matchAll(/variable\s+"([^"]+)"\s*\{/g),
@@ -378,7 +327,6 @@ describe("repository-owned Takosumi install UX", () => {
     );
     const declaredVariables = new Set([
       ...rootModule.inputs.map((input) => input.name),
-      ...(rootModule.requires ?? []).flatMap(collectDeliveredVariables),
       ...(rootModule.features ?? []).flatMap((feature) => feature.inputs),
     ]);
     expect(
@@ -397,47 +345,27 @@ describe("repository-owned Takosumi install UX", () => {
       expect(block).toMatch(/\n\s+default\s+=/);
     }
 
-    const oidcRequirement = rootModule.requires?.find(
-      (requirement) => requirement.kind === "identity.oidc",
-    );
-    expect(oidcRequirement?.callbackPath).toBe("/api/auth/callback/takos");
-    expect(coreAuthRoutes).toContain('auth.get("/callback/:provider"');
-    expect(coreOauthProviders).toContain('id: "takos"');
     expect(rootOutputsSource).toContain('output "launch_url"');
-    expect(managedModuleSource).toContain('output "launch_url"');
+    expect(managedModuleOutputsSource).toContain('output "launch_url"');
   });
 
-  test("keeps the managed OIDC grant aligned with the Yurucommu runtime", () => {
-    const managedOidcRequirement = managedModule.requires?.find(
-      (requirement) => requirement.kind === "identity.oidc",
-    );
-    expect(managedOidcRequirement?.scopes).toEqual([
-      "openid",
-      "profile",
-      "email",
-    ]);
-    expect(coreOauthProviders).toMatch(
-      /id: "takos",[\s\S]*?scopes: \["openid", "profile", "email"\]/,
-    );
-  });
-
-  test("generates the exact 32-byte hex encryption key required by the runtime", () => {
-    const generatedSecret = managedModule.requires?.find(
-      (requirement) => requirement.kind === "secret.generated",
-    );
-    expect(generatedSecret).toEqual({
-      kind: "secret.generated",
-      bytes: 32,
-      encoding: "hex",
-      deliver: {
-        bindings: {
-          value: "ENCRYPTION_KEY",
-        },
-      },
-    });
-    expect(coreCrypto).toContain(
-      "must be exactly 64 hex characters (0-9, a-f, A-F)",
-    );
+  test("does not ask Takosumi to synthesize endpoint, identity, or secrets", () => {
+    expect(rootModule.requires).toBeUndefined();
+    expect(managedModule.requires).toBeUndefined();
+    expect(manifestText).not.toContain('"kind": "http.endpoint"');
+    expect(manifestText).not.toContain('"kind": "identity.oidc"');
+    expect(manifestText).not.toContain('"kind": "secret.generated"');
+    for (const name of [
+      "ENCRYPTION_KEY",
+      "TAKOSUMI_ACCOUNTS_ISSUER_URL",
+      "TAKOSUMI_ACCOUNTS_CLIENT_ID",
+      "TAKOSUMI_ACCOUNTS_OWNER_SUB",
+      "TAKOSUMI_ACCOUNTS_REDIRECT_URI",
+    ]) {
+      expect(managedModuleSource).toContain(JSON.stringify(name));
+    }
+    expect(managedModuleSource).toContain("required_sensitive_vars");
+    expect(managedModuleSource).toContain('protocol = "com.amazonaws.s3"');
   });
 
   test("keeps host authority and secret values out of repository metadata", () => {
@@ -498,21 +426,24 @@ describe("repository-owned Takosumi install UX", () => {
       );
     }
     expect(managedModule.sourceBuild).toEqual({
-      commands: [{ argv: ["bun", "scripts/materialize-takoform-current.ts"] }],
+      commands: [
+        { argv: ["bun", "run", "build:worker"] },
+        { argv: ["bun", "scripts/prepare-takoform-v1-source.ts"] },
+      ],
       outputs: [
-        "deploy/takoform-current/.generated/yurucommu-worker.js",
-        "deploy/takoform-current/.generated/migrations",
+        "deploy/takoform/.generated/yurucommu-worker.js",
+        "deploy/takoform/.generated/migrations",
       ],
     });
     expect(
       managedModule.sourceBuild?.outputs.every((output) =>
-        output.startsWith("deploy/takoform-current/"),
+        output.startsWith("deploy/takoform/"),
       ),
     ).toBe(true);
     expect(managedModuleSource).toContain(
       'migration_root     = "${path.module}/.generated/migrations"',
     );
     expect(managedModuleSource).not.toContain("${path.module}/../");
-    expect(managedModuleSource).toContain('version = "= 2.1.1"');
+    expect(managedModuleSource).toContain('version = ">= 3.0.0"');
   });
 });

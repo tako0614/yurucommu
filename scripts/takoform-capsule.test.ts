@@ -15,70 +15,54 @@ const dataSourceTypes = Array.from(
   main.matchAll(/data\s+"([^"]+)"\s+"[^"]+"\s*\{/g),
   (match) => match[1],
 );
-const edgeWorkerConnectionsText = main.match(
-  /resource "takoform_edge_worker" "worker" \{[\s\S]*?\n  connections = \[\n([\s\S]*?)\n  \]\n\n  lifecycle \{/,
-)?.[1];
-const edgeWorkerConnectionNames = edgeWorkerConnectionsText
-  ? Array.from(
-      edgeWorkerConnectionsText.matchAll(/^\s+name\s+=\s+"([^"]+)"/gm),
-      (match) => match[1],
-    )
-  : [];
-const databaseResourceText = main.match(
-  /resource "takoform_relational_database" "database" \{([\s\S]*?)\n\}\n\nresource "takoform_object_bucket"/,
-)?.[1];
-const edgeWorkerResourceText = main.match(
-  /resource "takoform_edge_worker" "worker" \{([\s\S]*?)\n\}\n\nresource "takoform_schedule"/,
-)?.[1];
 
-describe("portable Takoform Capsule", () => {
-  test("owns the complete Yurucommu portable resource graph", () => {
+describe("portable Takoform v1 Capsule", () => {
+  test("owns the complete Provider 3 worker and service graph", () => {
     expect(resourceTypes.sort()).toEqual(
       [
-        "takoform_edge_worker",
-        "takoform_key_value_store",
-        "takoform_object_bucket",
-        "takoform_queue",
-        "takoform_queue",
-        "takoform_relational_database",
-        "takoform_schedule",
+        "takoform_at_least_once_queue",
+        "takoform_at_least_once_queue",
+        "takoform_edge_kv_namespace",
+        "takoform_module_worker",
+        "takoform_queue_consumer",
+        "takoform_sqlite_database",
+        "takoform_sqlite_migration_application",
+        "takoform_sqlite_migration_set",
+        "takoform_worker_bundle",
+        "takoform_worker_cron_trigger",
+        "takoform_worker_deployment",
+        "takoform_worker_endpoint",
+        "takoform_worker_version",
       ].sort(),
     );
-    for (const binding of [
-      "DB",
-      "MEDIA",
-      "KV",
-      "DELIVERY_QUEUE",
-      "DELIVERY_DLQ",
-    ]) {
-      expect(main).toContain(`name        = "${binding}"`);
+    expect(dataSourceTypes).toEqual([]);
+    expect(main).toContain('version = ">= 3.0.0"');
+  });
+
+  test("uses native Worker fetch, queue, and scheduled handlers", () => {
+    for (const handler of ["fetch", "queue", "scheduled"]) {
+      expect(main).toContain(`"${handler}"`);
     }
-    expect(main).toContain('permissions = ["consume", "publish"]');
-    expect(main).toContain('projection  = "schedule.trigger.v1"');
-    expect(dataSourceTypes).toEqual(["takoform_interface"]);
-    expect(main).toContain('name          = "http.request"');
-    expect(main).toContain('resource_kind = "EdgeWorker"');
-    expect(outputs).toContain("resource_uri");
-    expect(main).toContain('DELIVERY_QUEUE_NAME = "${local.prefix}-delivery"');
-    expect(main).toContain(
-      'DELIVERY_DLQ_NAME   = "${local.prefix}-delivery-dlq"',
-    );
+    expect(main).toContain("takoform_queue_consumer");
+    expect(main).toContain("takoform_worker_cron_trigger");
+    expect(main).not.toContain("background-events");
   });
 
-  test("keeps EdgeWorker connections in canonical order without duplicates", () => {
-    expect(edgeWorkerConnectionNames).toEqual([
-      "DB",
-      "DELIVERY_DLQ",
-      "DELIVERY_QUEUE",
-      "KV",
-      "MEDIA",
-    ]);
-    expect(new Set(edgeWorkerConnectionNames).size).toBe(
-      edgeWorkerConnectionNames.length,
+  test("requests MEDIA as one sealed standard S3 service", () => {
+    expect(main).toMatch(
+      /external_services\s*=\s*\[[\s\S]*name\s*=\s*"MEDIA"[\s\S]*protocol\s*=\s*"com\.amazonaws\.s3"[\s\S]*required\s*=\s*true[\s\S]*\]/,
     );
+    for (const forbidden of [
+      "takoform_object_bucket",
+      "bucket_bindings",
+      "edge.objects",
+      "ObjectBucket",
+    ]) {
+      expect(main).not.toContain(forbidden);
+    }
   });
 
-  test("does not route first-party desired state through Cloudflare compatibility", () => {
+  test("does not route desired state through compatibility or Host materialization", () => {
     expect(main).toContain(
       'source  = "registry.terraform.io/tako0614/takoform"',
     );
@@ -89,44 +73,38 @@ describe("portable Takoform Capsule", () => {
       "cloudflare_account_id",
       "target_pool",
       "hashicorp/http",
+      "takoform_interface",
+      "TAKOSUMI_MANAGED_RUNTIME_MATERIALIZATION",
+      "materialized",
+      "managed_runtime",
     ]) {
       expect(main).not.toContain(forbidden);
+      expect(outputs).not.toContain(forbidden);
     }
   });
 
-  test("declares the immutable schema bundle on the database resource", () => {
-    expect(main).toContain('version = "= 1.0.4"');
-    expect(main).toContain(
-      'schema_url      = "https://raw.githubusercontent.com/tako0614/yurucommu/bf7a3bdb55d9bd562ac895ada10ac42ce09a11b9/deploy/takoform/migrations/schema-bundle.json"',
-    );
-    expect(main).toContain(
-      'schema_sha256   = "f14135367b4b00a520f0ef8abc41f67d53c6abb9ef8577d946fb199987f5abaa"',
-    );
-    expect(main).toContain('schema_format   = "takosumi.resource-migrations"');
-    expect(main).toContain('form_transition = "relational-database-v2-to-v3"');
-    expect(main.match(/form_transition\s*=\s*"[^"]+"/g) ?? []).toHaveLength(1);
-    expect(databaseResourceText).toContain(
-      'form_transition = "relational-database-v2-to-v3"',
-    );
-    expect(edgeWorkerResourceText).toBeDefined();
-    expect(edgeWorkerResourceText).not.toContain("form_transition");
-    expect(edgeWorkerResourceText).not.toContain("assets_path");
-    expect(edgeWorkerResourceText).not.toContain("assets_not_found_handling");
-    expect(main).not.toContain("resource_migration");
-    expect(main).not.toContain("manifest.json");
-  });
-
-  test("publishes ordinary runtime outputs without lifecycle authority", () => {
+  test("publishes ordinary WorkerEndpoint URLs", () => {
     expect(outputs).toContain('output "launch_url"');
     expect(outputs).toContain('output "api_url"');
-    for (const retired of [
-      "takosumi_release",
-      "app_deployment",
-      "service_exports",
-      "service_bindings",
-    ]) {
-      expect(outputs).not.toContain(`output "${retired}"`);
-    }
-    expect(outputs).not.toMatch(/cloudflare|database_id|account_id|sql/i);
+    expect(outputs).toContain("takoform_worker_endpoint");
+    expect(outputs).toContain(".url");
+    expect(outputs).not.toContain("resource_uri");
+  });
+
+  test("admits the endpoint only after a fetch deployment without feeding its URL back into WorkerVersion", () => {
+    const workerEndpoint = main.match(
+      /resource "takoform_worker_endpoint" "worker" \{([\s\S]*?)\n\}/,
+    )?.[1];
+    expect(workerEndpoint).toBeDefined();
+    expect(workerEndpoint).toMatch(
+      /depends_on\s*=\s*\[takoform_worker_deployment\.worker\]/,
+    );
+    const workerVersion = main.match(
+      /resource "takoform_worker_version" "worker" \{([\s\S]*?)\n\}/,
+    )?.[1];
+    expect(workerVersion).toBeDefined();
+    expect(workerVersion).not.toContain("worker_endpoint");
+    expect(workerVersion).not.toContain("APP_URL");
+    expect(main).not.toMatch(/APP_URL\s*=\s*.*worker_endpoint/);
   });
 });

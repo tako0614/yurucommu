@@ -14,6 +14,10 @@ const moduleSource = await readFile(
   new URL("../main.tf", import.meta.url),
   "utf8",
 );
+const takoformModuleSource = await readFile(
+  new URL("../deploy/takoform/main.tf", import.meta.url),
+  "utf8",
+);
 
 describe("generated worker entry", () => {
   // The cron trigger fires whatever the deployed module exports. This entry
@@ -23,45 +27,37 @@ describe("generated worker entry", () => {
     expect(entrySource).toContain("async scheduled(");
     expect(entrySource).toContain("runYurucommuRetention");
     expect(entrySource).toContain(
-      "await runYurucommuRetention(withRequiredBackgroundAppUrl(runtimeEnv))",
+      "await runYurucommuRetention(runtimeEnv as Env)",
     );
   });
 
-  test("fails closed when a background invocation has no canonical app origin", () => {
-    expect(entrySource).toContain("withRequiredBackgroundAppUrl");
+  test("pins a request-derived canonical origin for native queue work", () => {
+    expect(entrySource).toContain("CANONICAL_ORIGIN_KV_KEY");
+    expect(entrySource).toContain("withRequestAppUrl");
+    expect(entrySource).toContain("withRequiredQueueAppUrl");
     expect(entrySource).toContain(
-      "APP_URL is required for queue and scheduled invocations",
+      "canonical request origin has not been observed; make one successful fetch before queue delivery",
     );
+    expect(entrySource).not.toContain("worker_endpoint");
+  });
+
+  test("uses the Host-authenticated QueueConsumer invocation identity instead of a logical Resource name", () => {
+    expect(entrySource).toContain("withDeliveryConsumerIdentity");
+    expect(entrySource).toContain("Queue invocation has no native identity");
+    expect(entrySource).toContain("The Provider is free to replace");
+    expect(entrySource).not.toContain("env.DELIVERY_QUEUE_NAME?.trim()");
     expect(entrySource).toContain(
-      "APP_URL must be an HTTPS origin for background invocations",
-    );
-    expect(entrySource).toContain(
-      "defaultTakosumiBackgroundQueueHandler(batch, runtimeEnv as Env)",
-    );
-    expect(entrySource).toContain(
-      "await runYurucommuRetention(withRequiredBackgroundAppUrl(runtimeEnv))",
+      "await withRequiredQueueAppUrl(wrapYurucommuWorkerBindings(env))",
     );
   });
 
-  test("fails closed instead of acknowledging an unmaterialized managed queue", () => {
-    expect(entrySource).toContain("withRequiredQueueIdentity");
-    expect(entrySource).toContain(
-      "DELIVERY_QUEUE_NAME and DELIVERY_DLQ_NAME must identify distinct managed queues",
+  test("uses only stable native event handlers in the Provider lane", () => {
+    expect(entrySource).toContain("handleYurucommuQueueBatch");
+    expect(entrySource).not.toContain(
+      "handleTakosumiBackgroundEventInvocation",
     );
-    expect(entrySource).toContain(
-      "Queue invocation does not match the managed queue identity",
-    );
-    expect(entrySource).toContain(
-      "withRequiredBackgroundAppUrl(wrapYurucommuWorkerBindings(env))",
-    );
-  });
-
-  test("routes the host-authenticated background HTTP ABI before app routes", () => {
-    expect(entrySource).toContain("handleTakosumiBackgroundEventInvocation({");
-    expect(entrySource).toContain("if (background) return background");
-    expect(entrySource).toContain(
-      "queue: defaultTakosumiBackgroundQueueHandler",
-    );
+    expect(entrySource).not.toContain("background-events");
+    expect(entrySource).not.toContain("TAKOSUMI_MANAGED_RUNTIME");
   });
 });
 
@@ -87,8 +83,8 @@ describe("retention cron surface", () => {
   // The Capsule path has no wrangler.jsonc, so the trigger must also exist as a
   // resource or an OpenTofu install silently never sweeps.
   test("the Capsule module schedules the sweep", () => {
-    expect(moduleSource).toContain(
-      'resource "cloudflare_workers_cron_trigger" "retention"',
+    expect(takoformModuleSource).toContain(
+      'resource "takoform_worker_cron_trigger" "retention"',
     );
   });
 });

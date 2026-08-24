@@ -46,14 +46,14 @@ YURUCOMMU_DEV_PROXY_TARGET=http://localhost:8787 bun run dev
 
 ## Choose where to run it
 
-| Goal                    | Use                                            | Data location                                   |
-| ----------------------- | ---------------------------------------------- | ----------------------------------------------- |
-| Try the UI              | `bun run dev:mock`                             | Memory; cleared on exit                         |
-| Run on Takoserver       | [`deploy/takoform-current`](deploy/takoform/README.md) | Independent Resources provided by Takoserver    |
-| Self-host on Cloudflare | Root `main.tf` or `wrangler.jsonc`             | D1, R2, Workers KV, and Queues                  |
+| Goal                    | Use                                            | Data location                                |
+| ----------------------- | ---------------------------------------------- | -------------------------------------------- |
+| Try the UI              | `bun run dev:mock`                             | Memory; cleared on exit                      |
+| Run on Takoserver       | [`deploy/takoform`](deploy/takoform/README.md) | Independent Resources provided by Takoserver |
+| Self-host on Cloudflare | Root `main.tf` or `wrangler.jsonc`             | D1, R2, Workers KV, and Queues               |
 
 Yurucommu owns the logical resource roles and connection names. The
-`deploy/takoform-current` module and root `main.tf` map that same contract to a
+`deploy/takoform` module and root `main.tf` map that same contract to a
 Takoform host and direct Cloudflare respectively. Takosumi runs either as an
 ordinary OpenTofu module; product code does not know which adapter was chosen.
 
@@ -84,17 +84,17 @@ authorization.
 4. Run Apply.
 5. Open Yurucommu from the Apps screen.
 
-After installation, Takosumi resolves the public URL through the EdgeWorker's
-declared `http.request@1` Interface. IaC reads its `resource_uri` as the ordinary
-`launch_url` output. The reviewed v2.1 [`interfaces`](.well-known/takosumi.json)
+After installation, the `WorkerEndpoint` created after `WorkerDeployment`
+returns the ordinary `launch_url` output. The reviewed v2.3
+[`interfaces`](.well-known/takosumi.json)
 declaration compiles to an `interface.ui.surface@1` Interface whose `inputs.url`
 explicitly references that `launch_url` output. The output alone does not create
 an Apps-screen surface; permission to open it remains a separate binding. No layer
 guesses a URL from provider-specific resource IDs.
 
 Automation can also read the ordinary `launch_url` and `api_url` OpenTofu
-outputs. If the Apps screen has no link, check the Apply result, the
-EdgeWorker's `http.request@1`, `launch_url`, and the installer's access.
+outputs. If the Apps screen has no link, check the Apply result, readiness of
+`WorkerDeployment` and `WorkerEndpoint`, `launch_url`, and the installer's access.
 
 See [`deploy/takoform/README.md`](deploy/takoform/README.md) for the resources
 declared by the app and the configuration that remains the host's
@@ -216,11 +216,11 @@ issues.
 
 ### Yurucommu is missing from the Apps screen
 
-A successful Apply is not enough if `http.request@1` has no `resource_uri`,
-`launch_url`, or the UI surface compiled from the v2 `interfaces` declaration is
-unresolved, or the current account lacks permission to open it. An output alone is
-not a launcher fallback. Inspect the Interface and Output instead of constructing a
-URL from a cloud resource ID.
+A successful Apply is not enough if the `launch_url` from `WorkerEndpoint.url`
+is unresolved, the UI surface compiled from the v2.3 `interfaces` declaration
+is unresolved, or the current account lacks permission to open it. Inspect the
+Endpoint output and Interface instead of constructing a URL from a cloud
+resource ID.
 
 ### Browser push does not arrive
 
