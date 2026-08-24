@@ -60,11 +60,7 @@ jobs:
           git -C "$provider_root" checkout --detach FETCH_HEAD
           test "$(git -C "$provider_root" rev-parse HEAD)" = "$TAKOFORM_SOURCE_COMMIT"
           go -C "$provider_root" build -trimpath -o "$RUNNER_TEMP/terraform-provider-takoform" .
+          echo "TAKOFORM_PROVIDER_BINARY=$RUNNER_TEMP/terraform-provider-takoform" >> "$GITHUB_ENV"
+          echo "TAKOFORM_PROVIDER_SHA256=sha256:$(sha256sum "$RUNNER_TEMP/terraform-provider-takoform" | cut -d ' ' -f 1)" >> "$GITHUB_ENV"
 
-      - name: Run the complete portable product gate
-        env:
-          TAKOFORM_PROVIDER_BINARY: ${{ runner.temp }}/terraform-provider-takoform
-        run: |
-          set -eu
-          provider_sha="sha256:$(sha256sum "$TAKOFORM_PROVIDER_BINARY" | cut -d ' ' -f 1)"
-          TAKOFORM_PROVIDER_SHA256="$provider_sha" bun run check
+      - run: bun run check
