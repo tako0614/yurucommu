@@ -261,15 +261,25 @@ function withDeliveryConsumerIdentity(
   batch: MessageBatch<DeliveryQueueMessageV1 | DeliveryDlqMessageV1>,
   env: RuntimeEnv,
 ): RuntimeEnv {
+  const configuredDelivery = env.DELIVERY_QUEUE_NAME?.trim() ?? "";
+  const configuredDlq = env.DELIVERY_DLQ_NAME?.trim() ?? "";
+  if ((configuredDelivery.length > 0) !== (configuredDlq.length > 0)) {
+    throw new Error("Direct queue identities must declare delivery and DLQ together");
+  }
+  if (configuredDelivery && configuredDlq) {
+    return env; // The direct adapter already declares both distinct queue identities.
+  }
+
   const queueName = batch.queue.trim();
   if (!queueName) {
     throw new Error("Queue invocation has no native identity");
   }
-  // The deployed graph attaches exactly one QueueConsumer to this Worker, and
+  // The Takoform graph attaches exactly one QueueConsumer to this Worker, and
   // that relation targets the delivery queue. The Provider is free to replace
   // the logical Resource name with a collision-safe native name, so the app
-  // must use the authenticated invocation identity rather than compare it to
-  // desired state. There is no DLQ consumer in this graph.
+  // uses the authenticated invocation identity there. The direct Cloudflare
+  // adapter returns above with its separately configured delivery and DLQ
+  // identities intact because it attaches consumers for both queues.
   return {
     ...env,
     DELIVERY_QUEUE_NAME: queueName,
