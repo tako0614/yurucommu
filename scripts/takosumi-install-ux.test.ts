@@ -9,6 +9,8 @@ const sourceOptions = JSON.parse(
 ) as {
   options: Array<{
     id: string;
+    title: string;
+    description: string;
     source: { url: string; ref: string; path: string };
   }>;
 };
@@ -199,12 +201,20 @@ function assertLauncherInterface(
 }
 
 describe("repository-owned Takosumi install UX", () => {
-  test("presents Takoserver as an ordinary source option without hiding direct BYOC", () => {
+  test("presents provider adapters separately from destination connections", () => {
     expect(
-      sourceOptions.options.map(({ id, source }) => ({ id, source })),
+      sourceOptions.options.map(({ id, title, description, source }) => ({
+        id,
+        title,
+        description,
+        source,
+      })),
     ).toEqual([
       {
-        id: "takoserver",
+        id: "takoform",
+        title: "Takoform",
+        description:
+          "Deploy Yurucommu with Takoform; choose a connected Takoform Host next. Takoserver is currently supported.",
         source: {
           url: "https://github.com/tako0614/yurucommu.git",
           ref: "v2.1.6",
@@ -213,6 +223,9 @@ describe("repository-owned Takosumi install UX", () => {
       },
       {
         id: "cloudflare",
+        title: "Cloudflare",
+        description:
+          "Deploy Yurucommu with Cloudflare; choose a connected Cloudflare account next.",
         source: {
           url: "https://github.com/tako0614/yurucommu.git",
           ref: "v2.1.6",
@@ -378,7 +391,7 @@ describe("repository-owned Takosumi install UX", () => {
     expect(manifestText).not.toContain("encryption_key");
   });
 
-  test("Takoserver install asks no provider or runtime-internal questions", () => {
+  test("Takoform install asks no provider or runtime-internal questions", () => {
     const moduleVariables = new Set(
       Array.from(
         managedModuleSource.matchAll(/variable\s+"([^"]+)"\s*\{/g),

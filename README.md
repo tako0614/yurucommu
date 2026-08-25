@@ -51,13 +51,15 @@ YURUCOMMU_DEV_PROXY_TARGET=http://localhost:8787 bun run dev
 | 目的                        | 使うもの                                       | データの置き場所                  |
 | --------------------------- | ---------------------------------------------- | --------------------------------- |
 | UI をすぐ試す               | `bun run dev:mock`                             | メモリ。終了時に消える            |
-| Takoserver で運用する       | [`deploy/takoform`](deploy/takoform/README.md) | Takoserver が提供する独立リソース |
+| Takoform Host で運用する    | [`deploy/takoform`](deploy/takoform/README.md) | Takoserver が提供する独立リソース |
 | Cloudflare で自分で運用する | ルートの `main.tf` または `wrangler.jsonc`     | D1、R2、Workers KV、Queues        |
 
-Yurucommu本体が所有するのは必要な役割と接続名です。`deploy/takoform`とルートの
-`main.tf`は、その同じ契約をそれぞれTakoform hostとCloudflareへ写すadapterです。
-Takosumiは通常のOpenTofu moduleを実行するだけで、製品コードはどちらを選んだかを
-知りません。
+Yurucommu本体が所有するのは必要な役割と接続名です。Takosumiではトップレベルで
+`Takoform`または`Cloudflare`のデプロイadapterを選び、その後に別の
+`ProviderConnection`で接続先を選びます。現在、Takoformの接続先はTakoform Hostとしての
+`Takoserver`、Cloudflareの接続先は利用者が接続したCloudflare accountです。
+`Takoserver`はadapterの選択肢ではありません。`deploy/takoform`とルートの`main.tf`は、
+その同じ契約をそれぞれTakoform HostとCloudflareへ写します。
 
 ### Takosumi でインストール
 
