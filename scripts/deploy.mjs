@@ -196,6 +196,7 @@ function requireReleaseIdentity(tag, artifactUrl, bundleDigest) {
   if (
     JSON.stringify(sourceBuildCommands) !==
     JSON.stringify([
+      ["bun", "install", "--frozen-lockfile"],
       ["bun", "run", "build:worker"],
       ["bun", "scripts/prepare-takoform-v1-source.ts"],
     ])

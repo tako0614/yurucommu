@@ -266,6 +266,9 @@
         "sourceBuild": {
           "commands": [
             {
+              "argv": ["bun", "install", "--frozen-lockfile"]
+            },
+            {
               "argv": ["bun", "run", "build:worker"]
             },
             {
