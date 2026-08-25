@@ -217,7 +217,7 @@ describe("repository-owned Takosumi install UX", () => {
           "Deploy Yurucommu with Takoform; choose a connected Takoform Host next. Takoserver is currently supported.",
         source: {
           url: "https://github.com/tako0614/yurucommu.git",
-          ref: "v2.1.7",
+          ref: "v2.1.8",
           path: "deploy/takoform",
         },
       },
@@ -228,7 +228,7 @@ describe("repository-owned Takosumi install UX", () => {
           "Deploy Yurucommu with Cloudflare; choose a connected Cloudflare account next.",
         source: {
           url: "https://github.com/tako0614/yurucommu.git",
-          ref: "v2.1.7",
+          ref: "v2.1.8",
           path: ".",
         },
       },
@@ -491,6 +491,6 @@ describe("repository-owned Takosumi install UX", () => {
       'migration_root     = "${path.module}/.generated/migrations"',
     );
     expect(managedModuleSource).not.toContain("${path.module}/../");
-    expect(managedModuleSource).toContain('version = ">= 3.0.0"');
+    expect(managedModuleSource).toContain('version = "= 3.0.0"');
   });
 });

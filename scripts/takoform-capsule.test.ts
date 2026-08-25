@@ -45,7 +45,11 @@ describe("portable Takoform v1 Capsule", () => {
       ].sort(),
     );
     expect(dataSourceTypes).toEqual([]);
-    expect(main).toContain('version = ">= 3.0.0"');
+  });
+
+  test("pins the independently published Provider 3 contract exactly", () => {
+    expect(main).toContain('version = "= 3.0.0"');
+    expect(main).not.toContain('version = ">= 3.0.0"');
   });
 
   test("uses native Worker fetch, queue, and scheduled handlers", () => {

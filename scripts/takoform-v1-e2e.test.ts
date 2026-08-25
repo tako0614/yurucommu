@@ -151,6 +151,8 @@ describe("Takoform stable-v1 fetch tracer", () => {
       (match) => match[1],
     );
 
+    expect(main).toContain('version = "= 3.0.0"');
+    expect(main).not.toContain('version = ">= 3.0.0"');
     expect(resourceTypes).toEqual([
       "takoform_module_worker",
       "takoform_worker_bundle",

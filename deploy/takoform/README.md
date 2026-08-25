@@ -5,9 +5,9 @@ This directory is Yurucommu's portable OpenTofu adapter for the stable
 [`../product-resources.json`](../product-resources.json); the root OpenTofu
 module is the separate direct-Cloudflare adapter for the same product roles.
 
-The module targets the independent Provider 3 reference implementation. It
-does not use the older compatibility resources, Host materialization output,
-or a portable object-bucket resource.
+The module targets the independently published Provider `3.0.0` contract
+exactly. It does not use the older compatibility resources, Host
+materialization output, or a portable object-bucket resource.
 
 ## Source preparation
 
@@ -90,11 +90,18 @@ pins it in `KV` when no operator-supplied `APP_URL` exists. Native queue work
 fails closed until a fetch has established that origin. The scheduled
 retention path does not invent or consume an application URL.
 
-## Validation with an unpublished Provider 3 candidate
+## Provider 3 validation
 
-Provider 3 is not assumed to exist in the public registry. Build or otherwise
-obtain the exact reviewed provider executable, hash it, and provide both as
-explicit local authority:
+The portable repository gate initializes the exact Provider `3.0.0` release
+from its public registry source in an isolated temporary directory, then
+validates the prepared module:
+
+```bash
+bun scripts/validate-takoform-v1.ts
+```
+
+To validate an unpublished local Provider 3 candidate instead, provide both
+the exact executable and its digest as explicit authority:
 
 ```bash
 export TAKOFORM_PROVIDER_BINARY=/absolute/path/to/terraform-provider-takoform
@@ -102,17 +109,28 @@ export TAKOFORM_PROVIDER_SHA256=sha256:<64-lowercase-hex-digest>
 bun scripts/validate-takoform-v1.ts
 ```
 
-The explicit candidate validator verifies the source and copied executable digests, creates a temporary
-`TF_CLI_CONFIG_FILE` development override, and validates the prepared module
-without pretending that `tofu init` fetched Provider 3. Missing, non-executable,
-or mismatched provider bytes fail before validation or mutation. The existing
-direct-Cloudflare root module continues to use its checked-in provider lock.
+The candidate path verifies the source and copied executable digests, creates a
+temporary `TF_CLI_CONFIG_FILE` development override, and validates the prepared
+module without pretending that `tofu init` fetched those local bytes. A partial
+configuration, non-executable file, or digest mismatch fails before validation
+or mutation. The existing direct-Cloudflare root module continues to use its
+checked-in provider lock.
 
-`bun run check:opentofu` remains portable: it checks every committed OpenTofu
-module backed by a lockfile, rebuilds the Worker, and verifies source
-preparation. It does not silently skip or pretend to validate the unpublished
-Provider 3 schema; that cross-repository assertion is the explicit command
-above and the TASK-0034 tracer.
+Registry validation writes an explicit temporary CLI config containing only a
+`direct {}` installation method. It does not inherit `TF_CLI_CONFIG_FILE`,
+the legacy `TERRAFORM_CONFIG`, `HOME/.tofurc`, or XDG development overrides.
+Both registry and local-candidate validation remove inherited `TF_CLI_ARGS` and
+every `TF_CLI_ARGS_*` variable before spawning OpenTofu, so a caller cannot
+inject `-plugin-dir` or other CLI arguments around the owned installation path.
+They also discard inherited plugin-cache, reattach, and plugin TLS/handshake
+authority, and replace `TF_DATA_DIR` with a path inside the temporary copy;
+ordinary logging, proxy, and registry retry configuration remains available.
+`bun run check:opentofu` checks the direct-Cloudflare module against its
+committed lock, rebuilds the Worker, and verifies source preparation. The
+Takoform module is copied to a temporary directory where its exact Provider
+constraint is initialized and validated; the ephemeral lock, CLI config, data
+directory, and plugin files are removed with that copy and never written into
+the selected source directory.
 
 ## Fetch-only local E2E
 
@@ -178,11 +196,12 @@ That is Host operator configuration, not Yurucommu module input or output.
 ```bash
 bun test scripts/takoform-capsule.test.ts \
   scripts/takoform-v1-e2e.test.ts \
+  scripts/validate-takoform-v1.test.ts \
   scripts/prepare-takoform-v1-source.test.ts \
   scripts/yurucommu-worker-bindings.test.ts
 tofu fmt -check -recursive
 ```
 
-`bun run check` includes the portable graph, runtime, and artifact gates. Exact
-Provider 3 validation remains the explicit candidate command above until that
-provider has an independently installable release.
+`bun run check` includes both OpenTofu modules, the portable graph, runtime, and
+artifact gates. The local-candidate environment variables remain an explicit
+override for testing bytes that are not available from the registry.

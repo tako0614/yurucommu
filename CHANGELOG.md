@@ -1,6 +1,15 @@
 # Changelog
 
-## 2.1.7 - Unreleased
+## 2.1.8 - 2026-08-25
+
+- Validate the independently published Takoform Provider `3.0.0` from its
+  signed registry release and pin both portable modules to that exact contract.
+- Rebuild the Takoform source module from the frozen Yurucommu dependency lock,
+  with temporary provider state isolated from ambient OpenTofu authority.
+- Advance both install source choices and the direct Cloudflare artifact
+  defaults together while retaining the verified `v2.1.7` rollback identity.
+
+## 2.1.7 - 2026-08-25
 
 - Present Takoform and Cloudflare as provider adapters, with Takoserver and a
   connected Cloudflare account selected as destinations underneath them.

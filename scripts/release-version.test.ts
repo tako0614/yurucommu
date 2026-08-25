@@ -17,6 +17,8 @@ const [
   takoformModuleSource,
   releaseLockSource,
   siteSource,
+  ciSource,
+  changelogSource,
 ] = await Promise.all([
   readFile(new URL("../package.json", import.meta.url), "utf8"),
   readFile(new URL("../install-options.json", import.meta.url), "utf8"),
@@ -24,6 +26,8 @@ const [
   readFile(new URL("../deploy/takoform/main.tf", import.meta.url), "utf8"),
   readFile(new URL("../release.lock.json", import.meta.url), "utf8"),
   readFile(new URL("../site/index.html", import.meta.url), "utf8"),
+  readFile(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8"),
+  readFile(new URL("../CHANGELOG.md", import.meta.url), "utf8"),
 ]);
 
 const packageJson = JSON.parse(packageSource) as {
@@ -41,9 +45,10 @@ const releaseLock = JSON.parse(releaseLockSource) as {
   releases: Record<
     string,
     {
-      artifact: { url: string; sha256: string };
+      artifact: { filename: string; url: string; sha256: string };
       manifest: { url: string; sha256: string };
       commit: string;
+      seededFrom: string;
     }
   >;
 };
@@ -256,6 +261,39 @@ exit 1
 }
 
 describe("release version", () => {
+  test("prepares v2.1.8 while retaining the authoritative v2.1.7 rollback pin", () => {
+    expect(packageVersion).toBe("2.1.8");
+    expect(changelogSource).toContain("## 2.1.8 - 2026-08-25");
+    expect(changelogSource).toContain("## 2.1.7 - 2026-08-25");
+    expect(changelogSource).not.toContain("## 2.1.7 - Unreleased");
+    expect(releaseLock.releases["v2.1.7"]).toEqual({
+      artifact: {
+        filename: "yurucommu-worker.js",
+        url: "https://github.com/tako0614/yurucommu/releases/download/v2.1.7/yurucommu-worker.js",
+        sha256:
+          "sha256:303704a5cee9d4c8705787c44dec3b54042f5b6624a0bb615342c57c36c77d37",
+      },
+      manifest: {
+        url: "https://github.com/tako0614/yurucommu/releases/download/v2.1.7/takosumi-artifact.json",
+        sha256:
+          "sha256:4349048af67bdcb3d0492042f22119dff629e08f874f1e6298a3d0a58ca94467",
+      },
+      commit: "421417c7f32cf31b58b71dc5413ddaa7ef7df4cc",
+      seededFrom:
+        "owner deploy exact immutable GitHub Release/tag/downloaded asset readback on 2026-08-25",
+    });
+    expect(releaseLock.releases["v2.1.8"]).toBeUndefined();
+  });
+
+  test("CI validates the published Provider without building or injecting a stale candidate", () => {
+    expect(ciSource).not.toContain("actions/setup-go@");
+    expect(ciSource).not.toContain("TAKOFORM_SOURCE_COMMIT");
+    expect(ciSource).not.toContain("TAKOFORM_PROVIDER_BINARY");
+    expect(ciSource).not.toContain("TAKOFORM_PROVIDER_SHA256");
+    expect(ciSource).not.toContain("c08651d9b39d1be34e4b803c3d32fdca82e3653e");
+    expect(ciSource).toContain("- run: bun run check");
+  });
+
   test("binds Store sources and deployment defaults to one package release", () => {
     const artifactUrl = `https://github.com/tako0614/yurucommu/releases/download/${packageTag}/yurucommu-worker.js`;
     const artifactDigests = new Set<string>();
@@ -267,7 +305,9 @@ describe("release version", () => {
       expect(deploymentDefault(source, "worker_release_tag")).toBe(packageTag);
       expect(deploymentDefault(source, "worker_bundle_url")).toBe(artifactUrl);
       const artifactDigest = deploymentDefault(source, "worker_bundle_sha256");
-      expect(artifactDigest).toMatch(/^sha256:[a-f0-9]{64}$/u);
+      expect(artifactDigest).toBe(
+        "sha256:303704a5cee9d4c8705787c44dec3b54042f5b6624a0bb615342c57c36c77d37",
+      );
       artifactDigests.add(artifactDigest!);
     }
     expect(artifactDigests.size).toBe(1);
