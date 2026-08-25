@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
 import {
   claimTakosumiOidcAutoStart,
@@ -30,6 +31,29 @@ describe("LoginForm Takosumi OIDC auto-start", () => {
         ],
       }),
     ).toBe(false);
+  });
+});
+
+describe("LoginForm authentication errors", () => {
+  test("shows OAuth-only callback errors in the shared auth-methods view", () => {
+    const source = readFileSync(
+      new URL("./LoginForm.tsx", import.meta.url),
+      "utf8",
+    );
+    const authMethodsIndex = source.indexOf(
+      "when={hasOAuth() || hasPassword()}",
+    );
+    const alertIndex = source.indexOf('role="alert"');
+    const passwordSectionIndex = source.indexOf("{/* Password Form */}");
+
+    expect(authMethodsIndex).toBeGreaterThanOrEqual(0);
+    expect(alertIndex).toBeGreaterThanOrEqual(0);
+    expect(alertIndex).toBeGreaterThan(authMethodsIndex);
+    expect(passwordSectionIndex).toBeGreaterThan(alertIndex);
+    expect(source.slice(alertIndex, passwordSectionIndex)).toContain(
+      "{props.error}",
+    );
+    expect(source.match(/role="alert"/g)).toHaveLength(1);
   });
 });
 

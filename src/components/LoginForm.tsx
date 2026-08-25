@@ -144,6 +144,16 @@ export function LoginForm(props: LoginFormProps) {
             </div>
           </Show>
 
+          <Show when={props.error}>
+            <div
+              role="alert"
+              aria-live="assertive"
+              class="text-red-400 text-sm bg-red-900/30 border border-red-800 rounded-md px-3 py-2"
+            >
+              {props.error}
+            </div>
+          </Show>
+
           {/* Divider */}
           <Show when={hasOAuth() && hasPassword()}>
             <div class="relative">
@@ -180,16 +190,6 @@ export function LoginForm(props: LoginFormProps) {
                   autofocus={!hasOAuth()}
                 />
               </div>
-
-              <Show when={props.error}>
-                <div
-                  role="alert"
-                  aria-live="assertive"
-                  class="text-red-400 text-sm bg-red-900/30 border border-red-800 rounded-md px-3 py-2"
-                >
-                  {props.error}
-                </div>
-              </Show>
 
               <button
                 type="submit"
