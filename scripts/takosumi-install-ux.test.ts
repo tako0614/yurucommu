@@ -427,6 +427,7 @@ describe("repository-owned Takosumi install UX", () => {
     }
     expect(managedModule.sourceBuild).toEqual({
       commands: [
+        { argv: ["bun", "install", "--frozen-lockfile"] },
         { argv: ["bun", "run", "build:worker"] },
         { argv: ["bun", "scripts/prepare-takoform-v1-source.ts"] },
       ],
