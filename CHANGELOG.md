@@ -1,6 +1,13 @@
 # Changelog
 
-## 2.1.6 - Unreleased
+## 2.1.7 - Unreleased
+
+- Present Takoform and Cloudflare as provider adapters, with Takoserver and a
+  connected Cloudflare account selected as destinations underneath them.
+- Keep the Takosumi Cloudflare install on Accounts OIDC and remove unsealed
+  password and authenticated push-token inputs from its repository UX.
+
+## 2.1.6 - 2026-08-14
 
 - Pin the Takoform adapter to provider `1.0.4` and request the explicit
   RelationalDatabase v2-to-v3 Form transition for existing installations.

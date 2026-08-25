@@ -78,6 +78,12 @@ ref. This repository-owned file describes labels and defaults only. Takosumi
 still owns cloud credentials, secrets, the public URL, migrations, and runtime
 authorization.
 
+Takosumi's Cloudflare profile uses Takosumi Accounts OIDC. The initial install
+screen does not accept an initial password or an authenticated push-gateway
+token because that path has no sealed input transport. A gateway that needs no
+token can still use its URL and public key. Token-authenticated gateways remain
+a manual self-hosting concern until sealed install inputs exist.
+
 1. Enter the Git URL, ref, and path.
 2. Let Takosumi sync the source and show what it will create.
 3. Review the Plan.

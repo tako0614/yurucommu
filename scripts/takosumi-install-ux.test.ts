@@ -217,7 +217,7 @@ describe("repository-owned Takosumi install UX", () => {
           "Deploy Yurucommu with Takoform; choose a connected Takoform Host next. Takoserver is currently supported.",
         source: {
           url: "https://github.com/tako0614/yurucommu.git",
-          ref: "v2.1.6",
+          ref: "v2.1.7",
           path: "deploy/takoform",
         },
       },
@@ -228,7 +228,7 @@ describe("repository-owned Takosumi install UX", () => {
           "Deploy Yurucommu with Cloudflare; choose a connected Cloudflare account next.",
         source: {
           url: "https://github.com/tako0614/yurucommu.git",
-          ref: "v2.1.6",
+          ref: "v2.1.7",
           path: ".",
         },
       },
@@ -329,6 +329,39 @@ describe("repository-owned Takosumi install UX", () => {
         }
       }
     }
+  });
+
+  test("keeps the direct Cloudflare install on the sealed Accounts OIDC lane", () => {
+    const rootInputNames = rootModule.inputs.map((input) => input.name);
+    expect(
+      rootModule.inputs.find((input) => input.name === "app_url")?.source,
+    ).toEqual({ kind: "module_default" });
+    for (const name of [
+      "takosumi_accounts_issuer_url",
+      "takosumi_accounts_client_id",
+    ]) {
+      expect(
+        rootModule.inputs.find((input) => input.name === name)?.source,
+      ).toEqual({ kind: "module_default" });
+    }
+    expect(rootInputNames).not.toContain("auth_password_hash");
+    expect(rootInputNames).not.toContain("notification_push_gateway_token");
+    expect(rootModule.features?.map((feature) => feature.id)).not.toContain(
+      "password-authentication",
+    );
+    expect(
+      rootModule.features?.find((feature) => feature.id === "notification-push")
+        ?.inputs,
+    ).toEqual([
+      "notification_push_gateway_url",
+      "notification_push_web_push_public_key",
+    ]);
+    expect(rootModuleSource).toContain(
+      'workers_dev_url               = trimspace(var.cloudflare_workers_subdomain) != "" ? "https://${local.worker_name}.${trimspace(var.cloudflare_workers_subdomain)}.workers.dev" : null',
+    );
+    expect(rootModuleSource).toContain(
+      'launch_url                    = trimspace(var.app_url) != "" ? trimspace(var.app_url) : local.workers_dev_url',
+    );
   });
 
   test("references only declared module variables and ordinary outputs", () => {

@@ -80,6 +80,12 @@ Takosumi の「新しいアプリ」または `/install` 画面で、次を指�
 決めるのは入力欄の名前や既定値だけです。クラウドの認証情報、シークレット、公開 URL、
 データ移行、実行権限は Takosumi 側が管理します。
 
+Takosumi の Cloudflare profile は Takosumi Accounts の OIDC を使います。
+初回インストール画面では、sealed な保存経路を持たない初期パスワードと認証付き
+Push gateway token は受け付けません。認証不要の Push gateway は URL と公開鍵を
+指定できます。token が必要な gateway は、sealed install input が用意されるまで
+手動セルフホストの運用範囲です。
+
 1. Git URL、ref、path を入力する
 2. Takosumi がソースを同期し、作成するものを表示する
 3. Plan で変更内容を確認する

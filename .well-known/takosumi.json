@@ -27,20 +27,15 @@
           {
             "name": "app_url",
             "source": {
-              "kind": "user"
+              "kind": "module_default"
             },
             "type": "string",
             "format": "url",
-            "required": false,
             "label": {
               "ja": "公開URL",
               "en": "Public URL"
             },
-            "helper": {
-              "ja": "空欄の場合は選択したproviderまたはoperatorが公開URLを決定します。",
-              "en": "When omitted, the selected provider or operator determines the public URL."
-            },
-            "placeholder": "https://yurucommu.example.com"
+            "advanced": true
           },
           {
             "name": "takosumi_accounts_issuer_url",
@@ -68,25 +63,6 @@
             "advanced": true
           },
           {
-            "name": "auth_password_hash",
-            "source": {
-              "kind": "user"
-            },
-            "role": "initial_secret",
-            "type": "string",
-            "format": "password",
-            "required": false,
-            "label": {
-              "ja": "初期パスワード",
-              "en": "Initial password"
-            },
-            "helper": {
-              "ja": "パスワード認証を選んだ場合だけ入力します。",
-              "en": "Enter this only when password authentication is selected."
-            },
-            "secret": true
-          },
-          {
             "name": "notification_push_gateway_url",
             "source": {
               "kind": "user"
@@ -99,21 +75,6 @@
               "en": "Push gateway URL"
             },
             "advanced": true
-          },
-          {
-            "name": "notification_push_gateway_token",
-            "source": {
-              "kind": "user"
-            },
-            "type": "string",
-            "format": "password",
-            "required": false,
-            "label": {
-              "ja": "Pushゲートウェイトークン",
-              "en": "Push gateway token"
-            },
-            "advanced": true,
-            "secret": true
           },
           {
             "name": "notification_push_web_push_public_key",
@@ -180,15 +141,6 @@
         ],
         "features": [
           {
-            "id": "password-authentication",
-            "optional": true,
-            "label": {
-              "ja": "パスワードでログイン",
-              "en": "Sign in with a password"
-            },
-            "inputs": ["auth_password_hash"]
-          },
-          {
             "id": "notification-push",
             "optional": true,
             "label": {
@@ -197,7 +149,6 @@
             },
             "inputs": [
               "notification_push_gateway_url",
-              "notification_push_gateway_token",
               "notification_push_web_push_public_key"
             ]
           }

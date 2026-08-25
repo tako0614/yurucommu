@@ -160,7 +160,7 @@ case "$*" in
   "rev-parse HEAD"|"rev-parse origin/main") printf '%s\\n' '${fakeCommit}' ;;
   "tag --list"*) exit 0 ;;
   "ls-remote --tags"*)
-    if [ -s "$FAKE_TAG_STATE" ]; then printf '%s\\trefs/tags/v2.1.6\\n' '${fakeCommit}'; fi
+    if [ -s "$FAKE_TAG_STATE" ]; then printf '%s\\trefs/tags/${tag}\\n' '${fakeCommit}'; fi
     exit 0
     ;;
   "fetch"*) exit 0 ;;
@@ -489,7 +489,7 @@ describe("immutable GitHub release guard", () => {
     expect(result.ghLog).toContain("release create");
     expect(result.stdout).not.toContain('"status": "PUBLISHED"');
     expect(result.stderr).toContain(
-      "publication of v2.1.6 started but did not complete cleanly",
+      `publication of ${packageTag} started but did not complete cleanly`,
     );
   });
 });

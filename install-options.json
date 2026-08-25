@@ -13,7 +13,7 @@
       "description": "Deploy Yurucommu with Takoform; choose a connected Takoform Host next. Takoserver is currently supported.",
       "source": {
         "url": "https://github.com/tako0614/yurucommu.git",
-        "ref": "v2.1.6",
+        "ref": "v2.1.7",
         "path": "deploy/takoform"
       }
     },
@@ -23,7 +23,7 @@
       "description": "Deploy Yurucommu with Cloudflare; choose a connected Cloudflare account next.",
       "source": {
         "url": "https://github.com/tako0614/yurucommu.git",
-        "ref": "v2.1.6",
+        "ref": "v2.1.7",
         "path": "."
       }
     }
