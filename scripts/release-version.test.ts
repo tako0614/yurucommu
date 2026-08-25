@@ -261,7 +261,7 @@ exit 1
 }
 
 describe("release version", () => {
-  test("prepares v2.1.8 while retaining the authoritative v2.1.7 rollback pin", () => {
+  test("records v2.1.8 while retaining the authoritative v2.1.7 rollback pin", () => {
     expect(packageVersion).toBe("2.1.8");
     expect(changelogSource).toContain("## 2.1.8 - 2026-08-25");
     expect(changelogSource).toContain("## 2.1.7 - 2026-08-25");
@@ -282,7 +282,22 @@ describe("release version", () => {
       seededFrom:
         "owner deploy exact immutable GitHub Release/tag/downloaded asset readback on 2026-08-25",
     });
-    expect(releaseLock.releases["v2.1.8"]).toBeUndefined();
+    expect(releaseLock.releases["v2.1.8"]).toEqual({
+      artifact: {
+        filename: "yurucommu-worker.js",
+        url: "https://github.com/tako0614/yurucommu/releases/download/v2.1.8/yurucommu-worker.js",
+        sha256:
+          "sha256:303704a5cee9d4c8705787c44dec3b54042f5b6624a0bb615342c57c36c77d37",
+      },
+      manifest: {
+        url: "https://github.com/tako0614/yurucommu/releases/download/v2.1.8/takosumi-artifact.json",
+        sha256:
+          "sha256:abba56714934fb23cd1b9017718118644380bc2e0c02a32ac9fd25810a433764",
+      },
+      commit: "c2f6e50747f8bc2a3c4e80305c04b78aea1b505b",
+      seededFrom:
+        "owner deploy exact immutable GitHub Release/tag/downloaded asset and checksum readback on 2026-08-25",
+    });
   });
 
   test("CI validates the published Provider without building or injecting a stale candidate", () => {
