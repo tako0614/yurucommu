@@ -245,7 +245,7 @@ variable "worker_bundle_url" {
 variable "worker_bundle_sha256" {
   description = "Expected SHA-256 assertion for an explicit worker_bundle_url or local worker_bundle_path. Accepts lowercase hex or sha256:<hex>. When worker_bundle_url is empty and worker_release_tag selects release.lock.json, a supplied value must equal that pin."
   type        = string
-  default     = "sha256:6e39a18ea95172affd2d4b12d24f2e59ab9f5f1af7a14a80ec3989275bed66bd"
+  default     = "sha256:303704a5cee9d4c8705787c44dec3b54042f5b6624a0bb615342c57c36c77d37"
 
   validation {
     condition     = trimspace(var.worker_bundle_sha256) == "" || can(regex("^(sha256:)?[a-f0-9]{64}$", trimspace(var.worker_bundle_sha256)))
