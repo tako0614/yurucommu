@@ -63,14 +63,16 @@ Yurucommu本体が所有するのは必要な役割と接続名です。Takosumi
 
 ### Takosumi でインストール
 
-Takosumi の「新しいアプリ」または `/install` 画面で、次を指定します。
+Takosumi の「新しいアプリ」または `/install` 画面へ、次の Git URL だけを渡します。
 
-| 項目    | 値                                           |
-| ------- | -------------------------------------------- |
-| Git URL | `https://github.com/tako0614/yurucommu.git`  |
-| ref     | 使用する安定版タグ、または確認済みのコミット |
-| path    | `deploy/takoform`                            |
-| name    | 任意のサービス名。例: `yurucommu`            |
+```text
+https://app.takosumi.com/install?git=https%3A%2F%2Fgithub.com%2Ftako0614%2Fyurucommu.git
+```
+
+Takosumi は同じ Git revision の tree を読み、`.well-known/takosumi.json` の
+`install.defaultModule` (`deploy/takoform`) と実際のモジュール宣言を選びます。
+追加の source-options 文書や手動の provider 選択はありません。必要な場合だけ
+Takosumi の画面で ref、module path、サービス名を調整します。
 
 一覧画面に Yurucommu が表示される Takosumi ホストでも、選択される実体は同じ
 `deploy/takoform` です。一覧は見つけやすくする入口であり、別の配布物ではありません。
@@ -86,8 +88,8 @@ Push gateway token は受け付けません。認証不要の Push gateway は U
 指定できます。token が必要な gateway は、sealed install input が用意されるまで
 手動セルフホストの運用範囲です。
 
-1. Git URL、ref、path を入力する
-2. Takosumi がソースを同期し、作成するものを表示する
+1. Git URL を渡す
+2. Takosumi がソース tree と manifest を同期し、作成するものを表示する
 3. Plan で変更内容を確認する
 4. Apply を実行する
 5. Apps 画面から Yurucommu を開く

@@ -12,18 +12,18 @@ import { join } from "node:path";
 
 const [
   packageSource,
-  installOptionsSource,
   moduleSource,
   takoformModuleSource,
+  repositorySource,
   releaseLockSource,
   siteSource,
   ciSource,
   changelogSource,
 ] = await Promise.all([
   readFile(new URL("../package.json", import.meta.url), "utf8"),
-  readFile(new URL("../install-options.json", import.meta.url), "utf8"),
   readFile(new URL("../main.tf", import.meta.url), "utf8"),
   readFile(new URL("../deploy/takoform/main.tf", import.meta.url), "utf8"),
+  readFile(new URL("../.well-known/takosumi.json", import.meta.url), "utf8"),
   readFile(new URL("../release.lock.json", import.meta.url), "utf8"),
   readFile(new URL("../site/index.html", import.meta.url), "utf8"),
   readFile(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8"),
@@ -36,10 +36,22 @@ const packageJson = JSON.parse(packageSource) as {
 };
 const packageVersion = packageJson.version;
 const packageTag = `v${packageVersion}`;
-const installOptions = JSON.parse(installOptionsSource) as {
-  options: Array<{
-    source: { url: string; ref?: string; path: string };
-  }>;
+const repositoryManifest = JSON.parse(repositorySource) as {
+  apiVersion: string;
+  kind: string;
+  install: {
+    defaultModule: string;
+    modules: Record<
+      string,
+      {
+        inputs?: Array<{ name: string; source?: { kind?: string } }>;
+        sourceBuild?: {
+          commands?: Array<{ argv: string[] }>;
+          outputs?: string[];
+        };
+      }
+    >;
+  };
 };
 const releaseLock = JSON.parse(releaseLockSource) as {
   releases: Record<
@@ -74,6 +86,7 @@ type ReleaseScenario = {
   immutableSettings: string;
   readback: string;
   createFails?: boolean;
+  manifestMutator?: (source: string) => string;
 };
 
 async function createReleaseHarness(scenario: ReleaseScenario) {
@@ -122,14 +135,12 @@ async function createReleaseHarness(scenario: ReleaseScenario) {
   const [
     deploySource,
     packageText,
-    installText,
     repositoryText,
     rootModule,
     takoformModule,
   ] = await Promise.all([
     readFile(new URL("./deploy.mjs", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
-    readFile(new URL("../install-options.json", import.meta.url), "utf8"),
     readFile(new URL("../.well-known/takosumi.json", import.meta.url), "utf8"),
     readFile(new URL("../main.tf", import.meta.url), "utf8"),
     readFile(new URL("../deploy/takoform/main.tf", import.meta.url), "utf8"),
@@ -142,8 +153,10 @@ async function createReleaseHarness(scenario: ReleaseScenario) {
   await Promise.all([
     writeFile(join(scripts, "deploy.mjs"), deploySource),
     writeFile(join(root, "package.json"), packageText),
-    writeFile(join(root, "install-options.json"), installText),
-    writeFile(join(wellKnown, "takosumi.json"), repositoryText),
+    writeFile(
+      join(wellKnown, "takosumi.json"),
+      scenario.manifestMutator?.(repositoryText) ?? repositoryText,
+    ),
     writeFile(join(root, "main.tf"), replaceDigest(rootModule)),
     writeFile(join(takoform, "main.tf"), replaceDigest(takoformModule)),
     writeFile(artifactPath, artifact),
@@ -309,23 +322,41 @@ describe("release version", () => {
     expect(ciSource).toContain("- run: bun run check");
   });
 
-  test("binds Store sources and deployment defaults to one package release", () => {
+  test("binds the repository manifest module and asset pins to one package release", () => {
     const artifactUrl = `https://github.com/tako0614/yurucommu/releases/download/${packageTag}/yurucommu-worker.js`;
-    const artifactDigests = new Set<string>();
-
-    for (const option of installOptions.options) {
-      expect(option.source.ref).toBe(packageTag);
+    expect(repositoryManifest.apiVersion).toBe("takosumi.com/v2.3");
+    expect(repositoryManifest.kind).toBe("Repository");
+    expect(repositoryManifest.install.defaultModule).toBe("deploy/takoform");
+    const rootModule = repositoryManifest.install.modules["."];
+    const managedModule = repositoryManifest.install.modules["deploy/takoform"];
+    const pinInputs = new Map(
+      rootModule?.inputs?.map((input) => [input.name, input]) ?? [],
+    );
+    for (const name of [
+      "worker_release_tag",
+      "worker_bundle_url",
+      "worker_bundle_sha256",
+    ]) {
+      expect(pinInputs.get(name)?.source?.kind).toBe("module_default");
     }
-    for (const source of [moduleSource]) {
-      expect(deploymentDefault(source, "worker_release_tag")).toBe(packageTag);
-      expect(deploymentDefault(source, "worker_bundle_url")).toBe(artifactUrl);
-      const artifactDigest = deploymentDefault(source, "worker_bundle_sha256");
-      expect(artifactDigest).toBe(
-        "sha256:303704a5cee9d4c8705787c44dec3b54042f5b6624a0bb615342c57c36c77d37",
-      );
-      artifactDigests.add(artifactDigest!);
-    }
-    expect(artifactDigests.size).toBe(1);
+    expect(managedModule?.sourceBuild?.commands).toEqual([
+      { argv: ["bun", "install", "--frozen-lockfile"] },
+      { argv: ["bun", "run", "build:worker"] },
+      { argv: ["bun", "scripts/prepare-takoform-v1-source.ts"] },
+    ]);
+    expect(managedModule?.sourceBuild?.outputs).toEqual([
+      "deploy/takoform/.generated/yurucommu-worker.js",
+      "deploy/takoform/.generated/migrations",
+    ]);
+    expect(deploymentDefault(moduleSource, "worker_release_tag")).toBe(
+      packageTag,
+    );
+    expect(deploymentDefault(moduleSource, "worker_bundle_url")).toBe(
+      artifactUrl,
+    );
+    expect(deploymentDefault(moduleSource, "worker_bundle_sha256")).toBe(
+      "sha256:303704a5cee9d4c8705787c44dec3b54042f5b6624a0bb615342c57c36c77d37",
+    );
     expect(takoformModuleSource).not.toContain('variable "worker_release_tag"');
     expect(takoformModuleSource).not.toContain('variable "worker_bundle_url"');
     expect(takoformModuleSource).toContain(
@@ -381,13 +412,15 @@ describe("release surface status", () => {
     expect(release?.covers).toEqual(
       expect.arrayContaining([
         "bun.lock",
-        "install-options.json",
+        ".well-known/takosumi.json",
         "main.tf",
         "deploy/takoform/main.tf",
       ]),
     );
     expect(release?.obligations.provenance).toContain("unpushed");
-    expect(release?.obligations.provenance).toContain("Store source refs");
+    expect(release?.obligations.provenance).toContain(
+      "repository manifest's default deploy/takoform module",
+    );
     expect(release?.obligations.provenance).toContain("sourceBuild");
     expect(release?.requiresScripts).toContain("smoke:release-artifact");
     expect(release?.obligations["post-conditions"]).toContain(
@@ -509,6 +542,38 @@ describe("immutable GitHub release guard", () => {
     expect(result.exitCode).not.toBe(0);
     expect(result.ghLog).not.toContain("release create");
     expect(result.stderr).toContain("immutable");
+  });
+
+  test("does not call release create when the repository manifest selects another module", async () => {
+    const result = await createReleaseHarness({
+      immutableSettings: JSON.stringify({ enabled: true }),
+      readback: readbackPayload(true),
+      manifestMutator: (source) =>
+        source.replace(
+          '"defaultModule": "deploy/takoform"',
+          '"defaultModule": "."',
+        ),
+    });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.ghLog).not.toContain("release create");
+    expect(result.stderr).toContain("expected deploy/takoform");
+  });
+
+  test("does not call release create when the manifest asset output pin drifts", async () => {
+    const result = await createReleaseHarness({
+      immutableSettings: JSON.stringify({ enabled: true }),
+      readback: readbackPayload(true),
+      manifestMutator: (source) =>
+        source.replace(
+          '"deploy/takoform/.generated/yurucommu-worker.js"',
+          '"deploy/takoform/.generated/unexpected.js"',
+        ),
+    });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.ghLog).not.toContain("release create");
+    expect(result.stderr).toContain("generated Worker and migration assets");
   });
 
   test.each([

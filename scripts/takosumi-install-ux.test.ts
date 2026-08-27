@@ -4,16 +4,6 @@ import { readFile } from "node:fs/promises";
 const rootUrl = new URL("../", import.meta.url);
 const manifestUrl = new URL(".well-known/takosumi.json", rootUrl);
 const manifestText = await readFile(manifestUrl, "utf8");
-const sourceOptions = JSON.parse(
-  await readFile(new URL("install-options.json", rootUrl), "utf8"),
-) as {
-  options: Array<{
-    id: string;
-    title: string;
-    description: string;
-    source: { url: string; ref: string; path: string };
-  }>;
-};
 const manifest = JSON.parse(manifestText) as {
   apiVersion: string;
   kind: string;
@@ -201,40 +191,6 @@ function assertLauncherInterface(
 }
 
 describe("repository-owned Takosumi install UX", () => {
-  test("presents provider adapters separately from destination connections", () => {
-    expect(
-      sourceOptions.options.map(({ id, title, description, source }) => ({
-        id,
-        title,
-        description,
-        source,
-      })),
-    ).toEqual([
-      {
-        id: "takoform",
-        title: "Takoform",
-        description:
-          "Deploy Yurucommu with Takoform; choose a connected Takoform Host next. Takoserver is currently supported.",
-        source: {
-          url: "https://github.com/tako0614/yurucommu.git",
-          ref: "v2.1.8",
-          path: "deploy/takoform",
-        },
-      },
-      {
-        id: "cloudflare",
-        title: "Cloudflare",
-        description:
-          "Deploy Yurucommu with Cloudflare; choose a connected Cloudflare account next.",
-        source: {
-          url: "https://github.com/tako0614/yurucommu.git",
-          ref: "v2.1.8",
-          path: ".",
-        },
-      },
-    ]);
-  });
-
   test("keeps the transitional root and declares the exact managed module", () => {
     expect(
       new TextEncoder().encode(manifestText).byteLength,

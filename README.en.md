@@ -59,14 +59,18 @@ ordinary OpenTofu module; product code does not know which adapter was chosen.
 
 ### Install on Takosumi
 
-Enter the following in Takosumi's New app or `/install` screen:
+Pass the Git URL to Takosumi's New app or `/install` screen. The site CTA uses
+this same canonical entrypoint:
 
-| Field   | Value                                       |
-| ------- | ------------------------------------------- |
-| Git URL | `https://github.com/tako0614/yurucommu.git` |
-| ref     | A stable release tag or reviewed commit     |
-| path    | `deploy/takoform`                           |
-| name    | Any service name, such as `yurucommu`       |
+```text
+https://app.takosumi.com/install?git=https%3A%2F%2Fgithub.com%2Ftako0614%2Fyurucommu.git
+```
+
+Takosumi scans the tree at one Git revision, then selects the actual
+`install.defaultModule` (`deploy/takoform`) and module declaration from
+`.well-known/takosumi.json`. There is no separate source-options document or
+manual provider chooser. Adjust the ref, module path, or service name in
+Takosumi only when you need to override the defaults.
 
 If a Takosumi host lists Yurucommu in its browse screen, that entry resolves to
 the same `deploy/takoform` module. The list is a discovery shortcut, not a
@@ -84,8 +88,8 @@ token because that path has no sealed input transport. A gateway that needs no
 token can still use its URL and public key. Token-authenticated gateways remain
 a manual self-hosting concern until sealed install inputs exist.
 
-1. Enter the Git URL, ref, and path.
-2. Let Takosumi sync the source and show what it will create.
+1. Pass the Git URL.
+2. Let Takosumi sync the source tree and manifest and show what it will create.
 3. Review the Plan.
 4. Run Apply.
 5. Open Yurucommu from the Apps screen.

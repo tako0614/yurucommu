@@ -87,8 +87,8 @@ const CONTRACT = {
       target: `github-release:${R.repository}/v<package-version>`,
       covers: [
         "bun.lock",
+        ".well-known/takosumi.json",
         "deploy/takoform/main.tf",
-        "install-options.json",
         "main.tf",
         "package.json",
         "scripts/build-yurucommu-worker.ts",
@@ -101,7 +101,7 @@ const CONTRACT = {
       triggers: ["published-identity"],
       obligations: {
         provenance:
-          "refuses a dirty, detached, or unpushed worktree; requires main for publication; runs `bun run check`; builds and boots the embedded Worker from that exact commit; requires Store source refs and the direct-Cloudflare module defaults to select its tag while the Takoform sourceBuild consumes that same tagged worktree; and records the source commit plus SHA-256 in the release manifest",
+          "refuses a dirty, detached, or unpushed worktree; requires main for publication; runs `bun run check`; builds and boots the embedded Worker from that exact commit; requires the repository manifest's default deploy/takoform module and sourceBuild-generated Worker/migration assets, plus direct-Cloudflare module release pins, to align with the same tag and artifact digest; and records the source commit plus SHA-256 in the release manifest",
         "post-conditions":
           "reads the create-only tag and GitHub Release back, requires the tag to resolve to the source commit and the Release to report isImmutable:true, downloads all three assets, requires their exact SHA-256 digests, and boots the downloaded Worker in workerd with runtime-native DB/KV/MEDIA/queue bindings",
         reversal:
@@ -174,23 +174,6 @@ function terraformStringDefault(source, variable) {
 function requireReleaseIdentity(tag, artifactUrl, bundleDigest) {
   const expectedDigest = `sha256:${bundleDigest}`;
   const failures = [];
-  const installOptions = JSON.parse(
-    readFileSync(resolve(repo, "install-options.json"), "utf8"),
-  );
-  if (
-    !Array.isArray(installOptions.options) ||
-    installOptions.options.length === 0
-  ) {
-    failures.push("install-options.json has no Store source options");
-  } else {
-    for (const option of installOptions.options) {
-      if (option?.source?.ref !== tag) {
-        failures.push(
-          `Store source ${option?.id ?? "<unknown>"} selects ${option?.source?.ref ?? "<missing>"}, expected ${tag}`,
-        );
-      }
-    }
-  }
 
   for (const modulePath of ["main.tf"]) {
     const source = readFileSync(resolve(repo, modulePath), "utf8");
@@ -215,10 +198,44 @@ function requireReleaseIdentity(tag, artifactUrl, bundleDigest) {
   const repository = JSON.parse(
     readFileSync(resolve(repo, ".well-known/takosumi.json"), "utf8"),
   );
-  const takoformModule = repository?.install?.modules?.["deploy/takoform"];
-  const sourceBuildCommands = takoformModule?.sourceBuild?.commands?.map(
-    (command) => command?.argv,
+  const install = repository?.install;
+  const modules = install?.modules;
+  if (
+    repository?.apiVersion !== "takosumi.com/v2.3" ||
+    repository?.kind !== "Repository"
+  ) {
+    failures.push(
+      ".well-known/takosumi.json has an unexpected repository kind",
+    );
+  }
+  if (install?.defaultModule !== "deploy/takoform") {
+    failures.push(
+      `.well-known/takosumi.json selects ${install?.defaultModule ?? "<missing>"}, expected deploy/takoform`,
+    );
+  }
+  const rootModule = modules?.["."];
+  const takoformModule = modules?.["deploy/takoform"];
+  const pinInputs = new Map(
+    (Array.isArray(rootModule?.inputs) ? rootModule.inputs : []).map(
+      (input) => [input?.name, input],
+    ),
   );
+  for (const name of [
+    "worker_release_tag",
+    "worker_bundle_url",
+    "worker_bundle_sha256",
+  ]) {
+    if (pinInputs.get(name)?.source?.kind !== "module_default") {
+      failures.push(
+        `.well-known/takosumi.json root module does not declare ${name} as a module_default pin`,
+      );
+    }
+  }
+  const sourceBuildCommands = Array.isArray(
+    takoformModule?.sourceBuild?.commands,
+  )
+    ? takoformModule.sourceBuild.commands.map((command) => command?.argv)
+    : undefined;
   if (
     JSON.stringify(sourceBuildCommands) !==
     JSON.stringify([
@@ -229,6 +246,17 @@ function requireReleaseIdentity(tag, artifactUrl, bundleDigest) {
   ) {
     failures.push(
       "deploy/takoform sourceBuild does not build and prepare the selected source worktree",
+    );
+  }
+  if (
+    JSON.stringify(takoformModule?.sourceBuild?.outputs) !==
+    JSON.stringify([
+      "deploy/takoform/.generated/yurucommu-worker.js",
+      "deploy/takoform/.generated/migrations",
+    ])
+  ) {
+    failures.push(
+      "deploy/takoform sourceBuild does not pin the generated Worker and migration assets",
     );
   }
   const takoformSource = readFileSync(
@@ -247,7 +275,7 @@ function requireReleaseIdentity(tag, artifactUrl, bundleDigest) {
 
   if (failures.length > 0) {
     die(
-      "package, Store source, deployment sourceBuild, and built Worker do not identify one release",
+      "package, repository manifest module/asset pins, deployment sourceBuild, and built Worker do not identify one release",
       failures,
     );
   }
@@ -445,7 +473,7 @@ function publishWorkerRelease() {
           target: `github-release:${R.repository}/${tag}`,
           commit,
           tag,
-          sourceIdentity: "PACKAGE_STORE_MODULE_ARTIFACT_ALIGNED",
+          sourceIdentity: "PACKAGE_REPOSITORY_MODULE_ARTIFACT_ALIGNED",
           assetDigests: expectedDigests,
           status: "DRY_RUN_VERIFIED",
         },
@@ -562,7 +590,7 @@ function publishWorkerRelease() {
         target: `github-release:${R.repository}/${tag}`,
         commit,
         tag,
-        sourceIdentity: "PACKAGE_STORE_MODULE_ARTIFACT_ALIGNED",
+        sourceIdentity: "PACKAGE_REPOSITORY_MODULE_ARTIFACT_ALIGNED",
         releaseUrl: release.url,
         assetDigests: expectedDigests,
         postConditions: "EXACT_RELEASE_READBACK_AND_RUNTIME_NATIVE_SMOKE",
