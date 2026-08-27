@@ -52,6 +52,14 @@ const R = {
   smokeScript: "smoke:release-artifact",
 };
 
+const S = {
+  surface: "yurucommu-site",
+  project: "yurucommu-website",
+  productionBranch: "main",
+  source: "site",
+  publicOrigin: "https://yurucommu.com",
+};
+
 const CONTRACT = {
   kind: "takos.deploy-contract@v2",
   surfaces: [
@@ -104,6 +112,23 @@ const CONTRACT = {
           "derives one SemVer tag from package.json, refuses any existing local/remote tag or GitHub Release, reads repos/tako0614/yurucommu/immutable-releases immediately before create and requires enabled:true, requires post-readback isImmutable:true, and uses GitHub create-only release publication without update or delete paths",
       },
     },
+    {
+      surface: S.surface,
+      target: `cloudflare-pages:${S.project}`,
+      covers: [S.source, "scripts/release-yurucommu-site.mjs"],
+      requiresScripts: ["check"],
+      requiresTools: ["git", "bun", "wrangler"],
+      requiresEnv: [],
+      productionBranch: S.productionBranch,
+      triggers: [],
+      obligations: {
+        provenance: `requires a clean reviewed commit equal to its freshly fetched origin/${S.productionBranch} regardless of the local branch name or detached-HEAD state and runs the complete owner gate; resolves exactly one account from the owner Wrangler OAuth profile while rejecting ambient Cloudflare credentials, requires the project API to report Direct Upload or authoritatively disabled automatic production deploys, and binds ${S.publicOrigin} representative bytes and headers to the unchanged canonical_deployment before touch; materializes only committed ${S.source}/ blobs into a private read-only custody tree, rejects symlinks, hard links by requiring every sealed file to remain single-link, special entries, unsafe paths, tree changes, and credential shapes in every bounded decodable UTF-8 asset, and records the commit, every-file manifest digest, and exact site-tree SHA-256`,
+        "post-conditions": `requires Wrangler's structured deployment id, production environment, ${S.productionBranch} branch, and full commit identity to become the project API's canonical_deployment, reads representative HTML and JSON-LD bytes from both that immutable deployment URL and ${S.publicOrigin}/, requires exact candidate digests, content types, JSON-LD CORS/cache headers, and the repository-owned Takosumi install CTA in the exact custom-domain home-page bytes, then confirms the same canonical_deployment again`,
+        reversal: `reads the project API's current canonical_deployment, proves its immutable representative bytes equal ${S.publicOrigin}, and records its deployment id and pre-mutation binding digest before upload; restore that exact id with the Cloudflare Pages rollback action or Pages deployment rollback API, and if it is unavailable publish a reviewed higher commit on origin/${S.productionBranch} through this same surface as forward repair`,
+        "failure-handling":
+          "discards sensitive Wrangler authentication output, redacts generic authorization, bearer, Cloudflare token/key, and private-key shapes from provider diagnostics, reports PRE_TOUCH_FAILURE before Wrangler upload, AMBIGUOUS_AFTER_TOUCH once upload may have begun without a verified identity, or POST_TOUCH_FAILURE after a deployment identity exists, and never retries or rolls back a mutation automatically",
+      },
+    },
   ],
 };
 
@@ -113,10 +138,11 @@ if (process.argv.includes("--contract")) {
 }
 
 const requestedSurface = process.argv[2];
-if (![W.surface, R.surface].includes(requestedSurface)) {
+if (![W.surface, R.surface, S.surface].includes(requestedSurface)) {
   process.stderr.write(
     `usage: bun run deploy -- ${W.surface}\n` +
-      `       bun run deploy -- ${R.surface} [--dry-run|--execute]\n`,
+      `       bun run deploy -- ${R.surface} [--dry-run|--execute]\n` +
+      `       bun run deploy -- ${S.surface}\n`,
   );
   process.exit(1);
 }
@@ -551,6 +577,21 @@ function publishWorkerRelease() {
 
 if (requestedSurface === R.surface) {
   publishWorkerRelease();
+  process.exit(0);
+}
+
+if (requestedSurface === S.surface) {
+  if (process.argv.slice(3).length !== 0) {
+    die(`${S.surface} accepts no flags or alternate phases`);
+  }
+  const { deployYurucommuSite, reportYurucommuSiteReleaseFailure } =
+    await import("./release-yurucommu-site.mjs");
+  try {
+    await deployYurucommuSite();
+  } catch (error) {
+    reportYurucommuSiteReleaseFailure(error);
+    process.exit(1);
+  }
   process.exit(0);
 }
 
