@@ -26,7 +26,7 @@ terraform {
 variable "enable_cloudflare_resources" {
   description = "Provision Yurucommu Cloudflare backing resources with the existing cloudflare/cloudflare provider."
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "cloudflare_account_id" {
@@ -63,13 +63,15 @@ variable "worker_name" {
 }
 
 variable "app_url" {
-  description = "Canonical public URL for the published Yurucommu instance. When empty, launch_url is derived from worker_name and cloudflare_workers_subdomain."
+  description = "Canonical HTTPS origin for the published Yurucommu instance. It must name the workers.dev subdomain or Worker route this module creates."
   type        = string
-  default     = ""
 
   validation {
-    condition     = trimspace(var.app_url) == "" || can(regex("^https://[^[:space:]]+$", var.app_url))
-    error_message = "app_url must be empty or an https URL."
+    condition = can(regex(
+      "^https://[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*$",
+      var.app_url,
+    ))
+    error_message = "app_url must be a lowercase HTTPS origin without credentials, a port, path, query, or fragment."
   }
 }
 
@@ -92,8 +94,14 @@ variable "auth_password_hash" {
   sensitive   = true
 }
 
+variable "takosumi_accounts_url" {
+  description = "Takosumi Accounts base URL delivered by the identity.oidc capability."
+  type        = string
+  default     = ""
+}
+
 variable "takosumi_accounts_issuer_url" {
-  description = "Optional Takosumi Accounts OIDC issuer URL used as a public auth method for auto-provisioned Capsules."
+  description = "OIDC issuer URL delivered by the identity.oidc capability."
   type        = string
   default     = ""
 
@@ -104,7 +112,13 @@ variable "takosumi_accounts_issuer_url" {
 }
 
 variable "takosumi_accounts_client_id" {
-  description = "Optional Takosumi Accounts public OIDC client id used with takosumi_accounts_issuer_url."
+  description = "Public OIDC client id delivered by the identity.oidc capability."
+  type        = string
+  default     = ""
+}
+
+variable "takosumi_accounts_redirect_uri" {
+  description = "Exact OIDC callback URI delivered by the identity.oidc capability."
   type        = string
   default     = ""
 }
@@ -119,12 +133,6 @@ variable "oidc_allowed_subs" {
   description = "Comma-separated OIDC/OAuth subjects allowed to auto-provision a non-owner member account. Empty keeps member auto-provisioning closed."
   type        = string
   default     = ""
-}
-
-variable "allow_unpinned_owner_claim" {
-  description = "Allow an OIDC-only install to hand the owner slot to whoever signs in first. The pairwise subject is unknown before the first login, so a fresh install sets this, signs in, then pins oidc_owner_sub and clears it."
-  type        = bool
-  default     = false
 }
 
 variable "notification_push_gateway_url" {
@@ -181,6 +189,10 @@ variable "env" {
         "DELIVERY_DLQ_NAME",
         "ENCRYPTION_KEY",
         "AUTH_PASSWORD_HASH",
+        "TAKOSUMI_ACCOUNTS_URL",
+        "OIDC_ISSUER_URL",
+        "OIDC_CLIENT_ID",
+        "OIDC_REDIRECT_URI",
         "TAKOSUMI_ACCOUNTS_ISSUER_URL",
         "TAKOSUMI_ACCOUNTS_CLIENT_ID",
         "OIDC_OWNER_SUB",
@@ -211,7 +223,7 @@ variable "cloudflare_workers_subdomain" {
 variable "enable_cloudflare_worker_script" {
   description = "Deploy the Yurucommu Worker script, bindings, queue consumers, route, and optional workers.dev enablement through OpenTofu."
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "worker_bundle_path" {
@@ -330,26 +342,40 @@ locals {
     "sha256:",
     "",
   ) : try(local.worker_release_pin.artifact.sha256, "")
-  worker_bundle_url             = local.worker_bundle_explicit_url != "" ? local.worker_bundle_explicit_url : (local.worker_bundle_uses_manifest ? try(local.worker_release_pin.artifact.url, "") : "")
-  worker_bundle_uses_url        = local.cloudflare_worker_enabled && local.worker_bundle_url != ""
-  worker_bundle_sha256_input    = trimspace(var.worker_bundle_sha256)
-  worker_bundle_sha256_override = startswith(local.worker_bundle_sha256_input, "sha256:") ? replace(local.worker_bundle_sha256_input, "sha256:", "") : local.worker_bundle_sha256_input
-  worker_bundle_expected_sha256 = local.worker_bundle_uses_manifest ? local.worker_release_expected_artifact_sha256 : local.worker_bundle_sha256_override
-  worker_bundle_local_path      = startswith(var.worker_bundle_path, "/") ? var.worker_bundle_path : "${path.module}/${var.worker_bundle_path}"
-  worker_bundle_body            = local.worker_bundle_uses_url ? data.http.worker_bundle[0].response_body : null
-  worker_bundle_content_sha256  = local.cloudflare_worker_enabled ? (local.worker_bundle_uses_url ? sha256(data.http.worker_bundle[0].response_body) : (local.worker_bundle_uses_manifest ? null : filesha256(local.worker_bundle_local_path))) : null
-  worker_assets_enabled         = local.cloudflare_worker_enabled && var.enable_worker_assets && !local.worker_bundle_uses_url
-  resource_prefix               = var.project_name
-  worker_name                   = trimspace(var.worker_name) != "" ? trimspace(var.worker_name) : local.resource_prefix
-  workers_dev_url               = trimspace(var.cloudflare_workers_subdomain) != "" ? "https://${local.worker_name}.${trimspace(var.cloudflare_workers_subdomain)}.workers.dev" : null
-  launch_url                    = trimspace(var.app_url) != "" ? trimspace(var.app_url) : local.workers_dev_url
-  provided_encryption_key       = trimspace(var.encryption_key)
-  provided_auth_password_hash   = trimspace(var.auth_password_hash)
-  has_takosumi_accounts_oidc    = trimspace(var.takosumi_accounts_issuer_url) != "" && trimspace(var.takosumi_accounts_client_id) != ""
-  effective_encryption_key      = local.provided_encryption_key != "" ? local.provided_encryption_key : random_id.encryption_key.hex
-  effective_auth_password_hash  = local.provided_auth_password_hash
-  extra_worker_env              = { for name, value in var.env : name => value if trimspace(value) != "" }
-  notification_push_gateway_url = trimspace(var.notification_push_gateway_url)
+  worker_bundle_url              = local.worker_bundle_explicit_url != "" ? local.worker_bundle_explicit_url : (local.worker_bundle_uses_manifest ? try(local.worker_release_pin.artifact.url, "") : "")
+  worker_bundle_uses_url         = local.cloudflare_worker_enabled && local.worker_bundle_url != ""
+  worker_bundle_sha256_input     = trimspace(var.worker_bundle_sha256)
+  worker_bundle_sha256_override  = startswith(local.worker_bundle_sha256_input, "sha256:") ? replace(local.worker_bundle_sha256_input, "sha256:", "") : local.worker_bundle_sha256_input
+  worker_bundle_expected_sha256  = local.worker_bundle_uses_manifest ? local.worker_release_expected_artifact_sha256 : local.worker_bundle_sha256_override
+  worker_bundle_local_path       = startswith(var.worker_bundle_path, "/") ? var.worker_bundle_path : "${path.module}/${var.worker_bundle_path}"
+  worker_bundle_body             = local.worker_bundle_uses_url ? data.http.worker_bundle[0].response_body : null
+  worker_bundle_content_sha256   = local.cloudflare_worker_enabled ? (local.worker_bundle_uses_url ? sha256(data.http.worker_bundle[0].response_body) : (local.worker_bundle_uses_manifest ? null : filesha256(local.worker_bundle_local_path))) : null
+  worker_assets_enabled          = local.cloudflare_worker_enabled && var.enable_worker_assets && !local.worker_bundle_uses_url
+  resource_prefix                = var.project_name
+  worker_name                    = trimspace(var.worker_name) != "" ? trimspace(var.worker_name) : local.resource_prefix
+  app_origin                     = trimspace(var.app_url)
+  app_hostname                   = trimprefix(local.app_origin, "https://")
+  workers_dev_url                = trimspace(var.cloudflare_workers_subdomain) != "" ? "https://${local.worker_name}.${trimspace(var.cloudflare_workers_subdomain)}.workers.dev" : null
+  launch_url                     = local.app_origin
+  provided_encryption_key        = trimspace(var.encryption_key)
+  provided_auth_password_hash    = trimspace(var.auth_password_hash)
+  takosumi_accounts_url          = trimspace(var.takosumi_accounts_url)
+  takosumi_accounts_issuer_url   = trimspace(var.takosumi_accounts_issuer_url)
+  takosumi_accounts_client_id    = trimspace(var.takosumi_accounts_client_id)
+  takosumi_accounts_redirect_uri = trimspace(var.takosumi_accounts_redirect_uri)
+  oidc_values = [
+    local.takosumi_accounts_url,
+    local.takosumi_accounts_issuer_url,
+    local.takosumi_accounts_client_id,
+    local.takosumi_accounts_redirect_uri,
+  ]
+  has_any_takosumi_accounts_oidc = anytrue([for value in local.oidc_values : value != ""])
+  has_takosumi_accounts_oidc     = alltrue([for value in local.oidc_values : value != ""])
+  expected_oidc_redirect_uri     = "${local.app_origin}/api/auth/callback/takos"
+  effective_encryption_key       = local.provided_encryption_key != "" ? local.provided_encryption_key : random_id.encryption_key.hex
+  effective_auth_password_hash   = local.provided_auth_password_hash
+  extra_worker_env               = { for name, value in var.env : name => value if trimspace(value) != "" }
+  notification_push_gateway_url  = trimspace(var.notification_push_gateway_url)
   notification_push_gateway_host = try(regex(
     "^https://([^/:?#]+)",
     local.notification_push_gateway_url,
@@ -492,7 +518,7 @@ resource "cloudflare_workers_script" "worker" {
       {
         type = "plain_text"
         name = "APP_URL"
-        text = local.launch_url != null ? local.launch_url : ""
+        text = local.launch_url
       },
       {
         type = "plain_text"
@@ -526,17 +552,6 @@ resource "cloudflare_workers_script" "worker" {
         text = local.oidc_allowed_subs
       },
     ] : [],
-    # The worker refuses to hand the owner slot to an unpinned first login. The
-    # acknowledgement below is what actually opens it, so it has to reach the
-    # runtime -- otherwise an install that legitimately cannot know the pairwise
-    # subject yet passes the precondition and then can never be bootstrapped.
-    local.oidc_owner_sub == "" && var.allow_unpinned_owner_claim ? [
-      {
-        type = "plain_text"
-        name = "ALLOW_UNPINNED_OWNER_CLAIM"
-        text = "true"
-      },
-    ] : [],
     [
       {
         type = "secret_text"
@@ -554,13 +569,23 @@ resource "cloudflare_workers_script" "worker" {
     local.has_takosumi_accounts_oidc ? [
       {
         type = "plain_text"
-        name = "TAKOSUMI_ACCOUNTS_ISSUER_URL"
-        text = trimspace(var.takosumi_accounts_issuer_url)
+        name = "TAKOSUMI_ACCOUNTS_URL"
+        text = local.takosumi_accounts_url
       },
       {
         type = "plain_text"
-        name = "TAKOSUMI_ACCOUNTS_CLIENT_ID"
-        text = trimspace(var.takosumi_accounts_client_id)
+        name = "OIDC_ISSUER_URL"
+        text = local.takosumi_accounts_issuer_url
+      },
+      {
+        type = "plain_text"
+        name = "OIDC_CLIENT_ID"
+        text = local.takosumi_accounts_client_id
+      },
+      {
+        type = "plain_text"
+        name = "OIDC_REDIRECT_URI"
+        text = local.takosumi_accounts_redirect_uri
       },
     ] : [],
     local.notification_push_gateway_url != "" ? [
@@ -656,14 +681,28 @@ resource "cloudflare_workers_script" "worker" {
       error_message = "notification_push_gateway_token requires notification_push_gateway_url."
     }
 
-    # Owner-slot race. With Takosumi Accounts OIDC configured, auth_password_hash
-    # is forced empty and OIDC becomes the only login path, so whoever completes
-    # the flow first permanently owns the instance. The pairwise subject is not
-    # knowable before that first login, so the module cannot simply require the
-    # pin — it requires an explicit, auditable acknowledgement instead.
     precondition {
-      condition     = !local.has_takosumi_accounts_oidc || local.oidc_owner_sub != "" || var.allow_unpinned_owner_claim
-      error_message = "takosumi_accounts_issuer_url installs must set oidc_owner_sub, or set allow_unpinned_owner_claim = true to accept that the first sign-in takes the owner slot."
+      condition     = !local.has_any_takosumi_accounts_oidc || local.has_takosumi_accounts_oidc
+      error_message = "identity.oidc delivery must provide accountsUrl, issuerUrl, clientId, and redirectUri together."
+    }
+
+    precondition {
+      condition     = !local.has_takosumi_accounts_oidc || local.takosumi_accounts_redirect_uri == local.expected_oidc_redirect_uri
+      error_message = "takosumi_accounts_redirect_uri must equal <app_url>/api/auth/callback/takos."
+    }
+
+    precondition {
+      condition = !local.cloudflare_worker_enabled || local.cloudflare_route_enabled || (
+        var.enable_workers_dev_subdomain &&
+        local.workers_dev_url != null &&
+        local.app_origin == local.workers_dev_url
+      )
+      error_message = "app_url must equal the enabled workers.dev origin unless this module creates a matching Worker route."
+    }
+
+    precondition {
+      condition     = !local.cloudflare_route_enabled || trimspace(var.cloudflare_route_pattern) == "${local.app_hostname}/*"
+      error_message = "cloudflare_route_pattern must equal <app_url hostname>/* so app_url names app-owned desired state."
     }
   }
 }

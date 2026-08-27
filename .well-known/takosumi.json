@@ -27,38 +27,54 @@
           {
             "name": "app_url",
             "source": {
-              "kind": "module_default"
+              "kind": "user"
             },
             "type": "string",
             "format": "url",
+            "required": true,
             "label": {
               "ja": "公開URL",
               "en": "Public URL"
             },
+            "helper": {
+              "ja": "Yurucommuの正規HTTPS originです。OpenTofuが同じ公開先を構成します。",
+              "en": "The canonical HTTPS origin for Yurucommu. OpenTofu configures the same public endpoint."
+            },
+            "placeholder": "https://yurucommu.example.com",
             "advanced": true
           },
           {
-            "name": "takosumi_accounts_issuer_url",
+            "name": "cloudflare_account_id",
             "source": {
-              "kind": "module_default"
+              "kind": "user"
             },
             "type": "string",
-            "format": "url",
+            "required": true,
             "label": {
-              "ja": "Takosumi Accounts発行者",
-              "en": "Takosumi Accounts issuer"
+              "ja": "Cloudflare account ID",
+              "en": "Cloudflare account ID"
+            },
+            "helper": {
+              "ja": "認証情報ではなく、OpenTofu resourceが対象accountを選ぶ公開IDです。認証情報はProvider Connectionから別に渡されます。",
+              "en": "This is the public account selector used by OpenTofu resources, not a credential. Credentials are delivered separately through the Provider Connection."
             },
             "advanced": true
           },
           {
-            "name": "takosumi_accounts_client_id",
+            "name": "cloudflare_workers_subdomain",
             "source": {
-              "kind": "module_default"
+              "kind": "user"
             },
             "type": "string",
+            "format": "subdomain",
+            "required": true,
             "label": {
-              "ja": "Takosumi Accountsクライアント",
-              "en": "Takosumi Accounts client"
+              "ja": "workers.dev subdomain",
+              "en": "workers.dev subdomain"
+            },
+            "helper": {
+              "ja": "公開URLが <service>.<subdomain>.workers.dev になるように指定します。",
+              "en": "Set this so the public URL is <service>.<subdomain>.workers.dev."
             },
             "advanced": true
           },
@@ -153,6 +169,29 @@
             ]
           }
         ],
+        "requires": [
+          {
+            "kind": "http.endpoint",
+            "deliver": {
+              "variables": {
+                "url": "app_url"
+              }
+            }
+          },
+          {
+            "kind": "identity.oidc",
+            "callbackPath": "/api/auth/callback/takos",
+            "scopes": ["openid", "profile", "email"],
+            "deliver": {
+              "variables": {
+                "accountsUrl": "takosumi_accounts_url",
+                "issuerUrl": "takosumi_accounts_issuer_url",
+                "clientId": "takosumi_accounts_client_id",
+                "redirectUri": "takosumi_accounts_redirect_uri"
+              }
+            }
+          }
+        ],
         "interfaces": [
           {
             "key": "launcher",
@@ -212,6 +251,25 @@
               "en": "The name of this Yurucommu service in the workspace."
             },
             "advanced": true
+          },
+          {
+            "name": "app_url",
+            "source": {
+              "kind": "user"
+            },
+            "type": "string",
+            "format": "url",
+            "required": true,
+            "label": {
+              "ja": "公開URL",
+              "en": "Public URL"
+            },
+            "helper": {
+              "ja": "Takoform Hostに接続する正規HTTPS originです。",
+              "en": "The canonical HTTPS origin attached by the Takoform Host."
+            },
+            "placeholder": "https://yurucommu.example.com",
+            "advanced": true
           }
         ],
         "sourceBuild": {
@@ -231,6 +289,29 @@
             "deploy/takoform/.generated/migrations"
           ]
         },
+        "requires": [
+          {
+            "kind": "http.endpoint",
+            "deliver": {
+              "variables": {
+                "url": "app_url"
+              }
+            }
+          },
+          {
+            "kind": "identity.oidc",
+            "callbackPath": "/api/auth/callback/takos",
+            "scopes": ["openid", "profile", "email"],
+            "deliver": {
+              "variables": {
+                "accountsUrl": "takosumi_accounts_url",
+                "issuerUrl": "takosumi_accounts_issuer_url",
+                "clientId": "takosumi_accounts_client_id",
+                "redirectUri": "takosumi_accounts_redirect_uri"
+              }
+            }
+          }
+        ],
         "interfaces": [
           {
             "key": "launcher",

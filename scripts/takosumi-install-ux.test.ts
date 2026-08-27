@@ -266,14 +266,69 @@ describe("repository-owned Takosumi install UX", () => {
       "inputs",
       "features",
       "interfaces",
+      "requires",
     ]);
     assertExactKeys(managedModule as unknown as Record<string, unknown>, [
       "inputs",
       "sourceBuild",
       "interfaces",
+      "requires",
     ]);
     assertLauncherInterface(rootModule, "yurucommu.launcher");
     assertLauncherInterface(managedModule, "yurucommu.launcher");
+  });
+
+  test("requests one generic endpoint and one generic OIDC client from Takosumi for every adapter", () => {
+    const expectedRequirements = [
+      {
+        kind: "http.endpoint",
+        deliver: { variables: { url: "app_url" } },
+      },
+      {
+        kind: "identity.oidc",
+        callbackPath: "/api/auth/callback/takos",
+        scopes: ["openid", "profile", "email"],
+        deliver: {
+          variables: {
+            accountsUrl: "takosumi_accounts_url",
+            issuerUrl: "takosumi_accounts_issuer_url",
+            clientId: "takosumi_accounts_client_id",
+            redirectUri: "takosumi_accounts_redirect_uri",
+          },
+        },
+      },
+    ];
+
+    for (const module of [rootModule, managedModule]) {
+      expect(module.requires).toEqual(expectedRequirements);
+      expect(
+        module.inputs.find((input) => input.name === "app_url"),
+      ).toMatchObject({
+        source: { kind: "user" },
+        type: "string",
+        format: "url",
+        required: true,
+      });
+    }
+  });
+
+  test("makes the plan-known Takoform origin part of app-owned desired state", () => {
+    for (const name of [
+      "app_url",
+      "takosumi_accounts_url",
+      "takosumi_accounts_issuer_url",
+      "takosumi_accounts_client_id",
+      "takosumi_accounts_redirect_uri",
+    ]) {
+      expect(managedModuleSource).toContain(`variable "${name}"`);
+    }
+    expect(managedModuleSource).toContain(
+      'resource "takoform_worker_custom_domain" "worker"',
+    );
+    expect(managedModuleSource).not.toContain(
+      'resource "takoform_worker_endpoint" "worker"',
+    );
+    expect(managedModuleOutputsSource).toContain("var.app_url");
   });
 
   test("uses only the bounded repository presentation vocabulary", () => {
@@ -289,7 +344,6 @@ describe("repository-owned Takosumi install UX", () => {
         expect(input.label.ja.length).toBeLessThanOrEqual(512);
         expect(input.label.en.length).toBeLessThanOrEqual(512);
       }
-      expect(module.requires).toBeUndefined();
       for (const feature of module.features ?? []) {
         expect(feature.id.length).toBeLessThanOrEqual(64);
         expect(feature.inputs.length).toBeLessThanOrEqual(32);
@@ -331,18 +385,27 @@ describe("repository-owned Takosumi install UX", () => {
     }
   });
 
-  test("keeps the direct Cloudflare install on the sealed Accounts OIDC lane", () => {
+  test("keeps the direct Cloudflare install explicit and provider-credential-free", () => {
     const rootInputNames = rootModule.inputs.map((input) => input.name);
     expect(
       rootModule.inputs.find((input) => input.name === "app_url")?.source,
-    ).toEqual({ kind: "module_default" });
+    ).toEqual({ kind: "user" });
     for (const name of [
+      "takosumi_accounts_url",
       "takosumi_accounts_issuer_url",
       "takosumi_accounts_client_id",
+      "takosumi_accounts_redirect_uri",
+    ]) {
+      expect(rootInputNames).not.toContain(name);
+      expect(rootModuleSource).toContain(`variable "${name}"`);
+    }
+    for (const name of [
+      "cloudflare_account_id",
+      "cloudflare_workers_subdomain",
     ]) {
       expect(
         rootModule.inputs.find((input) => input.name === name)?.source,
-      ).toEqual({ kind: "module_default" });
+      ).toEqual({ kind: "user" });
     }
     expect(rootInputNames).not.toContain("auth_password_hash");
     expect(rootInputNames).not.toContain("notification_push_gateway_token");
@@ -357,10 +420,10 @@ describe("repository-owned Takosumi install UX", () => {
       "notification_push_web_push_public_key",
     ]);
     expect(rootModuleSource).toContain(
-      'workers_dev_url               = trimspace(var.cloudflare_workers_subdomain) != "" ? "https://${local.worker_name}.${trimspace(var.cloudflare_workers_subdomain)}.workers.dev" : null',
+      'workers_dev_url                = trimspace(var.cloudflare_workers_subdomain) != "" ? "https://${local.worker_name}.${trimspace(var.cloudflare_workers_subdomain)}.workers.dev" : null',
     );
     expect(rootModuleSource).toContain(
-      'launch_url                    = trimspace(var.app_url) != "" ? trimspace(var.app_url) : local.workers_dev_url',
+      "local.app_origin == local.workers_dev_url",
     );
   });
 
@@ -395,28 +458,31 @@ describe("repository-owned Takosumi install UX", () => {
     expect(managedModuleOutputsSource).toContain('output "launch_url"');
   });
 
-  test("does not ask Takosumi to synthesize endpoint, identity, or secrets", () => {
-    expect(rootModule.requires).toBeUndefined();
-    expect(managedModule.requires).toBeUndefined();
-    expect(manifestText).not.toContain('"kind": "http.endpoint"');
-    expect(manifestText).not.toContain('"kind": "identity.oidc"');
+  test("requests only the generic endpoint and OIDC services from Takosumi", () => {
+    expect(rootModule.requires?.map((entry) => entry.kind)).toEqual([
+      "http.endpoint",
+      "identity.oidc",
+    ]);
+    expect(managedModule.requires?.map((entry) => entry.kind)).toEqual([
+      "http.endpoint",
+      "identity.oidc",
+    ]);
     expect(manifestText).not.toContain('"kind": "secret.generated"');
     for (const name of [
-      "ENCRYPTION_KEY",
-      "TAKOSUMI_ACCOUNTS_ISSUER_URL",
-      "TAKOSUMI_ACCOUNTS_CLIENT_ID",
-      "TAKOSUMI_ACCOUNTS_OWNER_SUB",
-      "TAKOSUMI_ACCOUNTS_REDIRECT_URI",
+      "TAKOSUMI_ACCOUNTS_URL",
+      "OIDC_ISSUER_URL",
+      "OIDC_CLIENT_ID",
+      "OIDC_REDIRECT_URI",
     ]) {
-      expect(managedModuleSource).toContain(JSON.stringify(name));
+      expect(managedModuleSource).toContain(name);
     }
     expect(managedModuleSource).toContain("required_sensitive_vars");
+    expect(managedModuleSource).not.toContain("TAKOSUMI_ACCOUNTS_OWNER_SUB");
     expect(managedModuleSource).toContain('protocol = "com.amazonaws.s3"');
   });
 
   test("keeps host authority and secret values out of repository metadata", () => {
     expect(collectForbiddenKeys(manifest)).toEqual([]);
-    expect(manifestText).not.toContain("cloudflare_account_id");
     expect(manifestText).not.toContain("enable_cloudflare_resources");
     expect(manifestText).not.toContain("enable_cloudflare_worker_script");
     expect(manifestText).not.toContain("oidc_owner_sub");
@@ -433,10 +499,13 @@ describe("repository-owned Takosumi install UX", () => {
     );
     expect(managedModule.inputs.map((input) => input.name)).toEqual([
       "project_name",
+      "app_url",
     ]);
     expect(
-      managedModule.inputs.filter((input) => input.source.kind === "user"),
-    ).toEqual([]);
+      managedModule.inputs
+        .filter((input) => input.source.kind === "user")
+        .map((input) => input.name),
+    ).toEqual(["app_url"]);
     expect(
       managedModule.inputs
         .map((input) => input.name)
@@ -487,8 +556,8 @@ describe("repository-owned Takosumi install UX", () => {
         output.startsWith("deploy/takoform/"),
       ),
     ).toBe(true);
-    expect(managedModuleSource).toContain(
-      'migration_root     = "${path.module}/.generated/migrations"',
+    expect(managedModuleSource).toMatch(
+      /migration_root\s+= "\$\{path\.module\}\/\.generated\/migrations"/,
     );
     expect(managedModuleSource).not.toContain("${path.module}/../");
     expect(managedModuleSource).toContain('version = "= 3.0.0"');

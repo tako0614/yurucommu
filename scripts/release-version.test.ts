@@ -328,8 +328,8 @@ describe("release version", () => {
     expect(artifactDigests.size).toBe(1);
     expect(takoformModuleSource).not.toContain('variable "worker_release_tag"');
     expect(takoformModuleSource).not.toContain('variable "worker_bundle_url"');
-    expect(takoformModuleSource).toContain(
-      'worker_bundle_path = "${path.module}/.generated/yurucommu-worker.js"',
+    expect(takoformModuleSource).toMatch(
+      /worker_bundle_path\s+= "\$\{path\.module\}\/\.generated\/yurucommu-worker\.js"/,
     );
   });
 

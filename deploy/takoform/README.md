@@ -39,7 +39,7 @@ it before evaluation.
 | `WorkerBundle`                   | Current, digest-verified ESM bundle                             |
 | `WorkerVersion`                  | Immutable bundle, bindings, variables, and native handlers      |
 | `WorkerDeployment`               | Routes 100% of traffic to the prepared version                  |
-| `WorkerEndpoint`                 | Allocates the ordinary public Worker URL after deployment       |
+| `WorkerCustomDomain`             | Attaches the plan-known canonical HTTPS hostname                |
 | `SQLiteDatabase`                 | Stores Yurucommu durable relational data                        |
 | `SQLiteMigrationSet`             | Carries the exact ordered SQL files                             |
 | `SQLiteMigrationApplication`     | Converges the migration set before the Worker version           |
@@ -79,16 +79,19 @@ name, endpoint, region, access key, or credential. The Yurucommu hosted adapter
 accepts only object operations (`put`, `get`, `delete`, `list`, and `head`);
 the direct-Cloudflare adapter keeps its `R2Bucket` type in a separate file.
 
-## Endpoint and canonical origin
+## Custom domain and canonical origin
 
-`WorkerEndpoint` is admitted only after `WorkerDeployment` serves a fetch
-handler. Its URL is exposed as the ordinary `launch_url` and `api_url` module
-outputs; it is never fed back into the immutable `WorkerVersion`.
+The required `app_url` is a canonical lowercase HTTPS origin known at Plan.
+`WorkerCustomDomain` attaches that exact hostname after `WorkerDeployment`
+serves a fetch handler. The same value is projected to `APP_URL` and exposed as
+the ordinary `launch_url` and `api_url` module outputs; no computed Host address
+is fed back into the immutable `WorkerVersion`.
 
-On its first successful fetch, the runtime validates the request origin and
-pins it in `KV` when no operator-supplied `APP_URL` exists. Native queue work
-fails closed until a fetch has established that origin. The scheduled
-retention path does not invent or consume an application URL.
+The manifest's `http.endpoint` and `identity.oidc` requirements share this
+plan-known origin. OIDC delivery is accepted only as the exact Accounts URL,
+issuer URL, client ID, and redirect URI quartet, and the redirect URI must equal
+`<app_url>/api/auth/callback/takos`. Native queue work therefore receives the
+same `APP_URL`; the scheduled retention path does not invent an origin.
 
 ## Provider 3 validation
 
@@ -156,8 +159,9 @@ preserves the temporary state path if cleanup fails.
 This tracer reports only `phase: "fetch-only"`. It is not evidence for SQLite,
 KV, queue delivery/DLQ behavior, cron dispatch, migrations, or the sealed S3
 service. Those phases must remain red until a stable Host both implements the
-backends and returns a `WorkerEndpoint.url` that the tracer can request
-directly. A schema-valid `.invalid` URL plus an out-of-band loopback rewrite is
+backends and serves the requested address directly. The fetch-only provider
+tracer intentionally continues testing the separate host-assigned
+`WorkerEndpoint` Form. A schema-valid `.invalid` URL plus an out-of-band loopback rewrite is
 diagnostic evidence, not a passing HTTP deployment proof.
 
 ## Host responsibilities
@@ -165,10 +169,11 @@ diagnostic evidence, not a passing HTTP deployment proof.
 The module cannot grant itself cloud authority or synthesize portable storage
 credentials. A usable Host must provide:
 
-- the required generated `ENCRYPTION_KEY` and complete OIDC bindings;
+- the required generated `ENCRYPTION_KEY` and the generic capability values
+  declared by the repository manifest;
 - SQLite, migration, KV, queue, consumer, DLQ, and cron implementations;
 - a sealed `com.amazonaws.s3` service for `MEDIA`;
-- a reachable HTTPS Worker endpoint;
+- the requested reachable HTTPS custom domain;
 - logs, backup, restore, update, removal, and recovery procedures.
 
 Takoserver's operator-side Cloudflare R2 supply, when enabled by that Host, has

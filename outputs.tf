@@ -19,13 +19,13 @@ output "cloudflare_worker_route_id" {
 }
 
 output "launch_url" {
-  description = "Public URL for the published Yurucommu instance, when the Capsule has enough hostname input to derive it."
+  description = "Canonical public URL for the published Yurucommu instance."
   value       = local.launch_url
 }
 
 output "api_url" {
   description = "Primary Yurucommu social API endpoint."
-  value       = local.launch_url != null ? "${trimsuffix(local.launch_url, "/")}/api" : null
+  value       = "${local.launch_url}/api"
 }
 
 output "cloudflare_account_id" {

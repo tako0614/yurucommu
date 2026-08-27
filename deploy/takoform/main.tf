@@ -20,14 +20,75 @@ variable "project_name" {
   }
 }
 
-locals {
-  prefix             = var.project_name
-  worker_bundle_path = "${path.module}/.generated/yurucommu-worker.js"
-  migration_root     = "${path.module}/.generated/migrations"
-  migration_files    = fileset(local.migration_root, "*.sql")
-  worker_plain_values = {
-    YURUCOMMU_RUNTIME_LANE = "takoform-v1"
+variable "app_url" {
+  description = "Canonical HTTPS origin for Yurucommu. The Takoform Host attaches this exact hostname to the Worker."
+  type        = string
+
+  validation {
+    condition = can(regex(
+      "^https://[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*$",
+      var.app_url,
+    ))
+    error_message = "app_url must be a lowercase HTTPS origin without credentials, a port, path, query, or fragment."
   }
+}
+
+variable "takosumi_accounts_url" {
+  description = "Takosumi Accounts base URL delivered by the identity.oidc capability."
+  type        = string
+  default     = ""
+}
+
+variable "takosumi_accounts_issuer_url" {
+  description = "OIDC issuer URL delivered by the identity.oidc capability."
+  type        = string
+  default     = ""
+}
+
+variable "takosumi_accounts_client_id" {
+  description = "Public OIDC client id delivered by the identity.oidc capability."
+  type        = string
+  default     = ""
+}
+
+variable "takosumi_accounts_redirect_uri" {
+  description = "Exact OIDC callback URI delivered by the identity.oidc capability."
+  type        = string
+  default     = ""
+}
+
+locals {
+  prefix                         = var.project_name
+  app_origin                     = trimspace(var.app_url)
+  app_hostname                   = trimprefix(local.app_origin, "https://")
+  expected_oidc_redirect_uri     = "${local.app_origin}/api/auth/callback/takos"
+  worker_bundle_path             = "${path.module}/.generated/yurucommu-worker.js"
+  migration_root                 = "${path.module}/.generated/migrations"
+  migration_files                = fileset(local.migration_root, "*.sql")
+  takosumi_accounts_url          = trimspace(var.takosumi_accounts_url)
+  takosumi_accounts_issuer_url   = trimspace(var.takosumi_accounts_issuer_url)
+  takosumi_accounts_client_id    = trimspace(var.takosumi_accounts_client_id)
+  takosumi_accounts_redirect_uri = trimspace(var.takosumi_accounts_redirect_uri)
+  oidc_values = [
+    local.takosumi_accounts_url,
+    local.takosumi_accounts_issuer_url,
+    local.takosumi_accounts_client_id,
+    local.takosumi_accounts_redirect_uri,
+  ]
+  has_any_oidc = anytrue([for value in local.oidc_values : value != ""])
+  has_oidc     = alltrue([for value in local.oidc_values : value != ""])
+  worker_plain_values = merge(
+    {
+      APP_URL                = local.app_origin
+      YURUCOMMU_RUNTIME_LANE = "takoform-v1"
+    },
+    local.has_oidc ? {
+      TAKOSUMI_ACCOUNTS_URL = local.takosumi_accounts_url
+      OIDC_ISSUER_URL       = local.takosumi_accounts_issuer_url
+      OIDC_CLIENT_ID        = local.takosumi_accounts_client_id
+      OIDC_REDIRECT_URI     = local.takosumi_accounts_redirect_uri
+    } : {},
+  )
 }
 
 resource "takoform_module_worker" "worker" {
@@ -101,10 +162,6 @@ resource "takoform_worker_version" "worker" {
   vars_json      = jsonencode(local.worker_plain_values)
   required_sensitive_vars = [
     "ENCRYPTION_KEY",
-    "TAKOSUMI_ACCOUNTS_ISSUER_URL",
-    "TAKOSUMI_ACCOUNTS_CLIENT_ID",
-    "TAKOSUMI_ACCOUNTS_OWNER_SUB",
-    "TAKOSUMI_ACCOUNTS_REDIRECT_URI",
   ]
 
   kv_bindings = [
@@ -144,6 +201,16 @@ resource "takoform_worker_version" "worker" {
 
   lifecycle {
     create_before_destroy = true
+
+    precondition {
+      condition     = !local.has_any_oidc || local.has_oidc
+      error_message = "identity.oidc delivery must provide accountsUrl, issuerUrl, clientId, and redirectUri together."
+    }
+
+    precondition {
+      condition     = !local.has_oidc || local.takosumi_accounts_redirect_uri == local.expected_oidc_redirect_uri
+      error_message = "takosumi_accounts_redirect_uri must equal <app_url>/api/auth/callback/takos."
+    }
   }
 }
 
@@ -159,9 +226,10 @@ resource "takoform_worker_deployment" "worker" {
   ]
 }
 
-resource "takoform_worker_endpoint" "worker" {
-  name   = "${local.prefix}-endpoint"
-  worker = takoform_module_worker.worker.name
+resource "takoform_worker_custom_domain" "worker" {
+  name     = "${local.prefix}-domain"
+  hostname = local.app_hostname
+  worker   = takoform_module_worker.worker.name
 
   depends_on = [takoform_worker_deployment.worker]
 }

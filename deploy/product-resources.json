@@ -7,7 +7,7 @@
     { "name": "bundle", "shape": "WorkerBundle" },
     { "name": "version", "shape": "WorkerVersion" },
     { "name": "deployment", "shape": "WorkerDeployment" },
-    { "name": "endpoint", "shape": "WorkerEndpoint" },
+    { "name": "endpoint", "shape": "WorkerCustomDomain" },
     { "name": "database", "shape": "SQLiteDatabase" },
     { "name": "schema", "shape": "SQLiteMigrationSet" },
     { "name": "schema-application", "shape": "SQLiteMigrationApplication" },
@@ -32,7 +32,12 @@
     { "name": "scheduled", "resource": "retention" }
   ],
   "outputs": [
-    { "name": "launch_url", "resource": "endpoint", "attribute": "url" },
-    { "name": "api_url", "resource": "endpoint", "attribute": "url" }
+    { "name": "launch_url", "source": "input", "input": "app_url" },
+    {
+      "name": "api_url",
+      "source": "derived",
+      "input": "app_url",
+      "suffix": "/api"
+    }
   ]
 }

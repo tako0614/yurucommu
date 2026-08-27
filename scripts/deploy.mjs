@@ -210,8 +210,8 @@ function requireReleaseIdentity(tag, artifactUrl, bundleDigest) {
     "utf8",
   );
   if (
-    !takoformSource.includes(
-      'worker_bundle_path = "${path.module}/.generated/yurucommu-worker.js"',
+    !/worker_bundle_path\s+= "\$\{path\.module\}\/\.generated\/yurucommu-worker\.js"/u.test(
+      takoformSource,
     )
   ) {
     failures.push(

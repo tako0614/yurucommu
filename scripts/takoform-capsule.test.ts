@@ -39,8 +39,8 @@ describe("portable Takoform v1 Capsule", () => {
         "takoform_sqlite_migration_set",
         "takoform_worker_bundle",
         "takoform_worker_cron_trigger",
+        "takoform_worker_custom_domain",
         "takoform_worker_deployment",
-        "takoform_worker_endpoint",
         "takoform_worker_version",
       ].sort(),
     );
@@ -96,28 +96,28 @@ describe("portable Takoform v1 Capsule", () => {
     }
   });
 
-  test("publishes ordinary WorkerEndpoint URLs", () => {
+  test("publishes the app-owned custom-domain URL", () => {
     expect(outputs).toContain('output "launch_url"');
     expect(outputs).toContain('output "api_url"');
-    expect(outputs).toContain("takoform_worker_endpoint");
-    expect(outputs).toContain(".url");
+    expect(outputs).toContain("var.app_url");
+    expect(outputs).toContain("takoform_worker_custom_domain");
     expect(outputs).not.toContain("resource_uri");
   });
 
-  test("admits the endpoint only after a fetch deployment without feeding its URL back into WorkerVersion", () => {
-    const workerEndpoint = main.match(
-      /resource "takoform_worker_endpoint" "worker" \{([\s\S]*?)\n\}/,
+  test("admits the plan-known custom domain only after a fetch deployment", () => {
+    const workerDomain = main.match(
+      /resource "takoform_worker_custom_domain" "worker" \{([\s\S]*?)\n\}/,
     )?.[1];
-    expect(workerEndpoint).toBeDefined();
-    expect(workerEndpoint).toMatch(
+    expect(workerDomain).toBeDefined();
+    expect(workerDomain).toContain("hostname = local.app_hostname");
+    expect(workerDomain).toMatch(
       /depends_on\s*=\s*\[takoform_worker_deployment\.worker\]/,
     );
     const workerVersion = main.match(
       /resource "takoform_worker_version" "worker" \{([\s\S]*?)\n\}/,
     )?.[1];
     expect(workerVersion).toBeDefined();
-    expect(workerVersion).not.toContain("worker_endpoint");
-    expect(workerVersion).not.toContain("APP_URL");
-    expect(main).not.toMatch(/APP_URL\s*=\s*.*worker_endpoint/);
+    expect(workerVersion).not.toContain("worker_custom_domain");
+    expect(main).not.toContain("takoform_worker_endpoint");
   });
 });

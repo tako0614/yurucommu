@@ -4,13 +4,13 @@ output "worker_name" {
 }
 
 output "launch_url" {
-  description = "Ordinary public URL allocated by WorkerEndpoint."
-  value       = takoform_worker_endpoint.worker.url
+  description = "Canonical public URL attached through the app-owned WorkerCustomDomain resource."
+  value       = var.app_url
 }
 
 output "api_url" {
   description = "Primary Yurucommu social API endpoint."
-  value       = "${trimsuffix(takoform_worker_endpoint.worker.url, "/")}/api"
+  value       = "${var.app_url}/api"
 }
 
 output "takoform_resource_ids" {
@@ -20,7 +20,7 @@ output "takoform_resource_ids" {
     worker_bundle         = takoform_worker_bundle.worker.uid
     worker_version        = takoform_worker_version.worker.uid
     worker_deployment     = takoform_worker_deployment.worker.uid
-    worker_endpoint       = takoform_worker_endpoint.worker.uid
+    worker_custom_domain  = takoform_worker_custom_domain.worker.uid
     database              = takoform_sqlite_database.database.uid
     migration_set         = takoform_sqlite_migration_set.schema.uid
     migration_application = takoform_sqlite_migration_application.schema.uid

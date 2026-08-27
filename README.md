@@ -77,10 +77,13 @@ Takosumi の「新しいアプリ」または `/install` 画面で、次を指�
 
 インストール画面は、選んだ ref にある
 [`/.well-known/takosumi.json`](.well-known/takosumi.json) を読みます。このファイルが
-決めるのは入力欄の名前や既定値だけです。クラウドの認証情報、シークレット、公開 URL、
-データ移行、実行権限は Takosumi 側が管理します。
+決めるのは入力補助、Takosumi に要求する汎用 API capability、公開 Interface です。
+provider、resource graph、公開 endpoint、migration、Output、lifecycle は選択した
+OpenTofu module が所有します。クラウド認証情報は Provider Connection から runner
+だけに渡り、リポジトリ metadata や OpenTofu state には入りません。
 
-Takosumi の Cloudflare profile は Takosumi Accounts の OIDC を使います。
+`identity.oidc` capability は Takosumi Accounts に Capsule-bound public client を作り、
+Accounts URL、issuer URL、client ID、redirect URI の4つだけを module へ渡します。
 初回インストール画面では、sealed な保存経路を持たない初期パスワードと認証付き
 Push gateway token は受け付けません。認証不要の Push gateway は URL と公開鍵を
 指定できます。token が必要な gateway は、sealed install input が用意されるまで
@@ -92,8 +95,8 @@ Push gateway token は受け付けません。認証不要の Push gateway は U
 4. Apply を実行する
 5. Apps 画面から Yurucommu を開く
 
-インストール後、`WorkerDeployment` の後に作られる `WorkerEndpoint`
-が通常の `launch_url` Output を返します。リポジリの v2.3
+インストール後、`WorkerDeployment` に接続した `WorkerCustomDomain` と同じ
+plan-known origin が通常の `launch_url` Output になります。リポジトリの v2.3
 [`interfaces`](.well-known/takosumi.json) 宣言がレビュー済みの
 `interface.ui.surface@1` Interface に compile され、その `inputs.url` が
 `launch_url` Output を明示的に参照します。Output だけでは Apps 画面用の surface
@@ -102,7 +105,7 @@ Push gateway token は受け付けません。認証不要の Push gateway は U
 
 自動処理向けには、通常の OpenTofu Output として `launch_url` と `api_url` も
 取得できます。Apps 画面にリンクが出ない場合は、Apply の成功、
-`WorkerDeployment` と `WorkerEndpoint` の Ready、`launch_url`、インストールした
+`WorkerDeployment` と `WorkerCustomDomain` の Ready、`launch_url`、インストールした
 利用者の権限を確認してください。
 
 管理用の定義が作るものと、ホスト側が用意するものは
@@ -209,16 +212,18 @@ ID・名前、Takosumi では Apply の実行結果と Resource の接続状態�
 ### ログインできない
 
 パスワード認証なら `AUTH_PASSWORD_HASH`、どの構成でも `ENCRYPTION_KEY` が必要です。
-OIDC を使う場合は issuer、client ID、callback URL、最初の owner にする subject が
-同じ設定になっているか確認します。Secret の値そのものはログや Issue に貼らないで
-ください。
+OIDC を使う場合は issuer、client ID、callback URL が同じ設定になっているか確認します。
+Takosumi Accounts では署名済み ID token の Workspace `owner` role が初回 owner の
+authority であり、subject を manifest から注入しません。独立した OIDC issuer を使う
+operator は `OIDC_OWNER_SUB` で固定できます。Secret の値そのものはログや Issue に
+貼らないでください。
 
 ### Apps 画面に Yurucommu が表示されない
 
-Takosumi の Apply が成功していても、`WorkerEndpoint.url` 由来の
-`launch_url`、v2.3 `interfaces` 宣言から compile された UI surface、開く
+Takosumi の Apply が成功していても、app-owned `app_url` と
+`WorkerCustomDomain` 由来の `launch_url`、v2.3 `interfaces` 宣言から compile された UI surface、開く
 binding 権限のいずれかが未解決ならリンクは表示されません。クラウド
-内部のリソース ID から URL を作らず、Endpoint Output と Interface を確認します。
+内部のリソース ID から URL を作らず、OpenTofu Output と Interface を確認します。
 
 ### プッシュ通知が届かない
 
