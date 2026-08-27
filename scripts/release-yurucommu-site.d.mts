@@ -1,161 +1,89 @@
-export type CommittedSiteEntry = {
-  oid: string;
-  path: string;
-};
+export type SiteEnvironment = "integration" | "production";
 
-export type SiteManifestFile = {
+export type SiteReadback = {
+  origin: string;
   path: string;
+  status: number;
   bytes: number;
   sha256: string;
 };
 
-export type SealedSiteCandidate = {
-  releaseRoot: string;
-  custodyRoot: string;
-  siteRoot: string;
-  wranglerCwd: string;
-  outputPath: string;
-  manifestPath: string;
-  manifest: {
-    kind: string;
-    commit: string;
-    treeDigest: string;
-    files: SiteManifestFile[];
-  };
-  manifestDigest: string;
-  treeDigest: string;
-  directoryFd: number | null;
-};
-
-export type PagesDeploymentIdentity = {
-  deploymentId: string;
+export type SiteReleaseResult = {
+  kind: "takos.deploy-result@v1";
+  surface: "yurucommu-site";
+  target: "cloudflare-pages:yurucommu-website";
+  environment: SiteEnvironment;
+  branch: string;
+  commit?: string;
+  site: "site";
+  siteSha256: string;
   deploymentUrl: string;
-  commit: string;
-  environment: "production";
-  productionBranch: "main";
+  immutableReadback: SiteReadback;
+  publicReadback?: SiteReadback;
+  status: "PUBLISHED";
 };
 
-export type CanonicalProductionAuthority = {
-  authority: "cloudflare-pages-project.canonical_deployment";
-  project: "yurucommu-website";
-  projectId: string;
-  deploymentId: string;
-  deploymentUrl: string;
-  branch: "main";
-  source: string | null;
-  publicOrigin: "https://yurucommu.com";
-  automaticProductionDeployments: "not-configured" | "disabled";
-};
-
-export type SiteRepresentative = {
-  urlPath: string;
-  file: string;
-  bytes: number;
-  sha256: string;
-  contentType: string;
-  headers?: Record<string, string>;
-};
-
-export type SiteFetch = (
-  input: string | URL | Request,
-  init?: RequestInit,
-) => Promise<Response>;
-
-export function parseCommittedSiteTree(
-  rawTree: Uint8Array,
-): CommittedSiteEntry[];
-
-export function sealCommittedSite(input: {
-  baseDirectory: string;
-  commit: string;
-  entries: CommittedSiteEntry[];
-  readBlob(oid: string): Uint8Array;
-}): SealedSiteCandidate;
-
-export function verifySealedSite(candidate: SealedSiteCandidate): {
-  files: number;
-  treeDigest: string;
-};
-
-export function disposeSealedSite(candidate: {
-  releaseRoot?: string;
-  directoryFd?: number | null;
-}): void;
-
-export function validateSealedSiteContent(candidate: SealedSiteCandidate): {
-  representatives: SiteRepresentative[];
-  internalReferences: number;
-  installCta: { href: string; occurrences: number };
-};
-
-export function parsePagesDeployIdentity(
-  rawOutput: string,
-  expected: { commit: string },
-): PagesDeploymentIdentity;
-
-export function parseCanonicalProductionProject(
-  rawResponse: string,
-): CanonicalProductionAuthority;
-
-export function parseWranglerReleaseAuthority(
-  whoamiOutput: string,
-  tokenOutput: string,
-): {
-  accountId: string;
-  token: string;
-};
-
-export function requireCanonicalPublishedDeployment(
-  authority: CanonicalProductionAuthority,
-  identity: PagesDeploymentIdentity,
-): CanonicalProductionAuthority;
-
-export function sanitizeProviderOutput(value: unknown): string;
-
-export function verifyCurrentProductionBinding(input: {
-  authority: CanonicalProductionAuthority;
-  representatives: SiteRepresentative[];
-  fetchImpl?: SiteFetch;
-  attempts?: number;
-  sleep?(milliseconds: number): Promise<void>;
-}): Promise<{
-  bindingDigest: string;
-  readbacks: Array<{
-    urlPath: string;
-    bytes: number;
-    sha256: string;
-    contentType: string;
-    headers: Record<string, string>;
-    status: "CURRENT_CANONICAL_BYTES";
-  }>;
-}>;
-
-export function verifyRepresentativeReadbacks(input: {
-  origins: string[];
-  representatives: SiteRepresentative[];
-  treeDigest: string;
-  fetchImpl?: SiteFetch;
-  attempts?: number;
-  sleep?(milliseconds: number): Promise<void>;
-}): Promise<
-  Array<{
-    origin: string;
-    urlPath: string;
-    bytes: number;
-    sha256: string;
-    contentType: string;
-    status: "EXPECTED_CANDIDATE";
-  }>
->;
+export type SiteReleaseFailurePhase =
+  "PRE_UPLOAD_FAILURE" | "POST_UPLOAD_INDETERMINATE";
 
 export class YurucommuSiteReleaseFailure extends Error {
-  readonly phase: string;
+  readonly phase: SiteReleaseFailurePhase;
   readonly evidence: Record<string, unknown>;
   readonly provider: { stdout: string; stderr: string } | null;
 }
 
-export function deployYurucommuSite(options?: {
+export type SiteCommandResult =
+  | string
+  | Uint8Array
+  | {
+      stdout?: string | Uint8Array;
+      stderr?: string | Uint8Array;
+      status?: number;
+      exitCode?: number;
+      url?: string;
+    };
+
+export type SiteCommand = (
+  command: string,
+  args: string[],
+  options?: { cwd?: string; env?: NodeJS.ProcessEnv },
+) => SiteCommandResult | Promise<SiteCommandResult>;
+
+export type SiteFetch = (
+  input: string | URL,
+  init?: RequestInit,
+) => Promise<Response>;
+
+export type SiteProvider = {
+  run?: SiteCommand;
+  check?: (input: {
+    repo: string;
+    environment: SiteEnvironment;
+    siteRoot: string;
+  }) => void | Promise<void>;
+  upload?: (input: {
+    repo: string;
+    environment: SiteEnvironment;
+    siteRoot: string;
+    branch: string;
+    commit: string | null;
+  }) => SiteCommandResult | Promise<SiteCommandResult>;
+  readback?: (input: {
+    origin: string;
+    path: "/";
+    expected: { bytes: number; sha256: string };
+  }) => SiteReadback | Promise<SiteReadback>;
+};
+
+export function parsePagesDeploymentUrl(result: SiteCommandResult): string;
+
+export function deployYurucommuSite(options: {
   repo?: string;
-}): Promise<Record<string, unknown>>;
+  environment: SiteEnvironment;
+  run?: SiteCommand;
+  git?: (args: string[]) => SiteCommandResult | Promise<SiteCommandResult>;
+  fetchImpl?: SiteFetch;
+  provider?: SiteProvider;
+}): Promise<SiteReleaseResult>;
 
 export function reportYurucommuSiteReleaseFailure(error: unknown): void;

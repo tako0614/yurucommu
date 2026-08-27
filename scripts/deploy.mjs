@@ -116,17 +116,17 @@ const CONTRACT = {
       surface: S.surface,
       target: `cloudflare-pages:${S.project}`,
       covers: [S.source, "scripts/release-yurucommu-site.mjs"],
-      requiresScripts: ["check"],
+      requiresScripts: ["check:site"],
       requiresTools: ["git", "bun", "wrangler"],
       requiresEnv: [],
       productionBranch: S.productionBranch,
       triggers: [],
       obligations: {
-        provenance: `requires a clean reviewed commit equal to its freshly fetched origin/${S.productionBranch} regardless of the local branch name or detached-HEAD state and runs the complete owner gate; resolves exactly one account from the owner Wrangler OAuth profile while rejecting ambient Cloudflare credentials, requires the project API to report Direct Upload or authoritatively disabled automatic production deploys, and binds ${S.publicOrigin} representative bytes and headers to the unchanged canonical_deployment before touch; materializes only committed ${S.source}/ blobs into a private read-only custody tree, rejects symlinks, hard links by requiring every sealed file to remain single-link, special entries, unsafe paths, tree changes, and credential shapes in every bounded decodable UTF-8 asset, and records the commit, every-file manifest digest, and exact site-tree SHA-256`,
-        "post-conditions": `requires Wrangler's structured deployment id, production environment, ${S.productionBranch} branch, and full commit identity to become the project API's canonical_deployment, reads representative HTML and JSON-LD bytes from both that immutable deployment URL and ${S.publicOrigin}/, requires exact candidate digests, content types, JSON-LD CORS/cache headers, and the repository-owned Takosumi install CTA in the exact custom-domain home-page bytes, then confirms the same canonical_deployment again`,
-        reversal: `reads the project API's current canonical_deployment, proves its immutable representative bytes equal ${S.publicOrigin}, and records its deployment id and pre-mutation binding digest before upload; restore that exact id with the Cloudflare Pages rollback action or Pages deployment rollback API, and if it is unavailable publish a reviewed higher commit on origin/${S.productionBranch} through this same surface as forward repair`,
+        provenance: `integration accepts the exact worktree (including dirty, non-main work) and production requires a clean main equal to freshly fetched origin/${S.productionBranch}; both run bun run check:site once and record the source commit when available plus the site/index.html digest`,
+        "post-conditions": `performs one Wrangler Pages upload to ${S.project}, then GETs the immutable deployment URL; production also GETs ${S.publicOrigin} and requires the uploaded home-page bytes`,
+        reversal: `use the Pages provider deployment history to roll back the published deployment, or publish a corrected higher commit through this surface`,
         "failure-handling":
-          "discards sensitive Wrangler authentication output, redacts generic authorization, bearer, Cloudflare token/key, and private-key shapes from provider diagnostics, reports PRE_TOUCH_FAILURE before Wrangler upload, AMBIGUOUS_AFTER_TOUCH once upload may have begun without a verified identity, or POST_TOUCH_FAILURE after a deployment identity exists, and never retries or rolls back a mutation automatically",
+          "reports PRE_UPLOAD_FAILURE before Wrangler is invoked or POST_UPLOAD_INDETERMINATE after upload begins; it never retries or rolls back automatically",
       },
     },
   ],
@@ -142,7 +142,7 @@ if (![W.surface, R.surface, S.surface].includes(requestedSurface)) {
   process.stderr.write(
     `usage: bun run deploy -- ${W.surface}\n` +
       `       bun run deploy -- ${R.surface} [--dry-run|--execute]\n` +
-      `       bun run deploy -- ${S.surface}\n`,
+      `       bun run deploy -- ${S.surface} --environment=integration|production\n`,
   );
   process.exit(1);
 }
@@ -581,13 +581,20 @@ if (requestedSurface === R.surface) {
 }
 
 if (requestedSurface === S.surface) {
-  if (process.argv.slice(3).length !== 0) {
-    die(`${S.surface} accepts no flags or alternate phases`);
+  const args = process.argv.slice(3);
+  if (
+    args.length !== 1 ||
+    !/^--environment=(?:integration|production)$/u.test(args[0])
+  ) {
+    die(
+      `${S.surface} requires exactly one --environment=integration|production flag`,
+    );
   }
+  const environment = args[0].slice("--environment=".length);
   const { deployYurucommuSite, reportYurucommuSiteReleaseFailure } =
     await import("./release-yurucommu-site.mjs");
   try {
-    await deployYurucommuSite();
+    await deployYurucommuSite({ environment });
   } catch (error) {
     reportYurucommuSiteReleaseFailure(error);
     process.exit(1);

@@ -22,6 +22,7 @@
     "build": "bun run build:client",
     "build:client": "bunx vite build --config vite.config.ts",
     "build:worker": "bun scripts/build-yurucommu-worker.ts",
+    "check:site": "bunx prettier --check site",
     "check:core-release": "bun scripts/check-core-release.mjs",
     "generate:schema-bundle": "bun scripts/generate-schema-bundle.ts",
     "check:opentofu": "tofu fmt -check -recursive && tofu init -backend=false -input=false -lockfile=readonly && tofu validate && bun run build:worker && bun scripts/prepare-takoform-v1-source.ts && bun scripts/validate-takoform-v1.ts",

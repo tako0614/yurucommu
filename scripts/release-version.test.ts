@@ -429,22 +429,22 @@ describe("release surface status", () => {
     );
   });
 
-  test("routes both website CTAs through the repository-owned source chooser", () => {
-    const chooserHref =
-      "https://app.takosumi.com/install?kind=capsule-source-options&amp;git=https%3A%2F%2Fgithub.com%2Ftako0614%2Fyurucommu.git&amp;path=install-options.json";
+  test("routes both website CTAs through the Git repository install entrypoint", () => {
+    const repositoryHref =
+      "https://app.takosumi.com/install?git=https%3A%2F%2Fgithub.com%2Ftako0614%2Fyurucommu.git";
     const installHrefs = [
       ...siteSource.matchAll(
         /href="([^"]*app\.takosumi\.com\/install[^"]*)"/gu,
       ),
     ].map((match) => match[1]);
-    expect(installHrefs).toEqual([chooserHref, chooserHref]);
+    expect(installHrefs).toEqual([repositoryHref, repositoryHref]);
     for (const href of installHrefs) {
       const parsed = new URL(href.replaceAll("&amp;", "&"));
-      expect(parsed.searchParams.get("kind")).toBe("capsule-source-options");
       expect(parsed.searchParams.get("git")).toBe(
         "https://github.com/tako0614/yurucommu.git",
       );
-      expect(parsed.searchParams.get("path")).toBe("install-options.json");
+      expect(parsed.searchParams.has("kind")).toBe(false);
+      expect(parsed.searchParams.has("path")).toBe(false);
       expect(parsed.searchParams.has("ref")).toBe(false);
     }
     expect(siteSource).not.toContain("path=.");
