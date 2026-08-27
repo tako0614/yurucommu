@@ -207,7 +207,7 @@ export async function main(): Promise<void> {
   let endpointUrl = "";
 
   await Promise.all([
-    copyFile(new URL("main.tf", fixture), join(workdir, "main.tf")),
+    copyFile(new URL("main.tf.fixture", fixture), join(workdir, "main.tf")),
     copyFile(new URL("worker.mjs", fixture), join(workdir, "worker.mjs")),
   ]);
 

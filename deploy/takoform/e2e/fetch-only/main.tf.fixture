@@ -1,3 +1,4 @@
+# Test template copied to a temporary main.tf by scripts/takoform-v1-e2e.ts.
 terraform {
   required_version = ">= 1.5"
 

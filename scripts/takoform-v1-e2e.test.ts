@@ -142,7 +142,7 @@ describe("Takoform stable-v1 fetch tracer", () => {
 
   test("the deploy fixture is fetch-only and uses the Provider 3 worker chain", async () => {
     const fixture = new URL(
-      "../deploy/takoform/e2e/fetch-only/main.tf",
+      "../deploy/takoform/e2e/fetch-only/main.tf.fixture",
       import.meta.url,
     );
     const main = await readFile(fixture, "utf8");
