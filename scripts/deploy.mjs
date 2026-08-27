@@ -201,7 +201,7 @@ function requireReleaseIdentity(tag, artifactUrl, bundleDigest) {
   const install = repository?.install;
   const modules = install?.modules;
   if (
-    repository?.apiVersion !== "takosumi.com/v2.3" ||
+    repository?.apiVersion !== "takosumi.com/v2.4" ||
     repository?.kind !== "Repository"
   ) {
     failures.push(

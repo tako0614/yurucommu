@@ -32,6 +32,13 @@ locals {
 
 resource "takoform_module_worker" "worker" {
   name = local.prefix
+
+  depends_on = [
+    takoform_sqlite_database.database,
+    takoform_edge_kv_namespace.kv,
+    takoform_at_least_once_queue.delivery,
+    takoform_at_least_once_queue.delivery_dlq,
+  ]
 }
 
 resource "takoform_sqlite_database" "database" {

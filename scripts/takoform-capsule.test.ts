@@ -52,6 +52,24 @@ describe("portable Takoform v1 Capsule", () => {
     expect(main).not.toContain('version = ">= 3.0.0"');
   });
 
+  test("fences ModuleWorker destruction behind every runtime binding", () => {
+    const moduleWorker = main.match(
+      /resource "takoform_module_worker" "worker" \{([\s\S]*?)\n\}/,
+    )?.[1];
+    expect(moduleWorker).toBeDefined();
+    const dependencies = moduleWorker
+      ?.match(/depends_on\s*=\s*\[([\s\S]*?)\]/)?.[1]
+      ?.split(",")
+      .map((dependency) => dependency.trim())
+      .filter(Boolean);
+    expect(dependencies).toEqual([
+      "takoform_sqlite_database.database",
+      "takoform_edge_kv_namespace.kv",
+      "takoform_at_least_once_queue.delivery",
+      "takoform_at_least_once_queue.delivery_dlq",
+    ]);
+  });
+
   test("uses native Worker fetch, queue, and scheduled handlers", () => {
     for (const handler of ["fetch", "queue", "scheduled"]) {
       expect(main).toContain(`"${handler}"`);

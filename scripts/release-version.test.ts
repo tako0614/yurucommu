@@ -323,7 +323,7 @@ describe("release version", () => {
 
   test("binds the repository manifest module and asset pins to one package release", () => {
     const artifactUrl = `https://github.com/tako0614/yurucommu/releases/download/${packageTag}/yurucommu-worker.js`;
-    expect(repositoryManifest.apiVersion).toBe("takosumi.com/v2.3");
+    expect(repositoryManifest.apiVersion).toBe("takosumi.com/v2.4");
     expect(repositoryManifest.kind).toBe("Repository");
     const rootModule = repositoryManifest.install.modules["."];
     const managedModule = repositoryManifest.install.modules["deploy/takoform"];
