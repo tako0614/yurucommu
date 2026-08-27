@@ -66,21 +66,22 @@ this same canonical entrypoint:
 https://app.takosumi.com/install?git=https%3A%2F%2Fgithub.com%2Ftako0614%2Fyurucommu.git
 ```
 
-Takosumi scans the tree at one Git revision, then selects the actual
-`install.defaultModule` (`deploy/takoform`) and module declaration from
-`.well-known/takosumi.json`. There is no separate source-options document or
-manual provider chooser. Adjust the ref, module path, or service name in
-Takosumi only when you need to override the defaults.
+Takosumi scans the OpenTofu tree at one Git revision and derives the real root
+modules and each module's Provider requirements. This repository has two
+candidates, the root and `deploy/takoform`, so the install screen asks which
+one to run. There is no separate source-options document. Adjust the ref,
+module path, or service name only when needed.
 
-If a Takosumi host lists Yurucommu in its browse screen, that entry resolves to
-the same `deploy/takoform` module. The list is a discovery shortcut, not a
-different distribution.
+If a Takosumi host lists Yurucommu in its browse screen, that entry enters the
+same Git URL and tree scan. The list is a discovery shortcut, not a different
+distribution or module authority.
 
 The install screen reads
 [`/.well-known/takosumi.json`](.well-known/takosumi.json) from the selected
-ref. This repository-owned file describes labels and defaults only. Takosumi
-still owns cloud credentials, secrets, the public URL, migrations, and runtime
-authorization.
+ref. Its `install.modules` entries can add input, build, service, and interface
+assistance only to modules proven to exist by the tree scan; they cannot create,
+order, or default candidates. Takosumi still owns cloud credentials, secrets,
+the public URL, migrations, and runtime authorization.
 
 Takosumi's Cloudflare profile uses Takosumi Accounts OIDC. The initial install
 screen does not accept an initial password or an authenticated push-gateway

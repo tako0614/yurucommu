@@ -8,7 +8,6 @@ const manifest = JSON.parse(manifestText) as {
   apiVersion: string;
   kind: string;
   install: {
-    defaultModule: string;
     modules: Record<
       string,
       {
@@ -191,7 +190,7 @@ function assertLauncherInterface(
 }
 
 describe("repository-owned Takosumi install UX", () => {
-  test("keeps the transitional root and declares the exact managed module", () => {
+  test("describes both real module paths without choosing a default", () => {
     expect(
       new TextEncoder().encode(manifestText).byteLength,
     ).toBeLessThanOrEqual(128 * 1024);
@@ -203,11 +202,9 @@ describe("repository-owned Takosumi install UX", () => {
     expect(manifest.apiVersion).toBe("takosumi.com/v2.3");
     expect(manifest.kind).toBe("Repository");
     assertExactKeys(manifest.install as unknown as Record<string, unknown>, [
-      "defaultModule",
       "modules",
     ]);
-    expect(manifest.install.defaultModule).toBe("deploy/takoform");
-    expect(Object.keys(manifest.install.modules)).toEqual([
+    expect(Object.keys(manifest.install.modules).sort()).toEqual([
       ".",
       "deploy/takoform",
     ]);

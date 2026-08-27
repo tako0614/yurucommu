@@ -208,11 +208,6 @@ function requireReleaseIdentity(tag, artifactUrl, bundleDigest) {
       ".well-known/takosumi.json has an unexpected repository kind",
     );
   }
-  if (install?.defaultModule !== "deploy/takoform") {
-    failures.push(
-      `.well-known/takosumi.json selects ${install?.defaultModule ?? "<missing>"}, expected deploy/takoform`,
-    );
-  }
   const rootModule = modules?.["."];
   const takoformModule = modules?.["deploy/takoform"];
   const pinInputs = new Map(

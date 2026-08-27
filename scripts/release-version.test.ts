@@ -40,7 +40,6 @@ const repositoryManifest = JSON.parse(repositorySource) as {
   apiVersion: string;
   kind: string;
   install: {
-    defaultModule: string;
     modules: Record<
       string,
       {
@@ -326,7 +325,6 @@ describe("release version", () => {
     const artifactUrl = `https://github.com/tako0614/yurucommu/releases/download/${packageTag}/yurucommu-worker.js`;
     expect(repositoryManifest.apiVersion).toBe("takosumi.com/v2.3");
     expect(repositoryManifest.kind).toBe("Repository");
-    expect(repositoryManifest.install.defaultModule).toBe("deploy/takoform");
     const rootModule = repositoryManifest.install.modules["."];
     const managedModule = repositoryManifest.install.modules["deploy/takoform"];
     const pinInputs = new Map(
@@ -544,20 +542,17 @@ describe("immutable GitHub release guard", () => {
     expect(result.stderr).toContain("immutable");
   });
 
-  test("does not call release create when the repository manifest selects another module", async () => {
+  test("does not call release create when the managed module metadata is missing", async () => {
     const result = await createReleaseHarness({
       immutableSettings: JSON.stringify({ enabled: true }),
       readback: readbackPayload(true),
       manifestMutator: (source) =>
-        source.replace(
-          '"defaultModule": "deploy/takoform"',
-          '"defaultModule": "."',
-        ),
+        source.replace('"deploy/takoform": {', '"deploy/renamed": {'),
     });
 
     expect(result.exitCode).not.toBe(0);
     expect(result.ghLog).not.toContain("release create");
-    expect(result.stderr).toContain("expected deploy/takoform");
+    expect(result.stderr).toContain("deploy/takoform sourceBuild");
   });
 
   test("does not call release create when the manifest asset output pin drifts", async () => {

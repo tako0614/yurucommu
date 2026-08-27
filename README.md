@@ -69,18 +69,21 @@ Takosumi の「新しいアプリ」または `/install` 画面へ、次の Git 
 https://app.takosumi.com/install?git=https%3A%2F%2Fgithub.com%2Ftako0614%2Fyurucommu.git
 ```
 
-Takosumi は同じ Git revision の tree を読み、`.well-known/takosumi.json` の
-`install.defaultModule` (`deploy/takoform`) と実際のモジュール宣言を選びます。
-追加の source-options 文書や手動の provider 選択はありません。必要な場合だけ
-Takosumi の画面で ref、module path、サービス名を調整します。
+Takosumi は同じ Git revision の OpenTofu tree を読み、実在する root module と
+各 module が必要とする Provider を導出します。このリポジトリにはルートと
+`deploy/takoform` の2候補があるため、インストール画面で実行先を選びます。追加の
+source-options 文書はありません。必要な場合だけ ref、module path、サービス名を
+調整します。
 
-一覧画面に Yurucommu が表示される Takosumi ホストでも、選択される実体は同じ
-`deploy/takoform` です。一覧は見つけやすくする入口であり、別の配布物ではありません。
+一覧画面に Yurucommu が表示される Takosumi ホストでも、同じ Git URL と tree scanへ
+進みます。一覧は見つけやすくする入口であり、別の配布物や module authority では
+ありません。
 
 インストール画面は、選んだ ref にある
-[`/.well-known/takosumi.json`](.well-known/takosumi.json) を読みます。このファイルが
-決めるのは入力欄の名前や既定値だけです。クラウドの認証情報、シークレット、公開 URL、
-データ移行、実行権限は Takosumi 側が管理します。
+[`/.well-known/takosumi.json`](.well-known/takosumi.json) を読みます。このファイルの
+`install.modules` は、tree scanで実在が証明されたmoduleに入力欄、build、service、
+interfaceの補助情報を足すだけで、候補の作成・順序・既定選択は行いません。クラウドの
+認証情報、シークレット、公開 URL、データ移行、実行権限は Takosumi 側が管理します。
 
 Takosumi の Cloudflare profile は Takosumi Accounts の OIDC を使います。
 初回インストール画面では、sealed な保存経路を持たない初期パスワードと認証付き
