@@ -80,6 +80,31 @@ const managedModuleOutputsSource = await readFile(
   new URL("deploy/takoform/outputs.tf", rootUrl),
   "utf8",
 );
+const expectedManagedRuntimeRequirements = [
+  {
+    kind: "secret.generated",
+    bytes: 32,
+    encoding: "hex",
+    deliver: {
+      bindings: {
+        value: "ENCRYPTION_KEY",
+      },
+    },
+  },
+  {
+    kind: "identity.oidc",
+    callbackPath: "/api/auth/callback/takos",
+    scopes: ["openid", "profile", "email"],
+    deliver: {
+      bindings: {
+        issuerUrl: "TAKOSUMI_ACCOUNTS_ISSUER_URL",
+        clientId: "TAKOSUMI_ACCOUNTS_CLIENT_ID",
+        ownerSubject: "TAKOSUMI_ACCOUNTS_OWNER_SUB",
+        redirectUri: "TAKOSUMI_ACCOUNTS_REDIRECT_URI",
+      },
+    },
+  },
+];
 const sourceKinds = new Set([
   "user",
   "capsule_name",
@@ -199,7 +224,7 @@ describe("repository-owned Takosumi install UX", () => {
       "kind",
       "install",
     ]);
-    expect(manifest.apiVersion).toBe("takosumi.com/v2.3");
+    expect(manifest.apiVersion).toBe("takosumi.com/v2.4");
     expect(manifest.kind).toBe("Repository");
     assertExactKeys(manifest.install as unknown as Record<string, unknown>, [
       "modules",
@@ -222,6 +247,7 @@ describe("repository-owned Takosumi install UX", () => {
     ]);
     assertExactKeys(managedModule as unknown as Record<string, unknown>, [
       "inputs",
+      "requires",
       "sourceBuild",
       "interfaces",
     ]);
@@ -242,7 +268,6 @@ describe("repository-owned Takosumi install UX", () => {
         expect(input.label.ja.length).toBeLessThanOrEqual(512);
         expect(input.label.en.length).toBeLessThanOrEqual(512);
       }
-      expect(module.requires).toBeUndefined();
       for (const feature of module.features ?? []) {
         expect(feature.id.length).toBeLessThanOrEqual(64);
         expect(feature.inputs.length).toBeLessThanOrEqual(32);
@@ -348,12 +373,19 @@ describe("repository-owned Takosumi install UX", () => {
     expect(managedModuleOutputsSource).toContain('output "launch_url"');
   });
 
-  test("does not ask Takosumi to synthesize endpoint, identity, or secrets", () => {
+  test("declares only provider-neutral runtime requirements", () => {
     expect(rootModule.requires).toBeUndefined();
-    expect(managedModule.requires).toBeUndefined();
+    expect(managedModule.requires).toEqual(expectedManagedRuntimeRequirements);
     expect(manifestText).not.toContain('"kind": "http.endpoint"');
-    expect(manifestText).not.toContain('"kind": "identity.oidc"');
-    expect(manifestText).not.toContain('"kind": "secret.generated"');
+    expect(manifestText).toContain('"kind": "identity.oidc"');
+    expect(manifestText).toContain('"kind": "secret.generated"');
+    expect(manifestText).not.toContain('"defaultModule"');
+    expect(JSON.stringify(managedModule.requires).toLowerCase()).not.toContain(
+      "provider",
+    );
+    expect(JSON.stringify(managedModule.requires).toLowerCase()).not.toContain(
+      "cloudflare",
+    );
     for (const name of [
       "ENCRYPTION_KEY",
       "TAKOSUMI_ACCOUNTS_ISSUER_URL",

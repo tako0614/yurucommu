@@ -1,5 +1,5 @@
 {
-  "apiVersion": "takosumi.com/v2.3",
+  "apiVersion": "takosumi.com/v2.4",
   "kind": "Repository",
   "install": {
     "modules": {
@@ -211,6 +211,31 @@
               "en": "The name of this Yurucommu service in the workspace."
             },
             "advanced": true
+          }
+        ],
+        "requires": [
+          {
+            "kind": "secret.generated",
+            "bytes": 32,
+            "encoding": "hex",
+            "deliver": {
+              "bindings": {
+                "value": "ENCRYPTION_KEY"
+              }
+            }
+          },
+          {
+            "kind": "identity.oidc",
+            "callbackPath": "/api/auth/callback/takos",
+            "scopes": ["openid", "profile", "email"],
+            "deliver": {
+              "bindings": {
+                "issuerUrl": "TAKOSUMI_ACCOUNTS_ISSUER_URL",
+                "clientId": "TAKOSUMI_ACCOUNTS_CLIENT_ID",
+                "ownerSubject": "TAKOSUMI_ACCOUNTS_OWNER_SUB",
+                "redirectUri": "TAKOSUMI_ACCOUNTS_REDIRECT_URI"
+              }
+            }
           }
         ],
         "sourceBuild": {
