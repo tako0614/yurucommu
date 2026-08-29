@@ -1,17 +1,10 @@
 import { createEffect, createSignal, For, on, onCleanup, Show } from "solid-js";
 import { A } from "@solidjs/router";
-import { Actor, DMMessage } from "../../types/index.ts";
+import { Actor } from "../../types/index.ts";
 import {
-  CommunityMessage,
   deleteCommunityMessage,
   DMContact,
-  fetchCommunityMessages,
-  fetchUserDMMessages,
   fetchUserDMTyping,
-  markCommunityAsRead,
-  markDMAsRead,
-  sendCommunityMessage,
-  sendUserDMMessage,
   sendUserDMTyping,
 } from "../../lib/api.ts";
 import { ApiError } from "../../lib/api/fetch.ts";
@@ -19,6 +12,10 @@ import { formatTime } from "../../lib/datetime.ts";
 import { useI18n } from "../../lib/i18n.tsx";
 import { ConfirmSheet } from "../ConfirmSheet.tsx";
 import { UserAvatar } from "../UserAvatar.tsx";
+import {
+  createConversationSource,
+  type ChatMessage,
+} from "./conversation-source.ts";
 
 interface DMChatPanelProps {
   contact: DMContact;
@@ -26,8 +23,6 @@ interface DMChatPanelProps {
   onBack: () => void;
   onRead?: () => void;
 }
-
-type ChatMessage = DMMessage | CommunityMessage;
 
 // Poll interval for re-fetching incoming messages on the open conversation.
 const MESSAGE_POLL_MS = 4000;
@@ -121,52 +116,27 @@ export function DMChatPanel(props: DMChatPanelProps) {
       setErrorMessage(null);
       setLoading(true);
     }
+    const source = createConversationSource(contactType);
     try {
-      if (contactType === "community") {
-        const { messages: data, hasMore } =
-          await fetchCommunityMessages(contactApId);
-        if (isCancelled()) return;
-        if (mode === "initial") setHasMoreOlder(hasMore);
-        let changed = false;
-        setMessages((prev) => {
-          const next =
-            mode === "initial" ? data : mergeMessagesById(prev, data);
-          changed = next !== prev;
-          return next;
-        });
-        // Only POST mark-as-read on the initial load or when genuinely new
-        // content arrived; otherwise every poll triggers a redundant write.
-        if (mode === "initial" || changed) {
-          try {
-            await markCommunityAsRead(contactApId);
-            if (!isCancelled()) props.onRead?.();
-          } catch {
-            // Ignore read marking errors.
-          }
-        }
-      } else {
-        const { messages: loadedMessages, hasMore } =
-          await fetchUserDMMessages(contactApId);
-        if (isCancelled()) return;
-        // Only the initial (newest-page) load seeds the older-page indicator;
-        // see the hasMoreOlder comment. loadOlder updates it thereafter.
-        if (mode === "initial") setHasMoreOlder(hasMore);
-        let changed = false;
-        setMessages((prev) => {
-          const next =
-            mode === "initial"
-              ? loadedMessages
-              : mergeMessagesById(prev, loadedMessages);
-          changed = next !== prev;
-          return next;
-        });
-        if (mode === "initial" || changed) {
-          try {
-            await markDMAsRead(contactApId);
-            if (!isCancelled()) props.onRead?.();
-          } catch {
-            // Ignore read marking errors.
-          }
+      const { messages: data, hasMore } = await source.fetchPage(contactApId);
+      if (isCancelled()) return;
+      // Only the initial (newest-page) load seeds the older-page indicator;
+      // see the hasMoreOlder comment. loadOlder updates it thereafter.
+      if (mode === "initial") setHasMoreOlder(hasMore);
+      let changed = false;
+      setMessages((prev) => {
+        const next = mode === "initial" ? data : mergeMessagesById(prev, data);
+        changed = next !== prev;
+        return next;
+      });
+      // Only POST mark-as-read on the initial load or when genuinely new
+      // content arrived; otherwise every poll triggers a redundant write.
+      if (mode === "initial" || changed) {
+        try {
+          await source.markRead(contactApId);
+          if (!isCancelled()) props.onRead?.();
+        } catch {
+          // Ignore read marking errors.
         }
       }
     } catch (e) {
@@ -205,10 +175,10 @@ export function DMChatPanel(props: DMChatPanelProps) {
       // the boundary isn't skipped (server falls back to a legacy bare-published
       // cursor if no space is present). `oldest.id` is the message apId.
       const cursor = `${oldest.created_at} ${oldest.id}`;
-      const { messages: older, hasMore } =
-        sentType === "community"
-          ? await fetchCommunityMessages(sentApId, { before: cursor })
-          : await fetchUserDMMessages(sentApId, { before: cursor });
+      const source = createConversationSource(sentType);
+      const { messages: older, hasMore } = await source.fetchPage(sentApId, {
+        before: cursor,
+      });
       if (props.contact.ap_id !== sentApId || props.contact.type !== sentType) {
         return; // switched conversations mid-flight
       }
@@ -368,21 +338,13 @@ export function DMChatPanel(props: DMChatPanelProps) {
     const stillOnConversation = () =>
       props.contact.ap_id === sentApId && props.contact.type === sentType;
     try {
-      if (sentType === "community") {
-        const newMsg = await sendCommunityMessage(sentApId, text);
-        // Dedupe by id: a concurrent poll may have already merged this message.
-        if (stillOnConversation()) {
-          setMessages((prev) =>
-            prev.some((m) => m.id === newMsg.id) ? prev : [...prev, newMsg],
-          );
-        }
-      } else {
-        const { message } = await sendUserDMMessage(sentApId, text);
-        if (stillOnConversation()) {
-          setMessages((prev) =>
-            prev.some((m) => m.id === message.id) ? prev : [...prev, message],
-          );
-        }
+      const source = createConversationSource(sentType);
+      const newMsg = await source.send(sentApId, text);
+      // Dedupe by id: a concurrent poll may have already merged this message.
+      if (stillOnConversation()) {
+        setMessages((prev) =>
+          prev.some((m) => m.id === newMsg.id) ? prev : [...prev, newMsg],
+        );
       }
     } catch (e) {
       console.error("Failed to send message:", e);
@@ -414,7 +376,7 @@ export function DMChatPanel(props: DMChatPanelProps) {
     void sendTyping(value);
   };
 
-  const getSenderApId = (msg: DMMessage | CommunityMessage): string => {
+  const getSenderApId = (msg: ChatMessage): string => {
     return msg.sender.ap_id;
   };
 
