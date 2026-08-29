@@ -331,7 +331,7 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
       ]);
       expect(sourceBuild.outputs).toEqual([
         "deploy/takoform/.generated/yurucommu-worker.js",
-        "deploy/takoform/.generated/migrations",
+        "deploy/takoform/migrations/sql",
       ]);
       const releaseLock = JSON.parse(
         await readFile(join(sourceRoot, "release.lock.json"), "utf8"),
@@ -339,13 +339,11 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
       expect(releaseLock.releases?.["v2.1.8"]?.commit).toBe(
         "c2f6e50747f8bc2a3c4e80305c04b78aea1b505b",
       );
-      await expect(
-        access(join(sourceRoot, "deploy/takoform/.generated/migrations")),
-      ).rejects.toThrow();
+      await access(join(sourceRoot, "deploy/takoform/migrations/sql"));
 
-      // The runner's build command supplies this file. Keep the archive fresh
-      // (there is no ignored dist/ or .generated/ in git) while exercising the
-      // manifest's actual final sourceBuild command in its source root.
+      // The runner's build command supplies the Worker. The migration inputs
+      // are already in the archive, while the final sourceBuild command
+      // verifies and refreshes them from the repository bundle.
       await mkdir(join(sourceRoot, "dist"), { recursive: true });
       await writeFile(
         join(sourceRoot, "dist/yurucommu-worker.js"),
@@ -359,10 +357,7 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
       });
       expect(preparation.exitCode).toBe(0);
 
-      const migrationRoot = join(
-        sourceRoot,
-        "deploy/takoform/.generated/migrations",
-      );
+      const migrationRoot = join(sourceRoot, "deploy/takoform/migrations/sql");
       const migrations = (await readdir(migrationRoot)).sort();
       const schemaBundle = JSON.parse(
         await readFile(

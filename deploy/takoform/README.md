@@ -22,14 +22,15 @@ bun scripts/prepare-takoform-v1-source.ts
 
 The second command hashes the current worktree's
 `dist/yurucommu-worker.js`, copies the exact bytes to
-`.generated/yurucommu-worker.js`, verifies the copied digest, and expands every
-digest-verified SQLite migration from `migrations/schema-bundle.json` into
-`.generated/migrations/`. A downloaded Worker from an older release is not
-evidence for this source revision.
+`.generated/yurucommu-worker.js`, verifies the copied digest, and refreshes the
+repository-owned `migrations/sql/` files from the digest-verified
+`migrations/schema-bundle.json`. A downloaded Worker from an older release is
+not evidence for this source revision.
 
-`deploy/takoform/.generated/` is intentionally untracked build output. The
-repository metadata declares it as `sourceBuild` output so a Host must prepare
-it before evaluation.
+The SQL files are tracked module inputs, so OpenTofu never depends on a Host
+copying build output before it can construct `SQLiteMigrationSet`.
+`deploy/takoform/.generated/yurucommu-worker.js` remains intentionally
+untracked source-build output.
 
 ## Provider 3 graph
 

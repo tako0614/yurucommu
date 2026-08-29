@@ -360,7 +360,7 @@ describe("release version", () => {
     ]);
     expect(managedModule?.sourceBuild?.outputs).toEqual([
       "deploy/takoform/.generated/yurucommu-worker.js",
-      "deploy/takoform/.generated/migrations",
+      "deploy/takoform/migrations/sql",
     ]);
     expect(deploymentDefault(moduleSource, "worker_release_tag")).toBe(
       packageTag,
