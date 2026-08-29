@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.1.10 - 2026-08-29
+
+- Ship the Takoform SQLite migration inputs as tracked release source so a
+  fresh Takosumi install cannot evaluate an empty `SQLiteMigrationSet`.
+- Keep the source-built Worker and the repository-owned migration bundle on
+  the same immutable Git release selected by the install flow.
+
 ## 2.1.9 - 2026-08-29
 
 - Consume the registry-published Yurucommu core/API `3.4.4` owner-subject
