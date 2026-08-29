@@ -51,6 +51,9 @@ export async function validateTakoformV1(options: {
       cp(new URL(".generated/", source), join(workdir, ".generated"), {
         recursive: true,
       }),
+      cp(new URL("migrations/", source), join(workdir, "migrations"), {
+        recursive: true,
+      }),
     ]);
     const tofuEnvironment: Record<string, string | undefined> = {
       ...Object.fromEntries(

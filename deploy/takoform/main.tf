@@ -23,7 +23,7 @@ variable "project_name" {
 locals {
   prefix             = var.project_name
   worker_bundle_path = "${path.module}/.generated/yurucommu-worker.js"
-  migration_root     = "${path.module}/.generated/migrations"
+  migration_root     = "${path.module}/migrations/sql"
   migration_files    = fileset(local.migration_root, "*.sql")
   worker_plain_values = {
     YURUCOMMU_RUNTIME_LANE = "takoform-v1"

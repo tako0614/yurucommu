@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 
 const moduleUrl = new URL("../deploy/takoform/", import.meta.url);
 const [main, outputs] = await Promise.all([
@@ -50,6 +50,18 @@ describe("portable Takoform v1 Capsule", () => {
   test("pins the independently published Provider 3 contract exactly", () => {
     expect(main).toContain('version = "= 3.0.0"');
     expect(main).not.toContain('version = ">= 3.0.0"');
+  });
+
+  test("ships migration inputs in the repository instead of depending on source-build output", async () => {
+    expect(main).toContain(
+      'migration_root     = "${path.module}/migrations/sql"',
+    );
+    expect(main).not.toContain(".generated/migrations");
+
+    const migrations = (
+      await readdir(new URL("migrations/sql/", moduleUrl))
+    ).filter((name) => name.endsWith(".sql"));
+    expect(migrations.length).toBeGreaterThan(0);
   });
 
   test("fences ModuleWorker destruction behind every runtime binding", () => {

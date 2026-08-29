@@ -10,8 +10,7 @@ export const SCHEMA_BUNDLE_RELATIVE_PATH =
   "deploy/takoform/migrations/schema-bundle.json";
 export const WORKER_OUTPUT_RELATIVE_PATH =
   "deploy/takoform/.generated/yurucommu-worker.js";
-export const MIGRATION_OUTPUT_RELATIVE_PATH =
-  "deploy/takoform/.generated/migrations";
+export const MIGRATION_OUTPUT_RELATIVE_PATH = "deploy/takoform/migrations/sql";
 
 const MAX_WORKER_BYTES = 8 * 1024 * 1024;
 const MIGRATION_NAME_RE = /^[0-9]{4}_[A-Za-z0-9_-]+\.sql$/u;

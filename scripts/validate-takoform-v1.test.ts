@@ -44,6 +44,7 @@ describe("portable Takoform v1 validation", () => {
     const ambientDataDirectory = join(fixture, "ambient-tofu-data");
     await Promise.all([
       mkdir(join(source, ".generated"), { recursive: true }),
+      mkdir(join(source, "migrations", "sql"), { recursive: true }),
       mkdir(bin, { recursive: true }),
       mkdir(join(xdgConfigHome, "opentofu"), { recursive: true }),
       mkdir(home, { recursive: true }),
@@ -56,6 +57,10 @@ describe("portable Takoform v1 validation", () => {
       writeFile(
         join(source, ".generated", "worker.js"),
         "export default {};\n",
+      ),
+      writeFile(
+        join(source, "migrations", "sql", "0001_probe.sql"),
+        "SELECT 1;\n",
       ),
       writeFile(join(home, ".tofurc"), maliciousConfig),
       writeFile(join(xdgConfigHome, "opentofu", "tofurc"), maliciousConfig),
@@ -163,6 +168,7 @@ describe("portable Takoform v1 validation", () => {
     const candidateBytes = new TextEncoder().encode("exact-provider-3.0.0");
     await Promise.all([
       mkdir(join(source, ".generated"), { recursive: true }),
+      mkdir(join(source, "migrations", "sql"), { recursive: true }),
       mkdir(bin, { recursive: true }),
     ]);
     await Promise.all([
@@ -171,6 +177,10 @@ describe("portable Takoform v1 validation", () => {
       writeFile(
         join(source, ".generated", "worker.js"),
         "export default {};\n",
+      ),
+      writeFile(
+        join(source, "migrations", "sql", "0001_probe.sql"),
+        "SELECT 1;\n",
       ),
       writeFile(candidate, candidateBytes),
       writeFile(

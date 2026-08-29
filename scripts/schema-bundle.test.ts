@@ -16,6 +16,10 @@ import {
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const bundlePath = join(repositoryRoot, BUNDLE_RELATIVE_PATH);
+const moduleMigrationRoot = join(
+  repositoryRoot,
+  "deploy/takoform/migrations/sql",
+);
 const bundleText = await readFile(bundlePath, "utf8");
 const bundle = JSON.parse(bundleText) as {
   apiVersion: "takosumi.resource-migrations/v1";
@@ -132,6 +136,20 @@ describe("Takosumi relational schema bundle", () => {
       expect(entry.sql).toBe(sql);
       expect(entry.sha256).toBe(
         "sha256:" + createHash("sha256").update(bytes).digest("hex"),
+      );
+    }
+  });
+
+  test("ships the exact bundle entries as repository-owned OpenTofu inputs", async () => {
+    const moduleNames = (await readdir(moduleMigrationRoot)).sort();
+    expect(moduleNames).toEqual(bundle.entries.map((entry) => entry.name));
+    for (const entry of bundle.entries) {
+      const bytes = await readFile(join(moduleMigrationRoot, entry.name));
+      expect(new TextDecoder("utf-8", { fatal: true }).decode(bytes)).toBe(
+        entry.sql,
+      );
+      expect("sha256:" + createHash("sha256").update(bytes).digest("hex")).toBe(
+        entry.sha256,
       );
     }
   });

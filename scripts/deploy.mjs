@@ -247,7 +247,7 @@ function requireReleaseIdentity(tag, artifactUrl, bundleDigest) {
     JSON.stringify(takoformModule?.sourceBuild?.outputs) !==
     JSON.stringify([
       "deploy/takoform/.generated/yurucommu-worker.js",
-      "deploy/takoform/.generated/migrations",
+      "deploy/takoform/migrations/sql",
     ])
   ) {
     failures.push(

@@ -252,7 +252,7 @@
           ],
           "outputs": [
             "deploy/takoform/.generated/yurucommu-worker.js",
-            "deploy/takoform/.generated/migrations"
+            "deploy/takoform/migrations/sql"
           ]
         },
         "interfaces": [

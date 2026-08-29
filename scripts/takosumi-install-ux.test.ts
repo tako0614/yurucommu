@@ -464,7 +464,7 @@ describe("repository-owned Takosumi install UX", () => {
       ],
       outputs: [
         "deploy/takoform/.generated/yurucommu-worker.js",
-        "deploy/takoform/.generated/migrations",
+        "deploy/takoform/migrations/sql",
       ],
     });
     expect(
@@ -473,7 +473,7 @@ describe("repository-owned Takosumi install UX", () => {
       ),
     ).toBe(true);
     expect(managedModuleSource).toContain(
-      'migration_root     = "${path.module}/.generated/migrations"',
+      'migration_root     = "${path.module}/migrations/sql"',
     );
     expect(managedModuleSource).not.toContain("${path.module}/../");
     expect(managedModuleSource).toContain('version = "= 3.0.0"');
