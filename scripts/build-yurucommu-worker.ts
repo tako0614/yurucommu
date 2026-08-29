@@ -95,6 +95,7 @@ async function collectAssets(
 async function run(command: string[]): Promise<void> {
   const child = Bun.spawn(command, {
     cwd: rootDir.pathname,
+    env: { ...process.env, NODE_ENV: "production" },
     stdout: "inherit",
     stderr: "inherit",
   });

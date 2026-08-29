@@ -6,8 +6,8 @@ import {
 } from "./check-core-release.mjs";
 
 const readyLock = `
-"@takosjp/yurucommu-api": ["@takosjp/yurucommu-api@3.4.3", "", {}],
-"@takosjp/yurucommu-core": ["@takosjp/yurucommu-core@3.4.3", "", {}],
+"@takosjp/yurucommu-api": ["@takosjp/yurucommu-api@3.4.4", "", {}],
+"@takosjp/yurucommu-core": ["@takosjp/yurucommu-core@3.4.4", "", {}],
 `;
 
 const apiExports = [
@@ -31,14 +31,14 @@ describe("registry core/API product release gate", () => {
     const result = evaluateCoreRelease({
       packageJson: {
         dependencies: {
-          "@takosjp/yurucommu-api": "^3.4.3",
-          "@takosjp/yurucommu-core": "^3.4.3",
+          "@takosjp/yurucommu-api": "^3.4.4",
+          "@takosjp/yurucommu-core": "^3.4.4",
         },
       },
       lockText: readyLock,
       installedVersions: {
-        "@takosjp/yurucommu-api": "3.4.3",
-        "@takosjp/yurucommu-core": "3.4.3",
+        "@takosjp/yurucommu-api": "3.4.4",
+        "@takosjp/yurucommu-core": "3.4.4",
       },
       hasNotificationMigration: true,
       apiExports,
@@ -46,7 +46,7 @@ describe("registry core/API product release gate", () => {
     });
     expect(result).toEqual({ ok: true, blockers: [] });
     expect(lockedPackageVersion(readyLock, "@takosjp/yurucommu-core")).toBe(
-      "3.4.3",
+      "3.4.4",
     );
   });
 
@@ -75,5 +75,35 @@ describe("registry core/API product release gate", () => {
       "@takosjp/yurucommu-core.dependency_floor_too_old",
     );
     expect(result.blockers).toContain("migration.0019_missing");
+  });
+
+  test("rejects the pre-fix 3.4.3 owner-pin release", () => {
+    const result = evaluateCoreRelease({
+      packageJson: {
+        dependencies: {
+          "@takosjp/yurucommu-api": "^3.4.3",
+          "@takosjp/yurucommu-core": "^3.4.3",
+        },
+      },
+      lockText: readyLock.replaceAll("3.4.4", "3.4.3"),
+      installedVersions: {
+        "@takosjp/yurucommu-api": "3.4.3",
+        "@takosjp/yurucommu-core": "3.4.3",
+      },
+      hasNotificationMigration: true,
+      apiExports,
+      coreExports,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.blockers).toEqual(
+      expect.arrayContaining([
+        "@takosjp/yurucommu-api.dependency_floor_too_old",
+        "@takosjp/yurucommu-api.lock_too_old",
+        "@takosjp/yurucommu-api.installed_too_old",
+        "@takosjp/yurucommu-core.dependency_floor_too_old",
+        "@takosjp/yurucommu-core.lock_too_old",
+        "@takosjp/yurucommu-core.installed_too_old",
+      ]),
+    );
   });
 });

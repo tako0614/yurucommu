@@ -273,11 +273,11 @@ exit 1
 }
 
 describe("release version", () => {
-  test("records v2.1.8 while retaining the authoritative v2.1.7 rollback pin", () => {
-    expect(packageVersion).toBe("2.1.8");
+  test("prepares v2.1.9 while retaining the authoritative v2.1.8 rollback pin", () => {
+    expect(packageVersion).toBe("2.1.9");
+    expect(changelogSource).toContain("## 2.1.9 - 2026-08-29");
     expect(changelogSource).toContain("## 2.1.8 - 2026-08-25");
-    expect(changelogSource).toContain("## 2.1.7 - 2026-08-25");
-    expect(changelogSource).not.toContain("## 2.1.7 - Unreleased");
+    expect(changelogSource).not.toContain("## 2.1.8 - Unreleased");
     expect(releaseLock.releases["v2.1.7"]).toEqual({
       artifact: {
         filename: "yurucommu-worker.js",
@@ -310,6 +310,7 @@ describe("release version", () => {
       seededFrom:
         "owner deploy exact immutable GitHub Release/tag/downloaded asset and checksum readback on 2026-08-25",
     });
+    expect(releaseLock.releases["v2.1.9"]).toBeUndefined();
   });
 
   test("CI validates the published Provider without building or injecting a stale candidate", () => {
@@ -353,7 +354,7 @@ describe("release version", () => {
       artifactUrl,
     );
     expect(deploymentDefault(moduleSource, "worker_bundle_sha256")).toBe(
-      "sha256:303704a5cee9d4c8705787c44dec3b54042f5b6624a0bb615342c57c36c77d37",
+      "sha256:bb8d110be44c8d89fae28375ab32ec19833df18e3824fcc505c8b0d2615acb3f",
     );
     expect(takoformModuleSource).not.toContain('variable "worker_release_tag"');
     expect(takoformModuleSource).not.toContain('variable "worker_bundle_url"');

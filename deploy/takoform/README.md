@@ -132,7 +132,71 @@ constraint is initialized and validated; the ephemeral lock, CLI config, data
 directory, and plugin files are removed with that copy and never written into
 the selected source directory.
 
-## Fetch-only local E2E
+## Full current lifecycle E2E
+
+The current graph has a checked-in lifecycle runner for a caller-supplied
+stable Host. It copies this module after rebuilding the Worker and preparing
+the digest-verified source bundle, applies every one of the 13 Provider 3.0.0
+resources, reads the exact Host representations back, probes the assigned
+Yurucommu runtime, destroys the graph, and verifies that every exact resource
+reference is absent.
+
+```bash
+TAKOFORM_ENDPOINT=https://forms.example.test \
+TAKOFORM_SPACE=disposable-space \
+TAKOFORM_TOKEN=... \
+TAKOFORM_EVIDENCE_TOKEN=... \
+TAKOFORM_PROVIDER_BINARY=/absolute/path/to/terraform-provider-takoform \
+TAKOFORM_PROVIDER_SHA256=sha256:<64-lowercase-hex-digest> \
+bun run e2e:takoform-v1:full
+```
+
+`TAKOFORM_ENDPOINT` is a bare origin. Discovery negotiates the stable
+`/.well-known/takoform/v1` document and rejects a cross-origin or alternate API
+path before resource readback. `TAKOFORM_TOKEN` is supplied only to the
+Provider child for mutations; `TAKOFORM_EVIDENCE_TOKEN` is supplied only to
+direct Host discovery/readback/absence evidence. Keep them as separate
+credentials. Neither token nor any Worker runtime secret is synthesized or
+printed by the runner.
+Every Bun/OpenTofu/Git child has a hard timeout. The default is 20 minutes per
+child; set `TAKOFORM_E2E_TIMEOUT_SECONDS` (1--86400 integer seconds) when a
+Host needs a different bound. A timeout sends TERM, escalates to KILL after a
+short grace period, and still enters destroy/absence recovery if apply had
+started. On POSIX, each child owns a detached process group so descendants
+holding inherited output pipes are terminated without signalling the caller's
+group. SIGINT/SIGTERM requests the same cleanup path.
+The local Provider executable is copied only after its digest is verified, and
+the runner uses a temporary OpenTofu state and CLI configuration.
+
+The passing report includes:
+
+- a run-bound provenance record containing the exact source HEAD and a digest
+  of dirty/untracked state, the copied module file inventory, generated Worker
+  and migration digests, the supplied Provider SHA-256, and a Provider 3.0.0
+  schema handshake proving every current resource kind was loaded;
+- all 13 output UIDs and exact FormRef resource GET readbacks, each with
+  `Ready=True` and matching apiVersion/kind/FormRef/name/space/UID/generation;
+- `SQLiteMigrationApplication` readiness plus `/nodeinfo/2.0` database-backed
+  user/post counters, `/healthz`, `/readyz`, and social-server discovery;
+- Host `StandardServiceSupport` for the required `com.amazonaws.s3` service;
+- `QueueConsumer` and `WorkerCronTrigger` readiness from Host status; stable
+  Host API v1 has no portable queue/cron invocation-counter surface, so the
+  report explicitly records invocation counters as unavailable rather than
+  claiming event execution; and
+- a destroy followed by an exact FormRef GET for each resource, requiring the
+  Host's `resource_not_found` error envelope. Failed cleanup preserves the
+  temporary state path for recovery.
+
+`TAKOFORM_DIAGNOSTIC_RUNTIME_ENDPOINT=http://127.0.0.1:...` is an optional
+test-only loopback runtime target for a Host that intentionally returns a
+non-routable assigned URL. The report marks this as diagnostic evidence and it
+does not turn the assigned URL into a passing HTTP deployment proof.
+
+The full runner is deliberately not executed by repository checks: it mutates
+the caller's Host and requires operator credentials. Run it only with a
+disposable space and an explicit Provider binary/digest.
+
+## Fetch-only local tracer
 
 The first stable-v1 E2E slice deliberately provisions only
 `ModuleWorker -> WorkerBundle -> WorkerVersion(fetch) -> WorkerDeployment ->
@@ -147,6 +211,9 @@ TAKOFORM_PROVIDER_BINARY=/absolute/path/to/terraform-provider-takoform \
 TAKOFORM_PROVIDER_SHA256=sha256:<64-lowercase-hex-digest> \
 bun run e2e:takoform-v1
 ```
+
+This retained tracer is useful for a small Host smoke check; the full current
+graph and lifecycle proof use `bun run e2e:takoform-v1:full` above.
 
 Loopback HTTP is accepted for a disposable local Host; non-loopback Host
 endpoints must use HTTPS. The tracer does not run a registry `init`, never
@@ -196,6 +263,7 @@ That is Host operator configuration, not Yurucommu module input or output.
 ```bash
 bun test scripts/takoform-capsule.test.ts \
   scripts/takoform-v1-e2e.test.ts \
+  scripts/takoform-v1-e2e-full.test.ts \
   scripts/validate-takoform-v1.test.ts \
   scripts/prepare-takoform-v1-source.test.ts \
   scripts/yurucommu-worker-bindings.test.ts

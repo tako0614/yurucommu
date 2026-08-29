@@ -1,0 +1,843 @@
+import { createHash } from "node:crypto";
+import { describe, expect, test } from "bun:test";
+import {
+  access,
+  chmod,
+  mkdtemp,
+  mkdir,
+  readFile,
+  readdir,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import {
+  assertAuthoritativeAbsence,
+  assertCurrentResourceOutputIds,
+  assertResourceIdentity,
+  assertReadyResource,
+  assertLifecycleNotTerminated,
+  buildSafeChildEnvironment,
+  buildResourceReadUrl,
+  buildTofuCommand,
+  cleanupTakoformV1E2E,
+  copyCapsuleToWorkdir,
+  CURRENT_RESOURCE_TYPES,
+  extractAppliedResourceIdentities,
+  parseProviderSchemaProof,
+  parseStableHostDiscovery,
+  prepareProviderDevOverride,
+  PROVIDER_SCHEMA_OUTPUT_MAX_BYTES,
+  readProviderVersion,
+  readTakoformV1E2EConfig,
+  responseJson,
+  runBoundedChild,
+  installLifecycleSignalHandlers,
+} from "./takoform-v1-e2e-full.ts";
+
+const provider = {
+  TAKOFORM_PROVIDER_BINARY: "/tmp/terraform-provider-takoform",
+  TAKOFORM_PROVIDER_SHA256:
+    "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+};
+
+const discoveryFeatures = {
+  service_forms: true,
+  exact_form_ref: true,
+  optimistic_concurrency: true,
+  idempotent_lifecycle: true,
+  operations: true,
+  artifact_upload: true,
+  support_profiles: true,
+};
+
+describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
+  test("requires a bare caller-supplied Host origin", () => {
+    const config = readTakoformV1E2EConfig({
+      ...provider,
+      TAKOFORM_ENDPOINT: "https://forms.example.test/",
+      TAKOFORM_SPACE: "e2e-space",
+      TAKOFORM_TOKEN: "operator-token",
+      TAKOFORM_EVIDENCE_TOKEN: "evidence-token",
+    });
+    expect(config.endpoint).toBe("https://forms.example.test");
+    expect(() =>
+      readTakoformV1E2EConfig({
+        ...provider,
+        TAKOFORM_ENDPOINT: "https://forms.example.test/v1",
+        TAKOFORM_SPACE: "e2e-space",
+        TAKOFORM_TOKEN: "operator-token",
+        TAKOFORM_EVIDENCE_TOKEN: "evidence-token",
+      }),
+    ).toThrow("must be a bare origin");
+  });
+
+  test("separates the Provider writer token from direct evidence readback", () => {
+    const config = readTakoformV1E2EConfig({
+      ...provider,
+      TAKOFORM_ENDPOINT: "https://forms.example.test",
+      TAKOFORM_SPACE: "e2e-space",
+      TAKOFORM_TOKEN: "writer-token",
+      TAKOFORM_EVIDENCE_TOKEN: "evidence-token",
+    });
+    expect(config.writerToken).toBe("writer-token");
+    expect(config.evidenceToken).toBe("evidence-token");
+    const child = buildSafeChildEnvironment(
+      {
+        PATH: "/safe/bin",
+        TAKOFORM_TOKEN: "inherited-writer-token",
+        TAKOFORM_EVIDENCE_TOKEN: "inherited-evidence-token",
+      },
+      config,
+    );
+    expect(child.TAKOFORM_TOKEN).toBe("writer-token");
+    expect(child).not.toHaveProperty("TAKOFORM_EVIDENCE_TOKEN");
+    expect(() =>
+      readTakoformV1E2EConfig({
+        ...provider,
+        TAKOFORM_ENDPOINT: "https://forms.example.test",
+        TAKOFORM_SPACE: "e2e-space",
+        TAKOFORM_TOKEN: "writer-token",
+      }),
+    ).toThrow("TAKOFORM_EVIDENCE_TOKEN");
+  });
+
+  test("bounds child commands with an operator-selected hard timeout", () => {
+    const config = readTakoformV1E2EConfig({
+      ...provider,
+      TAKOFORM_ENDPOINT: "https://forms.example.test",
+      TAKOFORM_SPACE: "e2e-space",
+      TAKOFORM_TOKEN: "operator-token",
+      TAKOFORM_EVIDENCE_TOKEN: "evidence-token",
+      TAKOFORM_E2E_TIMEOUT_SECONDS: "7",
+    });
+    expect(config.commandTimeoutMs).toBe(7_000);
+    expect(() =>
+      readTakoformV1E2EConfig({
+        ...provider,
+        TAKOFORM_ENDPOINT: "https://forms.example.test",
+        TAKOFORM_SPACE: "e2e-space",
+        TAKOFORM_TOKEN: "operator-token",
+        TAKOFORM_EVIDENCE_TOKEN: "evidence-token",
+        TAKOFORM_E2E_TIMEOUT_SECONDS: "0",
+      }),
+    ).toThrow("must be between");
+    expect(() =>
+      readTakoformV1E2EConfig({
+        ...provider,
+        TAKOFORM_ENDPOINT: "https://forms.example.test",
+        TAKOFORM_SPACE: "e2e-space",
+        TAKOFORM_TOKEN: "operator-token",
+        TAKOFORM_EVIDENCE_TOKEN: "evidence-token",
+        TAKOFORM_E2E_TIMEOUT_SECONDS: "1.5",
+      }),
+    ).toThrow("integer");
+  });
+
+  test("passes only the allowlisted child environment", () => {
+    const child = buildSafeChildEnvironment(
+      {
+        PATH: "/safe/bin",
+        HOME: "/safe/home",
+        TAKOFORM_TOKEN: "canary-token",
+        TAKOFORM_ENDPOINT: "https://attacker.invalid",
+        TF_LOG: "TRACE",
+        TF_LOG_PATH: "/tmp/canary.log",
+        TF_CLI_ARGS: "-plugin-dir=/tmp/canary",
+        AWS_SECRET_ACCESS_KEY: "canary-secret",
+        GITHUB_TOKEN: "canary-github-token",
+      },
+      {
+        endpoint: "https://forms.example.test",
+        space: "e2e-space",
+        writerToken: "operator-token",
+      },
+      "/tmp/e2e-workdir",
+    );
+    expect(child).toMatchObject({
+      PATH: "/safe/bin",
+      HOME: "/safe/home",
+      TAKOFORM_ENDPOINT: "https://forms.example.test",
+      TAKOFORM_SPACE: "e2e-space",
+      TAKOFORM_TOKEN: "operator-token",
+      TF_DATA_DIR: "/tmp/e2e-workdir/.tofu-data",
+      TF_IN_AUTOMATION: "1",
+    });
+    expect(child).not.toHaveProperty("TF_LOG");
+    expect(child).not.toHaveProperty("TF_LOG_PATH");
+    expect(child).not.toHaveProperty("TF_CLI_ARGS");
+    expect(child).not.toHaveProperty("AWS_SECRET_ACCESS_KEY");
+    expect(child).not.toHaveProperty("GITHUB_TOKEN");
+  });
+
+  test("builds apply and destroy without secret or fixture arguments", () => {
+    expect(buildTofuCommand("apply", "yurucommu-e2e-abc")).toEqual([
+      "apply",
+      "-auto-approve",
+      "-input=false",
+      "-no-color",
+      "-var=project_name=yurucommu-e2e-abc",
+    ]);
+    expect(buildTofuCommand("destroy", "yurucommu-e2e-abc")[0]).toBe("destroy");
+    expect(() => buildTofuCommand("apply", "bad_name")).toThrow(
+      "projectName is not a valid",
+    );
+  });
+
+  test("negotiates only the stable same-origin Host API", () => {
+    const result = parseStableHostDiscovery("https://forms.example.test", {
+      api_versions: ["forms.takoform.com/v1"],
+      features: discoveryFeatures,
+      endpoints: {
+        api: "https://forms.example.test/apis/forms.takoform.com/v1",
+      },
+    });
+    expect(result.apiBase).toBe(
+      "https://forms.example.test/apis/forms.takoform.com/v1",
+    );
+    expect(() =>
+      parseStableHostDiscovery("https://forms.example.test", {
+        api_versions: ["forms.takoform.com/v1"],
+        features: discoveryFeatures,
+        endpoints: {
+          api: "https://other.example.test/apis/forms.takoform.com/v1",
+        },
+      }),
+    ).toThrow("same-origin");
+  });
+
+  test("uses every exact FormRef member for resource readback", () => {
+    const url = new URL(
+      buildResourceReadUrl(
+        "https://forms.example.test/apis/forms.takoform.com/v1",
+        {
+          name: "yurucommu-e2e-abc-db",
+          space: "space-a",
+          form: {
+            apiVersion: "edge.forms.takoform.com",
+            kind: "SQLiteDatabase",
+            definitionVersion: "0.1.0",
+            schemaDigest:
+              "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          },
+        },
+      ),
+    );
+    expect(url.pathname).toBe(
+      "/apis/forms.takoform.com/v1/resources/edge.forms.takoform.com/SQLiteDatabase/yurucommu-e2e-abc-db",
+    );
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      space: "space-a",
+      group: "edge.forms.takoform.com",
+      kind: "SQLiteDatabase",
+      definitionVersion: "0.1.0",
+      schemaDigest:
+        "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    });
+  });
+
+  test("extracts and requires the current 13 managed resources", () => {
+    const kinds: Record<string, string> = {
+      takoform_module_worker: "ModuleWorker",
+      takoform_sqlite_database: "SQLiteDatabase",
+      takoform_sqlite_migration_set: "SQLiteMigrationSet",
+      takoform_sqlite_migration_application: "SQLiteMigrationApplication",
+      takoform_edge_kv_namespace: "EdgeKVNamespace",
+      takoform_at_least_once_queue: "AtLeastOnceQueue",
+      takoform_worker_bundle: "WorkerBundle",
+      takoform_worker_version: "WorkerVersion",
+      takoform_worker_deployment: "WorkerDeployment",
+      takoform_worker_endpoint: "WorkerEndpoint",
+      takoform_queue_consumer: "QueueConsumer",
+      takoform_worker_cron_trigger: "WorkerCronTrigger",
+    };
+    const resources = CURRENT_RESOURCE_TYPES.map((type, index) => ({
+      address: `module.${type}.${index}`,
+      mode: "managed",
+      type,
+      name: type,
+      values: {
+        name: `e2e-resource-${index}`,
+        space: "e2e-space",
+        uid: `uid-${index}`,
+        generation: "1",
+        form_api_version: "edge.forms.takoform.com",
+        form_kind: kinds[type],
+        form_definition_version: "0.1.0",
+        form_schema_digest:
+          "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      },
+    }));
+    const identities = extractAppliedResourceIdentities({
+      values: { root_module: { resources } },
+    });
+    expect(identities).toHaveLength(13);
+    expect(identities[3]?.form.kind).toBe("SQLiteMigrationApplication");
+    expect(() =>
+      extractAppliedResourceIdentities({
+        values: { root_module: { resources: resources.slice(0, 12) } },
+      }),
+    ).toThrow("current 13-resource graph");
+  });
+
+  test("prepares migrations from a fresh source archive before tofu", async () => {
+    const archiveRoot = await mkdtemp(
+      join(tmpdir(), "yurucommu-archive-test-"),
+    );
+    const archivePath = join(archiveRoot, "source.tar");
+    const sourceRoot = join(archiveRoot, "source");
+    const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
+    try {
+      const archive = Bun.spawnSync({
+        cmd: ["git", "archive", "--format=tar", "HEAD"],
+        cwd: repositoryRoot,
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      expect(archive.exitCode).toBe(0);
+      await writeFile(archivePath, archive.stdout);
+      await mkdir(sourceRoot, { recursive: true });
+      const extraction = Bun.spawnSync({
+        cmd: ["tar", "-xf", archivePath, "-C", sourceRoot],
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      expect(extraction.exitCode).toBe(0);
+
+      const manifest = JSON.parse(
+        await readFile(join(sourceRoot, ".well-known/takosumi.json"), "utf8"),
+      ) as {
+        install: {
+          modules: {
+            "deploy/takoform": {
+              sourceBuild: {
+                commands: Array<{ argv: string[] }>;
+                outputs: string[];
+              };
+            };
+          };
+        };
+      };
+      const sourceBuild =
+        manifest.install.modules["deploy/takoform"].sourceBuild;
+      expect(sourceBuild.commands.map((command) => command.argv)).toEqual([
+        ["bun", "install", "--frozen-lockfile"],
+        ["bun", "run", "build:worker"],
+        ["bun", "scripts/prepare-takoform-v1-source.ts"],
+      ]);
+      expect(sourceBuild.outputs).toEqual([
+        "deploy/takoform/.generated/yurucommu-worker.js",
+        "deploy/takoform/.generated/migrations",
+      ]);
+      const releaseLock = JSON.parse(
+        await readFile(join(sourceRoot, "release.lock.json"), "utf8"),
+      ) as { releases?: Record<string, { commit?: string }> };
+      expect(releaseLock.releases?.["v2.1.8"]?.commit).toBe(
+        "c2f6e50747f8bc2a3c4e80305c04b78aea1b505b",
+      );
+      await expect(
+        access(join(sourceRoot, "deploy/takoform/.generated/migrations")),
+      ).rejects.toThrow();
+
+      // The runner's build command supplies this file. Keep the archive fresh
+      // (there is no ignored dist/ or .generated/ in git) while exercising the
+      // manifest's actual final sourceBuild command in its source root.
+      await mkdir(join(sourceRoot, "dist"), { recursive: true });
+      await writeFile(
+        join(sourceRoot, "dist/yurucommu-worker.js"),
+        "export default { fetch() { return new Response('ok') } };\n",
+      );
+      const preparation = Bun.spawnSync({
+        cmd: sourceBuild.commands[2]?.argv ?? [],
+        cwd: sourceRoot,
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      expect(preparation.exitCode).toBe(0);
+
+      const migrationRoot = join(
+        sourceRoot,
+        "deploy/takoform/.generated/migrations",
+      );
+      const migrations = (await readdir(migrationRoot)).sort();
+      const schemaBundle = JSON.parse(
+        await readFile(
+          join(sourceRoot, "deploy/takoform/migrations/schema-bundle.json"),
+          "utf8",
+        ),
+      ) as { entries?: Array<{ name: string }> };
+      expect(migrations.length).toBeGreaterThanOrEqual(1);
+      expect(migrations).toEqual(
+        (schemaBundle.entries ?? []).map((entry) => entry.name).sort(),
+      );
+      await access(
+        join(sourceRoot, "deploy/takoform/.generated/yurucommu-worker.js"),
+      );
+    } finally {
+      await rm(archiveRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("requires Ready=True status and the exact absence error", async () => {
+    const ready = {
+      metadata: { name: "resource", space: "space", uid: "uid" },
+      status: {
+        conditions: [{ type: "Ready", status: "True" }],
+      },
+    };
+    expect(() => assertReadyResource(ready, "resource")).not.toThrow();
+    expect(() =>
+      assertReadyResource(
+        {
+          ...ready,
+          status: { conditions: [{ type: "Ready", status: "False" }] },
+        },
+        "resource",
+      ),
+    ).toThrow("Ready=True");
+    await expect(
+      assertAuthoritativeAbsence(
+        Response.json(
+          { error: { code: "resource_not_found" } },
+          { status: 404 },
+        ),
+        "resource",
+      ),
+    ).resolves.toBeUndefined();
+    await expect(
+      assertAuthoritativeAbsence(
+        Response.json({}, { status: 404 }),
+        "resource",
+      ),
+    ).rejects.toThrow("resource_not_found");
+  });
+
+  test("never copies a Host body into protocol errors", async () => {
+    const canary = "host-secret-canary-token";
+    await expect(
+      responseJson(
+        Response.json({ error: canary }, { status: 502 }),
+        "Host readback",
+        200,
+      ),
+    ).rejects.toThrow("HTTP 502");
+    try {
+      await responseJson(
+        Response.json({ error: canary }, { status: 502 }),
+        "Host readback",
+        200,
+      );
+    } catch (error) {
+      expect(String(error)).not.toContain(canary);
+    }
+  });
+
+  test("requires every exact state identity on Host readback", () => {
+    const identity = {
+      address: "takoform_sqlite_database.database",
+      type: "takoform_sqlite_database",
+      name: "e2e-db",
+      space: "e2e-space",
+      uid: "uid-db",
+      generation: "4",
+      form: {
+        apiVersion: "edge.forms.takoform.com",
+        kind: "SQLiteDatabase",
+        definitionVersion: "0.1.0",
+        schemaDigest:
+          "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      },
+    } as const;
+    const body = {
+      apiVersion: identity.form.apiVersion,
+      kind: identity.form.kind,
+      form: { formRef: identity.form },
+      metadata: {
+        name: identity.name,
+        space: identity.space,
+        uid: identity.uid,
+        generation: identity.generation,
+      },
+      status: { conditions: [{ type: "Ready", status: "True" }] },
+    };
+    expect(() => assertResourceIdentity(body, identity)).not.toThrow();
+    expect(() =>
+      assertResourceIdentity(
+        { ...body, metadata: { ...body.metadata, uid: "other-uid" } },
+        identity,
+      ),
+    ).toThrow("exact identity");
+  });
+
+  test("runs destroy and absence readback even when destroy fails", async () => {
+    const calls: string[] = [];
+    const result = await cleanupTakoformV1E2E({
+      mutationAttempted: true,
+      destroy: async () => {
+        calls.push("destroy");
+        throw new Error("destroy failed");
+      },
+      verifyAbsence: async () => {
+        calls.push("absence");
+      },
+      removeWorkdir: async () => {
+        calls.push("remove");
+      },
+      workdir: "/tmp/e2e-recovery",
+    });
+    expect(calls).toEqual(["destroy", "absence"]);
+    expect(result.cleanupVerified).toBe(false);
+    expect(result.preservedWorkdir).toBe(true);
+    expect(result.error).toBeInstanceOf(AggregateError);
+
+    const successCalls: string[] = [];
+    const success = await cleanupTakoformV1E2E({
+      mutationAttempted: true,
+      destroy: async () => {
+        successCalls.push("destroy");
+      },
+      verifyAbsence: async () => {
+        successCalls.push("absence");
+      },
+      removeWorkdir: async () => {
+        successCalls.push("remove");
+      },
+      workdir: "/tmp/e2e-recovery",
+    });
+    expect(successCalls).toEqual(["destroy", "absence", "remove"]);
+    expect(success.cleanupVerified).toBe(true);
+    expect(success.preservedWorkdir).toBe(false);
+  });
+
+  test("does not allow termination during cleanup to look like a pass", async () => {
+    const removeSignalHandlers = installLifecycleSignalHandlers();
+    const calls: string[] = [];
+    try {
+      const result = await cleanupTakoformV1E2E({
+        mutationAttempted: true,
+        destroy: async () => {
+          calls.push("destroy");
+        },
+        verifyAbsence: async () => {
+          calls.push("absence");
+          process.emit("SIGTERM");
+        },
+        removeWorkdir: async () => {
+          calls.push("remove");
+        },
+        workdir: "/tmp/e2e-recovery",
+      });
+      expect(calls).toEqual(["destroy", "absence", "remove"]);
+      expect(result.cleanupVerified).toBe(true);
+      expect(() => assertLifecycleNotTerminated()).toThrow(
+        "received SIGTERM; cleanup requested",
+      );
+    } finally {
+      removeSignalHandlers();
+    }
+  });
+
+  test("removes a pre-mutation workdir without claiming lifecycle cleanup", async () => {
+    let removed = false;
+    const result = await cleanupTakoformV1E2E({
+      mutationAttempted: false,
+      destroy: async () => {
+        throw new Error("must not run");
+      },
+      verifyAbsence: async () => {
+        throw new Error("must not run");
+      },
+      removeWorkdir: async () => {
+        removed = true;
+      },
+      workdir: "/tmp/e2e-recovery",
+    });
+    expect(removed).toBe(true);
+    expect(result.cleanupVerified).toBe(false);
+    expect(result.preservedWorkdir).toBe(false);
+  });
+
+  test("checks all 13 output identity keys", () => {
+    const ids = Object.fromEntries(
+      [
+        "worker",
+        "worker_bundle",
+        "worker_version",
+        "worker_deployment",
+        "worker_endpoint",
+        "database",
+        "migration_set",
+        "migration_application",
+        "kv",
+        "delivery",
+        "delivery_dlq",
+        "delivery_consumer",
+        "retention",
+      ].map((key) => [key, `uid-${key}`]),
+    );
+    expect(() => assertCurrentResourceOutputIds(ids)).not.toThrow();
+    expect(() =>
+      assertCurrentResourceOutputIds({ ...ids, unexpected: "uid" }),
+    ).toThrow("all 13 current resources");
+  });
+
+  test("binds output UID map to the corresponding tofu state UID", () => {
+    const identities = [
+      ["takoform_module_worker", "worker", "uid-worker"],
+      ["takoform_sqlite_database", "database", "uid-database"],
+      ["takoform_sqlite_migration_set", "migration-set", "uid-migration-set"],
+      [
+        "takoform_sqlite_migration_application",
+        "migration-application",
+        "uid-migration-application",
+      ],
+      ["takoform_edge_kv_namespace", "kv", "uid-kv"],
+      ["takoform_at_least_once_queue", "e2e-delivery", "uid-delivery"],
+      ["takoform_at_least_once_queue", "e2e-delivery-dlq", "uid-delivery-dlq"],
+      ["takoform_worker_bundle", "worker-bundle", "uid-worker-bundle"],
+      ["takoform_worker_version", "worker-version", "uid-worker-version"],
+      [
+        "takoform_worker_deployment",
+        "worker-deployment",
+        "uid-worker-deployment",
+      ],
+      ["takoform_worker_endpoint", "worker-endpoint", "uid-worker-endpoint"],
+      ["takoform_queue_consumer", "delivery-consumer", "uid-delivery-consumer"],
+      ["takoform_worker_cron_trigger", "retention", "uid-retention"],
+    ].map(([type, name, uid], index) => ({
+      address: `resource.${index}`,
+      type,
+      name,
+      space: "e2e-space",
+      uid,
+      generation: "1",
+      form: {
+        apiVersion: "edge.forms.takoform.com",
+        kind: "Resource",
+        definitionVersion: "0.1.0",
+        schemaDigest: "sha256:" + "a".repeat(64),
+      },
+    }));
+    const outputIds = {
+      worker: "uid-worker",
+      worker_bundle: "uid-worker-bundle",
+      worker_version: "uid-worker-version",
+      worker_deployment: "uid-worker-deployment",
+      worker_endpoint: "uid-worker-endpoint",
+      database: "uid-database",
+      migration_set: "uid-migration-set",
+      migration_application: "uid-migration-application",
+      kv: "uid-kv",
+      delivery: "uid-delivery",
+      delivery_dlq: "uid-delivery-dlq",
+      delivery_consumer: "uid-delivery-consumer",
+      retention: "uid-retention",
+    };
+    expect(() =>
+      assertCurrentResourceOutputIds(outputIds, identities),
+    ).not.toThrow();
+    expect(() =>
+      assertCurrentResourceOutputIds(
+        { ...outputIds, worker: "wrong-uid" },
+        identities,
+      ),
+    ).toThrow("state UID");
+  });
+
+  test("copies only tracked module inputs and generated artifacts", async () => {
+    const sourceRoot = await mkdtemp(join(tmpdir(), "takoform-source-test-"));
+    const destination = await mkdtemp(join(tmpdir(), "takoform-copy-test-"));
+    try {
+      await mkdir(join(sourceRoot, ".generated", "migrations"), {
+        recursive: true,
+      });
+      await mkdir(join(sourceRoot, "migrations"));
+      await mkdir(join(sourceRoot, "e2e"));
+      await writeFile(join(sourceRoot, "main.tf"), "terraform {}\n");
+      await writeFile(join(sourceRoot, "outputs.tf"), 'output "x" {}\n');
+      await writeFile(join(sourceRoot, "README.md"), "docs\n");
+      await writeFile(
+        join(sourceRoot, ".generated", "yurucommu-worker.js"),
+        "export default {}\n",
+      );
+      await writeFile(
+        join(sourceRoot, ".generated", "migrations", "0001_init.sql"),
+        "create table test (id integer);\n",
+      );
+      await writeFile(join(sourceRoot, "unexpected-secret.txt"), "canary\n");
+      await expect(
+        copyCapsuleToWorkdir(sourceRoot, destination),
+      ).rejects.toThrow("unexpected Takoform module source entry");
+      await rm(join(sourceRoot, "unexpected-secret.txt"));
+      await copyCapsuleToWorkdir(sourceRoot, destination);
+      expect(await readFile(join(destination, "main.tf"), "utf8")).toContain(
+        "terraform",
+      );
+      expect(
+        await readFile(
+          join(destination, ".generated", "migrations", "0001_init.sql"),
+          "utf8",
+        ),
+      ).toContain("create table");
+      expect(await readdir(destination)).not.toContain("README.md");
+
+      await rm(join(sourceRoot, "main.tf"));
+      await symlink(
+        join(sourceRoot, "outputs.tf"),
+        join(sourceRoot, "main.tf"),
+      );
+      await expect(
+        copyCapsuleToWorkdir(sourceRoot, destination),
+      ).rejects.toThrow("must be a regular file");
+    } finally {
+      await rm(sourceRoot, { recursive: true, force: true });
+      await rm(destination, { recursive: true, force: true });
+    }
+  });
+
+  test("terminates a child that ignores TERM within the hard timeout", async () => {
+    await expect(
+      runBoundedChild(
+        [
+          "bun",
+          "-e",
+          'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000);',
+        ],
+        {
+          cwd: process.cwd(),
+          environment: buildSafeChildEnvironment({ PATH: process.env.PATH }),
+          timeoutMs: 30,
+          termGraceMs: 20,
+          label: "hang-child",
+        },
+      ),
+    ).rejects.toThrow("hang-child exceeded 30ms and was terminated");
+  });
+
+  test("bounds a descendant that keeps inherited pipes open and still permits cleanup", async () => {
+    const startedAt = performance.now();
+    await expect(
+      runBoundedChild(["sh", "-c", "sleep 2 & exit 0"], {
+        cwd: process.cwd(),
+        environment: buildSafeChildEnvironment({ PATH: process.env.PATH }),
+        timeoutMs: 100,
+        termGraceMs: 50,
+        label: "descendant-held-pipe",
+      }),
+    ).rejects.toThrow("descendant-held-pipe exceeded 100ms and was terminated");
+    expect(performance.now() - startedAt).toBeLessThan(1_000);
+
+    const calls: string[] = [];
+    const cleanup = await cleanupTakoformV1E2E({
+      mutationAttempted: true,
+      destroy: async () => {
+        calls.push("destroy");
+      },
+      verifyAbsence: async () => {
+        calls.push("absence");
+      },
+      removeWorkdir: async () => {
+        calls.push("remove");
+      },
+      workdir: "/tmp/e2e-recovery",
+    });
+    expect(cleanup.cleanupVerified).toBe(true);
+    expect(calls).toEqual(["destroy", "absence", "remove"]);
+  });
+
+  test("drains bounded child output after the capture cap without canceling pipes", async () => {
+    const result = await runBoundedChild(
+      [
+        "bun",
+        "-e",
+        'const value = "x".repeat(300000); process.stdout.write(value); process.stderr.write(value);',
+      ],
+      {
+        cwd: process.cwd(),
+        environment: buildSafeChildEnvironment({ PATH: process.env.PATH }),
+        timeoutMs: 5_000,
+        maxOutputBytes: 64,
+        label: "large-output-child",
+      },
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.timedOut).toBe(false);
+    expect(result.outputTruncated).toBe(true);
+    expect(new TextEncoder().encode(result.stdout).byteLength).toBe(64);
+    expect(new TextEncoder().encode(result.stderr).byteLength).toBe(64);
+  });
+
+  test("keeps the provider schema cap above the real v3 schema size", () => {
+    const resourceSchemas = Object.fromEntries(
+      [...new Set(CURRENT_RESOURCE_TYPES)].map((kind) => [kind, {}]),
+    );
+    const value = {
+      provider_schemas: {
+        "registry.terraform.io/tako0614/takoform": {
+          version: 1,
+          resource_schemas: resourceSchemas,
+          filler: "x".repeat(232_998),
+        },
+      },
+    };
+    const payload = JSON.stringify(value);
+    expect(new TextEncoder().encode(payload).byteLength).toBeGreaterThan(
+      232_998,
+    );
+    expect(PROVIDER_SCHEMA_OUTPUT_MAX_BYTES).toBeGreaterThan(
+      new TextEncoder().encode(payload).byteLength,
+    );
+    expect(
+      parseProviderSchemaProof(JSON.parse(payload), "3.0.0").resourceKinds,
+    ).toEqual([...new Set(CURRENT_RESOURCE_TYPES)].sort());
+  });
+
+  test("uses the verified Provider copy for the -version handshake", async () => {
+    const sourceRoot = await mkdtemp(
+      join(tmpdir(), "takoform-provider-source-"),
+    );
+    const workdir = await mkdtemp(join(tmpdir(), "takoform-provider-copy-"));
+    const providerPath = join(sourceRoot, "terraform-provider-takoform");
+    const original =
+      '#!/bin/sh\nif [ "$1" = "-version" ]; then printf "3.0.0\\n"; else exit 9; fi\n';
+    try {
+      await writeFile(providerPath, original, { mode: 0o755 });
+      await chmod(providerPath, 0o755);
+      const providerSha256 = `sha256:${createHash("sha256").update(original).digest("hex")}`;
+      const override = await prepareProviderDevOverride(
+        { providerBinary: providerPath, providerSha256 },
+        workdir,
+      );
+      expect(override.providerBinary).not.toBe(providerPath);
+      expect(override.providerBinary).toContain("provider-dev-override");
+
+      await writeFile(providerPath, '#!/bin/sh\nprintf "9.9.9\\n"\n', {
+        mode: 0o755,
+      });
+      await chmod(providerPath, 0o755);
+      await expect(
+        readProviderVersion(
+          override.providerBinary,
+          buildSafeChildEnvironment({ PATH: process.env.PATH }),
+          workdir,
+          2_000,
+        ),
+      ).resolves.toBe("3.0.0");
+      await expect(
+        readProviderVersion(
+          providerPath,
+          buildSafeChildEnvironment({ PATH: process.env.PATH }),
+          workdir,
+          2_000,
+        ),
+      ).rejects.toThrow("did not report version 3.0.0");
+    } finally {
+      await rm(sourceRoot, { recursive: true, force: true });
+      await rm(workdir, { recursive: true, force: true });
+    }
+  });
+});

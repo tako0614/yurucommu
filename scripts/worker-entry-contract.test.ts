@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 
 import { createEntrySource } from "./build-yurucommu-worker.ts";
@@ -63,6 +64,55 @@ describe("generated worker entry", () => {
     expect(entrySource).not.toContain("background-events");
     expect(entrySource).not.toContain("TAKOSUMI_MANAGED_RUNTIME");
   });
+
+  test("built Worker keeps namespace-compatible OIDC owner pin matching", async () => {
+    const buildWorker = (nodeEnv?: string) => {
+      const env = { ...process.env };
+      if (nodeEnv === undefined) delete env.NODE_ENV;
+      else env.NODE_ENV = nodeEnv;
+      const build = Bun.spawnSync([process.execPath, "run", "build:worker"], {
+        cwd: new URL("../", import.meta.url).pathname,
+        env,
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      if (build.exitCode !== 0) {
+        throw new Error(
+          `build:worker failed:\n${build.stderr.toString() || build.stdout.toString()}`,
+        );
+      }
+    };
+
+    buildWorker("test");
+    const testWorkerSource = await readFile(
+      new URL("../dist/yurucommu-worker.js", import.meta.url),
+      "utf8",
+    );
+    const testWorkerDigest = createHash("sha256")
+      .update(testWorkerSource)
+      .digest("hex");
+
+    buildWorker();
+    const workerSource = await readFile(
+      new URL("../dist/yurucommu-worker.js", import.meta.url),
+      "utf8",
+    );
+    const workerDigest = createHash("sha256")
+      .update(workerSource)
+      .digest("hex");
+    expect(workerDigest).toBe(testWorkerDigest);
+    expect(workerSource).toContain(
+      "function configuredSubjectMatches(configuredSubject, providerUserId)",
+    );
+    expect(workerSource).toContain(
+      "configuredSubject === providerUserId.slice(namespaceSeparator + 1)",
+    );
+    expect(workerSource).not.toContain("providerUserId !== ownerSub");
+    const configuredDigest = moduleSource.match(
+      /variable\s+"worker_bundle_sha256"[\s\S]*?default\s+=\s+"(sha256:[^"]+)"/u,
+    )?.[1];
+    expect(configuredDigest).toBe(`sha256:${workerDigest}`);
+  }, 20_000);
 });
 
 describe("D1 migration ledger", () => {

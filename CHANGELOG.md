@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.1.9 - 2026-08-29
+
+- Consume the registry-published Yurucommu core/API `3.4.4` owner-subject
+  compatibility fix, preserving the configured owner pin for namespaced
+  provider identities.
+- Carry the locked core migration bundle into the Takoform source build while
+  preparing the `v2.1.9` Worker release identity.
+
 ## 2.1.8 - 2026-08-25
 
 - Validate the independently published Takoform Provider `3.0.0` from its
