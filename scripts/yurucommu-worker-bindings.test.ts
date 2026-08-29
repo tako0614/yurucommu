@@ -76,6 +76,35 @@ describe("sealed S3-compatible object-store adapter", () => {
     });
   });
 
+  test("passes Blob values through without buffering", async () => {
+    let received:
+      | {
+          readonly key: string;
+          readonly value: Blob | ReadableStream | ArrayBuffer | string;
+          readonly options?: unknown;
+        }
+      | undefined;
+    const binding: SealedS3ObjectStoreBinding = {
+      ...sealedObjectStore(),
+      async put(key, value, options) {
+        received = { key, value, options };
+      },
+    };
+    const storage = adaptSealedS3ObjectStore(binding);
+    const blob = new Blob(["payload"], { type: "text/plain" });
+    const options = {
+      httpMetadata: { contentType: "text/plain" },
+      customMetadata: { owner: "test" },
+    };
+
+    await storage.put("media/blob", blob, options);
+
+    expect(received).toBeDefined();
+    expect(received!.key).toBe("media/blob");
+    expect(received!.value).toBe(blob);
+    expect(received!.options).toBe(options);
+  });
+
   test("fails closed on capability references and partial bindings", () => {
     for (const invalid of [
       "capability:media",

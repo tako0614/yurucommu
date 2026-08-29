@@ -18,7 +18,7 @@ import type {
   DeliveryQueueMessageV1,
 } from "@takosjp/yurucommu-core/server";
 
-type PutValue = ReadableStream | ArrayBuffer | string;
+type PutValue = Blob | ReadableStream | ArrayBuffer | string;
 type PutOptions = {
   readonly httpMetadata?: ObjectMetadata["httpMetadata"];
   readonly customMetadata?: Record<string, string>;
