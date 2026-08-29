@@ -461,8 +461,8 @@ describe("release surface status", () => {
   });
 
   test("routes both website CTAs through the Git repository install entrypoint", () => {
-    const repositoryHref =
-      "https://app.takosumi.com/install?git=https%3A%2F%2Fgithub.com%2Ftako0614%2Fyurucommu.git";
+    const releaseCommit = "a17e4f883cb9ba79e6d0650b497d8d97453c698f";
+    const repositoryHref = `https://app.takosumi.com/install?git=https%3A%2F%2Fgithub.com%2Ftako0614%2Fyurucommu.git&ref=${releaseCommit}`;
     const installHrefs = [
       ...siteSource.matchAll(
         /href="([^"]*app\.takosumi\.com\/install[^"]*)"/gu,
@@ -476,7 +476,8 @@ describe("release surface status", () => {
       );
       expect(parsed.searchParams.has("kind")).toBe(false);
       expect(parsed.searchParams.has("path")).toBe(false);
-      expect(parsed.searchParams.has("ref")).toBe(false);
+      expect(parsed.searchParams.get("ref")).toBe(releaseCommit);
+      expect(parsed.searchParams.get("ref")).toMatch(/^[0-9a-f]{40}$/u);
     }
     expect(siteSource).not.toContain("path=.");
     expect(siteSource).not.toContain(
