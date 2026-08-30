@@ -205,8 +205,8 @@ file containing the same `runId` and fresh `nonce` from the checkpoint, for
 example (replace the placeholders with those values):
 
 ```bash
-install -m 600 /dev/null /absolute/owner-dir/takoform-v1-e2e-release
-printf '%s\n' '{"kind":"yurucommu.takoform-v1-e2e-live-release@v1","runId":"<runId>","nonce":"<nonce>"}' > /absolute/owner-dir/takoform-v1-e2e-release
+signal_tmp=/absolute/owner-dir/.takoform-v1-e2e-release.$$
+(umask 077; printf '%s\n' '{"kind":"yurucommu.takoform-v1-e2e-live-release@v1","runId":"<runId>","nonce":"<nonce>"}' > "$signal_tmp"; chmod 600 "$signal_tmp"; mv "$signal_tmp" /absolute/owner-dir/takoform-v1-e2e-release)
 ```
 
 The checkpoint is atomically written with mode `0600` and contains only the
