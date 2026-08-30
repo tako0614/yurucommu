@@ -65,6 +65,12 @@ const manifest = JSON.parse(manifestText) as {
     >;
   };
 };
+const siteSource = await readFile(new URL("site/index.html", rootUrl), "utf8");
+const directInstallHrefs = [
+  ...siteSource.matchAll(
+    /href="([^"]*app\.takosumi\.com\/install\?[^"\s]+)"/gu,
+  ),
+].map((match) => match[1] as string);
 const rootModule = manifest.install.modules["."];
 const managedModule = manifest.install.modules["deploy/takoform"];
 const rootModuleSource = await readFile(new URL("main.tf", rootUrl), "utf8");
@@ -342,6 +348,15 @@ describe("repository-owned Takosumi install UX", () => {
     );
   });
 
+  test("keeps the direct Takoform install rooted at the repository", () => {
+    expect(directInstallHrefs).toHaveLength(2);
+    for (const href of directInstallHrefs) {
+      const parsed = new URL(href.replaceAll("&amp;", "&"));
+      expect(parsed.searchParams.get("sourcePath") ?? ".").toBe(".");
+      expect(parsed.searchParams.get("path")).toBe("deploy/takoform");
+    }
+  });
+
   test("references only declared module variables and ordinary outputs", () => {
     const moduleVariables = new Set(
       Array.from(
@@ -419,6 +434,9 @@ describe("repository-owned Takosumi install UX", () => {
     expect(managedModule.inputs.map((input) => input.name)).toEqual([
       "project_name",
     ]);
+    expect(managedModule.inputs[0]?.source).toEqual({
+      kind: "capsule_name",
+    });
     expect(
       managedModule.inputs.filter((input) => input.source.kind === "user"),
     ).toEqual([]);
