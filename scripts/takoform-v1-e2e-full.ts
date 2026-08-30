@@ -49,14 +49,16 @@ const LIVE_CHECKPOINT_FILE_NAME = "takoform-v1-e2e-checkpoint.json";
 const LIVE_RELEASE_SIGNAL_FILE_NAME = "takoform-v1-e2e-release";
 const LIVE_CHECKPOINT_ENV = "TAKOFORM_E2E_CHECKPOINT_PATH";
 const LIVE_CHECKPOINT_WAIT_ENV = "TAKOFORM_E2E_CHECKPOINT_WAIT_SECONDS";
+const LIVE_SCREENSHOT_ENV = "TAKOFORM_E2E_SCREENSHOT_PATH";
 const LIVE_CHECKPOINT_POLL_INTERVAL_MS = 100;
 const LIVE_CHECKPOINT_KIND =
-  "yurucommu.takoform-v1-e2e-live-checkpoint@v1" as const;
+  "yurucommu.takoform-v1-e2e-live-checkpoint@v2" as const;
 const LIVE_RELEASE_SIGNAL_KIND =
-  "yurucommu.takoform-v1-e2e-live-release@v1" as const;
+  "yurucommu.takoform-v1-e2e-live-release@v2" as const;
 const LIVE_CHECKPOINT_NONCE_RE = /^[a-f0-9]{32}$/u;
-const MAX_CHECKPOINT_EVIDENCE_BYTES = 4 * 1024;
+const MAX_CHECKPOINT_EVIDENCE_BYTES = 64 * 1024;
 const MAX_RELEASE_SIGNAL_BYTES = 512;
+const MAX_SCREENSHOT_BYTES = 50 * 1024 * 1024;
 const terminationListeners = new Set<(error: Error) => void>();
 /** Provider schema JSON is substantially larger than ordinary child output. */
 export const PROVIDER_SCHEMA_OUTPUT_MAX_BYTES = 4 * 1024 * 1024;
@@ -154,6 +156,7 @@ export interface TakoformV1E2EConfig {
 export interface LiveCheckpointConfig {
   readonly checkpointPath: string;
   readonly waitSeconds: number;
+  readonly screenshotPath?: string;
 }
 
 export interface LiveCheckpointTarget {
@@ -163,21 +166,105 @@ export interface LiveCheckpointTarget {
   readonly releasePath: string;
   readonly waitSeconds: number;
   readonly waitMs: number;
+  readonly screenshotPath?: string;
 }
 
 export interface LiveCheckpointEvidence {
   readonly kind: typeof LIVE_CHECKPOINT_KIND;
+  readonly state: "awaiting-owner-release";
+  /** SHA-256 of canonical evidence with this digest field omitted. */
+  readonly evidenceSha256: string;
   readonly runId: string;
   /** Fresh per-checkpoint binding so a stale signal cannot release a new run. */
   readonly nonce: string;
-  readonly launchUrl: string;
   readonly createdAt: string;
+  readonly capsule: {
+    readonly source: SourceProvenance;
+    readonly provider: {
+      readonly source: string;
+      readonly sha256: string;
+      readonly schema: ProviderSchemaProof;
+    };
+  };
+  readonly run: {
+    readonly resourceCount: number;
+    readonly screenshotExpected: boolean;
+  };
+  readonly runtime: {
+    readonly launchUrl: string;
+    readonly apiUrl: string;
+    readonly probeUrl: string;
+    readonly endpointClassification:
+      "assigned-worker-endpoint" | "test-only-loopback-diagnostic";
+  };
+}
+
+export interface LiveCheckpointEvidenceInput {
+  readonly runId: string;
+  readonly nonce?: string;
+  readonly createdAt?: string;
+  readonly capsule: LiveCheckpointEvidence["capsule"];
+  readonly run: LiveCheckpointEvidence["run"];
+  readonly runtime: LiveCheckpointEvidence["runtime"];
 }
 
 export interface LiveCheckpointReleaseSignal {
   readonly kind: typeof LIVE_RELEASE_SIGNAL_KIND;
   readonly runId: string;
   readonly nonce: string;
+  readonly evidenceSha256: string;
+  readonly checkpointSha256: string;
+}
+
+export interface RuntimeProbeEvidence {
+  readonly healthz: {
+    readonly status: "ok";
+    readonly missingBindings: readonly string[];
+  };
+  readonly readyz: {
+    readonly status: "ok";
+    readonly missingBindings: readonly string[];
+  };
+  readonly socialServer: { readonly product: "yurucommu" };
+  readonly nodeinfo: {
+    readonly software: "yurucommu";
+    readonly users: number;
+    readonly localPosts: number;
+  };
+}
+
+export interface LiveScreenshotEvidence {
+  readonly kind: "external-owner-png@v1";
+  readonly sha256: string;
+  readonly bytes: number;
+  readonly width: number;
+  readonly height: number;
+  readonly capturedAt: string;
+}
+
+export interface LiveCheckpointAttestation {
+  readonly kind: "yurucommu.takoform-v1-e2e-live-attestation@v1";
+  readonly state: "released-and-reprobed";
+  readonly checkpoint: {
+    readonly evidence: LiveCheckpointEvidence;
+    readonly evidenceSha256: string;
+    readonly checkpointSha256: string;
+  };
+  readonly release: {
+    readonly signal: LiveCheckpointReleaseSignal;
+    readonly signalSha256: string;
+    readonly releasedAt: string;
+  };
+  readonly screenshot?: LiveScreenshotEvidence;
+  readonly postReleaseRuntimeReadback: {
+    readonly verifiedAt: string;
+    readonly evidence: RuntimeProbeEvidence;
+  };
+}
+
+interface LiveCheckpointReleaseAttestation {
+  readonly checkpoint: LiveCheckpointAttestation["checkpoint"];
+  readonly release: LiveCheckpointAttestation["release"];
 }
 
 export interface LocalProviderAuthority {
@@ -287,10 +374,11 @@ export function readLiveCheckpointConfig(
 ): LiveCheckpointConfig | undefined {
   const checkpointPath = environment[LIVE_CHECKPOINT_ENV]?.trim() ?? "";
   const waitInput = environment[LIVE_CHECKPOINT_WAIT_ENV]?.trim() ?? "";
+  const screenshotPath = environment[LIVE_SCREENSHOT_ENV]?.trim() ?? "";
   if (!checkpointPath) {
-    if (waitInput) {
+    if (waitInput || screenshotPath) {
       throw new Error(
-        `${LIVE_CHECKPOINT_WAIT_ENV} requires ${LIVE_CHECKPOINT_ENV}`,
+        `${waitInput ? LIVE_CHECKPOINT_WAIT_ENV : LIVE_SCREENSHOT_ENV} requires ${LIVE_CHECKPOINT_ENV}`,
       );
     }
     return undefined;
@@ -298,8 +386,15 @@ export function readLiveCheckpointConfig(
   if (!isAbsolute(checkpointPath)) {
     throw new Error(`${LIVE_CHECKPOINT_ENV} must be an absolute path`);
   }
+  if (screenshotPath && !isAbsolute(screenshotPath)) {
+    throw new Error(`${LIVE_SCREENSHOT_ENV} must be an absolute path`);
+  }
   const waitSeconds = parseLiveCheckpointWait(waitInput);
-  return { checkpointPath, waitSeconds };
+  return {
+    checkpointPath,
+    waitSeconds,
+    ...(screenshotPath ? { screenshotPath } : {}),
+  };
 }
 
 function parseLiveCheckpointWait(input: string): number {
@@ -511,6 +606,13 @@ export async function prepareLiveCheckpointTarget(
   );
   await assertOptionalCheckpointFile(checkpointPath);
   await assertOptionalReleaseSignal(releasePath);
+  if (config.screenshotPath) {
+    await prepareLiveScreenshotPath(
+      config.screenshotPath,
+      checkpointPath,
+      releasePath,
+    );
+  }
 
   return {
     configuredPath: config.checkpointPath,
@@ -519,51 +621,291 @@ export async function prepareLiveCheckpointTarget(
     releasePath,
     waitSeconds: config.waitSeconds,
     waitMs: config.waitSeconds * 1_000,
+    ...(config.screenshotPath ? { screenshotPath: config.screenshotPath } : {}),
   };
 }
 
 /** Construct the only fields allowed in the on-disk live checkpoint. */
 export function buildLiveCheckpointEvidence(
-  runId: string,
-  launchUrl: string,
-  createdAt = new Date().toISOString(),
-  nonce = crypto.randomUUID().replaceAll("-", ""),
+  input: LiveCheckpointEvidenceInput,
 ): LiveCheckpointEvidence {
+  const runId = input.runId;
+  const nonce = input.nonce ?? crypto.randomUUID().replaceAll("-", "");
+  const createdAt = input.createdAt ?? new Date().toISOString();
   if (!/^[a-z][a-z0-9-]{1,50}[a-z0-9]$/u.test(runId)) {
     throw new Error("live checkpoint runId is not a valid E2E identity");
   }
   if (!LIVE_CHECKPOINT_NONCE_RE.test(nonce)) {
     throw new Error("live checkpoint nonce is not a valid E2E binding");
   }
-  const parsedLaunchUrl = absoluteHttpUrl(
-    launchUrl,
-    "live checkpoint launch URL",
-  );
-  assertWorkerEndpointUrl(parsedLaunchUrl.toString());
-  if (!Number.isFinite(Date.parse(createdAt))) {
+  if (
+    !Number.isFinite(Date.parse(createdAt)) ||
+    new Date(createdAt).toISOString() !== createdAt
+  ) {
     throw new Error("live checkpoint createdAt must be an ISO timestamp");
   }
-  return {
+  const capsule = sanitizeLiveCheckpointCapsule(input.capsule);
+  const run = sanitizeLiveCheckpointRun(input.run);
+  const runtime = sanitizeLiveCheckpointRuntime(input.runtime);
+  const body = {
     kind: LIVE_CHECKPOINT_KIND,
+    state: "awaiting-owner-release" as const,
     runId,
     nonce,
-    launchUrl: parsedLaunchUrl.toString(),
     createdAt,
+    capsule,
+    run,
+    runtime,
+  };
+  return {
+    ...body,
+    evidenceSha256: digestBytes(Buffer.from(canonicalJson(body), "utf8")),
   };
 }
 
 /** Build the exact owner release object for one fresh checkpoint binding. */
 export function buildLiveCheckpointReleaseSignal(
-  runId: string,
-  nonce: string,
+  evidence: LiveCheckpointEvidence,
 ): LiveCheckpointReleaseSignal {
-  if (!/^[a-z][a-z0-9-]{1,50}[a-z0-9]$/u.test(runId)) {
-    throw new Error("live release runId is not a valid E2E identity");
+  const sanitized = sanitizeLiveCheckpointEvidence(evidence);
+  const checkpointPayload = serializeLiveCheckpointEvidence(sanitized);
+  return {
+    kind: LIVE_RELEASE_SIGNAL_KIND,
+    runId: sanitized.runId,
+    nonce: sanitized.nonce,
+    evidenceSha256: digestLiveCheckpointEvidence(sanitized),
+    checkpointSha256: digestBytes(Buffer.from(checkpointPayload, "utf8")),
+  };
+}
+
+/** Digest the canonical, secret-free evidence object (without file framing). */
+export function digestLiveCheckpointEvidence(
+  evidence: LiveCheckpointEvidence,
+): string {
+  return sanitizeLiveCheckpointEvidence(evidence).evidenceSha256;
+}
+
+function sanitizeLiveCheckpointEvidence(
+  evidence: LiveCheckpointEvidence,
+): LiveCheckpointEvidence {
+  if (
+    evidence.kind !== LIVE_CHECKPOINT_KIND ||
+    evidence.state !== "awaiting-owner-release"
+  ) {
+    throw new Error("live checkpoint evidence kind or state was invalid");
   }
-  if (!LIVE_CHECKPOINT_NONCE_RE.test(nonce)) {
-    throw new Error("live release nonce is not a valid E2E binding");
+  const sanitized = buildLiveCheckpointEvidence({
+    runId: evidence.runId,
+    nonce: evidence.nonce,
+    createdAt: evidence.createdAt,
+    capsule: evidence.capsule,
+    run: evidence.run,
+    runtime: evidence.runtime,
+  });
+  if (evidence.evidenceSha256 !== sanitized.evidenceSha256) {
+    throw new Error("live checkpoint evidence digest was invalid");
   }
-  return { kind: LIVE_RELEASE_SIGNAL_KIND, runId, nonce };
+  return sanitized;
+}
+
+function sanitizeLiveCheckpointCapsule(
+  capsule: LiveCheckpointEvidence["capsule"],
+): LiveCheckpointEvidence["capsule"] {
+  if (!isRecord(capsule) || !isRecord(capsule.provider)) {
+    throw new Error("live checkpoint capsule evidence was invalid");
+  }
+  if (capsule.provider.source !== PROVIDER_SOURCE) {
+    throw new Error("live checkpoint Provider source was invalid");
+  }
+  const providerSha256 = canonicalSha256(
+    capsule.provider.sha256,
+    "live checkpoint Provider digest",
+  );
+  const schema = sanitizeProviderSchemaProof(capsule.provider.schema);
+  return {
+    source: sanitizeSourceProvenance(capsule.source),
+    provider: {
+      source: PROVIDER_SOURCE,
+      sha256: providerSha256,
+      schema,
+    },
+  };
+}
+
+function sanitizeSourceProvenance(source: SourceProvenance): SourceProvenance {
+  if (
+    !isRecord(source) ||
+    !/^[a-f0-9]{40,64}$/u.test(source.sourceHead) ||
+    typeof source.workspaceDirty !== "boolean" ||
+    !isRecord(source.module) ||
+    !Array.isArray(source.moduleFiles) ||
+    !isRecord(source.worker) ||
+    !Array.isArray(source.migrations) ||
+    source.providerConstraint !== "= 3.0.0"
+  ) {
+    throw new Error("live checkpoint source provenance was invalid");
+  }
+  const module = Object.fromEntries(
+    Object.entries(source.module).map(([path, sha256]) => {
+      if (!path || typeof sha256 !== "string") {
+        throw new Error("live checkpoint module provenance was invalid");
+      }
+      return [path, canonicalSha256(sha256, "live checkpoint module digest")];
+    }),
+  );
+  return {
+    sourceHead: source.sourceHead,
+    workspaceDirty: source.workspaceDirty,
+    workspaceStateDigest: canonicalSha256(
+      source.workspaceStateDigest,
+      "live checkpoint workspace digest",
+    ),
+    module,
+    moduleFiles: source.moduleFiles.map((entry) =>
+      sanitizeProvenanceFile(entry, "live checkpoint module file"),
+    ),
+    worker: sanitizeProvenanceFile(source.worker, "live checkpoint Worker"),
+    migrations: source.migrations.map((entry) =>
+      sanitizeProvenanceFile(entry, "live checkpoint migration"),
+    ),
+    providerConstraint: "= 3.0.0",
+  };
+}
+
+function sanitizeProvenanceFile(
+  entry: {
+    readonly path: string;
+    readonly bytes: number;
+    readonly sha256: string;
+  },
+  label: string,
+): { readonly path: string; readonly bytes: number; readonly sha256: string } {
+  if (
+    !isRecord(entry) ||
+    typeof entry.path !== "string" ||
+    entry.path.length === 0 ||
+    !Number.isSafeInteger(entry.bytes) ||
+    entry.bytes < 0
+  ) {
+    throw new Error(`${label} provenance was invalid`);
+  }
+  return {
+    path: entry.path,
+    bytes: entry.bytes,
+    sha256: canonicalSha256(entry.sha256, `${label} digest`),
+  };
+}
+
+function sanitizeProviderSchemaProof(
+  schema: ProviderSchemaProof,
+): ProviderSchemaProof {
+  if (
+    !isRecord(schema) ||
+    schema.source !== PROVIDER_SOURCE ||
+    schema.providerVersion !== "3.0.0" ||
+    schema.versionConstraint !== "= 3.0.0" ||
+    !Number.isSafeInteger(schema.protocolSchemaVersion) ||
+    schema.protocolSchemaVersion < 0 ||
+    !Array.isArray(schema.resourceKinds) ||
+    schema.resourceKinds.some(
+      (kind: unknown) => typeof kind !== "string" || kind.length === 0,
+    )
+  ) {
+    throw new Error("live checkpoint Provider schema proof was invalid");
+  }
+  return {
+    source: PROVIDER_SOURCE,
+    providerVersion: "3.0.0",
+    versionConstraint: "= 3.0.0",
+    protocolSchemaVersion: schema.protocolSchemaVersion,
+    resourceKinds: [...schema.resourceKinds],
+  };
+}
+
+function sanitizeLiveCheckpointRun(
+  run: LiveCheckpointEvidence["run"],
+): LiveCheckpointEvidence["run"] {
+  if (
+    !isRecord(run) ||
+    !Number.isSafeInteger(run.resourceCount) ||
+    run.resourceCount < 1 ||
+    typeof run.screenshotExpected !== "boolean"
+  ) {
+    throw new Error("live checkpoint run evidence was invalid");
+  }
+  return {
+    resourceCount: run.resourceCount,
+    screenshotExpected: run.screenshotExpected,
+  };
+}
+
+function sanitizeLiveCheckpointRuntime(
+  runtime: LiveCheckpointEvidence["runtime"],
+): LiveCheckpointEvidence["runtime"] {
+  if (!isRecord(runtime)) {
+    throw new Error("live checkpoint runtime evidence was invalid");
+  }
+  const launch = absoluteHttpUrl(
+    runtime.launchUrl,
+    "live checkpoint launch URL",
+  );
+  assertWorkerEndpointUrl(launch.toString());
+  const api = absoluteHttpUrl(runtime.apiUrl, "live checkpoint API URL");
+  assertApiOutput(api.toString(), launch.toString());
+  const probe = absoluteHttpUrl(
+    runtime.probeUrl,
+    "live checkpoint runtime probe URL",
+  );
+  assertWorkerEndpointUrl(probe.toString());
+  if (
+    runtime.endpointClassification !== "assigned-worker-endpoint" &&
+    runtime.endpointClassification !== "test-only-loopback-diagnostic"
+  ) {
+    throw new Error("live checkpoint runtime classification was invalid");
+  }
+  return {
+    launchUrl: launch.toString(),
+    apiUrl: api.toString(),
+    probeUrl: probe.toString(),
+    endpointClassification: runtime.endpointClassification,
+  };
+}
+
+function canonicalSha256(value: unknown, label: string): string {
+  if (typeof value !== "string" || !/^sha256:[a-f0-9]{64}$/u.test(value)) {
+    throw new Error(`${label} was not canonical sha256`);
+  }
+  return value;
+}
+
+function canonicalJson(value: unknown): string {
+  return JSON.stringify(canonicalJsonValue(value));
+}
+
+function canonicalJsonValue(value: unknown): unknown {
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "boolean"
+  ) {
+    return value;
+  }
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (Array.isArray(value)) return value.map(canonicalJsonValue);
+  if (isRecord(value)) {
+    return Object.fromEntries(
+      Object.keys(value)
+        .sort()
+        .map((key) => [key, canonicalJsonValue(value[key])]),
+    );
+  }
+  throw new Error("live checkpoint evidence was not canonical JSON");
+}
+
+function serializeLiveCheckpointEvidence(
+  evidence: LiveCheckpointEvidence,
+): string {
+  return `${canonicalJson(sanitizeLiveCheckpointEvidence(evidence))}\n`;
 }
 
 /**
@@ -587,13 +929,10 @@ export async function writeLiveCheckpoint(
   ) {
     throw new Error("live checkpoint target changed during validation");
   }
-  const sanitized = buildLiveCheckpointEvidence(
-    evidence.runId,
-    evidence.launchUrl,
-    evidence.createdAt,
-    evidence.nonce,
-  );
-  const payload = `${JSON.stringify(sanitized)}\n`;
+  const payload = serializeLiveCheckpointEvidence(evidence);
+  if (Buffer.byteLength(payload, "utf8") > MAX_CHECKPOINT_EVIDENCE_BYTES) {
+    throw new Error("live checkpoint evidence exceeded the size limit");
+  }
   const temporaryPath = join(
     dirname(validated.checkpointPath),
     `.${basename(validated.checkpointPath)}.${process.pid}.${crypto.randomUUID()}.tmp`,
@@ -626,11 +965,10 @@ export async function waitForLiveCheckpointRelease(
   options: {
     readonly timeoutMs?: number;
     readonly pollIntervalMs?: number;
-    /** Optional caller assertion; the checkpoint remains the source of truth. */
-    readonly expectedRunId?: string;
-    readonly expectedNonce?: string;
-  } = {},
-): Promise<void> {
+    /** Immutable evidence produced before the checkpoint file is written. */
+    readonly expectedEvidence: LiveCheckpointEvidence;
+  },
+): Promise<LiveCheckpointReleaseAttestation> {
   const validated = await prepareLiveCheckpointTarget({
     checkpointPath: target.configuredPath,
     waitSeconds: target.waitSeconds,
@@ -656,25 +994,41 @@ export async function waitForLiveCheckpointRelease(
   if (!Number.isSafeInteger(pollIntervalMs) || pollIntervalMs < 1) {
     throw new Error("live checkpoint poll interval must be a positive integer");
   }
-  const evidence = await readLiveCheckpointEvidence(validated.checkpointPath);
-  if (options.expectedRunId && options.expectedRunId !== evidence.runId) {
-    throw new Error("live E2E checkpoint run identity changed");
-  }
-  if (options.expectedNonce && options.expectedNonce !== evidence.nonce) {
-    throw new Error("live E2E checkpoint binding changed");
+  const evidence = sanitizeLiveCheckpointEvidence(options.expectedEvidence);
+  const expectedPayload = serializeLiveCheckpointEvidence(evidence);
+  const expectedSignal = buildLiveCheckpointReleaseSignal(evidence);
+  const initialCheckpoint = await readLiveCheckpointRecord(
+    validated.checkpointPath,
+  );
+  if (initialCheckpoint.raw !== expectedPayload) {
+    throw new Error("live E2E checkpoint bytes changed before release");
   }
 
   const startedAt = Date.now();
   while (true) {
     throwIfTerminationRequested();
-    if (
-      await consumeReleaseSignal(
-        validated.releasePath,
-        evidence.runId,
-        evidence.nonce,
-      )
-    )
-      return;
+    const release = await consumeReleaseSignal(
+      validated.releasePath,
+      expectedSignal,
+      async () => {
+        const current = await readLiveCheckpointRecord(
+          validated.checkpointPath,
+        );
+        if (current.raw !== expectedPayload) {
+          throw new Error("live E2E checkpoint bytes changed before release");
+        }
+      },
+    );
+    if (release) {
+      return {
+        checkpoint: {
+          evidence,
+          evidenceSha256: expectedSignal.evidenceSha256,
+          checkpointSha256: expectedSignal.checkpointSha256,
+        },
+        release,
+      };
+    }
     const elapsedMs = Date.now() - startedAt;
     if (elapsedMs >= timeoutMs) {
       throw new Error(
@@ -688,26 +1042,74 @@ export async function waitForLiveCheckpointRelease(
 /** Write one fresh checkpoint, then wait for its exact owner release. */
 export async function runLiveCheckpointGate(
   target: LiveCheckpointTarget,
-  runId: string,
-  launchUrl: string,
+  evidence: LiveCheckpointEvidence,
   options: {
     readonly timeoutMs?: number;
     readonly pollIntervalMs?: number;
-  } = {},
-): Promise<LiveCheckpointEvidence> {
-  const evidence = buildLiveCheckpointEvidence(runId, launchUrl);
-  await writeLiveCheckpoint(target, evidence);
-  await waitForLiveCheckpointRelease(target, {
-    ...options,
-    expectedRunId: evidence.runId,
-    expectedNonce: evidence.nonce,
+    readonly postReleaseRuntimeReadback: (
+      signal: AbortSignal,
+    ) => Promise<unknown>;
+  },
+): Promise<LiveCheckpointAttestation> {
+  const sanitized = sanitizeLiveCheckpointEvidence(evidence);
+  if (sanitized.run.screenshotExpected !== Boolean(target.screenshotPath)) {
+    throw new Error("live checkpoint screenshot expectation changed");
+  }
+  if (
+    target.screenshotPath &&
+    [target.checkpointPath, target.releasePath].some(
+      (path) => resolve(path) === resolve(target.screenshotPath!),
+    )
+  ) {
+    throw new Error("live screenshot path overlaps checkpoint files");
+  }
+  await writeLiveCheckpoint(target, sanitized);
+  const released = await waitForLiveCheckpointRelease(target, {
+    ...(options.timeoutMs === undefined
+      ? {}
+      : { timeoutMs: options.timeoutMs }),
+    ...(options.pollIntervalMs === undefined
+      ? {}
+      : { pollIntervalMs: options.pollIntervalMs }),
+    expectedEvidence: sanitized,
   });
-  return evidence;
+  throwIfTerminationRequested();
+  const runtimeAbort = new AbortController();
+  const abortRuntimeReadback = (error: Error): void => {
+    runtimeAbort.abort(error);
+  };
+  terminationListeners.add(abortRuntimeReadback);
+  let runtimeReadback: RuntimeProbeEvidence;
+  try {
+    if (terminationRequest) abortRuntimeReadback(terminationRequest);
+    runtimeReadback = sanitizeRuntimeProbeEvidence(
+      await options.postReleaseRuntimeReadback(runtimeAbort.signal),
+    );
+  } finally {
+    terminationListeners.delete(abortRuntimeReadback);
+  }
+  throwIfTerminationRequested();
+  const runtimeVerifiedAt = new Date().toISOString();
+  const screenshot = target.screenshotPath
+    ? await verifyLiveScreenshot(target.screenshotPath, sanitized.createdAt)
+    : undefined;
+  throwIfTerminationRequested();
+  return {
+    kind: "yurucommu.takoform-v1-e2e-live-attestation@v1",
+    state: "released-and-reprobed",
+    ...released,
+    ...(screenshot ? { screenshot } : {}),
+    postReleaseRuntimeReadback: {
+      verifiedAt: runtimeVerifiedAt,
+      evidence: runtimeReadback,
+    },
+  };
 }
 
-async function readLiveCheckpointEvidence(
-  path: string,
-): Promise<LiveCheckpointEvidence> {
+async function readLiveCheckpointRecord(path: string): Promise<{
+  readonly evidence: LiveCheckpointEvidence;
+  readonly raw: string;
+}> {
   const raw = await readBoundedOwnerFile(
     path,
     "live checkpoint file",
@@ -722,36 +1124,16 @@ async function readLiveCheckpointEvidence(
   if (!isRecord(parsed)) {
     throw new Error("live E2E checkpoint was not a JSON object");
   }
-  const keys = Object.keys(parsed).sort();
-  if (
-    keys.length !== 5 ||
-    keys[0] !== "createdAt" ||
-    keys[1] !== "kind" ||
-    keys[2] !== "launchUrl" ||
-    keys[3] !== "nonce" ||
-    keys[4] !== "runId"
-  ) {
-    throw new Error("live E2E checkpoint contained unsupported fields");
-  }
-  if (
-    parsed.kind !== LIVE_CHECKPOINT_KIND ||
-    typeof parsed.runId !== "string" ||
-    typeof parsed.nonce !== "string" ||
-    typeof parsed.launchUrl !== "string" ||
-    typeof parsed.createdAt !== "string"
-  ) {
-    throw new Error("live E2E checkpoint had an invalid shape");
-  }
+  let evidence: LiveCheckpointEvidence;
   try {
-    return buildLiveCheckpointEvidence(
-      parsed.runId,
-      parsed.launchUrl,
-      parsed.createdAt,
-      parsed.nonce,
-    );
+    evidence = sanitizeLiveCheckpointEvidence(parsed as LiveCheckpointEvidence);
   } catch {
     throw new Error("live E2E checkpoint had invalid evidence");
   }
+  if (raw !== serializeLiveCheckpointEvidence(evidence)) {
+    throw new Error("live E2E checkpoint bytes were not canonical");
+  }
+  return { evidence, raw };
 }
 
 function delayOrTermination(milliseconds: number): Promise<void> {
@@ -775,6 +1157,9 @@ function assertLiveCheckpointConfig(config: LiveCheckpointConfig): void {
   if (!isAbsolute(config.checkpointPath)) {
     throw new Error("TAKOFORM_E2E_CHECKPOINT_PATH must be an absolute path");
   }
+  if (config.screenshotPath && !isAbsolute(config.screenshotPath)) {
+    throw new Error(`${LIVE_SCREENSHOT_ENV} must be an absolute path`);
+  }
   if (
     !Number.isSafeInteger(config.waitSeconds) ||
     config.waitSeconds < 0 ||
@@ -787,6 +1172,10 @@ function assertLiveCheckpointConfig(config: LiveCheckpointConfig): void {
 }
 
 function assertExternalCheckpointPath(path: string): void {
+  assertExternalOwnerPath(path, LIVE_CHECKPOINT_ENV);
+}
+
+function assertExternalOwnerPath(path: string, environmentName: string): void {
   const repositoryRoot = resolve(
     fileURLToPath(new URL("../", import.meta.url)),
   );
@@ -796,17 +1185,18 @@ function assertExternalCheckpointPath(path: string): void {
     (!relativePath.startsWith("..") && !isAbsolute(relativePath))
   ) {
     throw new Error(
-      "TAKOFORM_E2E_CHECKPOINT_PATH must point outside the Yurucommu repository",
+      `${environmentName} must point outside the Yurucommu repository`,
     );
   }
 }
 
-async function assertOutsideGitWorktree(path: string): Promise<void> {
+async function assertOutsideGitWorktree(
+  path: string,
+  environmentName = LIVE_CHECKPOINT_ENV,
+): Promise<void> {
   const resolvedPath = resolve(path);
   if (basename(resolvedPath) === ".git") {
-    throw new Error(
-      "TAKOFORM_E2E_CHECKPOINT_PATH must point outside every Git worktree",
-    );
+    throw new Error(`${environmentName} must point outside every Git worktree`);
   }
   let current = resolvedPath;
   try {
@@ -821,7 +1211,7 @@ async function assertOutsideGitWorktree(path: string): Promise<void> {
     try {
       await lstat(gitMarker);
       throw new Error(
-        "TAKOFORM_E2E_CHECKPOINT_PATH must point outside every Git worktree",
+        `${environmentName} must point outside every Git worktree`,
       );
     } catch (error) {
       if (isRecord(error) && error.code === "ENOENT") {
@@ -833,6 +1223,47 @@ async function assertOutsideGitWorktree(path: string): Promise<void> {
     if (current === dirname(current)) return;
     current = dirname(current);
   }
+}
+
+async function prepareLiveScreenshotPath(
+  screenshotPath: string,
+  checkpointPath: string,
+  releasePath: string,
+): Promise<void> {
+  if (!isAbsolute(screenshotPath)) {
+    throw new Error(`${LIVE_SCREENSHOT_ENV} must be an absolute path`);
+  }
+  const resolvedScreenshot = resolve(screenshotPath);
+  if (
+    resolvedScreenshot === resolve(checkpointPath) ||
+    resolvedScreenshot === resolve(releasePath)
+  ) {
+    throw new Error(
+      "live screenshot path must be separate from checkpoint files",
+    );
+  }
+  assertExternalOwnerPath(resolvedScreenshot, LIVE_SCREENSHOT_ENV);
+  await assertOutsideGitWorktree(resolvedScreenshot, LIVE_SCREENSHOT_ENV);
+  const parent = dirname(resolvedScreenshot);
+  await assertNoSymlinkInAncestors(parent, "live screenshot parent directory");
+  const parentMetadata = await lstat(parent);
+  if (!parentMetadata.isDirectory()) {
+    throw new Error("live screenshot parent must be a directory");
+  }
+  assertOwnerOnlyDirectory(parentMetadata, "live screenshot parent directory");
+  try {
+    const existing = await lstat(resolvedScreenshot);
+    if (existing.isSymbolicLink()) {
+      throw new Error("live screenshot path must not be a symbolic link");
+    }
+  } catch (error) {
+    if (isRecord(error) && error.code === "ENOENT") return;
+    if (error instanceof Error) throw error;
+    throw new Error("could not inspect the live screenshot path", {
+      cause: error,
+    });
+  }
+  throw new Error("live screenshot path must not exist before the E2E run");
 }
 
 async function assertNoSymlinkInAncestors(
@@ -940,15 +1371,17 @@ async function readBoundedOwnerFile(
     if (openedMetadata.nlink !== 1) {
       throw new Error(`${label} must not be hard-linked`);
     }
-    const buffer = Buffer.alloc(maxBytes + 1);
-    const { bytesRead } = await handle.read(buffer, 0, buffer.byteLength, 0);
-    if (bytesRead > maxBytes) {
+    const bytes = await readBoundedFileHandle(handle, maxBytes);
+    if (bytes.byteLength > maxBytes) {
       throw new Error(`${label} is too large`);
     }
     const currentMetadata = await lstat(path);
     if (
       currentMetadata.dev !== openedMetadata.dev ||
-      currentMetadata.ino !== openedMetadata.ino
+      currentMetadata.ino !== openedMetadata.ino ||
+      currentMetadata.size !== openedMetadata.size ||
+      currentMetadata.mtimeMs !== openedMetadata.mtimeMs ||
+      bytes.byteLength !== openedMetadata.size
     ) {
       throw new Error(`${label} changed during validation`);
     }
@@ -957,9 +1390,7 @@ async function readBoundedOwnerFile(
       throw new Error(`${label} must not be hard-linked`);
     }
     try {
-      return new TextDecoder("utf-8", { fatal: true }).decode(
-        buffer.subarray(0, bytesRead),
-      );
+      return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
     } catch {
       throw new Error(`${label} was not valid UTF-8`);
     }
@@ -977,10 +1408,25 @@ async function readBoundedOwnerFile(
   }
 }
 
+async function readBoundedFileHandle(
+  handle: Awaited<ReturnType<typeof open>>,
+  maxBytes: number,
+): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  let total = 0;
+  while (total <= maxBytes) {
+    const chunk = Buffer.alloc(Math.min(64 * 1024, maxBytes + 1 - total));
+    const { bytesRead } = await handle.read(chunk, 0, chunk.byteLength, total);
+    if (bytesRead === 0) break;
+    chunks.push(chunk.subarray(0, bytesRead));
+    total += bytesRead;
+  }
+  return Buffer.concat(chunks, total);
+}
+
 function assertLiveCheckpointReleaseSignal(
   raw: string,
-  expectedRunId: string,
-  expectedNonce: string,
+  expected: LiveCheckpointReleaseSignal,
 ): void {
   let parsed: unknown;
   try {
@@ -993,27 +1439,38 @@ function assertLiveCheckpointReleaseSignal(
   }
   const keys = Object.keys(parsed).sort();
   if (
-    keys.length !== 3 ||
-    keys[0] !== "kind" ||
-    keys[1] !== "nonce" ||
-    keys[2] !== "runId" ||
+    keys.length !== 5 ||
+    keys[0] !== "checkpointSha256" ||
+    keys[1] !== "evidenceSha256" ||
+    keys[2] !== "kind" ||
+    keys[3] !== "nonce" ||
+    keys[4] !== "runId" ||
     parsed.kind !== LIVE_RELEASE_SIGNAL_KIND ||
     typeof parsed.runId !== "string" ||
     typeof parsed.nonce !== "string" ||
-    !LIVE_CHECKPOINT_NONCE_RE.test(parsed.nonce)
+    !LIVE_CHECKPOINT_NONCE_RE.test(parsed.nonce) ||
+    typeof parsed.evidenceSha256 !== "string" ||
+    typeof parsed.checkpointSha256 !== "string" ||
+    !/^sha256:[a-f0-9]{64}$/u.test(parsed.evidenceSha256) ||
+    !/^sha256:[a-f0-9]{64}$/u.test(parsed.checkpointSha256)
   ) {
     throw new Error("live release signal was malformed");
   }
-  if (parsed.runId !== expectedRunId || parsed.nonce !== expectedNonce) {
+  if (
+    parsed.runId !== expected.runId ||
+    parsed.nonce !== expected.nonce ||
+    parsed.evidenceSha256 !== expected.evidenceSha256 ||
+    parsed.checkpointSha256 !== expected.checkpointSha256
+  ) {
     throw new Error("live release signal was stale or for a different run");
   }
 }
 
 async function consumeReleaseSignal(
   path: string,
-  expectedRunId: string,
-  expectedNonce: string,
-): Promise<boolean> {
+  expected: LiveCheckpointReleaseSignal,
+  beforeConsume: () => Promise<void>,
+): Promise<LiveCheckpointAttestation["release"] | undefined> {
   const noFollow = fsConstants.O_NOFOLLOW ?? 0;
   let handle: Awaited<ReturnType<typeof open>> | undefined;
   let openedMetadata: Stats | undefined;
@@ -1024,40 +1481,44 @@ async function consumeReleaseSignal(
     if (openedMetadata.size > MAX_RELEASE_SIGNAL_BYTES) {
       throw new Error("live release signal was too large");
     }
-    const buffer = Buffer.alloc(MAX_RELEASE_SIGNAL_BYTES + 1);
-    const { bytesRead } = await handle.read(buffer, 0, buffer.byteLength, 0);
-    if (bytesRead > MAX_RELEASE_SIGNAL_BYTES) {
+    const bytes = await readBoundedFileHandle(handle, MAX_RELEASE_SIGNAL_BYTES);
+    if (bytes.byteLength > MAX_RELEASE_SIGNAL_BYTES) {
       throw new Error("live release signal was too large");
     }
     let raw: string;
     try {
-      raw = new TextDecoder("utf-8", { fatal: true }).decode(
-        buffer.subarray(0, bytesRead),
-      );
+      raw = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
     } catch {
       throw new Error("live release signal was malformed");
     }
-    assertLiveCheckpointReleaseSignal(raw, expectedRunId, expectedNonce);
+    assertLiveCheckpointReleaseSignal(raw, expected);
+    await beforeConsume();
 
     const currentMetadata = await lstat(path);
     assertSafeReleaseSignalMetadata(currentMetadata);
     if (
       currentMetadata.dev !== openedMetadata.dev ||
-      currentMetadata.ino !== openedMetadata.ino
+      currentMetadata.ino !== openedMetadata.ino ||
+      currentMetadata.size !== openedMetadata.size ||
+      currentMetadata.mtimeMs !== openedMetadata.mtimeMs
     ) {
       throw new Error("live release signal changed during validation");
     }
     try {
       await unlink(path);
     } catch (error) {
-      if (isRecord(error) && error.code === "ENOENT") return false;
+      if (isRecord(error) && error.code === "ENOENT") return undefined;
       throw new Error("could not consume the live release signal", {
         cause: error,
       });
     }
-    return true;
+    return {
+      signal: expected,
+      signalSha256: digestBytes(Buffer.from(raw, "utf8")),
+      releasedAt: new Date().toISOString(),
+    };
   } catch (error) {
-    if (isRecord(error) && error.code === "ENOENT") return false;
+    if (isRecord(error) && error.code === "ENOENT") return undefined;
     if (isRecord(error) && error.code === "ELOOP") {
       throw new Error("live release signal must not be a symbolic link");
     }
@@ -1067,6 +1528,106 @@ async function consumeReleaseSignal(
     });
   } finally {
     if (handle) await handle.close().catch(() => undefined);
+  }
+}
+
+async function verifyLiveScreenshot(
+  path: string,
+  notBefore: string,
+): Promise<LiveScreenshotEvidence> {
+  assertExternalOwnerPath(path, LIVE_SCREENSHOT_ENV);
+  await assertOutsideGitWorktree(path, LIVE_SCREENSHOT_ENV);
+  await assertNoSymlinkInAncestors(
+    dirname(path),
+    "live screenshot parent directory",
+  );
+  const parentMetadata = await lstat(dirname(path));
+  if (!parentMetadata.isDirectory()) {
+    throw new Error("live screenshot parent must be a directory");
+  }
+  assertOwnerOnlyDirectory(parentMetadata, "live screenshot parent directory");
+  const noFollow = fsConstants.O_NOFOLLOW ?? 0;
+  let handle: Awaited<ReturnType<typeof open>> | undefined;
+  try {
+    handle = await open(path, fsConstants.O_RDONLY | noFollow);
+    const openedMetadata = await handle.stat();
+    if (!openedMetadata.isFile()) {
+      throw new Error("live screenshot must be a regular file");
+    }
+    assertOwnerOnlyFile(openedMetadata, "live screenshot");
+    if (openedMetadata.nlink !== 1) {
+      throw new Error("live screenshot must not be hard-linked");
+    }
+    if (
+      openedMetadata.size < 33 ||
+      openedMetadata.size > MAX_SCREENSHOT_BYTES
+    ) {
+      throw new Error("live screenshot PNG size was invalid");
+    }
+    if (openedMetadata.mtimeMs < Date.parse(notBefore)) {
+      throw new Error("live screenshot was not captured for this checkpoint");
+    }
+    const bytes = await readBoundedFileHandle(handle, MAX_SCREENSHOT_BYTES);
+    if (
+      bytes.byteLength !== openedMetadata.size ||
+      bytes.byteLength > MAX_SCREENSHOT_BYTES
+    ) {
+      throw new Error("live screenshot changed during verification");
+    }
+    const currentMetadata = await lstat(path);
+    if (
+      currentMetadata.dev !== openedMetadata.dev ||
+      currentMetadata.ino !== openedMetadata.ino ||
+      currentMetadata.size !== openedMetadata.size ||
+      currentMetadata.mtimeMs !== openedMetadata.mtimeMs
+    ) {
+      throw new Error("live screenshot changed during verification");
+    }
+    if (!currentMetadata.isFile()) {
+      throw new Error("live screenshot must be a regular file");
+    }
+    assertOwnerOnlyFile(currentMetadata, "live screenshot");
+    if (currentMetadata.nlink !== 1) {
+      throw new Error("live screenshot must not be hard-linked");
+    }
+    assertPngEvidence(bytes);
+    return {
+      kind: "external-owner-png@v1",
+      sha256: digestBytes(bytes),
+      bytes: bytes.byteLength,
+      width: bytes.readUInt32BE(16),
+      height: bytes.readUInt32BE(20),
+      capturedAt: new Date(openedMetadata.mtimeMs).toISOString(),
+    };
+  } catch (error) {
+    if (isRecord(error) && error.code === "ENOENT") {
+      throw new Error("live screenshot PNG is missing");
+    }
+    if (isRecord(error) && error.code === "ELOOP") {
+      throw new Error("live screenshot must not be a symbolic link");
+    }
+    if (error instanceof Error) throw error;
+    throw new Error("could not verify the live screenshot PNG", {
+      cause: error,
+    });
+  } finally {
+    if (handle) await handle.close().catch(() => undefined);
+  }
+}
+
+function assertPngEvidence(bytes: Buffer): void {
+  const signature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+  const hasIhdr =
+    bytes.readUInt32BE(8) === 13 &&
+    bytes.subarray(12, 16).toString("ascii") === "IHDR" &&
+    bytes.readUInt32BE(16) > 0 &&
+    bytes.readUInt32BE(20) > 0;
+  const iend = bytes.subarray(-12);
+  const hasIend =
+    iend.readUInt32BE(0) === 0 &&
+    iend.subarray(4, 8).toString("ascii") === "IEND";
+  if (!bytes.subarray(0, 8).equals(signature) || !hasIhdr || !hasIend) {
+    throw new Error("live screenshot was not a complete PNG");
   }
 }
 
@@ -1595,6 +2156,7 @@ export async function main(): Promise<void> {
   let launchUrl = "";
   let apiUrl = "";
   let probes: Record<string, unknown> = {};
+  let liveCheckpointAttestation: LiveCheckpointAttestation | undefined;
 
   try {
     try {
@@ -1724,11 +2286,50 @@ export async function main(): Promise<void> {
         },
       };
       if (liveCheckpointTarget) {
-        await runLiveCheckpointGate(
+        if (!sourceProvenance || !providerSchemaProof) {
+          throw new Error(
+            "cannot create live checkpoint without source and Provider provenance",
+          );
+        }
+        const checkpointEvidence = buildLiveCheckpointEvidence({
+          runId: projectName,
+          capsule: {
+            source: sourceProvenance,
+            provider: {
+              source: PROVIDER_SOURCE,
+              sha256: config.providerSha256,
+              schema: providerSchemaProof,
+            },
+          },
+          run: {
+            resourceCount: identities.length,
+            screenshotExpected: Boolean(liveCheckpointTarget.screenshotPath),
+          },
+          runtime: {
+            launchUrl,
+            apiUrl,
+            probeUrl: absoluteHttpUrl(
+              runtimeBase,
+              "live checkpoint runtime probe URL",
+            ).toString(),
+            endpointClassification: config.diagnosticRuntimeEndpoint
+              ? "test-only-loopback-diagnostic"
+              : "assigned-worker-endpoint",
+          },
+        });
+        liveCheckpointAttestation = await runLiveCheckpointGate(
           liveCheckpointTarget,
-          projectName,
-          launchUrl,
+          checkpointEvidence,
+          {
+            postReleaseRuntimeReadback: (signal) =>
+              probeRuntime(runtimeBase, signal),
+          },
         );
+        probes = {
+          ...probes,
+          postReleaseRuntimeReadback:
+            liveCheckpointAttestation.postReleaseRuntimeReadback.evidence,
+        };
       }
     } catch (error) {
       primaryError = error;
@@ -1807,6 +2408,9 @@ export async function main(): Promise<void> {
           ? "test-only-loopback-diagnostic"
           : "assigned-worker-endpoint",
         probes,
+        ...(liveCheckpointAttestation
+          ? { liveCheckpoint: liveCheckpointAttestation }
+          : {}),
         cleanupVerified: cleanup.cleanupVerified,
         authoritativeAbsenceVerified: true,
       }),
@@ -2249,9 +2853,10 @@ async function readStandardServiceSupport(
 
 async function probeRuntime(
   runtimeBase: string,
-): Promise<Record<string, unknown>> {
+  signal?: AbortSignal,
+): Promise<RuntimeProbeEvidence> {
   const base = absoluteHttpUrl(runtimeBase, "runtime endpoint");
-  const health = await runtimeJson(base, HEALTH_PATH, "healthz");
+  const health = await runtimeJson(base, HEALTH_PATH, "healthz", signal);
   if (
     !isRecord(health) ||
     health.service !== "yurucommu" ||
@@ -2263,7 +2868,7 @@ async function probeRuntime(
       "Yurucommu /healthz did not report all runtime bindings ready",
     );
   }
-  const ready = await runtimeJson(base, READINESS_PATH, "readyz");
+  const ready = await runtimeJson(base, READINESS_PATH, "readyz", signal);
   if (
     !isRecord(ready) ||
     ready.status !== "ok" ||
@@ -2275,6 +2880,7 @@ async function probeRuntime(
     base,
     SOCIAL_SERVER_PATH,
     "social-server discovery",
+    signal,
   );
   if (
     !isRecord(social) ||
@@ -2288,6 +2894,7 @@ async function probeRuntime(
     base,
     NODEINFO_PATH,
     "migration-backed NodeInfo",
+    signal,
   );
   if (
     !isRecord(nodeinfo) ||
@@ -2302,7 +2909,7 @@ async function probeRuntime(
       "migration-backed NodeInfo did not return database-backed counters",
     );
   }
-  return {
+  return sanitizeRuntimeProbeEvidence({
     healthz: { status: health.status, missingBindings: health.missingBindings },
     readyz: { status: ready.status, missingBindings: ready.missingBindings },
     socialServer: { product: social.product },
@@ -2311,6 +2918,48 @@ async function probeRuntime(
       users: nodeinfo.usage.users.total,
       localPosts: nodeinfo.usage.localPosts,
     },
+  });
+}
+
+function sanitizeRuntimeProbeEvidence(value: unknown): RuntimeProbeEvidence {
+  if (
+    !isRecord(value) ||
+    !isRecord(value.healthz) ||
+    value.healthz.status !== "ok" ||
+    !Array.isArray(value.healthz.missingBindings) ||
+    value.healthz.missingBindings.some(
+      (binding: unknown) => typeof binding !== "string",
+    ) ||
+    !isRecord(value.readyz) ||
+    value.readyz.status !== "ok" ||
+    !Array.isArray(value.readyz.missingBindings) ||
+    value.readyz.missingBindings.some(
+      (binding: unknown) => typeof binding !== "string",
+    ) ||
+    !isRecord(value.socialServer) ||
+    value.socialServer.product !== "yurucommu" ||
+    !isRecord(value.nodeinfo) ||
+    value.nodeinfo.software !== "yurucommu" ||
+    !Number.isSafeInteger(value.nodeinfo.users) ||
+    !Number.isSafeInteger(value.nodeinfo.localPosts)
+  ) {
+    throw new Error("post-release runtime readback evidence was invalid");
+  }
+  return {
+    healthz: {
+      status: "ok",
+      missingBindings: [...value.healthz.missingBindings],
+    },
+    readyz: {
+      status: "ok",
+      missingBindings: [...value.readyz.missingBindings],
+    },
+    socialServer: { product: "yurucommu" },
+    nodeinfo: {
+      software: "yurucommu",
+      users: value.nodeinfo.users,
+      localPosts: value.nodeinfo.localPosts,
+    },
   };
 }
 
@@ -2318,12 +2967,14 @@ async function runtimeJson(
   base: URL,
   pathname: string,
   label: string,
+  signal?: AbortSignal,
 ): Promise<unknown> {
+  const timeoutSignal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
   const response = await fetch(new URL(pathname, base), {
     method: "GET",
     headers: { accept: "application/json", "cache-control": "no-store" },
     redirect: "error",
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    signal: signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal,
   });
   return responseJson(response, label, 200);
 }

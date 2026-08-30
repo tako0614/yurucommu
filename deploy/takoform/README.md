@@ -200,24 +200,44 @@ outside every Git worktree (including this repository). The path may be a mode
 `takoform-v1-e2e-release`) or a mode `0600` file (the runner writes that file
 and waits for its sibling `.release`). Set the bounded
 `TAKOFORM_E2E_CHECKPOINT_WAIT_SECONDS` (0--900; the default is 300), inspect
-the checkpoint's `launchUrl` in a browser, then create the owner-only release
-file containing the same `runId` and fresh `nonce` from the checkpoint, for
-example (replace the placeholders with those values):
+the checkpoint's `runtime.launchUrl` in a browser, then create the owner-only
+release file. The release copies the `runId`, fresh `nonce`, and canonical
+`evidenceSha256` from the checkpoint and adds the SHA-256 of the exact
+checkpoint file bytes:
 
 ```bash
+checkpoint_json=/absolute/owner-dir/takoform-v1-e2e-checkpoint.json
+release_json=/absolute/owner-dir/takoform-v1-e2e-release
 signal_tmp=/absolute/owner-dir/.takoform-v1-e2e-release.$$
-(umask 077; printf '%s\n' '{"kind":"yurucommu.takoform-v1-e2e-live-release@v1","runId":"<runId>","nonce":"<nonce>"}' > "$signal_tmp"; chmod 600 "$signal_tmp"; mv "$signal_tmp" /absolute/owner-dir/takoform-v1-e2e-release)
+checkpoint_sha="sha256:$(sha256sum "$checkpoint_json" | awk '{print $1}')"
+(umask 077; jq -cn --arg runId "$(jq -r .runId "$checkpoint_json")" --arg nonce "$(jq -r .nonce "$checkpoint_json")" --arg evidenceSha256 "$(jq -r .evidenceSha256 "$checkpoint_json")" --arg checkpointSha256 "$checkpoint_sha" '{kind:"yurucommu.takoform-v1-e2e-live-release@v2",runId:$runId,nonce:$nonce,evidenceSha256:$evidenceSha256,checkpointSha256:$checkpointSha256}' > "$signal_tmp"; chmod 600 "$signal_tmp"; mv "$signal_tmp" "$release_json")
 ```
 
-The checkpoint is atomically written with mode `0600` and contains only the
-run identity, fresh release binding, nonsecret launch URL, and timestamp. The
-release signal must be the exact small JSON object for that checkpoint; stale
-or malformed content is rejected without being consumed. It is validated
-without following symbolic or hard links and is consumed once.
+The checkpoint is canonical JSON, atomically written with mode `0600`, and
+contains only the run identity/state, fresh release binding, nonsecret runtime
+URLs, and source/Provider provenance. Immediately before consuming the signal,
+the runner re-reads the exact checkpoint bytes and verifies both hashes; a URL
+or provenance rewrite with the same run ID and nonce fails. A stale or
+malformed signal is rejected without being consumed. Symbolic and hard links
+are never followed.
+
+To require an externally captured browser PNG, also set
+`TAKOFORM_E2E_SCREENSHOT_PATH` to an absolute path outside every Git worktree
+under an existing mode `0700` owner directory. The file must not exist before
+the run. After the checkpoint appears, capture the real browser screenshot to
+a mode `0600` regular PNG at that path before creating the release signal. The
+runner verifies that the fresh file is not a link, checks its PNG framing, and
+records only its byte count, dimensions, timestamp, and SHA-256—not its local
+path. It does not capture or fabricate a screenshot.
+
+After a valid release, the runner repeats the runtime readback before destroy.
+The final successful E2E report includes the sanitized checkpoint/release,
+optional screenshot, and post-release readback attestation.
 Absent checkpoint configuration leaves the normal no-wait flow unchanged. A
 timeout, unsafe signal, or SIGINT/SIGTERM still enters the existing destroy and
 absence-readback cleanup; no token, environment, state, or credential is
-written to the checkpoint.
+written to the checkpoint (the literal lifecycle `state` field is not OpenTofu
+state).
 
 The full runner is deliberately not executed by repository checks: it mutates
 the caller's Host and requires operator credentials. Run it only with a
