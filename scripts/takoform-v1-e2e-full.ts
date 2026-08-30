@@ -41,9 +41,16 @@ const SOURCE_MODULE_FILES = [
 ] as const;
 const SOURCE_COPIED_MODULE_FILES = ["main.tf", "outputs.tf"] as const;
 const SOURCE_OPTIONAL_MODULE_FILES = [".terraform.lock.hcl"] as const;
-const SOURCE_EXPECTED_UNUSED_ENTRIES = ["migrations", "e2e"] as const;
+const SOURCE_EXPECTED_UNUSED_ENTRIES = ["e2e"] as const;
+const SOURCE_MIGRATIONS_DIR = "migrations";
+const SOURCE_MIGRATIONS_SQL_DIR = "sql";
+const SOURCE_MIGRATION_ROOT_ENTRIES = [
+  "schema-bundle.json",
+  SOURCE_MIGRATIONS_SQL_DIR,
+  "takoform-overrides",
+] as const;
 const GENERATED_WORKER_FILE = "yurucommu-worker.js";
-const GENERATED_MIGRATIONS_DIR = "migrations";
+const MIGRATION_FILE_RE = /^\d{4}_[A-Za-z0-9_-]+\.sql$/u;
 
 /** The current Yurucommu Capsule graph. Keep this in lockstep with main.tf. */
 export const CURRENT_RESOURCE_TYPES = [
@@ -784,8 +791,8 @@ export async function collectSourceProvenance(
   const workerBytes = await readFile(workerPath);
   const migrationRoot = join(
     sourceRoot,
-    ".generated",
-    GENERATED_MIGRATIONS_DIR,
+    SOURCE_MIGRATIONS_DIR,
+    SOURCE_MIGRATIONS_SQL_DIR,
   );
   const migrationEntries = (
     await readdir(migrationRoot, { withFileTypes: true })
@@ -794,14 +801,14 @@ export async function collectSourceProvenance(
     .sort();
   const migrations = [];
   for (const name of migrationEntries) {
-    if (!/^\d{4}_[a-z0-9_]+\.sql$/u.test(name)) {
-      throw new Error(`unexpected generated migration entry: ${name}`);
+    if (!MIGRATION_FILE_RE.test(name)) {
+      throw new Error(`unexpected tracked migration entry: ${name}`);
     }
     const migrationPath = join(migrationRoot, name);
-    await assertRegularFile(migrationPath, `generated migration ${name}`);
+    await assertRegularFile(migrationPath, `tracked migration ${name}`);
     const bytes = await readFile(migrationPath);
     migrations.push({
-      path: `${GENERATED_MIGRATIONS_DIR}/${name}`,
+      path: `${SOURCE_MIGRATIONS_DIR}/${SOURCE_MIGRATIONS_SQL_DIR}/${name}`,
       bytes: bytes.byteLength,
       sha256: digestBytes(bytes),
     });
@@ -1074,6 +1081,7 @@ export async function copyCapsuleToWorkdir(
   const allowedRootEntries = new Set([
     ...SOURCE_MODULE_FILES,
     ...SOURCE_EXPECTED_UNUSED_ENTRIES,
+    SOURCE_MIGRATIONS_DIR,
     ".generated",
   ]);
   for (const entry of entries) {
@@ -1083,6 +1091,7 @@ export async function copyCapsuleToWorkdir(
     if (entry.name === ".generated") continue;
     const entryPath = join(sourceRoot, entry.name);
     if (
+      entry.name === SOURCE_MIGRATIONS_DIR ||
       (SOURCE_EXPECTED_UNUSED_ENTRIES as readonly string[]).includes(entry.name)
     ) {
       await assertRegularDirectory(entryPath, `Takoform source ${entry.name}`);
@@ -1129,10 +1138,7 @@ export async function copyCapsuleToWorkdir(
   const generatedEntries = await readdir(generatedRoot, {
     withFileTypes: true,
   });
-  const allowedGeneratedEntries = new Set([
-    GENERATED_WORKER_FILE,
-    GENERATED_MIGRATIONS_DIR,
-  ]);
+  const allowedGeneratedEntries = new Set([GENERATED_WORKER_FILE]);
   for (const entry of generatedEntries) {
     if (!allowedGeneratedEntries.has(entry.name)) {
       throw new Error(
@@ -1142,37 +1148,80 @@ export async function copyCapsuleToWorkdir(
   }
   const generatedWorker = join(generatedRoot, GENERATED_WORKER_FILE);
   await assertRegularFile(generatedWorker, "generated Yurucommu Worker");
-  await mkdir(join(workdir, ".generated", GENERATED_MIGRATIONS_DIR), {
-    recursive: true,
-  });
+  await mkdir(join(workdir, ".generated"), { recursive: true });
   await copyFile(
     generatedWorker,
     join(workdir, ".generated", GENERATED_WORKER_FILE),
   );
 
-  const migrationsRoot = join(generatedRoot, GENERATED_MIGRATIONS_DIR);
+  const migrationsContainer = join(sourceRoot, SOURCE_MIGRATIONS_DIR);
+  const migrationContainerEntries = await readdir(migrationsContainer, {
+    withFileTypes: true,
+  });
+  const allowedMigrationRootEntries = new Set<string>(
+    SOURCE_MIGRATION_ROOT_ENTRIES,
+  );
+  for (const entry of migrationContainerEntries) {
+    if (!allowedMigrationRootEntries.has(entry.name)) {
+      throw new Error(
+        `unexpected Takoform migration source entry: ${entry.name}`,
+      );
+    }
+  }
+  await assertRegularFile(
+    join(migrationsContainer, "schema-bundle.json"),
+    "Takoform migration schema bundle",
+  );
+  await assertRegularDirectory(
+    join(migrationsContainer, "takoform-overrides"),
+    "Takoform migration overrides",
+  );
+
+  const migrationsRoot = join(migrationsContainer, SOURCE_MIGRATIONS_SQL_DIR);
   const migrationsMetadata = await lstat(migrationsRoot);
   if (
     migrationsMetadata.isSymbolicLink() ||
     !migrationsMetadata.isDirectory()
   ) {
-    throw new Error("generated migration source must be a regular directory");
+    throw new Error("tracked migration source must be a regular directory");
   }
   const migrationEntries = await readdir(migrationsRoot, {
     withFileTypes: true,
   });
   if (migrationEntries.length === 0) {
-    throw new Error("generated migration source is empty");
+    throw new Error("tracked migration source is empty");
   }
+  await mkdir(join(workdir, SOURCE_MIGRATIONS_DIR, SOURCE_MIGRATIONS_SQL_DIR), {
+    recursive: true,
+  });
   for (const entry of migrationEntries) {
-    if (!/^\d{4}_[a-z0-9_]+\.sql$/u.test(entry.name)) {
-      throw new Error(`unexpected generated migration entry: ${entry.name}`);
+    if (!MIGRATION_FILE_RE.test(entry.name)) {
+      throw new Error(`unexpected tracked migration entry: ${entry.name}`);
     }
     const sourcePath = join(migrationsRoot, entry.name);
-    await assertRegularFile(sourcePath, `generated migration ${entry.name}`);
+    await assertRegularFile(sourcePath, `tracked migration ${entry.name}`);
+    if (options.repositoryRoot) {
+      await assertTrackedSourcePath(
+        options.repositoryRoot,
+        join(
+          "deploy",
+          "takoform",
+          SOURCE_MIGRATIONS_DIR,
+          SOURCE_MIGRATIONS_SQL_DIR,
+          entry.name,
+        ),
+        options.environment ?? buildSafeChildEnvironment(process.env),
+        options.timeoutMs ?? DEFAULT_COMMAND_TIMEOUT_MS,
+      );
+    }
     await copyFile(
       sourcePath,
-      join(workdir, ".generated", GENERATED_MIGRATIONS_DIR, entry.name),
+      join(
+        workdir,
+        SOURCE_MIGRATIONS_DIR,
+        SOURCE_MIGRATIONS_SQL_DIR,
+        entry.name,
+      ),
     );
   }
 }

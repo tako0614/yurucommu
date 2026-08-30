@@ -647,20 +647,23 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
     const sourceRoot = await mkdtemp(join(tmpdir(), "takoform-source-test-"));
     const destination = await mkdtemp(join(tmpdir(), "takoform-copy-test-"));
     try {
-      await mkdir(join(sourceRoot, ".generated", "migrations"), {
-        recursive: true,
-      });
-      await mkdir(join(sourceRoot, "migrations"));
+      await mkdir(join(sourceRoot, ".generated"), { recursive: true });
+      await mkdir(join(sourceRoot, "migrations", "sql"), { recursive: true });
+      await mkdir(join(sourceRoot, "migrations", "takoform-overrides"));
       await mkdir(join(sourceRoot, "e2e"));
       await writeFile(join(sourceRoot, "main.tf"), "terraform {}\n");
       await writeFile(join(sourceRoot, "outputs.tf"), 'output "x" {}\n');
       await writeFile(join(sourceRoot, "README.md"), "docs\n");
       await writeFile(
+        join(sourceRoot, "migrations", "schema-bundle.json"),
+        '{"entries":[]}\n',
+      );
+      await writeFile(
         join(sourceRoot, ".generated", "yurucommu-worker.js"),
         "export default {}\n",
       );
       await writeFile(
-        join(sourceRoot, ".generated", "migrations", "0001_init.sql"),
+        join(sourceRoot, "migrations", "sql", "0001_init.sql"),
         "create table test (id integer);\n",
       );
       await writeFile(join(sourceRoot, "unexpected-secret.txt"), "canary\n");
@@ -674,11 +677,51 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
       );
       expect(
         await readFile(
-          join(destination, ".generated", "migrations", "0001_init.sql"),
+          join(destination, "migrations", "sql", "0001_init.sql"),
           "utf8",
         ),
       ).toContain("create table");
       expect(await readdir(destination)).not.toContain("README.md");
+
+      await writeFile(
+        join(sourceRoot, "migrations", "unexpected-entry.txt"),
+        "canary\n",
+      );
+      await expect(
+        copyCapsuleToWorkdir(sourceRoot, destination),
+      ).rejects.toThrow(
+        "unexpected Takoform migration source entry: unexpected-entry.txt",
+      );
+      await rm(join(sourceRoot, "migrations", "unexpected-entry.txt"));
+
+      const migrationPath = join(
+        sourceRoot,
+        "migrations",
+        "sql",
+        "0001_init.sql",
+      );
+      await rm(migrationPath);
+      await symlink(join(sourceRoot, "outputs.tf"), migrationPath);
+      await expect(
+        copyCapsuleToWorkdir(sourceRoot, destination),
+      ).rejects.toThrow(
+        "tracked migration 0001_init.sql must be a regular file",
+      );
+      await rm(migrationPath);
+      await writeFile(migrationPath, "create table test (id integer);\n");
+
+      const migrationsDirectory = join(sourceRoot, "migrations", "sql");
+      await rm(migrationsDirectory, { recursive: true, force: true });
+      await symlink(
+        join(sourceRoot, "migrations", "takoform-overrides"),
+        migrationsDirectory,
+      );
+      await expect(
+        copyCapsuleToWorkdir(sourceRoot, destination),
+      ).rejects.toThrow("tracked migration source must be a regular directory");
+      await rm(migrationsDirectory, { force: true });
+      await mkdir(migrationsDirectory);
+      await writeFile(migrationPath, "create table test (id integer);\n");
 
       await rm(join(sourceRoot, "main.tf"));
       await symlink(
@@ -688,6 +731,47 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
       await expect(
         copyCapsuleToWorkdir(sourceRoot, destination),
       ).rejects.toThrow("must be a regular file");
+    } finally {
+      await rm(sourceRoot, { recursive: true, force: true });
+      await rm(destination, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects an untracked migration SQL file when repositoryRoot is supplied", async () => {
+    const sourceRoot = await mkdtemp(join(tmpdir(), "takoform-source-test-"));
+    const destination = await mkdtemp(join(tmpdir(), "takoform-copy-test-"));
+    const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
+    const untrackedMigration = join(
+      sourceRoot,
+      "migrations",
+      "sql",
+      "9999_untracked.sql",
+    );
+    try {
+      await mkdir(join(sourceRoot, ".generated"), { recursive: true });
+      await mkdir(join(sourceRoot, "migrations", "sql"), {
+        recursive: true,
+      });
+      await mkdir(join(sourceRoot, "migrations", "takoform-overrides"));
+      await writeFile(join(sourceRoot, "main.tf"), "terraform {}\n");
+      await writeFile(join(sourceRoot, "outputs.tf"), 'output "x" {}\n');
+      await writeFile(
+        join(sourceRoot, "migrations", "schema-bundle.json"),
+        '{"entries":[]}\n',
+      );
+      await writeFile(
+        join(sourceRoot, ".generated", "yurucommu-worker.js"),
+        "export default {}\n",
+      );
+      await writeFile(untrackedMigration, "create table test (id integer);\n");
+
+      await expect(
+        copyCapsuleToWorkdir(sourceRoot, destination, {
+          repositoryRoot,
+          environment: buildSafeChildEnvironment({ PATH: process.env.PATH }),
+          timeoutMs: 5_000,
+        }),
+      ).rejects.toThrow("git ls-files failed with exit 1");
     } finally {
       await rm(sourceRoot, { recursive: true, force: true });
       await rm(destination, { recursive: true, force: true });
