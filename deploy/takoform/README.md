@@ -201,15 +201,19 @@ outside every Git worktree (including this repository). The path may be a mode
 and waits for its sibling `.release`). Set the bounded
 `TAKOFORM_E2E_CHECKPOINT_WAIT_SECONDS` (0--900; the default is 300), inspect
 the checkpoint's `launchUrl` in a browser, then create the owner-only release
-file, for example:
+file containing the same `runId` and fresh `nonce` from the checkpoint, for
+example (replace the placeholders with those values):
 
 ```bash
 install -m 600 /dev/null /absolute/owner-dir/takoform-v1-e2e-release
+printf '%s\n' '{"kind":"yurucommu.takoform-v1-e2e-live-release@v1","runId":"<runId>","nonce":"<nonce>"}' > /absolute/owner-dir/takoform-v1-e2e-release
 ```
 
 The checkpoint is atomically written with mode `0600` and contains only the
-run identity, nonsecret launch URL, and timestamp. The release signal is
-validated without following symbolic or hard links and is consumed once.
+run identity, fresh release binding, nonsecret launch URL, and timestamp. The
+release signal must be the exact small JSON object for that checkpoint; stale
+or malformed content is rejected without being consumed. It is validated
+without following symbolic or hard links and is consumed once.
 Absent checkpoint configuration leaves the normal no-wait flow unchanged. A
 timeout, unsafe signal, or SIGINT/SIGTERM still enters the existing destroy and
 absence-readback cleanup; no token, environment, state, or credential is

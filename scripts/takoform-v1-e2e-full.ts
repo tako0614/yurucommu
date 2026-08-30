@@ -50,6 +50,13 @@ const LIVE_RELEASE_SIGNAL_FILE_NAME = "takoform-v1-e2e-release";
 const LIVE_CHECKPOINT_ENV = "TAKOFORM_E2E_CHECKPOINT_PATH";
 const LIVE_CHECKPOINT_WAIT_ENV = "TAKOFORM_E2E_CHECKPOINT_WAIT_SECONDS";
 const LIVE_CHECKPOINT_POLL_INTERVAL_MS = 100;
+const LIVE_CHECKPOINT_KIND =
+  "yurucommu.takoform-v1-e2e-live-checkpoint@v1" as const;
+const LIVE_RELEASE_SIGNAL_KIND =
+  "yurucommu.takoform-v1-e2e-live-release@v1" as const;
+const LIVE_CHECKPOINT_NONCE_RE = /^[a-f0-9]{32}$/u;
+const MAX_CHECKPOINT_EVIDENCE_BYTES = 4 * 1024;
+const MAX_RELEASE_SIGNAL_BYTES = 512;
 const terminationListeners = new Set<(error: Error) => void>();
 /** Provider schema JSON is substantially larger than ordinary child output. */
 export const PROVIDER_SCHEMA_OUTPUT_MAX_BYTES = 4 * 1024 * 1024;
@@ -159,10 +166,18 @@ export interface LiveCheckpointTarget {
 }
 
 export interface LiveCheckpointEvidence {
-  readonly kind: "yurucommu.takoform-v1-e2e-live-checkpoint@v1";
+  readonly kind: typeof LIVE_CHECKPOINT_KIND;
   readonly runId: string;
+  /** Fresh per-checkpoint binding so a stale signal cannot release a new run. */
+  readonly nonce: string;
   readonly launchUrl: string;
   readonly createdAt: string;
+}
+
+export interface LiveCheckpointReleaseSignal {
+  readonly kind: typeof LIVE_RELEASE_SIGNAL_KIND;
+  readonly runId: string;
+  readonly nonce: string;
 }
 
 export interface LocalProviderAuthority {
@@ -512,9 +527,13 @@ export function buildLiveCheckpointEvidence(
   runId: string,
   launchUrl: string,
   createdAt = new Date().toISOString(),
+  nonce = crypto.randomUUID().replaceAll("-", ""),
 ): LiveCheckpointEvidence {
   if (!/^[a-z][a-z0-9-]{1,50}[a-z0-9]$/u.test(runId)) {
     throw new Error("live checkpoint runId is not a valid E2E identity");
+  }
+  if (!LIVE_CHECKPOINT_NONCE_RE.test(nonce)) {
+    throw new Error("live checkpoint nonce is not a valid E2E binding");
   }
   const parsedLaunchUrl = absoluteHttpUrl(
     launchUrl,
@@ -525,11 +544,26 @@ export function buildLiveCheckpointEvidence(
     throw new Error("live checkpoint createdAt must be an ISO timestamp");
   }
   return {
-    kind: "yurucommu.takoform-v1-e2e-live-checkpoint@v1",
+    kind: LIVE_CHECKPOINT_KIND,
     runId,
+    nonce,
     launchUrl: parsedLaunchUrl.toString(),
     createdAt,
   };
+}
+
+/** Build the exact owner release object for one fresh checkpoint binding. */
+export function buildLiveCheckpointReleaseSignal(
+  runId: string,
+  nonce: string,
+): LiveCheckpointReleaseSignal {
+  if (!/^[a-z][a-z0-9-]{1,50}[a-z0-9]$/u.test(runId)) {
+    throw new Error("live release runId is not a valid E2E identity");
+  }
+  if (!LIVE_CHECKPOINT_NONCE_RE.test(nonce)) {
+    throw new Error("live release nonce is not a valid E2E binding");
+  }
+  return { kind: LIVE_RELEASE_SIGNAL_KIND, runId, nonce };
 }
 
 /**
@@ -557,6 +591,7 @@ export async function writeLiveCheckpoint(
     evidence.runId,
     evidence.launchUrl,
     evidence.createdAt,
+    evidence.nonce,
   );
   const payload = `${JSON.stringify(sanitized)}\n`;
   const temporaryPath = join(
@@ -591,6 +626,9 @@ export async function waitForLiveCheckpointRelease(
   options: {
     readonly timeoutMs?: number;
     readonly pollIntervalMs?: number;
+    /** Optional caller assertion; the checkpoint remains the source of truth. */
+    readonly expectedRunId?: string;
+    readonly expectedNonce?: string;
   } = {},
 ): Promise<void> {
   const validated = await prepareLiveCheckpointTarget({
@@ -606,17 +644,37 @@ export async function waitForLiveCheckpointRelease(
   const timeoutMs = options.timeoutMs ?? validated.waitMs;
   const pollIntervalMs =
     options.pollIntervalMs ?? LIVE_CHECKPOINT_POLL_INTERVAL_MS;
-  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 0) {
-    throw new Error("live checkpoint timeout must be a non-negative integer");
+  if (
+    !Number.isSafeInteger(timeoutMs) ||
+    timeoutMs < 0 ||
+    timeoutMs > MAX_LIVE_CHECKPOINT_WAIT_SECONDS * 1_000
+  ) {
+    throw new Error(
+      `live checkpoint timeout must be between 0 and ${MAX_LIVE_CHECKPOINT_WAIT_SECONDS * 1_000}ms`,
+    );
   }
   if (!Number.isSafeInteger(pollIntervalMs) || pollIntervalMs < 1) {
     throw new Error("live checkpoint poll interval must be a positive integer");
+  }
+  const evidence = await readLiveCheckpointEvidence(validated.checkpointPath);
+  if (options.expectedRunId && options.expectedRunId !== evidence.runId) {
+    throw new Error("live E2E checkpoint run identity changed");
+  }
+  if (options.expectedNonce && options.expectedNonce !== evidence.nonce) {
+    throw new Error("live E2E checkpoint binding changed");
   }
 
   const startedAt = Date.now();
   while (true) {
     throwIfTerminationRequested();
-    if (await consumeReleaseSignal(validated.releasePath)) return;
+    if (
+      await consumeReleaseSignal(
+        validated.releasePath,
+        evidence.runId,
+        evidence.nonce,
+      )
+    )
+      return;
     const elapsedMs = Date.now() - startedAt;
     if (elapsedMs >= timeoutMs) {
       throw new Error(
@@ -624,6 +682,75 @@ export async function waitForLiveCheckpointRelease(
       );
     }
     await delayOrTermination(Math.min(pollIntervalMs, timeoutMs - elapsedMs));
+  }
+}
+
+/** Write one fresh checkpoint, then wait for its exact owner release. */
+export async function runLiveCheckpointGate(
+  target: LiveCheckpointTarget,
+  runId: string,
+  launchUrl: string,
+  options: {
+    readonly timeoutMs?: number;
+    readonly pollIntervalMs?: number;
+  } = {},
+): Promise<LiveCheckpointEvidence> {
+  const evidence = buildLiveCheckpointEvidence(runId, launchUrl);
+  await writeLiveCheckpoint(target, evidence);
+  await waitForLiveCheckpointRelease(target, {
+    ...options,
+    expectedRunId: evidence.runId,
+    expectedNonce: evidence.nonce,
+  });
+  return evidence;
+}
+
+async function readLiveCheckpointEvidence(
+  path: string,
+): Promise<LiveCheckpointEvidence> {
+  const raw = await readBoundedOwnerFile(
+    path,
+    "live checkpoint file",
+    MAX_CHECKPOINT_EVIDENCE_BYTES,
+  );
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error("live E2E checkpoint was not valid JSON");
+  }
+  if (!isRecord(parsed)) {
+    throw new Error("live E2E checkpoint was not a JSON object");
+  }
+  const keys = Object.keys(parsed).sort();
+  if (
+    keys.length !== 5 ||
+    keys[0] !== "createdAt" ||
+    keys[1] !== "kind" ||
+    keys[2] !== "launchUrl" ||
+    keys[3] !== "nonce" ||
+    keys[4] !== "runId"
+  ) {
+    throw new Error("live E2E checkpoint contained unsupported fields");
+  }
+  if (
+    parsed.kind !== LIVE_CHECKPOINT_KIND ||
+    typeof parsed.runId !== "string" ||
+    typeof parsed.nonce !== "string" ||
+    typeof parsed.launchUrl !== "string" ||
+    typeof parsed.createdAt !== "string"
+  ) {
+    throw new Error("live E2E checkpoint had an invalid shape");
+  }
+  try {
+    return buildLiveCheckpointEvidence(
+      parsed.runId,
+      parsed.launchUrl,
+      parsed.createdAt,
+      parsed.nonce,
+    );
+  } catch {
+    throw new Error("live E2E checkpoint had invalid evidence");
   }
 }
 
@@ -730,14 +857,14 @@ async function assertNoSymlinkInAncestors(
 
 function assertOwnerOnlyDirectory(metadata: Stats, label: string): void {
   assertOwner(metadata, label);
-  if ((metadata.mode & 0o777) !== 0o700) {
+  if ((metadata.mode & 0o7777) !== 0o700) {
     throw new Error(`${label} must be owner-only and writable (mode 0700)`);
   }
 }
 
 function assertOwnerOnlyFile(metadata: Stats, label: string): void {
   assertOwner(metadata, label);
-  if ((metadata.mode & 0o777) !== 0o600) {
+  if ((metadata.mode & 0o7777) !== 0o600) {
     throw new Error(`${label} must be owner-only (mode 0600)`);
   }
 }
@@ -795,52 +922,152 @@ function assertSafeReleaseSignalMetadata(metadata: Stats): void {
   }
 }
 
-async function consumeReleaseSignal(path: string): Promise<boolean> {
+async function readBoundedOwnerFile(
+  path: string,
+  label: string,
+  maxBytes: number,
+): Promise<string> {
   const noFollow = fsConstants.O_NOFOLLOW ?? 0;
   let handle: Awaited<ReturnType<typeof open>> | undefined;
   let openedMetadata: Stats | undefined;
   try {
     handle = await open(path, fsConstants.O_RDONLY | noFollow);
     openedMetadata = await handle.stat();
+    if (openedMetadata.isSymbolicLink() || !openedMetadata.isFile()) {
+      throw new Error(`${label} must be a regular file`);
+    }
+    assertOwnerOnlyFile(openedMetadata, label);
+    if (openedMetadata.nlink !== 1) {
+      throw new Error(`${label} must not be hard-linked`);
+    }
+    const buffer = Buffer.alloc(maxBytes + 1);
+    const { bytesRead } = await handle.read(buffer, 0, buffer.byteLength, 0);
+    if (bytesRead > maxBytes) {
+      throw new Error(`${label} is too large`);
+    }
+    const currentMetadata = await lstat(path);
+    if (
+      currentMetadata.dev !== openedMetadata.dev ||
+      currentMetadata.ino !== openedMetadata.ino
+    ) {
+      throw new Error(`${label} changed during validation`);
+    }
+    assertOwnerOnlyFile(currentMetadata, label);
+    if (currentMetadata.nlink !== 1) {
+      throw new Error(`${label} must not be hard-linked`);
+    }
+    try {
+      return new TextDecoder("utf-8", { fatal: true }).decode(
+        buffer.subarray(0, bytesRead),
+      );
+    } catch {
+      throw new Error(`${label} was not valid UTF-8`);
+    }
+  } catch (error) {
+    if (isRecord(error) && error.code === "ENOENT") {
+      throw new Error(`${label} is missing`);
+    }
+    if (isRecord(error) && error.code === "ELOOP") {
+      throw new Error(`${label} must not be a symbolic link`);
+    }
+    if (error instanceof Error) throw error;
+    throw new Error(`could not inspect the ${label}`, { cause: error });
+  } finally {
+    if (handle) await handle.close().catch(() => undefined);
+  }
+}
+
+function assertLiveCheckpointReleaseSignal(
+  raw: string,
+  expectedRunId: string,
+  expectedNonce: string,
+): void {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error("live release signal was malformed");
+  }
+  if (!isRecord(parsed)) {
+    throw new Error("live release signal was malformed");
+  }
+  const keys = Object.keys(parsed).sort();
+  if (
+    keys.length !== 3 ||
+    keys[0] !== "kind" ||
+    keys[1] !== "nonce" ||
+    keys[2] !== "runId" ||
+    parsed.kind !== LIVE_RELEASE_SIGNAL_KIND ||
+    typeof parsed.runId !== "string" ||
+    typeof parsed.nonce !== "string" ||
+    !LIVE_CHECKPOINT_NONCE_RE.test(parsed.nonce)
+  ) {
+    throw new Error("live release signal was malformed");
+  }
+  if (parsed.runId !== expectedRunId || parsed.nonce !== expectedNonce) {
+    throw new Error("live release signal was stale or for a different run");
+  }
+}
+
+async function consumeReleaseSignal(
+  path: string,
+  expectedRunId: string,
+  expectedNonce: string,
+): Promise<boolean> {
+  const noFollow = fsConstants.O_NOFOLLOW ?? 0;
+  let handle: Awaited<ReturnType<typeof open>> | undefined;
+  let openedMetadata: Stats | undefined;
+  try {
+    handle = await open(path, fsConstants.O_RDONLY | noFollow);
+    openedMetadata = await handle.stat();
+    assertSafeReleaseSignalMetadata(openedMetadata);
+    if (openedMetadata.size > MAX_RELEASE_SIGNAL_BYTES) {
+      throw new Error("live release signal was too large");
+    }
+    const buffer = Buffer.alloc(MAX_RELEASE_SIGNAL_BYTES + 1);
+    const { bytesRead } = await handle.read(buffer, 0, buffer.byteLength, 0);
+    if (bytesRead > MAX_RELEASE_SIGNAL_BYTES) {
+      throw new Error("live release signal was too large");
+    }
+    let raw: string;
+    try {
+      raw = new TextDecoder("utf-8", { fatal: true }).decode(
+        buffer.subarray(0, bytesRead),
+      );
+    } catch {
+      throw new Error("live release signal was malformed");
+    }
+    assertLiveCheckpointReleaseSignal(raw, expectedRunId, expectedNonce);
+
+    const currentMetadata = await lstat(path);
+    assertSafeReleaseSignalMetadata(currentMetadata);
+    if (
+      currentMetadata.dev !== openedMetadata.dev ||
+      currentMetadata.ino !== openedMetadata.ino
+    ) {
+      throw new Error("live release signal changed during validation");
+    }
+    try {
+      await unlink(path);
+    } catch (error) {
+      if (isRecord(error) && error.code === "ENOENT") return false;
+      throw new Error("could not consume the live release signal", {
+        cause: error,
+      });
+    }
+    return true;
   } catch (error) {
     if (isRecord(error) && error.code === "ENOENT") return false;
     if (isRecord(error) && error.code === "ELOOP") {
       throw new Error("live release signal must not be a symbolic link");
     }
+    if (error instanceof Error) throw error;
     throw new Error("could not inspect the live release signal", {
       cause: error,
     });
   } finally {
     if (handle) await handle.close().catch(() => undefined);
   }
-  if (!openedMetadata) return false;
-  assertSafeReleaseSignalMetadata(openedMetadata);
-
-  let currentMetadata;
-  try {
-    currentMetadata = await lstat(path);
-  } catch (error) {
-    if (isRecord(error) && error.code === "ENOENT") return false;
-    throw new Error("could not recheck the live release signal", {
-      cause: error,
-    });
-  }
-  assertSafeReleaseSignalMetadata(currentMetadata);
-  if (
-    currentMetadata.dev !== openedMetadata.dev ||
-    currentMetadata.ino !== openedMetadata.ino
-  ) {
-    throw new Error("live release signal changed during validation");
-  }
-  try {
-    await unlink(path);
-  } catch (error) {
-    if (isRecord(error) && error.code === "ENOENT") return false;
-    throw new Error("could not consume the live release signal", {
-      cause: error,
-    });
-  }
-  return true;
 }
 
 /**
@@ -1497,11 +1724,11 @@ export async function main(): Promise<void> {
         },
       };
       if (liveCheckpointTarget) {
-        await writeLiveCheckpoint(
+        await runLiveCheckpointGate(
           liveCheckpointTarget,
-          buildLiveCheckpointEvidence(projectName, launchUrl),
+          projectName,
+          launchUrl,
         );
-        await waitForLiveCheckpointRelease(liveCheckpointTarget);
       }
     } catch (error) {
       primaryError = error;

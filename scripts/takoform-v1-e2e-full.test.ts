@@ -27,6 +27,7 @@ import {
   buildResourceReadUrl,
   buildTofuCommand,
   buildLiveCheckpointEvidence,
+  buildLiveCheckpointReleaseSignal,
   cleanupTakoformV1E2E,
   copyCapsuleToWorkdir,
   CURRENT_RESOURCE_TYPES,
@@ -40,6 +41,7 @@ import {
   readLiveCheckpointConfig,
   readTakoformV1E2EConfig,
   responseJson,
+  runLiveCheckpointGate,
   runBoundedChild,
   installLifecycleSignalHandlers,
   waitForLiveCheckpointRelease,
@@ -988,10 +990,18 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
       expect(checkpoint).not.toHaveProperty("state");
       expect(checkpoint).not.toHaveProperty("credentials");
 
-      await writeFile(target.releasePath, "release\n", { mode: 0o600 });
+      await writeFile(
+        target.releasePath,
+        `${JSON.stringify(
+          buildLiveCheckpointReleaseSignal(evidence.runId, evidence.nonce),
+        )}\n`,
+        { mode: 0o600 },
+      );
       await waitForLiveCheckpointRelease(target, {
         timeoutMs: 250,
         pollIntervalMs: 5,
+        expectedRunId: evidence.runId,
+        expectedNonce: evidence.nonce,
       });
       await expect(access(target.releasePath)).rejects.toMatchObject({
         code: "ENOENT",
@@ -1000,8 +1010,56 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
         waitForLiveCheckpointRelease(target, {
           timeoutMs: 20,
           pollIntervalMs: 5,
+          expectedRunId: evidence.runId,
+          expectedNonce: evidence.nonce,
         }),
       ).rejects.toThrow("release signal was not received");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects stale or malformed release content without consuming it", async () => {
+    const root = await mkdtemp(join(tmpdir(), "takoform-live-checkpoint-"));
+    try {
+      await chmod(root, 0o700);
+      const target = await prepareLiveCheckpointTarget({
+        checkpointPath: root,
+        waitSeconds: 1,
+      });
+      const stale = buildLiveCheckpointReleaseSignal(
+        "yurucommu-e2e-stale1",
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      );
+      await writeFile(target.releasePath, `${JSON.stringify(stale)}\n`, {
+        mode: 0o600,
+      });
+      await expect(
+        runLiveCheckpointGate(
+          target,
+          "yurucommu-e2e-stale1",
+          "https://worker.example.test",
+          { timeoutMs: 100, pollIntervalMs: 5 },
+        ),
+      ).rejects.toThrow("stale or for a different run");
+      await expect(access(target.releasePath)).resolves.toBeNull();
+
+      await writeFile(target.releasePath, "release\n", { mode: 0o600 });
+      await expect(
+        waitForLiveCheckpointRelease(target, {
+          timeoutMs: 100,
+          pollIntervalMs: 5,
+        }),
+      ).rejects.toThrow("malformed");
+      await expect(access(target.releasePath)).resolves.toBeNull();
+
+      await rm(target.checkpointPath, { force: true });
+      await expect(
+        waitForLiveCheckpointRelease(target, {
+          timeoutMs: 100,
+          pollIntervalMs: 5,
+        }),
+      ).rejects.toThrow("checkpoint file is missing");
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -1090,6 +1148,13 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
         checkpointPath: root,
         waitSeconds: 1,
       });
+      await writeLiveCheckpoint(
+        target,
+        buildLiveCheckpointEvidence(
+          "yurucommu-e2e-unsafe1",
+          "https://worker.example.test",
+        ),
+      );
       const outside = join(root, "outside-release");
       await writeFile(outside, "do-not-consume\n", { mode: 0o600 });
       await rm(target.releasePath, { force: true });
@@ -1129,6 +1194,107 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
     }
   });
 
+  test("caps the exported checkpoint wait helper at 900 seconds", async () => {
+    const root = await mkdtemp(join(tmpdir(), "takoform-live-checkpoint-"));
+    try {
+      await chmod(root, 0o700);
+      const target = await prepareLiveCheckpointTarget({
+        checkpointPath: root,
+        waitSeconds: 900,
+      });
+      await writeLiveCheckpoint(
+        target,
+        buildLiveCheckpointEvidence(
+          "yurucommu-e2e-cap900",
+          "https://worker.example.test",
+        ),
+      );
+      await expect(
+        waitForLiveCheckpointRelease(target, {
+          timeoutMs: 900_001,
+        }),
+      ).rejects.toThrow("between 0 and 900000ms");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("routes checkpoint timeout through the existing cleanup path", async () => {
+    const root = await mkdtemp(join(tmpdir(), "takoform-live-checkpoint-"));
+    try {
+      await chmod(root, 0o700);
+      const target = await prepareLiveCheckpointTarget({
+        checkpointPath: root,
+        waitSeconds: 1,
+      });
+      const calls: string[] = [];
+      await expect(
+        runLiveCheckpointGate(
+          target,
+          "yurucommu-e2e-timeout1",
+          "https://worker.example.test",
+          { timeoutMs: 20, pollIntervalMs: 5 },
+        ),
+      ).rejects.toThrow("release signal was not received");
+      const cleanup = await cleanupTakoformV1E2E({
+        mutationAttempted: true,
+        destroy: async () => {
+          calls.push("destroy");
+        },
+        verifyAbsence: async () => {
+          calls.push("absence");
+        },
+        removeWorkdir: async () => {
+          calls.push("remove");
+        },
+        workdir: "/tmp/live-checkpoint-timeout-recovery",
+      });
+      expect(cleanup.cleanupVerified).toBe(true);
+      expect(calls).toEqual(["destroy", "absence", "remove"]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("routes checkpoint SIGTERM through the existing cleanup path", async () => {
+    const root = await mkdtemp(join(tmpdir(), "takoform-live-checkpoint-"));
+    const removeSignalHandlers = installLifecycleSignalHandlers();
+    try {
+      await chmod(root, 0o700);
+      const target = await prepareLiveCheckpointTarget({
+        checkpointPath: root,
+        waitSeconds: 900,
+      });
+      const calls: string[] = [];
+      const waiting = runLiveCheckpointGate(
+        target,
+        "yurucommu-e2e-sigterm2",
+        "https://worker.example.test",
+        { timeoutMs: 900_000, pollIntervalMs: 10_000 },
+      );
+      setTimeout(() => process.emit("SIGTERM"), 5);
+      await expect(waiting).rejects.toThrow("received SIGTERM");
+      const cleanup = await cleanupTakoformV1E2E({
+        mutationAttempted: true,
+        destroy: async () => {
+          calls.push("destroy");
+        },
+        verifyAbsence: async () => {
+          calls.push("absence");
+        },
+        removeWorkdir: async () => {
+          calls.push("remove");
+        },
+        workdir: "/tmp/live-checkpoint-sigterm-recovery",
+      });
+      expect(cleanup.cleanupVerified).toBe(true);
+      expect(calls).toEqual(["destroy", "absence", "remove"]);
+    } finally {
+      removeSignalHandlers();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("interrupts the checkpoint wait immediately when SIGTERM requests cleanup", async () => {
     const root = await mkdtemp(join(tmpdir(), "takoform-live-checkpoint-"));
     const removeSignalHandlers = installLifecycleSignalHandlers();
@@ -1138,6 +1304,13 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
         checkpointPath: root,
         waitSeconds: 900,
       });
+      await writeLiveCheckpoint(
+        target,
+        buildLiveCheckpointEvidence(
+          "yurucommu-e2e-sigterm1",
+          "https://worker.example.test",
+        ),
+      );
       const startedAt = performance.now();
       const waiting = waitForLiveCheckpointRelease(target, {
         timeoutMs: 60_000,
