@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { readFile } from "node:fs/promises";
+import { build, stop } from "esbuild";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { createEntrySource } from "./build-yurucommu-worker.ts";
 
@@ -65,38 +68,43 @@ describe("generated worker entry", () => {
   });
 
   test("built Worker keeps namespace-compatible OIDC owner pin matching", async () => {
-    const buildWorker = (nodeEnv?: string) => {
-      const env = { ...process.env };
-      if (nodeEnv === undefined) delete env.NODE_ENV;
-      else env.NODE_ENV = nodeEnv;
-      const build = Bun.spawnSync([process.execPath, "run", "build:worker"], {
-        cwd: new URL("../", import.meta.url).pathname,
-        env,
-        stdout: "pipe",
-        stderr: "pipe",
-      });
-      if (build.exitCode !== 0) {
-        throw new Error(
-          `build:worker failed:\n${build.stderr.toString() || build.stdout.toString()}`,
-        );
-      }
-    };
+    const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
+    const distDirectory = join(repositoryRoot, "dist");
+    const entryPath = join(distDirectory, "worker-contract-entry.test.ts");
+    const outputPath = join(distDirectory, "worker-contract.test.js");
 
-    // One exact build is enough to prove this source survives bundling.
-    // Building twice made this test race its 20s deadline on shared CI runners;
-    // release-byte identity belongs to the separate release guard/smoke lane.
-    buildWorker("test");
-    const workerSource = await readFile(
-      new URL("../dist/yurucommu-worker.js", import.meta.url),
-      "utf8",
-    );
-    expect(workerSource).toContain(
-      "function configuredSubjectMatches(configuredSubject, providerUserId)",
-    );
-    expect(workerSource).toContain(
-      "configuredSubject === providerUserId.slice(namespaceSeparator + 1)",
-    );
-    expect(workerSource).not.toContain("providerUserId !== ownerSub");
+    // The product gate runs the full client-and-Worker build. This contract
+    // test only needs to prove the generated Worker entry survives bundling;
+    // rebuilding every Vite asset here made the 20s test budget race on slow
+    // filesystems and duplicated the portable-build gate.
+    await mkdir(distDirectory, { recursive: true });
+    await writeFile(entryPath, entrySource, "utf8");
+    try {
+      await build({
+        entryPoints: [entryPath],
+        outfile: outputPath,
+        bundle: true,
+        format: "esm",
+        platform: "browser",
+        target: "es2022",
+        conditions: ["workerd", "worker", "browser"],
+        external: ["cloudflare:*", "node:*"],
+      });
+      const workerSource = await readFile(outputPath, "utf8");
+      expect(workerSource).toContain(
+        "function configuredSubjectMatches(configuredSubject, providerUserId)",
+      );
+      expect(workerSource).toContain(
+        "configuredSubject === providerUserId.slice(namespaceSeparator + 1)",
+      );
+      expect(workerSource).not.toContain("providerUserId !== ownerSub");
+    } finally {
+      stop();
+      await Promise.all([
+        rm(entryPath, { force: true }),
+        rm(outputPath, { force: true }),
+      ]);
+    }
   }, 20_000);
 });
 
