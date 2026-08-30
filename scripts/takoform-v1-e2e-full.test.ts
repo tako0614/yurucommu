@@ -293,7 +293,22 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
     const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
     try {
       const archive = Bun.spawnSync({
-        cmd: ["git", "archive", "--format=tar", "HEAD"],
+        // Exercise the exact tracked inputs consumed by sourceBuild without
+        // paying to inflate unrelated product assets into this focused
+        // archive. A full repository archive can take tens of seconds on a
+        // cold checkout and made the portable gate depend on filesystem
+        // timing rather than on the Capsule contract under test.
+        cmd: [
+          "git",
+          "archive",
+          "--format=tar",
+          "HEAD",
+          "--",
+          ".well-known/takosumi.json",
+          "release.lock.json",
+          "scripts/prepare-takoform-v1-source.ts",
+          "deploy/takoform/migrations",
+        ],
         cwd: repositoryRoot,
         stdout: "pipe",
         stderr: "pipe",
