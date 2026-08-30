@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { constants as fsConstants, type Stats } from "node:fs";
 import {
   chmod,
   copyFile,
@@ -8,13 +9,23 @@ import {
   readFile,
   readlink,
   readdir,
+  open,
+  rename,
   rm,
   stat,
+  unlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+} from "node:path";
 
 const PROVIDER_SOURCE = "registry.terraform.io/tako0614/takoform";
 const STABLE_DISCOVERY_PATH = "/.well-known/takoform/v1";
@@ -31,6 +42,15 @@ const MAX_COMMAND_TIMEOUT_MS = 24 * 60 * 60 * 1_000;
 const CHILD_TERM_GRACE_MS = 5_000;
 const MAX_CHILD_OUTPUT_BYTES = 128 * 1024;
 const MAX_PROVENANCE_OUTPUT_BYTES = 64 * 1024 * 1024;
+const DEFAULT_LIVE_CHECKPOINT_WAIT_SECONDS = 300;
+/** Keep the optional pause below the 3600-second credential-pair lifetime. */
+export const MAX_LIVE_CHECKPOINT_WAIT_SECONDS = 900;
+const LIVE_CHECKPOINT_FILE_NAME = "takoform-v1-e2e-checkpoint.json";
+const LIVE_RELEASE_SIGNAL_FILE_NAME = "takoform-v1-e2e-release";
+const LIVE_CHECKPOINT_ENV = "TAKOFORM_E2E_CHECKPOINT_PATH";
+const LIVE_CHECKPOINT_WAIT_ENV = "TAKOFORM_E2E_CHECKPOINT_WAIT_SECONDS";
+const LIVE_CHECKPOINT_POLL_INTERVAL_MS = 100;
+const terminationListeners = new Set<(error: Error) => void>();
 /** Provider schema JSON is substantially larger than ordinary child output. */
 export const PROVIDER_SCHEMA_OUTPUT_MAX_BYTES = 4 * 1024 * 1024;
 const SOURCE_MODULE_FILES = [
@@ -112,6 +132,37 @@ export interface TakoformV1E2EConfig {
    * intentionally non-routable. It is diagnostic evidence, not endpoint proof.
    */
   readonly diagnosticRuntimeEndpoint?: string;
+  /** Optional owner-controlled pause used to inspect a live assigned Worker. */
+  readonly liveCheckpoint?: LiveCheckpointConfig;
+}
+
+/**
+ * Explicit opt-in configuration for the human/browser live checkpoint.
+ *
+ * `checkpointPath` must already exist and identify an owner-only regular file
+ * or directory outside every Git worktree. A directory target receives the fixed
+ * checkpoint and release filenames documented by the runner; a file target is
+ * written in place and uses a sibling `.release` signal.
+ */
+export interface LiveCheckpointConfig {
+  readonly checkpointPath: string;
+  readonly waitSeconds: number;
+}
+
+export interface LiveCheckpointTarget {
+  readonly configuredPath: string;
+  readonly targetKind: "directory" | "file";
+  readonly checkpointPath: string;
+  readonly releasePath: string;
+  readonly waitSeconds: number;
+  readonly waitMs: number;
+}
+
+export interface LiveCheckpointEvidence {
+  readonly kind: "yurucommu.takoform-v1-e2e-live-checkpoint@v1";
+  readonly runId: string;
+  readonly launchUrl: string;
+  readonly createdAt: string;
 }
 
 export interface LocalProviderAuthority {
@@ -209,6 +260,53 @@ export function readLocalProviderAuthority(
   return { providerBinary, providerSha256 };
 }
 
+/**
+ * Read the opt-in owner checkpoint contract without touching the filesystem.
+ *
+ * The path is intentionally a single explicit knob. Its existing type (a
+ * regular owner-only file or directory) determines where the sanitized
+ * checkpoint is written and where the one-shot release signal is watched.
+ */
+export function readLiveCheckpointConfig(
+  environment: Environment,
+): LiveCheckpointConfig | undefined {
+  const checkpointPath = environment[LIVE_CHECKPOINT_ENV]?.trim() ?? "";
+  const waitInput = environment[LIVE_CHECKPOINT_WAIT_ENV]?.trim() ?? "";
+  if (!checkpointPath) {
+    if (waitInput) {
+      throw new Error(
+        `${LIVE_CHECKPOINT_WAIT_ENV} requires ${LIVE_CHECKPOINT_ENV}`,
+      );
+    }
+    return undefined;
+  }
+  if (!isAbsolute(checkpointPath)) {
+    throw new Error(`${LIVE_CHECKPOINT_ENV} must be an absolute path`);
+  }
+  const waitSeconds = parseLiveCheckpointWait(waitInput);
+  return { checkpointPath, waitSeconds };
+}
+
+function parseLiveCheckpointWait(input: string): number {
+  if (!input) return DEFAULT_LIVE_CHECKPOINT_WAIT_SECONDS;
+  if (!/^\d+$/u.test(input)) {
+    throw new Error(
+      `${LIVE_CHECKPOINT_WAIT_ENV} must be an integer number of seconds`,
+    );
+  }
+  const seconds = Number(input);
+  if (
+    !Number.isSafeInteger(seconds) ||
+    seconds < 0 ||
+    seconds > MAX_LIVE_CHECKPOINT_WAIT_SECONDS
+  ) {
+    throw new Error(
+      `${LIVE_CHECKPOINT_WAIT_ENV} must be between 0 and ${MAX_LIVE_CHECKPOINT_WAIT_SECONDS} seconds`,
+    );
+  }
+  return seconds;
+}
+
 export function readTakoformV1E2EConfig(
   environment: Environment,
 ): TakoformV1E2EConfig {
@@ -232,6 +330,7 @@ export function readTakoformV1E2EConfig(
   const provider = readLocalProviderAuthority(environment);
 
   const commandTimeoutMs = parseCommandTimeout(timeoutInput);
+  const liveCheckpoint = readLiveCheckpointConfig(environment);
 
   const endpointUrl = absoluteHttpUrl(endpointInput, "TAKOFORM_ENDPOINT");
   if (endpointUrl.pathname !== "/") {
@@ -267,6 +366,7 @@ export function readTakoformV1E2EConfig(
     evidenceToken,
     ...provider,
     commandTimeoutMs,
+    ...(liveCheckpoint ? { liveCheckpoint } : {}),
     ...(diagnosticRuntimeEndpoint ? { diagnosticRuntimeEndpoint } : {}),
   };
 }
@@ -332,6 +432,415 @@ export function buildTofuCommand(
     "-no-color",
     `-var=project_name=${projectName}`,
   ];
+}
+
+/**
+ * Validate the explicit live-checkpoint target before any E2E mutation.
+ *
+ * The configured path itself must already exist as an owner-only regular file
+ * or directory. The directory form is useful for a disposable operator
+ * scratch area; the file form is useful when the caller wants an exact
+ * evidence pathname. No target or signal path is ever resolved through a
+ * symbolic link, and regular files must not have another hard link.
+ */
+export async function prepareLiveCheckpointTarget(
+  config: LiveCheckpointConfig,
+): Promise<LiveCheckpointTarget> {
+  assertLiveCheckpointConfig(config);
+  assertExternalCheckpointPath(config.checkpointPath);
+  await assertOutsideGitWorktree(config.checkpointPath);
+  await assertNoSymlinkInAncestors(config.checkpointPath, "checkpoint path");
+
+  let metadata;
+  try {
+    metadata = await lstat(config.checkpointPath);
+  } catch {
+    throw new Error(
+      "TAKOFORM_E2E_CHECKPOINT_PATH must point to an existing file or directory",
+    );
+  }
+  if (metadata.isSymbolicLink()) {
+    throw new Error("checkpoint path must not be a symbolic link");
+  }
+
+  let targetKind: LiveCheckpointTarget["targetKind"];
+  if (metadata.isDirectory()) {
+    assertOwnerOnlyDirectory(metadata, "checkpoint directory");
+    targetKind = "directory";
+  } else if (metadata.isFile()) {
+    assertOwnerOnlyFile(metadata, "checkpoint file");
+    if (metadata.nlink !== 1) {
+      throw new Error("checkpoint file must not be hard-linked");
+    }
+    targetKind = "file";
+  } else {
+    throw new Error("checkpoint path must be a regular file or directory");
+  }
+
+  const checkpointPath =
+    targetKind === "directory"
+      ? join(config.checkpointPath, LIVE_CHECKPOINT_FILE_NAME)
+      : config.checkpointPath;
+  const releasePath =
+    targetKind === "directory"
+      ? join(config.checkpointPath, LIVE_RELEASE_SIGNAL_FILE_NAME)
+      : `${config.checkpointPath}.release`;
+
+  await assertNoSymlinkInAncestors(
+    dirname(checkpointPath),
+    "checkpoint parent directory",
+  );
+  await assertNoSymlinkInAncestors(
+    dirname(releasePath),
+    "release signal parent directory",
+  );
+  await assertOptionalCheckpointFile(checkpointPath);
+  await assertOptionalReleaseSignal(releasePath);
+
+  return {
+    configuredPath: config.checkpointPath,
+    targetKind,
+    checkpointPath,
+    releasePath,
+    waitSeconds: config.waitSeconds,
+    waitMs: config.waitSeconds * 1_000,
+  };
+}
+
+/** Construct the only fields allowed in the on-disk live checkpoint. */
+export function buildLiveCheckpointEvidence(
+  runId: string,
+  launchUrl: string,
+  createdAt = new Date().toISOString(),
+): LiveCheckpointEvidence {
+  if (!/^[a-z][a-z0-9-]{1,50}[a-z0-9]$/u.test(runId)) {
+    throw new Error("live checkpoint runId is not a valid E2E identity");
+  }
+  const parsedLaunchUrl = absoluteHttpUrl(
+    launchUrl,
+    "live checkpoint launch URL",
+  );
+  assertWorkerEndpointUrl(parsedLaunchUrl.toString());
+  if (!Number.isFinite(Date.parse(createdAt))) {
+    throw new Error("live checkpoint createdAt must be an ISO timestamp");
+  }
+  return {
+    kind: "yurucommu.takoform-v1-e2e-live-checkpoint@v1",
+    runId,
+    launchUrl: parsedLaunchUrl.toString(),
+    createdAt,
+  };
+}
+
+/**
+ * Atomically write sanitized checkpoint evidence with mode 0600.
+ *
+ * The target is revalidated immediately before writing. A temp file is opened
+ * with O_EXCL/O_NOFOLLOW in the target's existing parent, then renamed over
+ * the checkpoint path; no caller-supplied object is serialized directly.
+ */
+export async function writeLiveCheckpoint(
+  target: LiveCheckpointTarget,
+  evidence: LiveCheckpointEvidence,
+): Promise<void> {
+  const validated = await prepareLiveCheckpointTarget({
+    checkpointPath: target.configuredPath,
+    waitSeconds: target.waitSeconds,
+  });
+  if (
+    validated.checkpointPath !== target.checkpointPath ||
+    validated.releasePath !== target.releasePath
+  ) {
+    throw new Error("live checkpoint target changed during validation");
+  }
+  const sanitized = buildLiveCheckpointEvidence(
+    evidence.runId,
+    evidence.launchUrl,
+    evidence.createdAt,
+  );
+  const payload = `${JSON.stringify(sanitized)}\n`;
+  const temporaryPath = join(
+    dirname(validated.checkpointPath),
+    `.${basename(validated.checkpointPath)}.${process.pid}.${crypto.randomUUID()}.tmp`,
+  );
+  const noFollow = fsConstants.O_NOFOLLOW ?? 0;
+  const flags =
+    fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | noFollow;
+  let handle: Awaited<ReturnType<typeof open>> | undefined;
+  try {
+    handle = await open(temporaryPath, flags, 0o600);
+    await handle.writeFile(payload, "utf8");
+    await handle.sync();
+    await handle.chmod(0o600);
+    await handle.close();
+    handle = undefined;
+    await rename(temporaryPath, validated.checkpointPath);
+  } catch (error) {
+    throw new Error("could not write the live E2E checkpoint", {
+      cause: error,
+    });
+  } finally {
+    if (handle) await handle.close().catch(() => undefined);
+    await unlink(temporaryPath).catch(() => undefined);
+  }
+}
+
+/** Wait for and consume one safe owner release signal. */
+export async function waitForLiveCheckpointRelease(
+  target: LiveCheckpointTarget,
+  options: {
+    readonly timeoutMs?: number;
+    readonly pollIntervalMs?: number;
+  } = {},
+): Promise<void> {
+  const validated = await prepareLiveCheckpointTarget({
+    checkpointPath: target.configuredPath,
+    waitSeconds: target.waitSeconds,
+  });
+  if (
+    validated.checkpointPath !== target.checkpointPath ||
+    validated.releasePath !== target.releasePath
+  ) {
+    throw new Error("live checkpoint target changed during validation");
+  }
+  const timeoutMs = options.timeoutMs ?? validated.waitMs;
+  const pollIntervalMs =
+    options.pollIntervalMs ?? LIVE_CHECKPOINT_POLL_INTERVAL_MS;
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 0) {
+    throw new Error("live checkpoint timeout must be a non-negative integer");
+  }
+  if (!Number.isSafeInteger(pollIntervalMs) || pollIntervalMs < 1) {
+    throw new Error("live checkpoint poll interval must be a positive integer");
+  }
+
+  const startedAt = Date.now();
+  while (true) {
+    throwIfTerminationRequested();
+    if (await consumeReleaseSignal(validated.releasePath)) return;
+    const elapsedMs = Date.now() - startedAt;
+    if (elapsedMs >= timeoutMs) {
+      throw new Error(
+        `live E2E checkpoint release signal was not received within ${timeoutMs}ms`,
+      );
+    }
+    await delayOrTermination(Math.min(pollIntervalMs, timeoutMs - elapsedMs));
+  }
+}
+
+function delayOrTermination(milliseconds: number): Promise<void> {
+  if (terminationRequest) return Promise.reject(terminationRequest);
+  return new Promise((resolveDelay, reject) => {
+    const timeout = setTimeout(() => {
+      terminationListeners.delete(onTermination);
+      resolveDelay();
+    }, milliseconds);
+    const onTermination = (error: Error): void => {
+      clearTimeout(timeout);
+      terminationListeners.delete(onTermination);
+      reject(error);
+    };
+    terminationListeners.add(onTermination);
+    if (terminationRequest) onTermination(terminationRequest);
+  });
+}
+
+function assertLiveCheckpointConfig(config: LiveCheckpointConfig): void {
+  if (!isAbsolute(config.checkpointPath)) {
+    throw new Error("TAKOFORM_E2E_CHECKPOINT_PATH must be an absolute path");
+  }
+  if (
+    !Number.isSafeInteger(config.waitSeconds) ||
+    config.waitSeconds < 0 ||
+    config.waitSeconds > MAX_LIVE_CHECKPOINT_WAIT_SECONDS
+  ) {
+    throw new Error(
+      `live checkpoint wait must be between 0 and ${MAX_LIVE_CHECKPOINT_WAIT_SECONDS} seconds`,
+    );
+  }
+}
+
+function assertExternalCheckpointPath(path: string): void {
+  const repositoryRoot = resolve(
+    fileURLToPath(new URL("../", import.meta.url)),
+  );
+  const relativePath = relative(repositoryRoot, resolve(path));
+  if (
+    relativePath === "" ||
+    (!relativePath.startsWith("..") && !isAbsolute(relativePath))
+  ) {
+    throw new Error(
+      "TAKOFORM_E2E_CHECKPOINT_PATH must point outside the Yurucommu repository",
+    );
+  }
+}
+
+async function assertOutsideGitWorktree(path: string): Promise<void> {
+  const resolvedPath = resolve(path);
+  if (basename(resolvedPath) === ".git") {
+    throw new Error(
+      "TAKOFORM_E2E_CHECKPOINT_PATH must point outside every Git worktree",
+    );
+  }
+  let current = resolvedPath;
+  try {
+    const metadata = await lstat(current);
+    if (metadata.isFile()) current = dirname(current);
+  } catch {
+    // The configured path itself is checked by prepareLiveCheckpointTarget;
+    // this helper only needs existing ancestors to identify Git markers.
+  }
+  while (true) {
+    const gitMarker = join(current, ".git");
+    try {
+      await lstat(gitMarker);
+      throw new Error(
+        "TAKOFORM_E2E_CHECKPOINT_PATH must point outside every Git worktree",
+      );
+    } catch (error) {
+      if (isRecord(error) && error.code === "ENOENT") {
+        // This ancestor is not a Git worktree root.
+      } else {
+        throw error;
+      }
+    }
+    if (current === dirname(current)) return;
+    current = dirname(current);
+  }
+}
+
+async function assertNoSymlinkInAncestors(
+  inputPath: string,
+  label: string,
+): Promise<void> {
+  let current = resolve(inputPath);
+  while (true) {
+    let metadata;
+    try {
+      metadata = await lstat(current);
+    } catch {
+      throw new Error(`${label} does not exist`);
+    }
+    if (metadata.isSymbolicLink()) {
+      throw new Error(`${label} contains a symbolic link`);
+    }
+    if (current === dirname(current)) return;
+    current = dirname(current);
+  }
+}
+
+function assertOwnerOnlyDirectory(metadata: Stats, label: string): void {
+  assertOwner(metadata, label);
+  if ((metadata.mode & 0o777) !== 0o700) {
+    throw new Error(`${label} must be owner-only and writable (mode 0700)`);
+  }
+}
+
+function assertOwnerOnlyFile(metadata: Stats, label: string): void {
+  assertOwner(metadata, label);
+  if ((metadata.mode & 0o777) !== 0o600) {
+    throw new Error(`${label} must be owner-only (mode 0600)`);
+  }
+}
+
+function assertOwner(metadata: Stats, label: string): void {
+  const uid =
+    typeof process.getuid === "function" ? process.getuid() : undefined;
+  if (uid !== undefined && metadata.uid !== uid) {
+    throw new Error(`${label} must be owned by the current user`);
+  }
+}
+
+async function assertOptionalCheckpointFile(path: string): Promise<void> {
+  let metadata;
+  try {
+    metadata = await lstat(path);
+  } catch (error) {
+    if (isRecord(error) && error.code === "ENOENT") return;
+    throw new Error("could not inspect the live checkpoint file", {
+      cause: error,
+    });
+  }
+  if (metadata.isSymbolicLink() || !metadata.isFile()) {
+    throw new Error("live checkpoint file must be a regular file");
+  }
+  assertOwnerOnlyFile(metadata, "live checkpoint file");
+  if (metadata.nlink !== 1) {
+    throw new Error("live checkpoint file must not be hard-linked");
+  }
+}
+
+async function assertOptionalReleaseSignal(path: string): Promise<void> {
+  let metadata;
+  try {
+    metadata = await lstat(path);
+  } catch (error) {
+    if (isRecord(error) && error.code === "ENOENT") return;
+    throw new Error("could not inspect the live release signal", {
+      cause: error,
+    });
+  }
+  assertSafeReleaseSignalMetadata(metadata);
+}
+
+function assertSafeReleaseSignalMetadata(metadata: Stats): void {
+  if (metadata.isSymbolicLink()) {
+    throw new Error("live release signal must not be a symbolic link");
+  }
+  if (!metadata.isFile()) {
+    throw new Error("live release signal must be a regular file");
+  }
+  assertOwnerOnlyFile(metadata, "live release signal");
+  if (metadata.nlink !== 1) {
+    throw new Error("live release signal must not be hard-linked");
+  }
+}
+
+async function consumeReleaseSignal(path: string): Promise<boolean> {
+  const noFollow = fsConstants.O_NOFOLLOW ?? 0;
+  let handle: Awaited<ReturnType<typeof open>> | undefined;
+  let openedMetadata: Stats | undefined;
+  try {
+    handle = await open(path, fsConstants.O_RDONLY | noFollow);
+    openedMetadata = await handle.stat();
+  } catch (error) {
+    if (isRecord(error) && error.code === "ENOENT") return false;
+    if (isRecord(error) && error.code === "ELOOP") {
+      throw new Error("live release signal must not be a symbolic link");
+    }
+    throw new Error("could not inspect the live release signal", {
+      cause: error,
+    });
+  } finally {
+    if (handle) await handle.close().catch(() => undefined);
+  }
+  if (!openedMetadata) return false;
+  assertSafeReleaseSignalMetadata(openedMetadata);
+
+  let currentMetadata;
+  try {
+    currentMetadata = await lstat(path);
+  } catch (error) {
+    if (isRecord(error) && error.code === "ENOENT") return false;
+    throw new Error("could not recheck the live release signal", {
+      cause: error,
+    });
+  }
+  assertSafeReleaseSignalMetadata(currentMetadata);
+  if (
+    currentMetadata.dev !== openedMetadata.dev ||
+    currentMetadata.ino !== openedMetadata.ino
+  ) {
+    throw new Error("live release signal changed during validation");
+  }
+  try {
+    await unlink(path);
+  } catch (error) {
+    if (isRecord(error) && error.code === "ENOENT") return false;
+    throw new Error("could not consume the live release signal", {
+      cause: error,
+    });
+  }
+  return true;
 }
 
 /**
@@ -837,6 +1346,11 @@ function digestBytes(bytes: Uint8Array): string {
 
 export async function main(): Promise<void> {
   const config = readTakoformV1E2EConfig(process.env);
+  // Validate the opt-in pause target before creating a workdir or attempting
+  // any Provider mutation. The default path remains a no-op.
+  const liveCheckpointTarget = config.liveCheckpoint
+    ? await prepareLiveCheckpointTarget(config.liveCheckpoint)
+    : undefined;
   const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
   const sourceRoot = join(repositoryRoot, "deploy", "takoform");
   const workdir = await mkdtemp(join(tmpdir(), "yurucommu-takoform-v1-"));
@@ -982,6 +1496,13 @@ export async function main(): Promise<void> {
           invocationCounters: "not exposed by portable Host API v1",
         },
       };
+      if (liveCheckpointTarget) {
+        await writeLiveCheckpoint(
+          liveCheckpointTarget,
+          buildLiveCheckpointEvidence(projectName, launchUrl),
+        );
+        await waitForLiveCheckpointRelease(liveCheckpointTarget);
+      }
     } catch (error) {
       primaryError = error;
     }
@@ -1712,6 +2233,11 @@ export function installLifecycleSignalHandlers(): () => void {
   const requestTermination = (signal: string): void => {
     terminationRequest ??= new Error(`received ${signal}; cleanup requested`);
     if (activeChild) signalChildProcess(activeChild, "SIGTERM");
+    if (terminationRequest) {
+      for (const listener of [...terminationListeners]) {
+        listener(terminationRequest);
+      }
+    }
   };
   const onSigint = (): void => requestTermination("SIGINT");
   const onSigterm = (): void => requestTermination("SIGTERM");

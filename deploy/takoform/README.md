@@ -193,6 +193,28 @@ test-only loopback runtime target for a Host that intentionally returns a
 non-routable assigned URL. The report marks this as diagnostic evidence and it
 does not turn the assigned URL into a passing HTTP deployment proof.
 
+For an explicit human/browser inspection while the assigned Worker is live,
+set `TAKOFORM_E2E_CHECKPOINT_PATH` to an existing owner-only absolute path
+outside every Git worktree (including this repository). The path may be a mode
+`0700` directory (the runner creates `takoform-v1-e2e-checkpoint.json` and waits for
+`takoform-v1-e2e-release`) or a mode `0600` file (the runner writes that file
+and waits for its sibling `.release`). Set the bounded
+`TAKOFORM_E2E_CHECKPOINT_WAIT_SECONDS` (0--900; the default is 300), inspect
+the checkpoint's `launchUrl` in a browser, then create the owner-only release
+file, for example:
+
+```bash
+install -m 600 /dev/null /absolute/owner-dir/takoform-v1-e2e-release
+```
+
+The checkpoint is atomically written with mode `0600` and contains only the
+run identity, nonsecret launch URL, and timestamp. The release signal is
+validated without following symbolic or hard links and is consumed once.
+Absent checkpoint configuration leaves the normal no-wait flow unchanged. A
+timeout, unsafe signal, or SIGINT/SIGTERM still enters the existing destroy and
+absence-readback cleanup; no token, environment, state, or credential is
+written to the checkpoint.
+
 The full runner is deliberately not executed by repository checks: it mutates
 the caller's Host and requires operator credentials. Run it only with a
 disposable space and an explicit Provider binary/digest.
