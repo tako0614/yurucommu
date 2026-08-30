@@ -226,9 +226,11 @@ To require an externally captured browser PNG, also set
 under an existing mode `0700` owner directory. The file must not exist before
 the run. After the checkpoint appears, capture the real browser screenshot to
 a mode `0600` regular PNG at that path before creating the release signal. The
-runner verifies that the fresh file is not a link, checks its PNG framing, and
-records only its byte count, dimensions, timestamp, and SHA-256—not its local
-path. It does not capture or fabricate a screenshot.
+runner verifies that the fresh file is not a link, validates PNG chunk framing,
+ordering, IHDR fields, per-chunk CRCs, and IDAT/IEND completeness, and requires
+its capture timestamp to be no later than the release signal. It records only
+its byte count, dimensions, timestamp, and SHA-256—not its local path. It does
+not capture or fabricate a screenshot.
 
 After a valid release, the runner repeats the runtime readback before destroy.
 The final successful E2E report includes the sanitized checkpoint/release,

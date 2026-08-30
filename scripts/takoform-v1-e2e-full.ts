@@ -59,6 +59,18 @@ const LIVE_CHECKPOINT_NONCE_RE = /^[a-f0-9]{32}$/u;
 const MAX_CHECKPOINT_EVIDENCE_BYTES = 64 * 1024;
 const MAX_RELEASE_SIGNAL_BYTES = 512;
 const MAX_SCREENSHOT_BYTES = 50 * 1024 * 1024;
+const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+const PNG_CRC_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let index = 0; index < table.length; index += 1) {
+    let value = index;
+    for (let bit = 0; bit < 8; bit += 1) {
+      value = value & 1 ? (value >>> 1) ^ 0xedb88320 : value >>> 1;
+    }
+    table[index] = value >>> 0;
+  }
+  return table;
+})();
 const terminationListeners = new Set<(error: Error) => void>();
 /** Provider schema JSON is substantially larger than ordinary child output. */
 export const PROVIDER_SCHEMA_OUTPUT_MAX_BYTES = 4 * 1024 * 1024;
@@ -1091,7 +1103,11 @@ export async function runLiveCheckpointGate(
   throwIfTerminationRequested();
   const runtimeVerifiedAt = new Date().toISOString();
   const screenshot = target.screenshotPath
-    ? await verifyLiveScreenshot(target.screenshotPath, sanitized.createdAt)
+    ? await verifyLiveScreenshot(
+        target.screenshotPath,
+        sanitized.createdAt,
+        released.release.releasedAt,
+      )
     : undefined;
   throwIfTerminationRequested();
   return {
@@ -1534,6 +1550,7 @@ async function consumeReleaseSignal(
 async function verifyLiveScreenshot(
   path: string,
   notBefore: string,
+  notAfter: string,
 ): Promise<LiveScreenshotEvidence> {
   assertExternalOwnerPath(path, LIVE_SCREENSHOT_ENV);
   await assertOutsideGitWorktree(path, LIVE_SCREENSHOT_ENV);
@@ -1547,6 +1564,15 @@ async function verifyLiveScreenshot(
   }
   assertOwnerOnlyDirectory(parentMetadata, "live screenshot parent directory");
   const noFollow = fsConstants.O_NOFOLLOW ?? 0;
+  const notBeforeMs = Date.parse(notBefore);
+  const notAfterMs = Date.parse(notAfter);
+  if (
+    !Number.isFinite(notBeforeMs) ||
+    !Number.isFinite(notAfterMs) ||
+    notAfterMs < notBeforeMs
+  ) {
+    throw new Error("live screenshot timestamp bounds were invalid");
+  }
   let handle: Awaited<ReturnType<typeof open>> | undefined;
   try {
     handle = await open(path, fsConstants.O_RDONLY | noFollow);
@@ -1564,8 +1590,11 @@ async function verifyLiveScreenshot(
     ) {
       throw new Error("live screenshot PNG size was invalid");
     }
-    if (openedMetadata.mtimeMs < Date.parse(notBefore)) {
+    if (openedMetadata.mtimeMs < notBeforeMs) {
       throw new Error("live screenshot was not captured for this checkpoint");
+    }
+    if (openedMetadata.mtimeMs > notAfterMs) {
+      throw new Error("live screenshot was captured after release");
     }
     const bytes = await readBoundedFileHandle(handle, MAX_SCREENSHOT_BYTES);
     if (
@@ -1616,19 +1645,153 @@ async function verifyLiveScreenshot(
 }
 
 function assertPngEvidence(bytes: Buffer): void {
-  const signature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
-  const hasIhdr =
-    bytes.readUInt32BE(8) === 13 &&
-    bytes.subarray(12, 16).toString("ascii") === "IHDR" &&
-    bytes.readUInt32BE(16) > 0 &&
-    bytes.readUInt32BE(20) > 0;
-  const iend = bytes.subarray(-12);
-  const hasIend =
-    iend.readUInt32BE(0) === 0 &&
-    iend.subarray(4, 8).toString("ascii") === "IEND";
-  if (!bytes.subarray(0, 8).equals(signature) || !hasIhdr || !hasIend) {
+  const invalid = (): never => {
     throw new Error("live screenshot was not a complete PNG");
+  };
+  if (
+    bytes.byteLength < PNG_SIGNATURE.byteLength + 12 ||
+    !bytes.subarray(0, PNG_SIGNATURE.byteLength).equals(PNG_SIGNATURE)
+  ) {
+    invalid();
   }
+
+  let offset = PNG_SIGNATURE.byteLength;
+  let seenIhdr = false;
+  let seenPlte = false;
+  let seenIdat = false;
+  let idatClosed = false;
+  let seenIend = false;
+  let width = 0;
+  let height = 0;
+  let bitDepth = 0;
+  let colorType = 0;
+  let idatPayloadBytes = 0;
+
+  while (offset < bytes.byteLength) {
+    if (bytes.byteLength - offset < 12) invalid();
+    const length = bytes.readUInt32BE(offset);
+    const typeStart = offset + 4;
+    const dataStart = offset + 8;
+    const dataEnd = dataStart + length;
+    const chunkEnd = dataEnd + 4;
+    if (
+      !Number.isSafeInteger(dataEnd) ||
+      !Number.isSafeInteger(chunkEnd) ||
+      chunkEnd > bytes.byteLength
+    ) {
+      invalid();
+    }
+
+    const type = bytes.subarray(typeStart, dataStart).toString("ascii");
+    if (!/^[A-Za-z]{4}$/u.test(type)) invalid();
+    if (type.charCodeAt(2)! >= 97) invalid();
+    if (
+      type.charCodeAt(0)! <= 90 &&
+      !["IHDR", "PLTE", "IDAT", "IEND"].includes(type)
+    ) {
+      invalid();
+    }
+    if (pngCrc32(bytes, typeStart, dataEnd) !== bytes.readUInt32BE(dataEnd)) {
+      invalid();
+    }
+    if (!seenIhdr && type !== "IHDR") invalid();
+
+    if (type === "IHDR") {
+      if (seenIhdr || offset !== PNG_SIGNATURE.byteLength || length !== 13) {
+        invalid();
+      }
+      width = bytes.readUInt32BE(dataStart);
+      height = bytes.readUInt32BE(dataStart + 4);
+      bitDepth = bytes[dataStart + 8]!;
+      colorType = bytes[dataStart + 9]!;
+      const compressionMethod = bytes[dataStart + 10]!;
+      const filterMethod = bytes[dataStart + 11]!;
+      const interlaceMethod = bytes[dataStart + 12]!;
+      if (
+        width === 0 ||
+        height === 0 ||
+        width > 0x7fffffff ||
+        height > 0x7fffffff ||
+        !isLegalPngBitDepth(bitDepth, colorType) ||
+        compressionMethod !== 0 ||
+        filterMethod !== 0 ||
+        (interlaceMethod !== 0 && interlaceMethod !== 1)
+      ) {
+        invalid();
+      }
+      seenIhdr = true;
+    } else if (type === "PLTE") {
+      if (
+        seenPlte ||
+        seenIdat ||
+        colorType === 0 ||
+        colorType === 4 ||
+        length === 0 ||
+        length % 3 !== 0 ||
+        length > 768 ||
+        (colorType === 3 && length / 3 > 2 ** bitDepth)
+      ) {
+        invalid();
+      }
+      seenPlte = true;
+    } else if (type === "IDAT") {
+      if (idatClosed) invalid();
+      if (colorType === 3 && !seenPlte) invalid();
+      seenIdat = true;
+      idatPayloadBytes += length;
+    } else if (type === "IEND") {
+      if (
+        seenIend ||
+        !seenIdat ||
+        length !== 0 ||
+        chunkEnd !== bytes.byteLength
+      ) {
+        invalid();
+      }
+      seenIend = true;
+    }
+
+    if (seenIdat && type !== "IDAT" && type !== "IEND") {
+      idatClosed = true;
+    }
+    offset = chunkEnd;
+    if (seenIend) break;
+  }
+
+  if (
+    offset !== bytes.byteLength ||
+    !seenIhdr ||
+    !seenIdat ||
+    idatPayloadBytes === 0 ||
+    !seenIend ||
+    (colorType === 3 && !seenPlte)
+  ) {
+    invalid();
+  }
+}
+
+function isLegalPngBitDepth(bitDepth: number, colorType: number): boolean {
+  switch (colorType) {
+    case 0:
+      return [1, 2, 4, 8, 16].includes(bitDepth);
+    case 2:
+      return [8, 16].includes(bitDepth);
+    case 3:
+      return [1, 2, 4, 8].includes(bitDepth);
+    case 4:
+    case 6:
+      return [8, 16].includes(bitDepth);
+    default:
+      return false;
+  }
+}
+
+function pngCrc32(bytes: Buffer, start: number, end: number): number {
+  let crc = 0xffffffff;
+  for (let index = start; index < end; index += 1) {
+    crc = PNG_CRC_TABLE[(crc ^ bytes[index]!) & 0xff]! ^ (crc >>> 8);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
 }
 
 /**

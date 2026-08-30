@@ -54,6 +54,10 @@ const provider = {
   TAKOFORM_PROVIDER_SHA256:
     "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 };
+const knownValidPngFixture = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+  "base64",
+);
 
 const discoveryFeatures = {
   service_forms: true,
@@ -1073,7 +1077,7 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
     }
   });
 
-  test("returns a sanitized screenshot and post-release runtime attestation", async () => {
+  test("accepts a known-valid screenshot PNG and returns a sanitized attestation", async () => {
     const root = await mkdtemp(join(tmpdir(), "takoform-live-checkpoint-"));
     const screenshotPath = join(root, "owner-browser.png");
     try {
@@ -1095,10 +1099,7 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
         ...input,
         run: { ...input.run, screenshotExpected: true },
       });
-      const png = Buffer.from(
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
-        "base64",
-      );
+      const png = Buffer.from(knownValidPngFixture);
       await writeFile(screenshotPath, png, { mode: 0o600 });
       await chmod(screenshotPath, 0o600);
       const release = buildLiveCheckpointReleaseSignal(evidence);
@@ -1135,11 +1136,140 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
         },
         postReleaseRuntimeReadback: { evidence: runtimeReadback },
       });
+      expect(
+        Date.parse(attestation.screenshot!.capturedAt),
+      ).toBeLessThanOrEqual(Date.parse(attestation.release.releasedAt));
       expect(JSON.stringify(attestation)).not.toContain(screenshotPath);
       expect(JSON.stringify(attestation)).not.toContain("must-not-be-attested");
       await expect(access(target.releasePath)).rejects.toMatchObject({
         code: "ENOENT",
       });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects a framed PNG with zero CRCs and no IDAT payload", async () => {
+    const root = await mkdtemp(join(tmpdir(), "takoform-live-checkpoint-"));
+    const screenshotPath = join(root, "owner-browser.png");
+    try {
+      await chmod(root, 0o700);
+      const target = await prepareLiveCheckpointTarget({
+        checkpointPath: root,
+        waitSeconds: 1,
+        screenshotPath,
+      });
+      const fakePng = Buffer.alloc(45);
+      fakePng.set(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), 0);
+      fakePng.writeUInt32BE(13, 8);
+      fakePng.write("IHDR", 12, "ascii");
+      fakePng.writeUInt32BE(1, 16);
+      fakePng.writeUInt32BE(1, 20);
+      fakePng[24] = 8;
+      fakePng[25] = 6;
+      fakePng.writeUInt32BE(0, 29);
+      fakePng.writeUInt32BE(0, 33);
+      fakePng.write("IEND", 37, "ascii");
+      fakePng.writeUInt32BE(0, 41);
+      await writeFile(screenshotPath, fakePng, { mode: 0o600 });
+      const input = liveCheckpointEvidenceInput();
+      const evidence = buildLiveCheckpointEvidence({
+        ...input,
+        run: { ...input.run, screenshotExpected: true },
+      });
+      await writeFile(
+        target.releasePath,
+        `${JSON.stringify(buildLiveCheckpointReleaseSignal(evidence))}\n`,
+        { mode: 0o600 },
+      );
+      await expect(
+        runLiveCheckpointGate(target, evidence, {
+          timeoutMs: 100,
+          pollIntervalMs: 5,
+          postReleaseRuntimeReadback: async () => runtimeProbeEvidenceFixture(),
+        }),
+      ).rejects.toThrow("complete PNG");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects a known PNG when a chunk CRC is corrupted", async () => {
+    const root = await mkdtemp(join(tmpdir(), "takoform-live-checkpoint-"));
+    const screenshotPath = join(root, "owner-browser.png");
+    try {
+      await chmod(root, 0o700);
+      const target = await prepareLiveCheckpointTarget({
+        checkpointPath: root,
+        waitSeconds: 1,
+        screenshotPath,
+      });
+      const corruptedPng = Buffer.from(knownValidPngFixture);
+      corruptedPng[corruptedPng.length - 1] =
+        corruptedPng[corruptedPng.length - 1]! ^ 1;
+      await writeFile(screenshotPath, corruptedPng, { mode: 0o600 });
+      const input = liveCheckpointEvidenceInput();
+      const evidence = buildLiveCheckpointEvidence({
+        ...input,
+        run: { ...input.run, screenshotExpected: true },
+      });
+      await writeFile(
+        target.releasePath,
+        `${JSON.stringify(buildLiveCheckpointReleaseSignal(evidence))}\n`,
+        { mode: 0o600 },
+      );
+      await expect(
+        runLiveCheckpointGate(target, evidence, {
+          timeoutMs: 100,
+          pollIntervalMs: 5,
+          postReleaseRuntimeReadback: async () => runtimeProbeEvidenceFixture(),
+        }),
+      ).rejects.toThrow("complete PNG");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects a valid screenshot written after the release signal", async () => {
+    const root = await mkdtemp(join(tmpdir(), "takoform-live-checkpoint-"));
+    const screenshotPath = join(root, "owner-browser.png");
+    try {
+      await chmod(root, 0o700);
+      const target = await prepareLiveCheckpointTarget({
+        checkpointPath: root,
+        waitSeconds: 1,
+        screenshotPath,
+      });
+      const input = liveCheckpointEvidenceInput();
+      const evidence = buildLiveCheckpointEvidence({
+        ...input,
+        run: { ...input.run, screenshotExpected: true },
+      });
+      const waiting = runLiveCheckpointGate(target, evidence, {
+        timeoutMs: 1_000,
+        pollIntervalMs: 5,
+        postReleaseRuntimeReadback: async () => {
+          await new Promise((resolveDelay) => setTimeout(resolveDelay, 20));
+          await writeFile(screenshotPath, knownValidPngFixture, {
+            mode: 0o600,
+          });
+          return runtimeProbeEvidenceFixture();
+        },
+      });
+      for (let attempt = 0; attempt < 1_000; attempt += 1) {
+        try {
+          await access(target.checkpointPath);
+          break;
+        } catch {
+          await new Promise((resolveDelay) => setTimeout(resolveDelay, 1));
+        }
+      }
+      await writeFile(
+        target.releasePath,
+        `${JSON.stringify(buildLiveCheckpointReleaseSignal(evidence))}\n`,
+        { mode: 0o600 },
+      );
+      await expect(waiting).rejects.toThrow("captured after release");
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -1353,14 +1483,9 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
         screenshotPath,
       });
       const pngSource = join(root, "source.png");
-      await writeFile(
-        pngSource,
-        Buffer.from(
-          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
-          "base64",
-        ),
-        { mode: 0o600 },
-      );
+      await writeFile(pngSource, Buffer.from(knownValidPngFixture), {
+        mode: 0o600,
+      });
       await link(pngSource, screenshotPath);
       const input = liveCheckpointEvidenceInput();
       const evidence = buildLiveCheckpointEvidence({
