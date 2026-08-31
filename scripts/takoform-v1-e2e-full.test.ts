@@ -28,6 +28,7 @@ import {
   copyCapsuleToWorkdir,
   CURRENT_RESOURCE_TYPES,
   extractAppliedResourceIdentities,
+  extractRecoverableResourceIdentities,
   parseProviderSchemaProof,
   parseStableHostDiscovery,
   prepareProviderDevOverride,
@@ -36,6 +37,7 @@ import {
   readTakoformV1E2EConfig,
   responseJson,
   runBoundedChild,
+  formatTofuFailureDiagnostic,
   installLifecycleSignalHandlers,
 } from "./takoform-v1-e2e-full.ts";
 
@@ -54,6 +56,9 @@ const discoveryFeatures = {
   artifact_upload: true,
   support_profiles: true,
 };
+
+const sha256Fixture = (digit: string): `sha256:${string}` =>
+  `sha256:${digit.repeat(64)}`;
 
 describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
   test("requires a bare caller-supplied Host origin", () => {
@@ -208,6 +213,9 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
         },
       }),
     ).toThrow("same-origin");
+    expect(Object.isFrozen(result)).toBe(true);
+    expect(Object.isFrozen(result.apiVersions)).toBe(true);
+    expect(Object.isFrozen(result.features)).toBe(true);
   });
 
   test("uses every exact FormRef member for resource readback", () => {
@@ -282,6 +290,54 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
         values: { root_module: { resources: resources.slice(0, 12) } },
       }),
     ).toThrow("current 13-resource graph");
+  });
+
+  test("recovers exact identities from a safely partial tofu state", () => {
+    const state = {
+      values: {
+        root_module: {
+          resources: [
+            {
+              address: "takoform_module_worker.worker",
+              mode: "managed",
+              type: "takoform_module_worker",
+              values: {
+                name: "e2e-worker",
+                space: "e2e-space",
+                uid: "uid-worker",
+                generation: "1",
+                form_api_version: "edge.forms.takoform.com",
+                form_kind: "ModuleWorker",
+                form_definition_version: "0.1.0",
+                form_schema_digest: sha256Fixture("a"),
+              },
+            },
+          ],
+        },
+      },
+    };
+    expect(() => extractAppliedResourceIdentities(state)).toThrow(
+      "current 13-resource graph",
+    );
+    expect(extractRecoverableResourceIdentities(state, "e2e-space")).toEqual([
+      {
+        address: "takoform_module_worker.worker",
+        type: "takoform_module_worker",
+        name: "e2e-worker",
+        space: "e2e-space",
+        uid: "uid-worker",
+        generation: "1",
+        form: {
+          apiVersion: "edge.forms.takoform.com",
+          kind: "ModuleWorker",
+          definitionVersion: "0.1.0",
+          schemaDigest: sha256Fixture("a"),
+        },
+      },
+    ]);
+    expect(() =>
+      extractRecoverableResourceIdentities(state, "other-space"),
+    ).toThrow("space");
   });
 
   test("prepares migrations from a fresh source archive before tofu", async () => {
@@ -791,6 +847,36 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
       await rm(sourceRoot, { recursive: true, force: true });
       await rm(destination, { recursive: true, force: true });
     }
+  });
+
+  test("includes deterministic bounded and secret-safe diagnostics when tofu fails", async () => {
+    const result = {
+      exitCode: 1,
+      stdout: "provider plan started\\n",
+      stderr:
+        'provider rejected request: bearer bearer-secret token=writer-secret\\n{"jwk": {\\n  "kty": "EC",\\n  "d": "jwk-secret"\\n}, "client_secret": "client-secret"}\\nprivate_key: -----BEGIN PRIVATE KEY-----\\nprivate-secret\\n-----END PRIVATE KEY-----\\nconnect https://user:uri-secret@forms.example.test\\n',
+      timedOut: false,
+      outputTruncated: false,
+    } as const;
+    const environment = {
+      PATH: "/safe/bin",
+      TAKOFORM_TOKEN: "writer-secret",
+      TAKOFORM_EVIDENCE_TOKEN: "evidence-secret",
+    };
+    const first = formatTofuFailureDiagnostic(result, environment);
+    const second = formatTofuFailureDiagnostic(result, environment);
+    expect(first).toBe(second);
+    expect(first).toContain("provider rejected request");
+    expect(first).toContain("diagnostic");
+    expect(first).toContain("sha256:");
+    expect(first).not.toContain("bearer-secret");
+    expect(first).not.toContain("writer-secret");
+    expect(first).not.toContain("evidence-secret");
+    expect(first).not.toContain("jwk-secret");
+    expect(first).not.toContain("client-secret");
+    expect(first).not.toContain("private-secret");
+    expect(first).not.toContain("uri-secret");
+    expect(first.length).toBeLessThan(12_000);
   });
 
   test("terminates a child that ignores TERM within the hard timeout", async () => {

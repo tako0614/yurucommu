@@ -30,6 +30,8 @@ const MIN_COMMAND_TIMEOUT_MS = 100;
 const MAX_COMMAND_TIMEOUT_MS = 24 * 60 * 60 * 1_000;
 const CHILD_TERM_GRACE_MS = 5_000;
 const MAX_CHILD_OUTPUT_BYTES = 128 * 1024;
+/** Keep failure evidence useful while bounded and safe to print in CI logs. */
+export const MAX_TOFU_DIAGNOSTIC_EXCERPT_BYTES = 4 * 1024;
 const MAX_PROVENANCE_OUTPUT_BYTES = 64 * 1024 * 1024;
 /** Provider schema JSON is substantially larger than ordinary child output. */
 export const PROVIDER_SCHEMA_OUTPUT_MAX_BYTES = 4 * 1024 * 1024;
@@ -186,6 +188,22 @@ export interface BoundedChildResult {
   readonly stderr: string;
   readonly timedOut: boolean;
   readonly outputTruncated: boolean;
+  /** Optional per-stream flags for callers that preserve stream detail. */
+  readonly stdoutTruncated?: boolean;
+  readonly stderrTruncated?: boolean;
+}
+
+export interface TofuFailureDiagnosticStream {
+  readonly bytes: number;
+  readonly sha256: string;
+  readonly truncated: boolean;
+  readonly excerpt: string;
+}
+
+export interface TofuFailureDiagnostic {
+  readonly kind: "takoform.tofu-failure-diagnostic@v1";
+  readonly stdout: TofuFailureDiagnosticStream;
+  readonly stderr: TofuFailureDiagnosticStream;
 }
 
 export function readLocalProviderAuthority(
@@ -445,12 +463,12 @@ export function parseStableHostDiscovery(
       "Host discovery endpoints.api must not percent-encode its path",
     );
   }
-  return {
+  return Object.freeze({
     endpoint: configured.origin,
     apiBase: advertised.toString().replace(/\/$/u, ""),
-    apiVersions: [apiVersions[0]],
-    features: normalizedFeatures,
-  };
+    apiVersions: Object.freeze([apiVersions[0]]),
+    features: Object.freeze(normalizedFeatures),
+  });
 }
 
 /** Build the stable-v1 exact FormRef GET URL used for readback and absence. */
@@ -506,6 +524,31 @@ export function extractAppliedResourceIdentities(
   state: unknown,
   fallbackSpace?: string,
 ): readonly AppliedResourceIdentity[] {
+  return extractResourceIdentities(state, fallbackSpace, true);
+}
+
+/**
+ * Recover identities from a state written by a partially completed apply.
+ *
+ * A normal successful apply must contain the complete current graph and uses
+ * `extractAppliedResourceIdentities`. During failure recovery OpenTofu may have
+ * persisted only the resources created before the failing operation. This
+ * helper accepts a non-empty subset of the current graph, but still rejects
+ * unknown/duplicate resources and space mismatches so absence readback never
+ * guesses an identity.
+ */
+export function extractRecoverableResourceIdentities(
+  state: unknown,
+  fallbackSpace?: string,
+): readonly AppliedResourceIdentity[] {
+  return extractResourceIdentities(state, fallbackSpace, false);
+}
+
+function extractResourceIdentities(
+  state: unknown,
+  fallbackSpace: string | undefined,
+  requireComplete: boolean,
+): readonly AppliedResourceIdentity[] {
   const resources: Array<{
     readonly type: string;
     readonly address: string;
@@ -515,13 +558,30 @@ export function extractAppliedResourceIdentities(
     if (!isRecord(module)) return;
     if (Array.isArray(module.resources)) {
       for (const candidate of module.resources) {
-        if (!isRecord(candidate) || candidate.mode === "data") continue;
-        if (!isRecord(candidate.values)) continue;
+        if (!isRecord(candidate)) {
+          if (!requireComplete) {
+            throw new Error("tofu state contained a malformed resource entry");
+          }
+          continue;
+        }
+        if (candidate.mode === "data") continue;
+        if (!isRecord(candidate.values)) {
+          if (!requireComplete) {
+            throw new Error("tofu state contained a resource without values");
+          }
+          continue;
+        }
         if (
           typeof candidate.type !== "string" ||
           typeof candidate.address !== "string"
-        )
+        ) {
+          if (!requireComplete) {
+            throw new Error(
+              "tofu state contained a resource without type or address",
+            );
+          }
           continue;
+        }
         resources.push({
           type: candidate.type,
           address: candidate.address,
@@ -545,15 +605,53 @@ export function extractAppliedResourceIdentities(
 
   const expected = [...CURRENT_RESOURCE_TYPES].sort();
   const actual = resources.map((resource) => resource.type).sort();
-  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+  if (!requireComplete && resources.length === 0) {
+    throw new Error("tofu state did not contain any managed resources");
+  }
+  if (requireComplete && JSON.stringify(actual) !== JSON.stringify(expected)) {
     throw new Error(
       `tofu state did not contain the current 13-resource graph (got ${actual.join(",") || "none"})`,
     );
+  }
+  if (!requireComplete) {
+    const expectedCounts = new Map<string, number>();
+    for (const type of CURRENT_RESOURCE_TYPES) {
+      expectedCounts.set(type, (expectedCounts.get(type) ?? 0) + 1);
+    }
+    const actualCounts = new Map<string, number>();
+    for (const resource of resources) {
+      if (!expectedCounts.has(resource.type)) {
+        throw new Error(
+          `tofu state contained an unknown managed resource type: ${resource.type}`,
+        );
+      }
+      const count = (actualCounts.get(resource.type) ?? 0) + 1;
+      actualCounts.set(resource.type, count);
+      if (count > (expectedCounts.get(resource.type) ?? 0)) {
+        throw new Error(
+          `tofu state contained too many managed resources of type ${resource.type}`,
+        );
+      }
+    }
+  }
+  const addresses = new Set<string>();
+  for (const resource of resources) {
+    if (addresses.has(resource.address)) {
+      throw new Error(
+        `tofu state contained a duplicate managed resource address: ${resource.address}`,
+      );
+    }
+    addresses.add(resource.address);
   }
 
   return resources.map((resource) => {
     const value = resource.values;
     const space = stringValue(value.space) || fallbackSpace || "";
+    if (fallbackSpace && space !== fallbackSpace) {
+      throw new Error(
+        `${resource.address}.space did not match the expected E2E space`,
+      );
+    }
     return {
       address: resource.address,
       type: resource.type,
@@ -900,12 +998,29 @@ export async function main(): Promise<void> {
         providerVersion,
       );
 
+      // Freeze the stable Host contract before crossing the mutation boundary.
+      // If apply fails after creating any resources, cleanup can still use this
+      // exact API base for authoritative absence readback.
+      hostDiscovery = await discoverStableHost(config);
       mutationAttempted = true;
-      await runTofu(buildTofuCommand("apply", projectName), {
-        workdir,
-        environment: tofuEnvironment,
-        timeoutMs: config.commandTimeoutMs,
-      });
+      try {
+        await runTofu(buildTofuCommand("apply", projectName), {
+          workdir,
+          environment: tofuEnvironment,
+          timeoutMs: config.commandTimeoutMs,
+        });
+      } catch (error) {
+        // OpenTofu may persist a partial state even when apply exits non-zero.
+        // Recover only exact identities from that state; a missing or
+        // malformed state remains fail-closed and is preserved by cleanup.
+        identities = await recoverAppliedResourceIdentitiesAfterFailedApply(
+          workdir,
+          tofuEnvironment,
+          config.space,
+          config.commandTimeoutMs,
+        );
+        throw error;
+      }
 
       const outputs = parseTofuJson(
         await runTofu(["output", "-json"], {
@@ -936,7 +1051,6 @@ export async function main(): Promise<void> {
       );
       assertCurrentResourceOutputIds(outputResourceIds, identities);
 
-      hostDiscovery = await discoverStableHost(config);
       const hostResources = await readAppliedResources(
         hostDiscovery,
         config,
@@ -1003,9 +1117,9 @@ export async function main(): Promise<void> {
             "cannot verify authoritative absence without stable Host discovery",
           );
         }
-        if (identities.length !== CURRENT_RESOURCE_TYPES.length) {
+        if (identities.length === 0) {
           throw new Error(
-            "cannot verify authoritative absence without all 13 applied identities",
+            "cannot verify authoritative absence without recoverable applied identities",
           );
         }
         await verifyResourceAbsence(hostDiscovery, config, identities);
@@ -1328,6 +1442,30 @@ async function discoverStableHost(
   );
   const body = await responseJson(response, "stable Host discovery", 200);
   return parseStableHostDiscovery(config.endpoint, body);
+}
+
+async function recoverAppliedResourceIdentitiesAfterFailedApply(
+  workdir: string,
+  environment: Record<string, string | undefined>,
+  space: string,
+  timeoutMs: number,
+): Promise<readonly AppliedResourceIdentity[]> {
+  try {
+    const state = parseTofuJson(
+      await runTofu(["show", "-json"], {
+        workdir,
+        environment,
+        captureStdout: true,
+        timeoutMs,
+      }),
+      "tofu show after failed apply",
+    );
+    return extractRecoverableResourceIdentities(state, space);
+  } catch {
+    // This is recovery-only. The caller retains the original apply failure;
+    // cleanup will fail closed when no exact identities can be established.
+    return [];
+  }
 }
 
 async function readProviderSchemaProof(
@@ -1904,7 +2042,131 @@ async function assertTrackedSourcePath(
   }
 }
 
-async function runTofu(
+const DIAGNOSTIC_SENSITIVE_ENV_NAME_RE =
+  /(?:TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH(?:ORIZATION)?|PRIVATE[_-]?KEY|JWK|ENCRYPTION[_-]?KEY|API[_-]?KEY|ACCESS[_-]?KEY|SIGNING[_-]?KEY)/iu;
+const DIAGNOSTIC_SENSITIVE_KEY_RE =
+  "(?:access[_-]?key|access[_-]?token|api[_-]?key|auth(?:orization)?|client[_-]?secret|clientsecret|credential(?:s)?|encryption[_-]?key|encryptionkey|id[_-]?token|idtoken|jwk|password|passphrase|private[_-]?key|privatekey|refresh[_-]?token|refreshtoken|secret|signing[_-]?key|signingkey|token)";
+const DIAGNOSTIC_JWK_OBJECT_ASSIGN_RE = new RegExp(
+  `((?:["']?\\bjwk\\b["']?)\\s*(?:=|:|=>)\\s*)\\{[\\s\\S]{0,8192}?\\}`,
+  "giu",
+);
+const DIAGNOSTIC_SENSITIVE_ASSIGN_RE = new RegExp(
+  `((?:["']?\\b${DIAGNOSTIC_SENSITIVE_KEY_RE}\\b["']?)\\s*(?:=>|=|:)\\s*)(?:"(?:\\\\.|[^"\\\\])*"|'(?:\\\\.|[^'\\\\])*'|\\{[^\\r\\n]*\\}|\\[[^\\r\\n]*\\]|[^\\s,;\\]}]+)`,
+  "giu",
+);
+const DIAGNOSTIC_PEM_RE =
+  /-----BEGIN [^-]{0,80}?PRIVATE KEY-----[\s\S]*?-----END [^-]{0,80}?PRIVATE KEY-----/giu;
+const DIAGNOSTIC_AUTH_RE = /\b(?:Bearer|Basic)\s+[^\s"'`,;)}\]]+/giu;
+const DIAGNOSTIC_CREDENTIAL_URI_RE =
+  /\b([a-z][a-z0-9+.-]*:\/\/)[^\s\/:@]+:[^\s\/@]+@/giu;
+const DIAGNOSTIC_JWT_RE =
+  /\beyJ[a-z0-9_-]{5,}\.[a-z0-9_-]{5,}\.[a-z0-9_-]{5,}\b/giu;
+/** Redact unlabeled high-entropy values, while leaving ordinary IDs readable. */
+const DIAGNOSTIC_SECRET_SHAPED_RE =
+  /\b(?:[a-f0-9]{32,}|[a-z0-9+/_-]{40,}={0,2})\b/giu;
+const DIAGNOSTIC_ANSI_RE =
+  /\u001b(?:\[[0-?]*[ -/]*[@-~]|\][^\u0007]*(?:\u0007|\u001b\\))/gu;
+
+/**
+ * Build deterministic, bounded diagnostics from a failed child command.
+ *
+ * Hashes describe the exact bounded capture, while excerpts are sanitized
+ * before they are serialized into an error. Environment values whose names
+ * look credential-shaped are replaced first, then common bearer/JWK/secret
+ * forms are redacted from provider output. No environment map or argv is
+ * included in the returned object.
+ */
+export function buildTofuFailureDiagnostic(
+  result: Pick<BoundedChildResult, "stdout" | "stderr" | "outputTruncated"> &
+    Partial<Pick<BoundedChildResult, "stdoutTruncated" | "stderrTruncated">>,
+  environment: Environment = {},
+): TofuFailureDiagnostic {
+  return {
+    kind: "takoform.tofu-failure-diagnostic@v1",
+    stdout: buildTofuDiagnosticStream(
+      result.stdout,
+      result.stdoutTruncated ?? result.outputTruncated,
+      environment,
+    ),
+    stderr: buildTofuDiagnosticStream(
+      result.stderr,
+      result.stderrTruncated ?? result.outputTruncated,
+      environment,
+    ),
+  };
+}
+
+export function formatTofuFailureDiagnostic(
+  result: Pick<BoundedChildResult, "stdout" | "stderr" | "outputTruncated"> &
+    Partial<Pick<BoundedChildResult, "stdoutTruncated" | "stderrTruncated">>,
+  environment: Environment = {},
+): string {
+  return JSON.stringify(buildTofuFailureDiagnostic(result, environment));
+}
+
+function buildTofuDiagnosticStream(
+  text: string,
+  truncated: boolean,
+  environment: Environment,
+): TofuFailureDiagnosticStream {
+  return {
+    bytes: Buffer.byteLength(text, "utf8"),
+    sha256: digestBytes(Buffer.from(text, "utf8")),
+    truncated,
+    excerpt: truncateDiagnosticText(sanitizeDiagnosticText(text, environment)),
+  };
+}
+
+function sanitizeDiagnosticText(
+  text: string,
+  environment: Environment,
+): string {
+  let sanitized = text
+    .replace(DIAGNOSTIC_ANSI_RE, "")
+    .replace(/\r\n?/gu, "\n")
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/gu, "");
+
+  const secretValues = Object.entries(environment)
+    .filter(
+      ([name, value]) =>
+        DIAGNOSTIC_SENSITIVE_ENV_NAME_RE.test(name) &&
+        typeof value === "string" &&
+        value.length >= 3,
+    )
+    .map(([, value]) => value as string)
+    .sort(
+      (left, right) => right.length - left.length || left.localeCompare(right),
+    );
+  for (const secret of secretValues) {
+    sanitized = sanitized.split(secret).join("[REDACTED]");
+  }
+
+  return sanitized
+    .replace(DIAGNOSTIC_PEM_RE, "[REDACTED_PEM]")
+    .replace(DIAGNOSTIC_JWK_OBJECT_ASSIGN_RE, "$1[REDACTED_JWK]")
+    .replace(DIAGNOSTIC_CREDENTIAL_URI_RE, "$1[REDACTED]@")
+    .replace(
+      DIAGNOSTIC_AUTH_RE,
+      (match) => match.slice(0, match.search(/\s/gu) + 1) + "[REDACTED]",
+    )
+    .replace(DIAGNOSTIC_JWT_RE, "[REDACTED_JWT]")
+    .replace(DIAGNOSTIC_SENSITIVE_ASSIGN_RE, "$1[REDACTED]")
+    .replace(DIAGNOSTIC_SECRET_SHAPED_RE, "[REDACTED_SECRET]")
+    .trim();
+}
+
+function truncateDiagnosticText(text: string): string {
+  const bytes = Buffer.from(text, "utf8");
+  if (bytes.byteLength <= MAX_TOFU_DIAGNOSTIC_EXCERPT_BYTES) return text;
+  const suffix = "…[diagnostic excerpt truncated]";
+  const suffixBytes = Buffer.byteLength(suffix, "utf8");
+  const limit = Math.max(0, MAX_TOFU_DIAGNOSTIC_EXCERPT_BYTES - suffixBytes);
+  let end = limit;
+  while (end > 0 && (bytes[end]! & 0xc0) === 0x80) end -= 1;
+  return `${new TextDecoder().decode(bytes.subarray(0, end))}${suffix}`;
+}
+
+export async function runTofu(
   args: readonly string[],
   options: {
     readonly workdir: string;
@@ -1928,14 +2190,16 @@ async function runTofu(
   if (result.timedOut)
     throw new Error(`tofu ${args[0] ?? "command"} timed out`);
   if (result.outputTruncated) {
-    throw new Error(
+    const outputLimitMessage =
       options.outputLimitMessage ??
-        `tofu ${args[0] ?? "command"} output exceeded capture limit`,
+      `tofu ${args[0] ?? "command"} output exceeded capture limit`;
+    throw new Error(
+      `${outputLimitMessage}; diagnostic=${formatTofuFailureDiagnostic(result, options.environment)}`,
     );
   }
   if (result.exitCode !== 0) {
     throw new Error(
-      `tofu ${args[0] ?? "command"} failed with exit ${result.exitCode}`,
+      `tofu ${args[0] ?? "command"} failed with exit ${result.exitCode}; diagnostic=${formatTofuFailureDiagnostic(result, options.environment)}`,
     );
   }
   return options.captureStdout ? result.stdout : "";
