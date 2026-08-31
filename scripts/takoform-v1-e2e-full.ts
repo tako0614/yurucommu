@@ -485,8 +485,6 @@ export function buildResourceReadUrl(
   );
   url.search = new URLSearchParams({
     space: resource.space,
-    group: resource.form.apiVersion,
-    kind: resource.form.kind,
     definitionVersion: resource.form.definitionVersion,
     schemaDigest: resource.form.schemaDigest,
   }).toString();

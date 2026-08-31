@@ -218,7 +218,7 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
     expect(Object.isFrozen(result.features)).toBe(true);
   });
 
-  test("uses every exact FormRef member for resource readback", () => {
+  test("uses only the stable Host readback query keys", () => {
     const url = new URL(
       buildResourceReadUrl(
         "https://forms.example.test/apis/forms.takoform.com/v1",
@@ -240,12 +240,17 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
     );
     expect(Object.fromEntries(url.searchParams)).toEqual({
       space: "space-a",
-      group: "edge.forms.takoform.com",
-      kind: "SQLiteDatabase",
       definitionVersion: "0.1.0",
       schemaDigest:
         "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     });
+    expect([...url.searchParams.keys()]).toEqual([
+      "space",
+      "definitionVersion",
+      "schemaDigest",
+    ]);
+    expect(url.searchParams.has("group")).toBe(false);
+    expect(url.searchParams.has("kind")).toBe(false);
   });
 
   test("extracts and requires the current 13 managed resources", () => {
