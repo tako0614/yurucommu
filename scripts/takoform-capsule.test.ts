@@ -131,6 +131,12 @@ describe("portable Takoform v1 Capsule", () => {
     expect(outputs).toContain('output "api_url"');
     expect(outputs).toContain("takoform_worker_endpoint");
     expect(outputs).toContain(".url");
+    expect(outputs).toMatch(
+      /output "launch_url"\s*\{[\s\S]*?value\s*=\s*takoform_worker_endpoint\.worker\.url/,
+    );
+    expect(outputs).toMatch(
+      /output "api_url"\s*\{[\s\S]*?trimsuffix\(takoform_worker_endpoint\.worker\.url, "\/"\)/,
+    );
     expect(outputs).not.toContain("resource_uri");
   });
 
@@ -147,7 +153,26 @@ describe("portable Takoform v1 Capsule", () => {
     )?.[1];
     expect(workerVersion).toBeDefined();
     expect(workerVersion).not.toContain("worker_endpoint");
-    expect(workerVersion).not.toContain("APP_URL");
+    expect(main).toContain("APP_URL                = var.app_url");
+    expect(main).toContain(
+      "vars_json      = jsonencode(local.worker_plain_values)",
+    );
     expect(main).not.toMatch(/APP_URL\s*=\s*.*worker_endpoint/);
+    expect(main).not.toContain(".workers.dev");
+    expect(outputs).not.toContain(".workers.dev");
+  });
+
+  test("requires a Host-delivered canonical origin before creating a Worker version", () => {
+    const appUrlBlock = main.slice(
+      main.indexOf('variable "app_url"'),
+      main.indexOf("\nlocals"),
+    );
+    expect(appUrlBlock).toContain('default     = ""');
+    expect(appUrlBlock).toContain('var.app_url == "" || can(regex(');
+    expect(appUrlBlock).not.toContain('default     = "https://');
+    expect(main).toContain('condition     = trimspace(var.app_url) != ""');
+    expect(main).toContain(
+      "app_url must be delivered by the Host before the Worker version can be applied.",
+    );
   });
 });

@@ -82,14 +82,25 @@ the direct-Cloudflare adapter keeps its `R2Bucket` type in a separate file.
 
 ## Endpoint and canonical origin
 
+The repository manifest declares a generic `http.endpoint` requirement whose
+`deliver.variables.url` target is the required `app_url` module variable. The
+selected Takoform Host owns endpoint selection and delivers that exact HTTPS
+origin before applying this module. The official managed deployment currently
+uses Takoserver as that Host, but this declaration remains host-neutral.
+Yurucommu does not allocate a hostname, create a Takosumi
+`public_host_reservations` record, or fall back to a `workers.dev` hostname.
+
+The module injects `app_url` as `APP_URL` into the immutable `WorkerVersion`.
+The same value is therefore the canonical origin for HTTP, OIDC callback URL
+construction, and ActivityPub/federation identifiers, including queue and
+scheduled invocations that have no request URL.
+
 `WorkerEndpoint` is admitted only after `WorkerDeployment` serves a fetch
 handler. Its URL is exposed as the ordinary `launch_url` and `api_url` module
 outputs; it is never fed back into the immutable `WorkerVersion`.
-
-On its first successful fetch, the runtime validates the request origin and
-pins it in `KV` when no operator-supplied `APP_URL` exists. Native queue work
-fails closed until a fetch has established that origin. The scheduled
-retention path does not invent or consume an application URL.
+`launch_url` is exactly the realized `WorkerEndpoint.url` output. It is
+discovery metadata, not a replacement for the configured canonical origin, and
+the module never infers either value from a resource name.
 
 ## Provider 3 validation
 

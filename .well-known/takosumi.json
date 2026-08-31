@@ -211,9 +211,33 @@
               "en": "The name of this Yurucommu service in the workspace."
             },
             "advanced": true
+          },
+          {
+            "name": "app_url",
+            "source": {
+              "kind": "module_default"
+            },
+            "type": "string",
+            "format": "url",
+            "label": {
+              "ja": "公開URL",
+              "en": "Public URL"
+            },
+            "helper": {
+              "ja": "選択したTakoform Hostが割り当てる、HTTP・キュー・スケジュール実行で共有するHTTPS originです。",
+              "en": "The HTTPS origin delivered by the selected Takoform Host and shared by HTTP, queue, and scheduled invocations."
+            }
           }
         ],
         "requires": [
+          {
+            "kind": "http.endpoint",
+            "deliver": {
+              "variables": {
+                "url": "app_url"
+              }
+            }
+          },
           {
             "kind": "secret.generated",
             "bytes": 32,
