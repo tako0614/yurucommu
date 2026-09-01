@@ -36,6 +36,7 @@ resource "takoform_module_worker" "worker" {
   depends_on = [
     takoform_sqlite_database.database,
     takoform_edge_kv_namespace.kv,
+    takoform_edge_object_bucket.media,
     takoform_at_least_once_queue.delivery,
     takoform_at_least_once_queue.delivery_dlq,
   ]
@@ -69,6 +70,13 @@ resource "takoform_sqlite_migration_application" "schema" {
 
 resource "takoform_edge_kv_namespace" "kv" {
   name = "${local.prefix}-kv"
+}
+
+# The worker consumes MEDIA through the edge.objects API (an R2-style bucket
+# binding), so the bucket is a portable ObjectBucket Form rather than an
+# external S3 service the host would have to supply out of band.
+resource "takoform_edge_object_bucket" "media" {
+  name = "${local.prefix}-media"
 }
 
 resource "takoform_at_least_once_queue" "delivery" {
@@ -139,11 +147,10 @@ resource "takoform_worker_version" "worker" {
     },
   ]
 
-  external_services = [
+  bucket_bindings = [
     {
-      name     = "MEDIA"
-      protocol = "com.amazonaws.s3"
-      required = true
+      name        = "MEDIA"
+      target_name = takoform_edge_object_bucket.media.name
     },
   ]
 

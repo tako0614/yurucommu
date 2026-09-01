@@ -25,6 +25,7 @@ output "takoform_resource_ids" {
     migration_set         = takoform_sqlite_migration_set.schema.uid
     migration_application = takoform_sqlite_migration_application.schema.uid
     kv                    = takoform_edge_kv_namespace.kv.uid
+    media                 = takoform_edge_object_bucket.media.uid
     delivery              = takoform_at_least_once_queue.delivery.uid
     delivery_dlq          = takoform_at_least_once_queue.delivery_dlq.uid
     delivery_consumer     = takoform_queue_consumer.delivery.uid
