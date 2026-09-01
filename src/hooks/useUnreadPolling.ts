@@ -1,6 +1,7 @@
 import { onCleanup, onMount } from "solid-js";
 import { useSetAtom } from "solid-jotai";
 import type { WritableAtom } from "jotai/vanilla";
+import { startVisibilityPolling } from "./visibility-polling.ts";
 
 /**
  * Mount once (in the authenticated app layout) to keep a shared unread count
@@ -19,41 +20,7 @@ export function useUnreadPolling(
   const refresh = useSetAtom(refreshAtom);
 
   onMount(() => {
-    let intervalId: ReturnType<typeof setInterval> | null = null;
-
-    const stop = () => {
-      if (intervalId !== null) {
-        clearInterval(intervalId);
-        intervalId = null;
-      }
-    };
-
-    const start = () => {
-      if (intervalId !== null) return;
-      intervalId = setInterval(() => {
-        void refresh();
-      }, pollIntervalMs);
-    };
-
-    const handleVisibility = () => {
-      if (document.hidden) {
-        stop();
-      } else {
-        // Refresh immediately on return, then resume the interval.
-        void refresh();
-        start();
-      }
-    };
-
-    // Initial fetch + start polling if the tab is currently visible.
-    void refresh();
-    if (!document.hidden) start();
-
-    document.addEventListener("visibilitychange", handleVisibility);
-
-    onCleanup(() => {
-      stop();
-      document.removeEventListener("visibilitychange", handleVisibility);
-    });
+    const cleanup = startVisibilityPolling(refresh, pollIntervalMs);
+    onCleanup(cleanup);
   });
 }

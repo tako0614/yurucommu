@@ -17,11 +17,14 @@ import { InlineErrorBanner } from "../components/InlineErrorBanner.tsx";
 import { InlineErrorRetry } from "../components/InlineErrorRetry.tsx";
 import { EmptyState } from "../components/EmptyState.tsx";
 import { PostSkeleton } from "../components/timeline/PostSkeleton.tsx";
+import { createKeyedPageOwner } from "../lib/keyed-page.ts";
 import {
   AttachmentGrid,
   MediaLightbox,
   useMediaLightbox,
 } from "../components/MediaLightbox.tsx";
+
+const getPostApId = (post: Post) => post.ap_id;
 
 export function BookmarksPage() {
   const actor = useRequiredActor();
@@ -31,11 +34,27 @@ export function BookmarksPage() {
   const [error, setError] = createSignal<string | null>(null);
   const clearError = () => setError(null);
   const [loadError, setLoadError] = createSignal<string | null>(null);
-  const [posts, setPosts] = createSignal<Post[]>([]);
+  const bookmarkPosts = createKeyedPageOwner<Post, string>(getPostApId);
+  const [posts, setPosts] = createSignal<Post[]>(bookmarkPosts.current(), {
+    equals: false,
+  });
   const [loading, setLoading] = createSignal(true);
   const [cursor, setCursor] = createSignal<string | null>(null);
   const [hasMore, setHasMore] = createSignal(false);
   const [loadingMore, setLoadingMore] = createSignal(false);
+
+  const publishOwnedPosts = (next = bookmarkPosts.current()) => setPosts(next);
+  const replacePosts = (page: readonly Post[]) => {
+    publishOwnedPosts(bookmarkPosts.replace(page));
+  };
+  const appendPosts = (page: readonly Post[]) => {
+    publishOwnedPosts(bookmarkPosts.appendPage(page));
+  };
+  const updatePostsPreservingKeys = (updater: (previous: Post[]) => Post[]) => {
+    // toggleLike replaces post records but preserves their IDs and order, so
+    // its result can become the next owned page without rebuilding the index.
+    publishOwnedPosts(bookmarkPosts.updatePreservingKeys(updater));
+  };
 
   onMount(() => {
     loadBookmarks();
@@ -47,7 +66,7 @@ export function BookmarksPage() {
     setLoadError(null);
     try {
       const data = await fetchBookmarks();
-      setPosts(data.posts);
+      replacePosts(data.posts);
       setCursor(data.nextCursor);
       setHasMore(data.hasMore);
     } catch (e) {
@@ -64,10 +83,7 @@ export function BookmarksPage() {
     setLoadingMore(true);
     try {
       const data = await fetchBookmarks({ before });
-      setPosts((prev) => {
-        const seen = new Set(prev.map((p) => p.ap_id));
-        return [...prev, ...data.posts.filter((p) => !seen.has(p.ap_id))];
-      });
+      appendPosts(data.posts);
       setCursor(data.nextCursor);
       setHasMore(data.hasMore);
     } catch (e) {
@@ -85,7 +101,7 @@ export function BookmarksPage() {
       // reuse window doesn't show stale like state. The updater merges by
       // ap_id, so it is a no-op for posts not in the feed.
       await toggleLike(post, (fn) => {
-        setPosts(fn);
+        updatePostsPreservingKeys(fn);
         setTimelinePosts(fn);
       });
     } catch (e) {
@@ -108,7 +124,7 @@ export function BookmarksPage() {
     unbookmarkInFlight.add(postApId);
     try {
       await unbookmarkPost(postApId);
-      setPosts((prev) => prev.filter((p) => p.ap_id !== postApId));
+      publishOwnedPosts(bookmarkPosts.remove(postApId));
     } catch (e) {
       console.error("Failed to unbookmark:", e);
       setError(t("common.error"));

@@ -135,98 +135,104 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
         }
       >
         <For each={props.members}>
-          {(member) => (
-            <A
-              href={`/profile/${encodeURIComponent(member.ap_id)}`}
-              class="flex items-center gap-3 px-4 py-3 hover:bg-neutral-900/30 transition-colors"
-            >
-              <UserAvatar
-                avatarUrl={member.icon_url}
-                name={communityMemberDisplayName(member)}
-                size={48}
-              />
-              <div class="flex-1 min-w-0">
-                <div class="flex items-center gap-2">
-                  <span class="font-bold text-white truncate">
-                    {communityMemberDisplayName(member)}
-                  </span>
-                  <Show when={member.role === "owner"}>
-                    <span class="px-1.5 py-0.5 text-xs bg-yellow-500/20 text-yellow-400 rounded">
-                      {props.t("members.owner")}
+          {(member) => {
+            const displayName = communityMemberDisplayName(member);
+            return (
+              <A
+                href={`/profile/${encodeURIComponent(member.ap_id)}`}
+                class="flex items-center gap-3 px-4 py-3 hover:bg-neutral-900/30 transition-colors"
+              >
+                <UserAvatar
+                  avatarUrl={member.icon_url}
+                  name={displayName}
+                  size={48}
+                />
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center gap-2">
+                    <span class="font-bold text-white truncate">
+                      {displayName}
                     </span>
-                  </Show>
-                  <Show when={member.role === "moderator"}>
-                    <span class="px-1.5 py-0.5 text-xs bg-accent-soft text-accent rounded">
-                      {props.t("members.moderator")}
-                    </span>
-                  </Show>
+                    <Show when={member.role === "owner"}>
+                      <span class="px-1.5 py-0.5 text-xs bg-yellow-500/20 text-yellow-400 rounded">
+                        {props.t("members.owner")}
+                      </span>
+                    </Show>
+                    <Show when={member.role === "moderator"}>
+                      <span class="px-1.5 py-0.5 text-xs bg-accent-soft text-accent rounded">
+                        {props.t("members.moderator")}
+                      </span>
+                    </Show>
+                  </div>
+                  <div class="text-neutral-500 truncate">
+                    @{member.username}
+                  </div>
                 </div>
-                <div class="text-neutral-500 truncate">@{member.username}</div>
-              </div>
-              <Show
-                when={
-                  props.isOwner &&
-                  member.ap_id !== props.actorApId &&
-                  canChangeCommunityMemberRole(member)
-                }
-              >
-                <select
-                  value={member.role}
-                  aria-label={props
-                    .t("members.changeRole")
-                    .replace("{name}", communityMemberDisplayName(member))}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                  }}
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                  }}
-                  onChange={(e) =>
-                    props.onUpdateMemberRole(
-                      member,
-                      e.currentTarget.value as "owner" | "moderator" | "member",
-                    )
+                <Show
+                  when={
+                    props.isOwner &&
+                    member.ap_id !== props.actorApId &&
+                    canChangeCommunityMemberRole(member)
                   }
-                  disabled={props.updatingMemberRole[member.ap_id]}
-                  class="ml-auto bg-neutral-900 border border-neutral-700 text-xs text-white rounded-lg px-2 py-1"
                 >
-                  <option value="member">{props.t("members.member")}</option>
-                  <option value="moderator">
-                    {props.t("members.moderator")}
-                  </option>
-                  <option value="owner">{props.t("members.owner")}</option>
-                </select>
-              </Show>
-              {/* Remove (kick): a manager may remove non-owners; only an owner
-                  may remove another owner — mirrors the backend requireManager +
-                  owner-vs-owner guard. Never shown for self (use leave). */}
-              <Show
-                when={
-                  props.canManage &&
-                  member.ap_id !== props.actorApId &&
-                  (member.role !== "owner" || props.isOwner)
-                }
-              >
-                <button
-                  type="button"
-                  aria-label={props
-                    .t("members.removeConfirm")
-                    .replace("{name}", communityMemberDisplayName(member))}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    props.onRemoveMember(member);
-                  }}
-                  disabled={props.removingMember[member.ap_id]}
-                  class="text-xs text-rose-400 hover:text-rose-300 disabled:opacity-50 shrink-0"
+                  <select
+                    value={member.role}
+                    aria-label={props
+                      .t("members.changeRole")
+                      .replace("{name}", displayName)}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }}
+                    onChange={(e) =>
+                      props.onUpdateMemberRole(
+                        member,
+                        e.currentTarget.value as
+                          "owner" | "moderator" | "member",
+                      )
+                    }
+                    disabled={props.updatingMemberRole[member.ap_id]}
+                    class="ml-auto bg-neutral-900 border border-neutral-700 text-xs text-white rounded-lg px-2 py-1"
+                  >
+                    <option value="member">{props.t("members.member")}</option>
+                    <option value="moderator">
+                      {props.t("members.moderator")}
+                    </option>
+                    <option value="owner">{props.t("members.owner")}</option>
+                  </select>
+                </Show>
+                {/* Remove (kick): a manager may remove non-owners; only an owner
+                    may remove another owner — mirrors the backend requireManager +
+                    owner-vs-owner guard. Never shown for self (use leave). */}
+                <Show
+                  when={
+                    props.canManage &&
+                    member.ap_id !== props.actorApId &&
+                    (member.role !== "owner" || props.isOwner)
+                  }
                 >
-                  {props.t("members.remove")}
-                </button>
-              </Show>
-            </A>
-          )}
+                  <button
+                    type="button"
+                    aria-label={props
+                      .t("members.removeConfirm")
+                      .replace("{name}", displayName)}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      props.onRemoveMember(member);
+                    }}
+                    disabled={props.removingMember[member.ap_id]}
+                    class="text-xs text-rose-400 hover:text-rose-300 disabled:opacity-50 shrink-0"
+                  >
+                    {props.t("members.remove")}
+                  </button>
+                </Show>
+              </A>
+            );
+          }}
         </For>
       </Show>
       <Show when={props.canManage && props.joinPolicy === "invite"}>

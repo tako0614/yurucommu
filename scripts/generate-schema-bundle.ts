@@ -9,6 +9,14 @@ export const CORE_PACKAGE_NAME = "@takosjp/yurucommu-core";
 export const BUNDLE_RELATIVE_PATH =
   "deploy/takoform/migrations/schema-bundle.json";
 export const MIGRATION_NAME_RE = /^[0-9]{4}_[A-Za-z0-9_-]+\.sql$/u;
+export const TAKOFORM_MIGRATION_OVERRIDES = Object.freeze({
+  "0003_activity_remote_object_edges.sql": Object.freeze({
+    sourceSha256:
+      "sha256:fca8d640cc0b16a61e9513abc251a52b351b42620db71edb2a3880dc0e743c14",
+    relativePath:
+      "deploy/takoform/migrations/takoform-overrides/0003_activity_remote_object_edges.sql",
+  }),
+});
 
 const REPOSITORY_ROOT = resolve(fileURLToPath(new URL("../", import.meta.url)));
 
@@ -219,7 +227,21 @@ export async function buildSchemaBundle(
 
   const bundleEntries: SchemaBundleEntry[] = [];
   for (const name of entries) {
-    const bytes = await readFile(join(provenance.migrationDirectory, name));
+    const sourceBytes = await readFile(
+      join(provenance.migrationDirectory, name),
+    );
+    const override =
+      TAKOFORM_MIGRATION_OVERRIDES[
+        name as keyof typeof TAKOFORM_MIGRATION_OVERRIDES
+      ];
+    if (override && sha256(sourceBytes) !== override.sourceSha256) {
+      throw new Error(
+        "Takoform migration override source digest changed: " + name,
+      );
+    }
+    const bytes = override
+      ? await readFile(join(repositoryRoot, override.relativePath))
+      : sourceBytes;
     bundleEntries.push({
       name,
       sha256: sha256(bytes),

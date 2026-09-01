@@ -1,8 +1,5 @@
-export type UploadedMedia = {
-  url?: string;
-  r2_key: string;
-  content_type: string;
+import type { MediaAttachment } from "../../types/index.ts";
+
+export type UploadedMedia = MediaAttachment & {
   preview: string;
-  // ActivityPub-standard alt text (`name` on a Document attachment).
-  name?: string;
 };

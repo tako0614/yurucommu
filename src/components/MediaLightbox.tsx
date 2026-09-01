@@ -9,6 +9,7 @@ import {
 import { Portal } from "solid-js/web";
 import type { MediaAttachment } from "../types/index.ts";
 import { useI18n } from "../lib/i18n.tsx";
+import { isVideoMediaAttachment } from "../lib/media.ts";
 import { useDialog } from "../lib/useDialog.ts";
 
 /**
@@ -18,10 +19,6 @@ import { useDialog } from "../lib/useDialog.ts";
  */
 export function mediaAttachmentUrl(m: MediaAttachment): string {
   return m.url || `/media/${m.r2_key.replace(/^uploads\//, "")}`;
-}
-
-function isVideo(m: MediaAttachment): boolean {
-  return (m.content_type || "").startsWith("video/");
 }
 
 interface MediaLightboxProps {
@@ -124,7 +121,7 @@ export function MediaLightbox(props: MediaLightboxProps) {
   const handleTouchEnd = (e: TouchEvent) => {
     if (pinching) {
       // A pinch gesture just ended; toggle zoom for images instead of swiping.
-      if (active() && !isVideo(active()!)) {
+      if (active() && !isVideoMediaAttachment(active()!)) {
         setZoomed((z) => !z);
       }
       pinching = false;
@@ -266,7 +263,7 @@ export function MediaLightbox(props: MediaLightboxProps) {
             onClick={stop}
           >
             <Show
-              when={!isVideo(active()!)}
+              when={!isVideoMediaAttachment(active()!)}
               fallback={
                 <video
                   src={mediaAttachmentUrl(active()!)}
@@ -346,7 +343,7 @@ export function AttachmentGrid(props: AttachmentGridProps) {
       <For each={props.attachments}>
         {(m, idx) => (
           <Show
-            when={isVideo(m)}
+            when={isVideoMediaAttachment(m)}
             fallback={
               <button
                 type="button"

@@ -1,4 +1,3 @@
-import { type WritableAtom } from "jotai/vanilla";
 import type { Post } from "../types/index.ts";
 import {
   bookmarkPost,
@@ -8,12 +7,6 @@ import {
   unlikePost,
   unrepostPost,
 } from "../lib/api.ts";
-
-type PostsSetter = WritableAtom<
-  Post[],
-  [Post[] | ((prev: Post[]) => Post[])],
-  void
->;
 
 function updatePost(
   posts: Post[],

@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const MINIMUM_PRODUCT_RELEASE = "3.4.3";
+export const MINIMUM_PRODUCT_RELEASE = "3.4.4";
 
 const PACKAGE_NAMES = ["@takosjp/yurucommu-core", "@takosjp/yurucommu-api"];
 const REQUIRED_API_EXPORTS = [

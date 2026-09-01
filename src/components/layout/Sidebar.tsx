@@ -8,7 +8,7 @@ import { dmUnreadCountAtom } from "../../atoms/dm-unread.ts";
 import { showPostModalAtom } from "../../atoms/timeline.ts";
 import { appMenuOpenAtom, createScopeOpenAtom } from "../../atoms/shell.ts";
 import { NavBadge } from "./NavBadge.tsx";
-import { NAV_ITEMS, type NavItem } from "./navItems.ts";
+import { NAV_ITEMS, projectNavItem, type NavItem } from "./navItems.ts";
 
 // Desktop projection of the single nav model (navItems.ts). The mobile
 // BottomNav projects from the same list.
@@ -22,32 +22,19 @@ export function Sidebar() {
   const openMenu = useSetAtom(appMenuOpenAtom);
   const openCreateScope = useSetAtom(createScopeOpenAtom);
 
-  // The badge count source depends on which nav item it is.
-  const badgeCount = (item: NavItem) =>
-    item.id === "messages" ? dmUnread() : unreadCount();
-  // Compose the unread count into the badge's accessible name (NavBadge's
-  // role="img" hides the visible digit from AT).
-  const badgeLabel = (item: NavItem) => {
-    const name =
-      item.id === "messages" ? t("nav.messages") : t("nav.notifications");
-    return t("nav.unreadBadge")
-      .replace("{label}", name)
-      .replace("{count}", String(badgeCount(item)));
-  };
+  const project = (item: NavItem) =>
+    projectNavItem(item, {
+      pathname: location.pathname,
+      notificationUnreadCount:
+        item.badge && item.id !== "messages" ? unreadCount() : 0,
+      directMessageUnreadCount:
+        item.badge && item.id === "messages" ? dmUnread() : 0,
+      translate: t,
+    });
 
-  const isActive = (route: string) => {
-    if (route === "/") return location.pathname === "/";
-    // "/profile" is the OWN profile; foreign profiles live at
-    // "/profile/:actorId" and must not light up the Profile entry.
-    if (route === "/profile") return location.pathname === "/profile";
-    return location.pathname.startsWith(route);
-  };
-  const active = (item: NavItem) =>
-    item.route !== undefined && isActive(item.route);
-
-  const rowClass = (item: NavItem) =>
+  const rowClass = (active: boolean) =>
     `flex items-center gap-4 px-4 py-3 rounded-full text-xl transition-colors ${
-      active(item)
+      active
         ? "bg-neutral-900 text-white font-bold"
         : "text-neutral-400 hover:bg-neutral-900/50 hover:text-white"
     }`;
@@ -63,17 +50,24 @@ export function Sidebar() {
             {(item) => {
               const Icon = item.icon;
               const label = () => t(item.labelKey);
+              const projection = () => project(item);
+              const visibleBadge = () => {
+                const badge = projection().badge;
+                return badge && badge.count > 0 ? badge : undefined;
+              };
               const inner = () => (
                 <>
                   <span class="relative inline-flex">
-                    <Icon active={active(item)} />
-                    <Show when={item.badge && badgeCount(item) > 0}>
-                      <span class="absolute -top-1.5 -right-2">
-                        <NavBadge
-                          count={badgeCount(item)}
-                          label={badgeLabel(item)}
-                        />
-                      </span>
+                    <Icon active={projection().active} />
+                    <Show when={visibleBadge()}>
+                      {(badge) => (
+                        <span class="absolute -top-1.5 -right-2">
+                          <NavBadge
+                            count={badge().count}
+                            label={badge().label}
+                          />
+                        </span>
+                      )}
                     </Show>
                   </span>
                   <span>{label()}</span>
@@ -86,7 +80,7 @@ export function Sidebar() {
                     <button
                       type="button"
                       onClick={() => openComposer(true)}
-                      class={`${rowClass(item)} w-full text-left`}
+                      class={`${rowClass(projection().active)} w-full text-left`}
                     >
                       {inner()}
                     </button>
@@ -94,8 +88,8 @@ export function Sidebar() {
                 >
                   <A
                     href={item.route!}
-                    aria-current={active(item) ? "page" : undefined}
-                    class={rowClass(item)}
+                    aria-current={projection().active ? "page" : undefined}
+                    class={rowClass(projection().active)}
                   >
                     {inner()}
                   </A>

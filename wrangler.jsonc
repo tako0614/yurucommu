@@ -10,6 +10,8 @@
     "enabled": true,
   },
   "vars": {
+    // Replace this template value in the operator-owned realized config.
+    "APP_URL": "https://REPLACE_WITH_HTTPS_ORIGIN",
     "DELIVERY_QUEUE_NAME": "yurucommu-delivery",
     "DELIVERY_DLQ_NAME": "yurucommu-delivery-dlq",
   },

@@ -107,24 +107,24 @@ async function run(command: string[]): Promise<void> {
 export function createEntrySource(assets: Record<string, StaticAsset>): string {
   return `import {
   createYurucommuBackendApp,
+  handleYurucommuQueueBatch,
   runYurucommuRetention,
 } from "@takosjp/yurucommu-core/server";
 import type {
-  DeliveryDlqMessageV1,
-  DeliveryQueueMessageV1,
   Env,
 } from "@takosjp/yurucommu-core/server";
 import {
-  defaultTakosumiBackgroundQueueHandler,
-  handleTakosumiBackgroundEventInvocation,
+  assertPortableQueueSettlementSupported,
+  wrapYurucommuMessageBatch,
   wrapYurucommuWorkerBindings,
-} from "../scripts/takosumi-managed-worker.ts";
+} from "../scripts/runtime-ports.ts";
 import type {
+  PortableScheduledEvent,
+  YurucommuQueueBatch,
   YurucommuWorkerBindings,
-} from "../scripts/takosumi-managed-worker.ts";
+} from "../scripts/runtime-ports.ts";
 import type {
   Fetcher,
-  MessageBatch,
   ScheduledController,
 } from "@cloudflare/workers-types";
 
@@ -217,7 +217,7 @@ async function runRetention(runtimeEnv: RuntimeEnv): Promise<void> {
 }
 
 function withRequiredQueueIdentity(
-  batch: MessageBatch<DeliveryQueueMessageV1 | DeliveryDlqMessageV1>,
+  batch: YurucommuQueueBatch,
   env: RuntimeEnv,
 ): RuntimeEnv {
   const deliveryQueueName = env.DELIVERY_QUEUE_NAME?.trim();
@@ -228,11 +228,11 @@ function withRequiredQueueIdentity(
     deliveryQueueName === deliveryDlqName
   ) {
     throw new Error(
-      "DELIVERY_QUEUE_NAME and DELIVERY_DLQ_NAME must identify distinct managed queues",
+      "DELIVERY_QUEUE_NAME and DELIVERY_DLQ_NAME must identify distinct configured queues",
     );
   }
   if (batch.queue !== deliveryQueueName && batch.queue !== deliveryDlqName) {
-    throw new Error("Queue invocation does not match the managed queue identity");
+    throw new Error("Queue invocation does not match the configured queue identity");
   }
   return {
     ...env,
@@ -261,19 +261,6 @@ export default {
     env: WorkerBindings,
     ctx: ExecutionContext,
   ): Promise<Response> {
-    const background = await handleTakosumiBackgroundEventInvocation({
-      request,
-      bindings: env,
-      ctx,
-      handlers: {
-        queue: defaultTakosumiBackgroundQueueHandler,
-        scheduled: async (_controller, runtimeEnv, _executionContext) => {
-          await runRetention(runtimeEnv);
-        },
-      },
-    });
-    if (background) return background;
-
     const envWithAppUrl = withDefaultAppUrl(
       request,
       wrapYurucommuWorkerBindings(env),
@@ -287,14 +274,19 @@ export default {
   },
 
   async queue(
-    batch: MessageBatch<DeliveryQueueMessageV1 | DeliveryDlqMessageV1>,
+    batch: YurucommuQueueBatch,
     env: WorkerBindings,
   ): Promise<void> {
     const runtimeEnv = withRequiredQueueIdentity(
       batch,
       withRequiredBackgroundAppUrl(wrapYurucommuWorkerBindings(env)),
     );
-    return defaultTakosumiBackgroundQueueHandler(batch, runtimeEnv as Env);
+    // worker.runtime queue input intentionally has no ack/retry operations.
+    // Reject it before core sees a fabricated IQueueBatch; only native
+    // MessageBatch values can use the host-backed settlement methods.
+    assertPortableQueueSettlementSupported(batch);
+    const runtimeBatch = wrapYurucommuMessageBatch(batch);
+    await handleYurucommuQueueBatch(runtimeBatch, runtimeEnv as Env);
   },
 
   // Cron-triggered retention (delivery/session/call-session purge, media-orphan
@@ -302,10 +294,10 @@ export default {
   // instead of re-exporting the core one, so a cron trigger alone would fire at
   // a module that exports no \`scheduled\` and nothing would ever be purged —
   // the handler has to be forwarded here. The runtime-neutral core entrypoint
-  // receives the already materialized native or managed Env; an older core
-  // fails loudly rather than silently sweeping nothing.
+  // receives the already materialized ordinary Worker bindings and fails
+  // loudly rather than silently sweeping nothing.
   async scheduled(
-    controller: ScheduledController,
+    controller: ScheduledController | PortableScheduledEvent,
     env: WorkerBindings,
     ctx: ExecutionContext,
   ): Promise<void> {

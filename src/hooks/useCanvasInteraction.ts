@@ -17,7 +17,6 @@
  */
 
 import { createEffect, createSignal, onCleanup } from "solid-js";
-import type { JSX } from "solid-js/jsx-runtime";
 import {
   DrawingLayer,
   DrawingPath,
@@ -51,14 +50,12 @@ interface DrawingSettings {
 
 interface UseCanvasInteractionOptions {
   canvas: StoryCanvas | null;
-  displayScale: number;
   onUpdate: () => void;
   onSnapGuidesChange?: (guides: SnapGuide[]) => void;
 }
 
 export function useCanvasInteraction({
   canvas,
-  displayScale,
   onUpdate,
   onSnapGuidesChange,
 }: UseCanvasInteractionOptions) {
@@ -86,8 +83,6 @@ export function useCanvasInteraction({
   // Pinch/rotation tracking
   let initialPinchDistance = 0;
   let initialPinchAngle = 0;
-  let initialScaleRef = 1;
-  let initialRotationRef = 0;
   let lastTouchCount = 0;
 
   // Convert display coordinates to canvas coordinates
@@ -188,9 +183,6 @@ export function useCanvasInteraction({
       if (currentState.selectedLayerId) {
         const layer = canvas.getLayer(currentState.selectedLayerId);
         if (layer) {
-          initialScaleRef =
-            layer.width / (startLayerStateRef.width || layer.width);
-          initialRotationRef = layer.rotation;
           startLayerStateRef = {
             x: layer.x,
             y: layer.y,

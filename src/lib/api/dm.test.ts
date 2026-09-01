@@ -1,8 +1,8 @@
 import { assertEquals } from "#test/assert";
 import { test } from "bun:test";
-import { clearYurucommuFrontendPlugin } from "../plugin.ts";
 import type { DMMessage } from "../../types/index.ts";
 import { fetchUserDMMessages } from "./dm.ts";
+import { withMockFetch } from "./test-helpers.ts";
 
 function makeMessage(id: string): DMMessage {
   return {
@@ -18,27 +18,6 @@ function makeMessage(id: string): DMMessage {
     attachments: [],
     created_at: "2026-01-01T00:00:00.000Z",
   } as unknown as DMMessage;
-}
-
-async function withMockFetch<T>(
-  responseBody: unknown,
-  fn: () => Promise<T>,
-): Promise<T> {
-  const originalFetch = globalThis.fetch;
-  clearYurucommuFrontendPlugin();
-  globalThis.fetch = ((_input: RequestInfo | URL) =>
-    Promise.resolve(
-      new Response(JSON.stringify(responseBody), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }),
-    )) as typeof fetch;
-  try {
-    return await fn();
-  } finally {
-    globalThis.fetch = originalFetch;
-    clearYurucommuFrontendPlugin();
-  }
 }
 
 // Regression: the DM thread's "load older" affordance depends on the client

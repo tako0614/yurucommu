@@ -431,13 +431,17 @@ describe("repository-owned Takosumi install UX", () => {
     );
     expect(managedModule.inputs.map((input) => input.name)).toEqual([
       "project_name",
-      "worker_release_tag",
-      "worker_bundle_url",
-      "worker_bundle_sha256",
+      "app_url",
     ]);
     expect(
       managedModule.inputs.filter((input) => input.source.kind === "user"),
-    ).toEqual([]);
+    ).toMatchObject([
+      expect.objectContaining({
+        name: "app_url",
+        required: true,
+        format: "url",
+      }),
+    ]);
     expect(
       managedModule.inputs
         .map((input) => input.name)

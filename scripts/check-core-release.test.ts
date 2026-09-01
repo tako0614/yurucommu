@@ -6,8 +6,8 @@ import {
 } from "./check-core-release.mjs";
 
 const readyLock = `
-"@takosjp/yurucommu-api": ["@takosjp/yurucommu-api@3.4.3", "", {}],
-"@takosjp/yurucommu-core": ["@takosjp/yurucommu-core@3.4.3", "", {}],
+"@takosjp/yurucommu-api": ["@takosjp/yurucommu-api@3.4.4", "", {}],
+"@takosjp/yurucommu-core": ["@takosjp/yurucommu-core@3.4.4", "", {}],
 `;
 
 const apiExports = [
@@ -31,11 +31,34 @@ describe("registry core/API product release gate", () => {
     const result = evaluateCoreRelease({
       packageJson: {
         dependencies: {
+          "@takosjp/yurucommu-api": "^3.4.4",
+          "@takosjp/yurucommu-core": "^3.4.4",
+        },
+      },
+      lockText: readyLock,
+      installedVersions: {
+        "@takosjp/yurucommu-api": "3.4.4",
+        "@takosjp/yurucommu-core": "3.4.4",
+      },
+      hasNotificationMigration: true,
+      apiExports,
+      coreExports,
+    });
+    expect(result).toEqual({ ok: true, blockers: [] });
+    expect(lockedPackageVersion(readyLock, "@takosjp/yurucommu-core")).toBe(
+      "3.4.4",
+    );
+  });
+
+  test("rejects registry packages older than the federation security floor", () => {
+    const result = evaluateCoreRelease({
+      packageJson: {
+        dependencies: {
           "@takosjp/yurucommu-api": "^3.4.3",
           "@takosjp/yurucommu-core": "^3.4.3",
         },
       },
-      lockText: readyLock,
+      lockText: readyLock.replaceAll("3.4.4", "3.4.3"),
       installedVersions: {
         "@takosjp/yurucommu-api": "3.4.3",
         "@takosjp/yurucommu-core": "3.4.3",
@@ -44,10 +67,18 @@ describe("registry core/API product release gate", () => {
       apiExports,
       coreExports,
     });
-    expect(result).toEqual({ ok: true, blockers: [] });
-    expect(lockedPackageVersion(readyLock, "@takosjp/yurucommu-core")).toBe(
-      "3.4.3",
-    );
+
+    expect(result.ok).toBe(false);
+    for (const packageName of [
+      "@takosjp/yurucommu-api",
+      "@takosjp/yurucommu-core",
+    ]) {
+      expect(result.blockers).toContain(
+        `${packageName}.dependency_floor_too_old`,
+      );
+      expect(result.blockers).toContain(`${packageName}.lock_too_old`);
+      expect(result.blockers).toContain(`${packageName}.installed_too_old`);
+    }
   });
 
   test("blocks old locks and unpublished-source dependency bypasses", () => {
@@ -58,7 +89,7 @@ describe("registry core/API product release gate", () => {
           "@takosjp/yurucommu-core": "^3.0.3",
         },
       },
-      lockText: readyLock.replaceAll("3.1.0", "3.0.3"),
+      lockText: readyLock.replaceAll("3.4.4", "3.0.3"),
       installedVersions: {
         "@takosjp/yurucommu-api": "3.0.3",
         "@takosjp/yurucommu-core": "3.0.3",
@@ -74,6 +105,8 @@ describe("registry core/API product release gate", () => {
     expect(result.blockers).toContain(
       "@takosjp/yurucommu-core.dependency_floor_too_old",
     );
+    expect(result.blockers).toContain("@takosjp/yurucommu-api.lock_too_old");
+    expect(result.blockers).toContain("@takosjp/yurucommu-core.lock_too_old");
     expect(result.blockers).toContain("migration.0019_missing");
   });
 });

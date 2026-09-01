@@ -41,7 +41,19 @@ export const selectedInstanceIdAtom = atom<string | null>(null);
 export const instancesLoadingAtom = atom(false);
 
 // --- Action atoms ---
+// These fences are atoms rather than module globals because Jotai state belongs
+// to a store. A refresh in an embedded/secondary store must not invalidate the
+// primary store's request or strand its loading state.
+const authCheckGenerationAtom = atom(0);
+const activeLogoutCountAtom = atom(0);
+
 export const checkAuthAtom = atom(null, async (get, set) => {
+  // A check started while sign-out is in progress could capture the old
+  // session and restore it after logout completes. The logout fence owns this
+  // store until every concurrent sign-out call settles.
+  if (get(activeLogoutCountAtom) > 0) return;
+  const generation = get(authCheckGenerationAtom) + 1;
+  set(authCheckGenerationAtom, generation);
   const authStrategy = getAuthStrategy();
   // Surface an OAuth/OIDC login failure that the callback relayed as
   // `/?error=<code>` (e.g. id_token_invalid / token_exchange_failed /
@@ -51,7 +63,12 @@ export const checkAuthAtom = atom(null, async (get, set) => {
   if (typeof window !== "undefined") {
     const params = new URLSearchParams(window.location.search);
     if (params.has("error")) {
-      set(loginErrorAtom, get(tAtom)("auth.oauthLoginFailed"));
+      if (
+        generation === get(authCheckGenerationAtom) &&
+        get(activeLogoutCountAtom) === 0
+      ) {
+        set(loginErrorAtom, get(tAtom)("auth.oauthLoginFailed"));
+      }
       params.delete("error");
       const qs = params.toString();
       window.history.replaceState(
@@ -69,6 +86,12 @@ export const checkAuthAtom = atom(null, async (get, set) => {
     set(instancesLoadingAtom, true);
     set(authErrorAtom, null);
     const result = await authStrategy.checkAuth();
+    if (
+      generation !== get(authCheckGenerationAtom) ||
+      get(activeLogoutCountAtom) > 0
+    ) {
+      return;
+    }
     set(actorAtom, result.actor);
     set(hostedUserAtom, result.hostedUser);
     set(needsSetupAtom, result.needsSetup);
@@ -79,12 +102,23 @@ export const checkAuthAtom = atom(null, async (get, set) => {
     set(instancesAtom, result.instances);
     set(selectedInstanceIdAtom, result.selectedInstanceId);
   } catch (e) {
+    if (
+      generation !== get(authCheckGenerationAtom) ||
+      get(activeLogoutCountAtom) > 0
+    ) {
+      return;
+    }
     console.error("Auth check failed:", e);
     set(actorAtom, null);
     set(authErrorAtom, get(tAtom)("auth.checkFailed"));
   } finally {
-    set(authLoadingAtom, false);
-    set(instancesLoadingAtom, false);
+    if (
+      generation === get(authCheckGenerationAtom) &&
+      get(activeLogoutCountAtom) === 0
+    ) {
+      set(authLoadingAtom, false);
+      set(instancesLoadingAtom, false);
+    }
   }
 });
 
@@ -114,6 +148,10 @@ export const loginAtom = atom(null, async (get, set, password?: string) => {
 });
 
 export const logoutAtom = atom(null, async (get, set) => {
+  // Any auth check already in flight belongs to the pre-logout session. Make
+  // its eventual result ineligible to restore the actor after sign-out.
+  set(activeLogoutCountAtom, get(activeLogoutCountAtom) + 1);
+  set(authCheckGenerationAtom, get(authCheckGenerationAtom) + 1);
   const authStrategy = getAuthStrategy();
   // Before anything can re-render the login screen: the Takosumi session
   // outlives ours, so an unsuppressed auto-start would redirect and sign the
@@ -127,9 +165,20 @@ export const logoutAtom = atom(null, async (get, set) => {
     set(authErrorAtom, get(tAtom)("auth.logoutFailed"));
   } finally {
     set(actorAtom, null);
+    const remainingLogouts = Math.max(0, get(activeLogoutCountAtom) - 1);
+    if (remainingLogouts === 0) {
+      // Logout owns the generation that invalidated any in-flight check, so it
+      // must also settle the loading flags that the stale check can no longer
+      // clear in its guarded finally block.
+      set(authLoadingAtom, false);
+      set(instancesLoadingAtom, false);
+    }
     // Reset the observation scope so a switched account never inherits the
     // previous owner's community lens.
     set(resetScopeAtom);
+    // Release the fence last so subscribers cannot start a fresh check before
+    // the signed-out state and loading flags are settled.
+    set(activeLogoutCountAtom, remainingLogouts);
   }
 });
 

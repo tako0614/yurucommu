@@ -1,0 +1,55 @@
+// 受験資料用の連合検証インスタンスA（一時的・本番とは完全分離）。
+// リポジトリにはコミットしない。撤収時は worker と各資源を削除する。
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "yurucommu-fed-a",
+  "main": "./dist/yurucommu-worker.js",
+  "compatibility_date": "2026-07-16",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": { "enabled": true },
+  "routes": [{ "pattern": "fed-a.yurucommu.com", "custom_domain": true }],
+  "vars": {
+    "APP_URL": "https://fed-a.yurucommu.com",
+    "DELIVERY_QUEUE_NAME": "yurucommu-fed-a-delivery",
+    "DELIVERY_DLQ_NAME": "yurucommu-fed-a-delivery-dlq"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "yurucommu-fed-a-db",
+      "database_id": "725832f1-b8b5-4ece-a3a8-4b9c0eb22363",
+      "migrations_dir": "node_modules/@takosjp/yurucommu-core/migrations",
+      "migrations_table": "yurucommu_migrations"
+    }
+  ],
+  "triggers": { "crons": ["0 * * * *"] },
+  "kv_namespaces": [
+    { "binding": "KV", "id": "f989599f516e4feeb0fc2e4f398d9514" }
+  ],
+  "r2_buckets": [
+    { "binding": "MEDIA", "bucket_name": "yurucommu-fed-a-media" }
+  ],
+  "queues": {
+    "producers": [
+      { "binding": "DELIVERY_QUEUE", "queue": "yurucommu-fed-a-delivery" },
+      { "binding": "DELIVERY_DLQ", "queue": "yurucommu-fed-a-delivery-dlq" }
+    ],
+    "consumers": [
+      {
+        "queue": "yurucommu-fed-a-delivery",
+        "max_batch_size": 10,
+        "max_batch_timeout": 1,
+        "max_retries": 3,
+        "dead_letter_queue": "yurucommu-fed-a-delivery-dlq"
+      },
+      {
+        "queue": "yurucommu-fed-a-delivery-dlq",
+        "max_batch_size": 10,
+        "max_batch_timeout": 60,
+        "max_retries": 1
+      }
+    ]
+  }
+}

@@ -44,8 +44,14 @@ import {
   classifyProfileLoadFailure,
   type ProfileLoadFailure,
 } from "../lib/profile-load-failure.ts";
+import {
+  appendActorPageInPlace,
+  replaceActorPageInPlace,
+} from "../lib/actor-page.ts";
+import { createKeyedPageOwner } from "../lib/keyed-page.ts";
 
 const PROFILE_POSTS_PAGE = 20;
+const profilePostApId = (post: Post) => post.ap_id;
 
 export function ProfilePage() {
   const actor = useRequiredActor();
@@ -61,7 +67,21 @@ export function ProfilePage() {
   const [loadFailure, setLoadFailure] = createSignal<ProfileLoadFailure | null>(
     null,
   );
-  const [posts, setPosts] = createSignal<Post[]>([]);
+  const profilePosts = createKeyedPageOwner<Post, string>(profilePostApId);
+  const [posts, setPosts] = createSignal<Post[]>(profilePosts.current(), {
+    equals: false,
+  });
+  const replaceProfilePosts = (page: readonly Post[]) => {
+    setPosts(profilePosts.replace(page));
+  };
+  const appendProfilePosts = (page: readonly Post[]) => {
+    setPosts(profilePosts.appendPage(page));
+  };
+  const updateProfilePostsPreservingKeys = (
+    updater: (previous: Post[]) => Post[],
+  ) => {
+    setPosts(profilePosts.updatePreservingKeys(updater));
+  };
   const [loading, setLoading] = createSignal(true);
   const [postsHasMore, setPostsHasMore] = createSignal(false);
   const [postsCursor, setPostsCursor] = createSignal<string | null>(null);
@@ -95,7 +115,12 @@ export function ProfilePage() {
     "followers" | "following" | null
   >(null);
   const [editIsPrivate, setEditIsPrivate] = createSignal(false);
-  const [followModalActors, setFollowModalActors] = createSignal<Actor[]>([]);
+  const followModalActorsOwned: Actor[] = [];
+  const followModalActorIds = new Set<string>();
+  const [followModalActors, setFollowModalActors] = createSignal<Actor[]>(
+    followModalActorsOwned,
+    { equals: false },
+  );
   const [followModalLoading, setFollowModalLoading] = createSignal(false);
   const [followModalHasMore, setFollowModalHasMore] = createSignal(false);
   const [followModalLoadingMore, setFollowModalLoadingMore] =
@@ -104,6 +129,14 @@ export function ProfilePage() {
     null,
   );
   const FOLLOW_MODAL_PAGE = 50;
+  const replaceFollowModalActors = (next: readonly Actor[]) => {
+    replaceActorPageInPlace(followModalActorsOwned, followModalActorIds, next);
+    setFollowModalActors(followModalActorsOwned);
+  };
+  const appendFollowModalActors = (page: readonly Actor[]) => {
+    appendActorPageInPlace(followModalActorsOwned, followModalActorIds, page);
+    setFollowModalActors(followModalActorsOwned);
+  };
   const [showQr, setShowQr] = createSignal(false);
   // Pending block/mute confirmation for the viewed (other) user.
   const [pendingModeration, setPendingModeration] = createSignal<
@@ -169,7 +202,7 @@ export function ProfilePage() {
         limit: PROFILE_POSTS_PAGE,
       });
       if (gen !== profileLoadGen) return;
-      setPosts(postsData.posts);
+      replaceProfilePosts(postsData.posts);
       setPostsCursor(postsData.nextCursor);
       setPostsHasMore(postsData.hasMore);
     } catch (e) {
@@ -199,10 +232,7 @@ export function ProfilePage() {
         before,
       });
       if (gen !== profileLoadGen) return;
-      setPosts((prev) => {
-        const seen = new Set(prev.map((p) => p.ap_id));
-        return [...prev, ...more.posts.filter((p) => !seen.has(p.ap_id))];
-      });
+      appendProfilePosts(more.posts);
       setPostsCursor(more.nextCursor);
       setPostsHasMore(more.hasMore);
     } catch (e) {
@@ -217,7 +247,7 @@ export function ProfilePage() {
   createEffect(
     on(targetActorId, () => {
       setProfile(null);
-      setPosts([]);
+      replaceProfilePosts([]);
       setPostsHasMore(false);
       setIsFollowing(false);
       setFollowPending(false);
@@ -286,7 +316,7 @@ export function ProfilePage() {
       // reuse window doesn't show stale like state. The updater merges by
       // ap_id, so it is a no-op for posts not in the feed.
       await toggleLike(post, (fn) => {
-        setPosts(fn);
+        updateProfilePostsPreservingKeys(fn);
         setTimelinePosts(fn);
       });
     } catch (e) {
@@ -361,7 +391,7 @@ export function ProfilePage() {
   const openFollowModal = async (type: "followers" | "following") => {
     setShowFollowModal(type);
     setFollowModalLoading(true);
-    setFollowModalActors([]);
+    replaceFollowModalActors([]);
     setFollowModalHasMore(false);
     setFollowModalError(null);
     try {
@@ -370,7 +400,7 @@ export function ProfilePage() {
         limit: FOLLOW_MODAL_PAGE,
         offset: 0,
       });
-      setFollowModalActors(data.actors);
+      replaceFollowModalActors(data.actors);
       setFollowModalHasMore(data.hasMore);
     } catch (e) {
       console.error(`Failed to load ${type}:`, e);
@@ -394,10 +424,7 @@ export function ProfilePage() {
         limit: FOLLOW_MODAL_PAGE,
         offset: followModalActors().length,
       });
-      setFollowModalActors((prev) => {
-        const seen = new Set(prev.map((a) => a.ap_id));
-        return [...prev, ...data.actors.filter((a) => !seen.has(a.ap_id))];
-      });
+      appendFollowModalActors(data.actors);
       setFollowModalHasMore(data.hasMore);
     } catch (e) {
       console.error(`Failed to load more ${type}:`, e);
@@ -420,7 +447,7 @@ export function ProfilePage() {
         // (follow button still "Following", posts still visible).
         setIsFollowing(false);
         setFollowPending(false);
-        setPosts([]);
+        replaceProfilePosts([]);
         setPostsHasMore(false);
         pushToast(setToasts, t("feedback.blocked"), { kind: "success" });
       } else {

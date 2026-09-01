@@ -57,7 +57,14 @@ const CONTRACT = {
     {
       surface: W.surface,
       target: `cloudflare-worker:${W.worker}`,
-      covers: ["wrangler.jsonc"],
+      covers: [
+        "package.json",
+        "bun.lock",
+        "scripts/build-yurucommu-worker.ts",
+        "scripts/runtime-ports.ts",
+        "dist/yurucommu-worker.js",
+        "wrangler.jsonc",
+      ],
       requiresScripts: ["check", "build:worker", "smoke:postdeploy"],
       requiresTools: ["git", "bun", "wrangler"],
       requiresEnv: ["YURUCOMMU_WRANGLER_CONFIG"],
@@ -67,7 +74,7 @@ const CONTRACT = {
       triggers: [],
       obligations: {
         provenance: `refuses a dirty worktree, runs \`${OWNER_GATE}\`, builds ${W.bundle} from that worktree with \`bun run build\`, and records the commit and the bundle sha256 It takes the operator's realized deploy config from YURUCOMMU_WRANGLER_CONFIG and refuses to publish a config that still holds a self-host template placeholder.`,
-        "post-conditions": `runs \`bun run smoke:postdeploy\`, which exercises real request paths against the deployed Worker rather than a health endpoint`,
+        "post-conditions": `runs \`bun run smoke:postdeploy\`, which exercises real HTTP request paths against the deployed Worker plus the built artifact's queue and scheduled entrypoints (including portable media and producer bindings)`,
         reversal: `the current version id is read and printed before publishing; restore it with \`wrangler versions list --name ${W.worker}\` and \`wrangler versions deploy <previous-id>@100%\``,
         "failure-handling":
           "prints the provider's own stdout and stderr, names whether the failure was before or after publication, and on a failed post-condition exits non-zero naming the previous version instead of retrying",
@@ -78,8 +85,10 @@ const CONTRACT = {
       target: `github-release:${R.repository}/v<package-version>`,
       covers: [
         "package.json",
+        "bun.lock",
         "scripts/build-yurucommu-worker.ts",
-        "scripts/takosumi-managed-worker.ts",
+        "scripts/runtime-ports.ts",
+        "dist/yurucommu-worker.js",
       ],
       requiresScripts: ["check", "build:worker"],
       requiresTools: ["git", "bun", "gh"],
@@ -119,6 +128,147 @@ function die(message, detail = []) {
   process.stderr.write(`deploy blocked: ${message}\n`);
   for (const line of detail) process.stderr.write(`- ${line}\n`);
   process.exit(1);
+}
+
+function parseWranglerJsonc(source, configPath) {
+  try {
+    // Bun's JSONC parser handles comments and trailing commas while retaining
+    // JSON's strict string/number semantics. The deploy entrypoint is Bun-only
+    // (see the shebang and package script), so no permissive ad-hoc parser is
+    // needed here.
+    return Bun.JSONC.parse(source);
+  } catch (error) {
+    die(`deploy config ${configPath} is not valid JSONC`, [error.message]);
+  }
+}
+
+function validateDirectWranglerConfig(config, configPath) {
+  if (!config || typeof config !== "object" || Array.isArray(config)) {
+    die(`deploy config ${configPath} must contain a JSON object`);
+  }
+  const vars = config.vars;
+  if (!vars || typeof vars !== "object" || Array.isArray(vars)) {
+    die(
+      `deploy config ${configPath} must declare vars.APP_URL and queue identities`,
+    );
+  }
+  const appUrl = vars.APP_URL;
+  if (typeof appUrl !== "string" || appUrl.length === 0) {
+    die(`deploy config ${configPath} must declare an exact HTTPS vars.APP_URL`);
+  }
+  let parsedOrigin;
+  try {
+    parsedOrigin = new URL(appUrl);
+  } catch {
+    die(`deploy config ${configPath} vars.APP_URL is not a valid URL`);
+  }
+  if (
+    parsedOrigin.protocol !== "https:" ||
+    parsedOrigin.username ||
+    parsedOrigin.password ||
+    parsedOrigin.search ||
+    parsedOrigin.hash ||
+    parsedOrigin.pathname !== "/" ||
+    parsedOrigin.origin !== appUrl
+  ) {
+    die(
+      `deploy config ${configPath} vars.APP_URL must be an exact HTTPS origin without path, query, fragment, userinfo, or trailing slash`,
+    );
+  }
+
+  const deliveryQueue = vars.DELIVERY_QUEUE_NAME;
+  const deliveryDlq = vars.DELIVERY_DLQ_NAME;
+  if (
+    typeof deliveryQueue !== "string" ||
+    typeof deliveryDlq !== "string" ||
+    deliveryQueue.length === 0 ||
+    deliveryDlq.length === 0 ||
+    deliveryQueue === deliveryDlq
+  ) {
+    die(
+      `deploy config ${configPath} vars.DELIVERY_QUEUE_NAME and vars.DELIVERY_DLQ_NAME must be distinct non-empty names`,
+    );
+  }
+
+  const queues = config.queues;
+  const producers = Array.isArray(queues?.producers) ? queues.producers : [];
+  const consumers = Array.isArray(queues?.consumers) ? queues.consumers : [];
+  const producerByBinding = new Map();
+  for (const producer of producers) {
+    if (
+      !producer ||
+      typeof producer !== "object" ||
+      typeof producer.binding !== "string" ||
+      typeof producer.queue !== "string"
+    ) {
+      die(`deploy config ${configPath} contains an invalid queue producer`);
+    }
+    if (producerByBinding.has(producer.binding)) {
+      die(
+        `deploy config ${configPath} repeats queue producer ${producer.binding}`,
+      );
+    }
+    producerByBinding.set(producer.binding, producer.queue);
+  }
+  const expectedProducers = new Map([
+    ["DELIVERY_QUEUE", deliveryQueue],
+    ["DELIVERY_DLQ", deliveryDlq],
+  ]);
+  if (
+    producerByBinding.size !== expectedProducers.size ||
+    [...expectedProducers].some(
+      ([binding, queue]) => producerByBinding.get(binding) !== queue,
+    )
+  ) {
+    die(
+      `deploy config ${configPath} queue producers must bind DELIVERY_QUEUE/DELIVERY_DLQ to the declared queue identities`,
+    );
+  }
+
+  const consumerByQueue = new Map();
+  for (const consumer of consumers) {
+    if (
+      !consumer ||
+      typeof consumer !== "object" ||
+      typeof consumer.queue !== "string" ||
+      consumer.queue.length === 0
+    ) {
+      die(`deploy config ${configPath} contains an invalid queue consumer`);
+    }
+    if (consumerByQueue.has(consumer.queue)) {
+      die(
+        `deploy config ${configPath} repeats queue consumer ${consumer.queue}`,
+      );
+    }
+    consumerByQueue.set(consumer.queue, consumer);
+  }
+  const producerQueues = new Set(producerByBinding.values());
+  const consumerQueues = new Set(consumerByQueue.keys());
+  if (
+    producerQueues.size !== consumerQueues.size ||
+    [...producerQueues].some((queue) => !consumerQueues.has(queue))
+  ) {
+    die(
+      `deploy config ${configPath} queue producer/consumer identities do not match`,
+    );
+  }
+  const deliveryConsumer = consumerByQueue.get(deliveryQueue);
+  const dlqConsumer = consumerByQueue.get(deliveryDlq);
+  if (!deliveryConsumer || !dlqConsumer) {
+    die(
+      `deploy config ${configPath} must consume both the delivery queue and its distinct DLQ`,
+    );
+  }
+  if (deliveryConsumer.dead_letter_queue !== deliveryDlq) {
+    die(
+      `deploy config ${configPath} delivery consumer must dead-letter to vars.DELIVERY_DLQ_NAME`,
+    );
+  }
+  if (dlqConsumer.dead_letter_queue !== undefined) {
+    die(
+      `deploy config ${configPath} DLQ consumer must not declare another dead-letter queue`,
+    );
+  }
 }
 const git = (...a) =>
   execFileSync("git", a, { cwd: repo, encoding: "utf8" }).trim();
@@ -364,10 +514,9 @@ if (!existsSync(resolvedConfig)) {
     `deploy config ${configPath} does not exist; set ${CONFIG_ENV} to the operator's realized config`,
   );
 }
-const configValues = readFileSync(resolvedConfig, "utf8")
-  .split("\n")
-  .filter((line) => !/^\s*(?:#|\/\/)/u.test(line))
-  .join("\n");
+const configValues = readFileSync(resolvedConfig, "utf8");
+const config = parseWranglerJsonc(configValues, configPath);
+validateDirectWranglerConfig(config, configPath);
 const placeholder =
   /(?:[=:]\s*["']?[^"'\n]*)(example\.com|REPLACE_[A-Z_]+|<[a-z-]+>|xxxxx)/iu.exec(
     configValues,

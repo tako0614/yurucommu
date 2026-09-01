@@ -30,6 +30,7 @@ import { pushToast, toastsAtom } from "../atoms/toast.ts";
 import { handleTablistKeydown } from "../lib/tablistNav.ts";
 import { useI18n } from "../lib/i18n.tsx";
 import { formatRelativeTime } from "../lib/datetime.ts";
+import { createKeyedPageOwner } from "../lib/keyed-page.ts";
 import { UserAvatar } from "../components/UserAvatar.tsx";
 import { PostContent } from "../components/PostContent.tsx";
 import { InlineErrorBanner } from "../components/InlineErrorBanner.tsx";
@@ -61,6 +62,8 @@ type SearchTab = "users" | "posts" | "communities";
 const SEARCH_PAGE_SIZE = 20;
 const USER_SORTS = ["relevance", "followers", "recent"] as const;
 const POST_SORTS = ["recent", "popular"] as const;
+const actorApId = (actor: Actor) => actor.ap_id;
+const postApId = (post: Post) => post.ap_id;
 
 const CloseIcon = () => (
   <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -115,8 +118,38 @@ export function SearchPage() {
 
   const [searchQuery, setSearchQuery] = createSignal("");
   const [searchTab, setSearchTab] = createSignal<SearchTab>("users");
-  const [searchUsersResult, setSearchUsersResult] = createSignal<Actor[]>([]);
-  const [searchPostsResult, setSearchPostsResult] = createSignal<Post[]>([]);
+  const searchUsersPage = createKeyedPageOwner<Actor, string>(actorApId);
+  const [searchUsersResult, setSearchUsersResult] = createSignal<Actor[]>(
+    searchUsersPage.current(),
+    { equals: false },
+  );
+  const searchPostsPage = createKeyedPageOwner<Post, string>(postApId);
+  const [searchPostsResult, setSearchPostsResult] = createSignal<Post[]>(
+    searchPostsPage.current(),
+    { equals: false },
+  );
+  const replaceSearchUsers = (page: readonly Actor[]) => {
+    setSearchUsersResult(searchUsersPage.replace(page));
+  };
+  const appendSearchUsers = (page: readonly Actor[]) => {
+    setSearchUsersResult(searchUsersPage.appendPage(page));
+  };
+  const mergeRemoteSearchUsers = (page: readonly Actor[]) => {
+    setSearchUsersResult(searchUsersPage.appendUniquePage(page));
+  };
+  const replaceSearchPosts = (page: readonly Post[]) => {
+    setSearchPostsResult(searchPostsPage.replace(page));
+  };
+  const appendSearchPosts = (page: readonly Post[]) => {
+    setSearchPostsResult(searchPostsPage.appendPage(page));
+  };
+  const updateSearchPostsPreservingKeys = (
+    updater: (previous: Post[]) => Post[],
+  ) => {
+    // The optimistic like updater replaces post records but never their IDs or
+    // order, so the existing index remains exact after adopting its result.
+    setSearchPostsResult(searchPostsPage.updatePreservingKeys(updater));
+  };
   const [searching, setSearching] = createSignal(false);
   const [searched, setSearched] = createSignal(false);
   const [searchError, setSearchError] = createSignal<string | null>(null);
@@ -193,8 +226,8 @@ export function SearchPage() {
   onMount(() => {
     setSearchQuery("");
     setSearched(false);
-    setSearchUsersResult([]);
-    setSearchPostsResult([]);
+    replaceSearchUsers([]);
+    replaceSearchPosts([]);
     refreshTrendingHashtags();
     refreshDiscoverCommunities();
     fetchFollowing(actor.ap_id)
@@ -297,8 +330,8 @@ export function SearchPage() {
 
       if (gen !== searchGen) return; // a newer search / clear superseded this
 
-      setSearchUsersResult(usersRes.items);
-      setSearchPostsResult(postsRes.items);
+      replaceSearchUsers(usersRes.items);
+      replaceSearchPosts(postsRes.items);
       setUsersOffset(usersRes.items.length);
       setPostsOffset(postsRes.items.length);
       setUsersHasMore(usersRes.hasMore);
@@ -348,15 +381,7 @@ export function SearchPage() {
     try {
       const remoteUsersRes = await searchRemote(query);
       if (gen !== searchGen) return;
-      setSearchUsersResult((prev) => {
-        const merged = [...prev];
-        for (const remoteUser of remoteUsersRes) {
-          if (!merged.some((u) => u.ap_id === remoteUser.ap_id)) {
-            merged.push(remoteUser);
-          }
-        }
-        return merged;
-      });
+      mergeRemoteSearchUsers(remoteUsersRes);
     } catch (e) {
       console.error("Remote search failed:", e);
       if (gen === searchGen) {
@@ -382,10 +407,7 @@ export function SearchPage() {
         limit: SEARCH_PAGE_SIZE,
       });
       if (gen !== searchGen) return;
-      setSearchUsersResult((prev) => {
-        const seen = new Set(prev.map((u) => u.ap_id));
-        return [...prev, ...res.items.filter((u) => !seen.has(u.ap_id))];
-      });
+      appendSearchUsers(res.items);
       setUsersOffset((o) => o + res.items.length);
       setUsersHasMore(res.hasMore);
     } catch (e) {
@@ -418,10 +440,7 @@ export function SearchPage() {
             limit: SEARCH_PAGE_SIZE,
           });
       if (gen !== searchGen) return;
-      setSearchPostsResult((prev) => {
-        const seen = new Set(prev.map((p) => p.ap_id));
-        return [...prev, ...res.items.filter((p) => !seen.has(p.ap_id))];
-      });
+      appendSearchPosts(res.items);
       setPostsOffset((o) => o + res.items.length);
       setPostsHasMore(res.hasMore);
     } catch (e) {
@@ -452,7 +471,7 @@ export function SearchPage() {
         limit: SEARCH_PAGE_SIZE,
       });
       if (gen !== searchGen) return;
-      setSearchUsersResult(res.items);
+      replaceSearchUsers(res.items);
       setUsersOffset(res.items.length);
       setUsersHasMore(res.hasMore);
       if (includeRemote() && REMOTE_ACTOR_QUERY_PATTERN.test(trimmedQuery)) {
@@ -487,7 +506,7 @@ export function SearchPage() {
             limit: SEARCH_PAGE_SIZE,
           });
       if (gen !== searchGen) return;
-      setSearchPostsResult(res.items);
+      replaceSearchPosts(res.items);
       setPostsOffset(res.items.length);
       setPostsHasMore(res.hasMore);
     } catch (e) {
@@ -561,8 +580,8 @@ export function SearchPage() {
     setSearchQuery("");
     setSearched(false);
     setSearchError(null);
-    setSearchUsersResult([]);
-    setSearchPostsResult([]);
+    replaceSearchUsers([]);
+    replaceSearchPosts([]);
     setFilteredCommunities([]);
     setSearchingRemote(false);
   };
@@ -575,7 +594,7 @@ export function SearchPage() {
 
     const wasLiked = post.liked;
     const applyDelta = (liked: boolean, delta: number) =>
-      setSearchPostsResult((prev) =>
+      updateSearchPostsPreservingKeys((prev) =>
         prev.map((p) =>
           p.ap_id === post.ap_id
             ? { ...p, liked, like_count: Math.max(0, p.like_count + delta) }

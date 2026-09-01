@@ -71,23 +71,6 @@ const VISIBILITY_OPTIONS: {
   { value: "followers", labelKey: "posts.visibilityFollowers" },
 ];
 
-const ChevronDownIcon = () => (
-  <svg
-    class="h-4 w-4 shrink-0 text-neutral-400"
-    fill="none"
-    stroke="currentColor"
-    viewBox="0 0 24 24"
-    aria-hidden="true"
-  >
-    <path
-      stroke-linecap="round"
-      stroke-linejoin="round"
-      stroke-width={2}
-      d="M19 9l-7 7-7-7"
-    />
-  </svg>
-);
-
 export function TimelinePostModal(props: TimelinePostModalProps) {
   const { t } = useI18n();
   const [showCw, setShowCw] = createSignal(false);

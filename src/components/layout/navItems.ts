@@ -1,5 +1,5 @@
 import type { Component } from "solid-js";
-import type { TranslationKey } from "../../atoms/i18n.ts";
+import type { Translate, TranslationKey } from "../../atoms/i18n.ts";
 import {
   CreateNavIcon,
   HomeNavIcon,
@@ -26,6 +26,52 @@ export interface NavItem {
   // item uses the notification unread count, the messages item uses the DM
   // unread count.
   badge?: boolean;
+}
+
+export interface NavItemProjection {
+  readonly active: boolean;
+  readonly badge: {
+    readonly count: number;
+    readonly label: string;
+  } | null;
+}
+
+export function projectNavItem(
+  item: NavItem,
+  input: {
+    readonly pathname: string;
+    readonly notificationUnreadCount: number;
+    readonly directMessageUnreadCount: number;
+    readonly translate: Translate;
+  },
+): NavItemProjection {
+  const route = item.route;
+  const active =
+    route === undefined
+      ? false
+      : route === "/" || route === "/profile"
+        ? input.pathname === route
+        : input.pathname.startsWith(route);
+  if (!item.badge) return { active, badge: null };
+
+  const count =
+    item.id === "messages"
+      ? input.directMessageUnreadCount
+      : input.notificationUnreadCount;
+  const name =
+    item.id === "messages"
+      ? input.translate("nav.messages")
+      : input.translate("nav.notifications");
+  return {
+    active,
+    badge: {
+      count,
+      label: input
+        .translate("nav.unreadBadge")
+        .replace("{label}", name)
+        .replace("{count}", String(count)),
+    },
+  };
 }
 
 export const NAV_ITEMS: NavItem[] = [

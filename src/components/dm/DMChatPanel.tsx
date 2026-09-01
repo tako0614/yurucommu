@@ -16,6 +16,7 @@ import {
   createConversationSource,
   type ChatMessage,
 } from "./conversation-source.ts";
+import { mergeMessagesById } from "./message-merge.ts";
 
 interface DMChatPanelProps {
   contact: DMContact;
@@ -26,33 +27,6 @@ interface DMChatPanelProps {
 
 // Poll interval for re-fetching incoming messages on the open conversation.
 const MESSAGE_POLL_MS = 4000;
-
-/**
- * Merge a freshly-fetched message list into the existing list, deduplicating
- * by message id. The server-ordered `fetched` list is authoritative; any
- * existing message not yet present in it (e.g. an optimistic send the server
- * has not indexed yet) is appended at the end so it does not flicker out.
- */
-function mergeMessagesById(
-  existing: ChatMessage[],
-  fetched: ChatMessage[],
-): ChatMessage[] {
-  const fetchedIds = new Set(fetched.map((m) => m.id));
-  const pending = existing.filter((m) => !fetchedIds.has(m.id));
-  const merged = pending.length > 0 ? [...fetched, ...pending] : fetched;
-
-  // No-op guard: if the merged id-sequence is identical to the existing one,
-  // return the PREVIOUS array reference so the `messages` signal does not
-  // change identity on a poll that fetched nothing new. This stops the
-  // scroll-to-bottom effect from re-firing every poll interval.
-  if (
-    merged.length === existing.length &&
-    merged.every((m, i) => m.id === existing[i].id)
-  ) {
-    return existing;
-  }
-  return merged;
-}
 
 export function DMChatPanel(props: DMChatPanelProps) {
   const [messages, setMessages] = createSignal<ChatMessage[]>([]);

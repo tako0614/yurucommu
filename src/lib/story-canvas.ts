@@ -279,6 +279,8 @@ export class StoryCanvas {
   private layers: Layer[] = [];
   private imageCache: Map<string, HTMLImageElement> = new Map();
   private fontsLoaded: Set<string> = new Set();
+  private renderOrderCache:
+    { sortedLayers: Layer[]; zIndices: number[] } | undefined;
 
   constructor(canvas?: HTMLCanvasElement) {
     if (canvas) {
@@ -333,6 +335,7 @@ export class StoryCanvas {
       zIndex: maxZIndex + 1,
     } as Layer;
     this.layers.push(newLayer);
+    this.renderOrderCache = undefined;
     return newLayer;
   }
 
@@ -341,12 +344,19 @@ export class StoryCanvas {
     const index = this.layers.findIndex((l) => l.id === id);
     if (index !== -1) {
       this.layers[index] = { ...this.layers[index], ...updates } as Layer;
+      this.renderOrderCache = undefined;
     }
   }
 
   // Remove layer
   removeLayer(id: string): void {
-    this.layers = this.layers.filter((l) => l.id !== id);
+    const nextLayers = this.layers.filter((l) => l.id !== id);
+    if (nextLayers.length !== this.layers.length) {
+      this.layers = nextLayers;
+      this.renderOrderCache = undefined;
+    } else {
+      this.layers = nextLayers;
+    }
   }
 
   // Move layer to front
@@ -411,7 +421,23 @@ export class StoryCanvas {
     this.ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
     // Sort layers by zIndex
-    const sortedLayers = [...this.layers].sort((a, b) => a.zIndex - b.zIndex);
+    const cached = this.renderOrderCache;
+    let sortedLayers: Layer[];
+    if (
+      cached &&
+      cached.sortedLayers.length === this.layers.length &&
+      cached.sortedLayers.every((layer, index) =>
+        Object.is(layer.zIndex, cached.zIndices[index]),
+      )
+    ) {
+      sortedLayers = cached.sortedLayers;
+    } else {
+      sortedLayers = [...this.layers].sort((a, b) => a.zIndex - b.zIndex);
+      this.renderOrderCache = {
+        sortedLayers,
+        zIndices: sortedLayers.map((layer) => layer.zIndex),
+      };
+    }
 
     // Draw each layer
     for (const layer of sortedLayers) {
@@ -584,6 +610,7 @@ export class StoryCanvas {
       const parsed = JSON.parse(data);
       if (parsed.version === 1 && Array.isArray(parsed.layers)) {
         this.layers = parsed.layers;
+        this.renderOrderCache = undefined;
       }
     } catch (e) {
       console.error("Failed to deserialize canvas state:", e);

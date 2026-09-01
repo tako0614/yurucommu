@@ -3,8 +3,8 @@ terraform {
 
   required_providers {
     takoform = {
-      source  = "registry.opentofu.org/tako0614/takoform"
-      version = "= 1.0.3"
+      source  = "registry.terraform.io/tako0614/takoform"
+      version = "= 3.0.0"
     }
   }
 }
@@ -20,151 +20,229 @@ variable "project_name" {
   }
 }
 
-variable "worker_release_tag" {
-  description = "Yurucommu GitHub release containing takosumi-artifact.json."
+variable "app_url" {
+  description = "Canonical public HTTPS origin for this Yurucommu instance."
   type        = string
-  default     = "v2.1.4"
 
   validation {
-    condition     = trimspace(var.worker_release_tag) == "" || can(regex("^v[0-9]+\\.[0-9]+\\.[0-9]+([-+][0-9A-Za-z.-]+)?$", trimspace(var.worker_release_tag)))
-    error_message = "worker_release_tag must be empty or a SemVer-like Git tag beginning with v."
-  }
-}
-
-variable "worker_bundle_url" {
-  description = "Immutable HTTPS Worker artifact URL pinned by this Yurucommu release."
-  type        = string
-  default     = "https://github.com/tako0614/yurucommu/releases/download/v2.1.4/yurucommu-worker.js"
-
-  validation {
-    condition     = can(regex("^https://[^[:space:]]+$", trimspace(var.worker_bundle_url)))
-    error_message = "worker_bundle_url must be an https URL."
-  }
-}
-
-variable "worker_bundle_sha256" {
-  description = "Expected SHA-256 for the pinned Worker artifact."
-  type        = string
-  default     = "sha256:31acde4dd22cca1d87015e10c9b682c4fcd0af1d8b3d758ec891f701b8a3261f"
-
-  validation {
-    condition     = can(regex("^(sha256:)?[a-f0-9]{64}$", trimspace(var.worker_bundle_sha256)))
-    error_message = "worker_bundle_sha256 must be lowercase SHA-256 hex or sha256:<hex>."
+    condition = trimspace(var.app_url) == var.app_url && (can(regex(
+      "^https://([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*(:[0-9]{1,5})?$",
+      var.app_url,
+    )) || can(regex("^https://\\[[0-9A-Fa-f:.]+\\](:[0-9]{1,5})?$", var.app_url)))
+    error_message = "app_url must be an exact HTTPS origin without a path, query, fragment, userinfo, or trailing slash."
   }
 }
 
 locals {
-  release_tag             = trimspace(var.worker_release_tag)
-  artifact_url            = trimspace(var.worker_bundle_url)
-  artifact_sha256         = trimspace(var.worker_bundle_sha256)
-  artifact_sha256_checked = startswith(local.artifact_sha256, "sha256:") ? local.artifact_sha256 : "sha256:${local.artifact_sha256}"
-  prefix                  = var.project_name
-}
-
-resource "takoform_relational_database" "database" {
-  name          = "${local.prefix}-db"
-  engine        = "sqlite"
-  schema_url    = "https://raw.githubusercontent.com/tako0614/yurucommu/bf7a3bdb55d9bd562ac895ada10ac42ce09a11b9/deploy/takoform/migrations/schema-bundle.json"
-  schema_sha256 = "f14135367b4b00a520f0ef8abc41f67d53c6abb9ef8577d946fb199987f5abaa"
-  schema_format = "takosumi.resource-migrations"
-}
-
-resource "takoform_object_bucket" "media" {
-  name          = "${local.prefix}-media"
-  storage_class = "standard"
-}
-
-resource "takoform_key_value_store" "kv" {
-  name        = "${local.prefix}-kv"
-  consistency = "eventual"
-}
-
-resource "takoform_queue" "delivery" {
-  name = "${local.prefix}-delivery"
-}
-
-resource "takoform_queue" "delivery_dlq" {
-  name = "${local.prefix}-delivery-dlq"
-}
-
-resource "takoform_edge_worker" "worker" {
-  name                = local.prefix
-  artifact_url        = local.artifact_url
-  artifact_sha256     = local.artifact_sha256_checked
-  artifact_media_type = "application/javascript+module"
-  entrypoint          = "yurucommu-worker.js"
-  runtime             = "javascript"
-  configuration = {
-    DELIVERY_QUEUE_NAME = "${local.prefix}-delivery"
-    DELIVERY_DLQ_NAME   = "${local.prefix}-delivery-dlq"
+  prefix                    = var.project_name
+  worker_bundle_path        = "${path.module}/.generated/yurucommu-worker.js"
+  migration_root            = "${path.module}/migrations/sql"
+  migration_files           = fileset(local.migration_root, "*.sql")
+  resource_name_max_length  = 63
+  resource_name_hash_length = 8
+  resource_name_suffixes = {
+    database     = "db"
+    kv           = "kv"
+    delivery     = "delivery"
+    delivery_dlq = "delivery-dlq"
+    retention    = "retention"
   }
+  resource_names = merge(
+    { app = local.prefix },
+    {
+      for key, suffix in local.resource_name_suffixes :
+      key => length("${local.prefix}-${suffix}") <= local.resource_name_max_length
+      ? "${local.prefix}-${suffix}"
+      : format(
+        "%s-%s-%s",
+        substr(local.prefix, 0, local.resource_name_max_length - length(suffix) - local.resource_name_hash_length - 2),
+        suffix,
+        substr(sha256("${local.prefix}-${suffix}"), 0, local.resource_name_hash_length),
+      )
+    },
+  )
+  worker_plain_values = {
+    APP_URL                = trimspace(var.app_url)
+    DELIVERY_QUEUE_NAME    = local.resource_names.delivery
+    DELIVERY_DLQ_NAME      = local.resource_names.delivery_dlq
+    YURUCOMMU_RUNTIME_LANE = "takoform-v1"
+  }
+}
 
-  connections = [
+resource "takoform_module_worker" "worker" {
+  name = local.resource_names.app
+
+  depends_on = [
+    takoform_sqlite_database.database,
+    takoform_edge_kv_namespace.kv,
+    takoform_at_least_once_queue.delivery,
+    takoform_at_least_once_queue.delivery_dlq,
+  ]
+}
+
+resource "takoform_sqlite_database" "database" {
+  name = local.resource_names.database
+}
+
+resource "takoform_sqlite_migration_set" "schema" {
+  revision_owner = local.resource_names.app
+
+  files = [
+    for relative_path in sort(local.migration_files) : {
+      path         = relative_path
+      media_type   = "application/sql"
+      content_file = "${local.migration_root}/${relative_path}"
+    }
+  ]
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+resource "takoform_sqlite_migration_application" "schema" {
+  name          = "${local.resource_names.app}-schema"
+  database      = takoform_sqlite_database.database.name
+  migration_set = takoform_sqlite_migration_set.schema.name
+}
+
+resource "takoform_edge_kv_namespace" "kv" {
+  name = local.resource_names.kv
+}
+
+resource "takoform_at_least_once_queue" "delivery" {
+  name                      = local.resource_names.delivery
+  message_retention_seconds = 345600
+  delivery_delay_seconds    = 0
+}
+
+resource "takoform_at_least_once_queue" "delivery_dlq" {
+  name                      = local.resource_names.delivery_dlq
+  message_retention_seconds = 1209600
+  delivery_delay_seconds    = 0
+}
+
+resource "takoform_worker_bundle" "worker" {
+  revision_owner = takoform_module_worker.worker.name
+  main_module    = "yurucommu-worker.js"
+
+  modules = [
     {
-      name        = "DB"
-      resource    = takoform_relational_database.database.id
-      permissions = ["connect", "read", "write"]
-      projection  = "sql.binding.v1"
-    },
-    {
-      name        = "DELIVERY_DLQ"
-      resource    = takoform_queue.delivery_dlq.id
-      permissions = ["consume", "publish"]
-      projection  = "queue.binding.v1"
-    },
-    {
-      name        = "DELIVERY_QUEUE"
-      resource    = takoform_queue.delivery.id
-      permissions = ["consume", "publish"]
-      projection  = "queue.binding.v1"
-    },
-    {
-      name        = "KV"
-      resource    = takoform_key_value_store.kv.id
-      permissions = ["read", "write"]
-      projection  = "keyvalue.binding.v1"
-    },
-    {
-      name        = "MEDIA"
-      resource    = takoform_object_bucket.media.id
-      permissions = ["read", "write"]
-      projection  = "object.binding.v1"
+      name         = "yurucommu-worker.js"
+      content_type = "application/javascript+module"
+      content_file = local.worker_bundle_path
     },
   ]
 
   lifecycle {
-    precondition {
-      condition     = strcontains(local.artifact_url, "/releases/download/${local.release_tag}/")
-      error_message = "worker_bundle_url must select the exact worker_release_tag."
-    }
-
-    precondition {
-      condition     = can(regex("^https://[^[:space:]]+$", local.artifact_url)) && can(regex("^sha256:[a-f0-9]{64}$", local.artifact_sha256_checked))
-      error_message = "The selected Yurucommu Worker artifact must have an immutable HTTPS URL and SHA-256."
-    }
+    create_before_destroy = true
   }
 }
 
-resource "takoform_schedule" "retention" {
-  name     = "${local.prefix}-retention"
-  cron     = "0 3 * * *"
-  timezone = "UTC"
+resource "takoform_worker_version" "worker" {
+  revision_owner = takoform_module_worker.worker.name
+  worker         = takoform_module_worker.worker.name
+  bundle         = takoform_worker_bundle.worker.name
+  handlers       = ["fetch", "queue", "scheduled"]
+  vars_json      = jsonencode(local.worker_plain_values)
+  required_sensitive_vars = [
+    "ENCRYPTION_KEY",
+    "TAKOSUMI_ACCOUNTS_ISSUER_URL",
+    "TAKOSUMI_ACCOUNTS_CLIENT_ID",
+    "TAKOSUMI_ACCOUNTS_OWNER_SUB",
+    "TAKOSUMI_ACCOUNTS_REDIRECT_URI",
+  ]
 
-  connections = [
+  kv_bindings = [
     {
-      name        = "WORKER"
-      resource    = takoform_edge_worker.worker.id
-      permissions = ["invoke"]
-      projection  = "schedule.trigger.v1"
+      name        = "KV"
+      target_name = takoform_edge_kv_namespace.kv.name
+    },
+  ]
+
+  sqlite_bindings = [
+    {
+      name        = "DB"
+      target_name = takoform_sqlite_database.database.name
+    },
+  ]
+
+  queue_producer_bindings = [
+    {
+      name        = "DELIVERY_QUEUE"
+      target_name = takoform_at_least_once_queue.delivery.name
+    },
+    {
+      name        = "DELIVERY_DLQ"
+      target_name = takoform_at_least_once_queue.delivery_dlq.name
+    },
+  ]
+
+  external_services = [
+    {
+      name     = "MEDIA"
+      protocol = "com.amazonaws.s3"
+      required = true
+    },
+  ]
+
+  depends_on = [takoform_sqlite_migration_application.schema]
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+resource "takoform_worker_deployment" "worker" {
+  name   = "${local.resource_names.app}-deployment"
+  worker = takoform_module_worker.worker.name
+
+  versions = [
+    {
+      worker_version = takoform_worker_version.worker.name
+      weight         = 10000
     },
   ]
 }
 
-data "takoform_interface" "worker_http" {
-  name          = "http.request"
-  version       = "1"
-  resource_kind = "EdgeWorker"
-  resource_name = takoform_edge_worker.worker.name
+resource "takoform_worker_endpoint" "worker" {
+  name   = "${local.resource_names.app}-endpoint"
+  worker = takoform_module_worker.worker.name
 
-  depends_on = [takoform_edge_worker.worker]
+  depends_on = [takoform_worker_deployment.worker]
+}
+
+resource "takoform_queue_consumer" "delivery" {
+  name                      = "${local.resource_names.app}-delivery-consumer"
+  queue                     = takoform_at_least_once_queue.delivery.name
+  worker                    = takoform_module_worker.worker.name
+  max_batch_size            = 10
+  max_batch_timeout_seconds = 1
+  max_retries               = 3
+  retry_delay_seconds       = 60
+  dead_letter_queue         = takoform_at_least_once_queue.delivery_dlq.name
+  max_concurrency           = 4
+
+  depends_on = [takoform_worker_deployment.worker]
+}
+
+resource "takoform_queue_consumer" "delivery_dlq" {
+  name                      = "${local.resource_names.app}-delivery-dlq-consumer"
+  queue                     = takoform_at_least_once_queue.delivery_dlq.name
+  worker                    = takoform_module_worker.worker.name
+  max_batch_size            = 10
+  max_batch_timeout_seconds = 60
+  max_retries               = 1
+  retry_delay_seconds       = 60
+  max_concurrency           = 4
+
+  depends_on = [takoform_worker_deployment.worker]
+}
+
+resource "takoform_worker_cron_trigger" "retention" {
+  name   = "${local.resource_names.app}-retention"
+  worker = takoform_module_worker.worker.name
+  cron   = "0 * * * *"
+
+  depends_on = [takoform_worker_deployment.worker]
 }

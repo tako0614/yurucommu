@@ -201,6 +201,110 @@ test("loadMoreFollowingTimeline paginates /api/timeline/following with the serve
   }
 });
 
+test("a slower full timeline load cannot overwrite the newer generation", async () => {
+  ensureLocalStorage();
+  const { loadTimelineAtom, timelinePostsAtom } = await import("./timeline.ts");
+  const { clearYurucommuFrontendPlugin } = await import("../lib/plugin.ts");
+
+  let resolveFirst!: (response: Response) => void;
+  let resolveSecond!: (response: Response) => void;
+  const firstResponse = new Promise<Response>((resolve) => {
+    resolveFirst = resolve;
+  });
+  const secondResponse = new Promise<Response>((resolve) => {
+    resolveSecond = resolve;
+  });
+  let calls = 0;
+  const originalFetch = globalThis.fetch;
+  clearYurucommuFrontendPlugin();
+  globalThis.fetch = ((_input: RequestInfo | URL) => {
+    calls += 1;
+    return calls === 1 ? firstResponse : secondResponse;
+  }) as typeof fetch;
+
+  try {
+    const store = createStore();
+    const slower = store.set(loadTimelineAtom);
+    const newer = store.set(loadTimelineAtom);
+
+    const newestPost = makePost("https://example.com/ap/objects/newest");
+    resolveSecond(Response.json({ posts: [newestPost], has_more: false }));
+    await newer;
+
+    resolveFirst(
+      Response.json({
+        posts: [makePost("https://example.com/ap/objects/stale")],
+        has_more: false,
+      }),
+    );
+    await slower;
+
+    assertEquals(
+      store.get(timelinePostsAtom).map((post) => post.ap_id),
+      [newestPost.ap_id],
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    clearYurucommuFrontendPlugin();
+  }
+});
+
+test("an older page is discarded when a full reload wins mid-flight", async () => {
+  ensureLocalStorage();
+  const {
+    loadMoreTimelineAtom,
+    loadTimelineAtom,
+    timelineCursorAtom,
+    timelineHasMoreAtom,
+    timelinePostsAtom,
+  } = await import("./timeline.ts");
+  const { clearYurucommuFrontendPlugin } = await import("../lib/plugin.ts");
+
+  let resolveOlderPage!: (response: Response) => void;
+  const olderPage = new Promise<Response>((resolve) => {
+    resolveOlderPage = resolve;
+  });
+  const freshPost = makePost("https://example.com/ap/objects/fresh");
+  const originalFetch = globalThis.fetch;
+  clearYurucommuFrontendPlugin();
+  globalThis.fetch = ((input: RequestInfo | URL) => {
+    const url = new URL(
+      typeof input === "string" ? input : input.toString(),
+      "http://localhost",
+    );
+    return url.searchParams.has("before")
+      ? olderPage
+      : Promise.resolve(Response.json({ posts: [freshPost], has_more: false }));
+  }) as typeof fetch;
+
+  try {
+    const store = createStore();
+    store.set(timelinePostsAtom, [
+      makePost("https://example.com/ap/objects/current"),
+    ]);
+    store.set(timelineCursorAtom, "opaque-older-cursor");
+    store.set(timelineHasMoreAtom, true);
+
+    const loadingOlderPage = store.set(loadMoreTimelineAtom);
+    await store.set(loadTimelineAtom);
+    resolveOlderPage(
+      Response.json({
+        posts: [makePost("https://example.com/ap/objects/stale-older")],
+        has_more: false,
+      }),
+    );
+    await loadingOlderPage;
+
+    assertEquals(
+      store.get(timelinePostsAtom).map((post) => post.ap_id),
+      [freshPost.ap_id],
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    clearYurucommuFrontendPlugin();
+  }
+});
+
 // Forward-compat: a boost entry shares the boosted post's ap_id and is only
 // distinguished by repost_ap_id (see PostWithRepost/feedItemKey). checkNewPosts
 // must stage a NEW boost of an already-visible post instead of swallowing it

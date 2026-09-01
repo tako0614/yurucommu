@@ -42,6 +42,53 @@ test("hitTest uses rotated layer bounds and zIndex order", () => {
   assertEquals(hitTest([lower, upper], 195, 125), null);
 });
 
+test("hitTest keeps the first intersecting layer for equal zIndex", () => {
+  const first = mediaLayer({ id: "first", zIndex: 3 });
+  const second = mediaLayer({ id: "second", zIndex: 3 });
+
+  assertEquals(hitTest([first, second], 150, 170)?.id, "first");
+});
+
+test("hitTest excludes invisible, locked, and background layers", () => {
+  const invisible = mediaLayer({
+    id: "invisible",
+    zIndex: 4,
+    visible: false,
+  });
+  const locked = mediaLayer({ id: "locked", zIndex: 5, locked: true });
+  const background = mediaLayer({
+    id: "background",
+    type: "background",
+    zIndex: 6,
+  });
+  const eligible = mediaLayer({ id: "eligible", zIndex: 1 });
+
+  assertEquals(
+    hitTest([invisible, locked, background, eligible], 150, 170)?.id,
+    "eligible",
+  );
+});
+
+test("hitTest reads each eligible zIndex once without sorting", () => {
+  const layerCount = 1_024;
+  let zIndexReads = 0;
+  const layers = Array.from({ length: layerCount }, (_, index) => {
+    const layer = mediaLayer({ id: `layer-${index}`, zIndex: index });
+    Object.defineProperty(layer, "zIndex", {
+      configurable: true,
+      enumerable: true,
+      get() {
+        zIndexReads += 1;
+        return index;
+      },
+    });
+    return layer;
+  });
+
+  assertEquals(hitTest(layers, 150, 170)?.id, `layer-${layerCount - 1}`);
+  assertEquals(zIndexReads, layerCount);
+});
+
 test("getLayerCorners returns rotated canvas-space corners", () => {
   const corners = getLayerCorners(mediaLayer());
   const expected = [

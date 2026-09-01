@@ -11,6 +11,7 @@ import {
 import { useNavigate, useParams, useSearchParams } from "@solidjs/router";
 import { useAtomValue, useSetAtom } from "solid-jotai";
 import { useRequiredActor } from "../hooks/useRequiredActor.ts";
+import { startVisibilityPolling } from "../hooks/visibility-polling.ts";
 import { refreshDmUnreadAtom } from "../atoms/dm-unread.ts";
 import {
   actorNotesAtom,
@@ -286,44 +287,9 @@ export function DMPage() {
   // do not resolve the URL param here to avoid a double-resolve on first load.
   onMount(() => {
     setSearchQuery("");
-    void loadContacts();
+    const cleanupPolling = startVisibilityPolling(loadContacts);
     void loadNotes();
-
-    // Keep the contact list fresh. Previously it was fetched exactly once on
-    // mount (only the unread badge polled), so new conversations / reordered
-    // threads never appeared without a full page reload. Same visibility-gated
-    // 30s cadence as useUnreadPolling: pause while hidden, refresh immediately
-    // on return. A background refresh is non-disruptive: loadContacts() only
-    // shows the skeleton when the list is empty, and the selection effect only
-    // swaps the open conversation when its identity actually changes.
-    const POLL_INTERVAL_MS = 30000;
-    let intervalId: ReturnType<typeof setInterval> | null = null;
-    const stopPolling = () => {
-      if (intervalId !== null) {
-        clearInterval(intervalId);
-        intervalId = null;
-      }
-    };
-    const startPolling = () => {
-      if (intervalId !== null) return;
-      intervalId = setInterval(() => {
-        void loadContacts();
-      }, POLL_INTERVAL_MS);
-    };
-    const handleVisibility = () => {
-      if (document.hidden) {
-        stopPolling();
-      } else {
-        void loadContacts();
-        startPolling();
-      }
-    };
-    if (!document.hidden) startPolling();
-    document.addEventListener("visibilitychange", handleVisibility);
-    onCleanup(() => {
-      stopPolling();
-      document.removeEventListener("visibilitychange", handleVisibility);
-    });
+    onCleanup(cleanupPolling);
   });
 
   // Handle contact selection when URL changes (after initial load)

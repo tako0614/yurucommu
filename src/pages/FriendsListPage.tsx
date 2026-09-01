@@ -1,8 +1,13 @@
-import { createSignal, For, onMount, Show } from "solid-js";
+import { createMemo, createSignal, For, onMount, Show } from "solid-js";
 import { A, useNavigate, useSearchParams } from "@solidjs/router";
 import { useRequiredActor } from "../hooks/useRequiredActor.ts";
 import { Actor } from "../types/index.ts";
 import { fetchFollowers, fetchFollowing } from "../lib/api.ts";
+import {
+  appendActorPageInPlace,
+  replaceActorPageInPlace,
+} from "../lib/actor-page.ts";
+import { filterActorsByNormalizedQuery } from "../lib/actor-search.ts";
 import { handleTablistKeydown } from "../lib/tablistNav.ts";
 import { useI18n } from "../lib/i18n.tsx";
 import { UserAvatar } from "../components/UserAvatar.tsx";
@@ -77,8 +82,16 @@ export function FriendsListPage() {
     searchParams.tab === "followers" ? "followers" : "following";
   const [activeTab, setActiveTab] = createSignal<TabType>(initialTab);
   const FRIENDS_PAGE = 50;
-  const [following, setFollowing] = createSignal<Actor[]>([]);
-  const [followers, setFollowers] = createSignal<Actor[]>([]);
+  const followingOwned: Actor[] = [];
+  const followersOwned: Actor[] = [];
+  const followingActorIds = new Set<string>();
+  const followersActorIds = new Set<string>();
+  const [following, setFollowing] = createSignal<Actor[]>(followingOwned, {
+    equals: false,
+  });
+  const [followers, setFollowers] = createSignal<Actor[]>(followersOwned, {
+    equals: false,
+  });
   const [followingHasMore, setFollowingHasMore] = createSignal(false);
   const [followersHasMore, setFollowersHasMore] = createSignal(false);
   // True follow totals from the API (the list itself is paginated, so the loaded
@@ -103,8 +116,18 @@ export function FriendsListPage() {
         fetchFollowing(actor.ap_id, { limit: FRIENDS_PAGE, offset: 0 }),
         fetchFollowers(actor.ap_id, { limit: FRIENDS_PAGE, offset: 0 }),
       ]);
-      setFollowing(followingData.actors);
-      setFollowers(followersData.actors);
+      replaceActorPageInPlace(
+        followingOwned,
+        followingActorIds,
+        followingData.actors,
+      );
+      replaceActorPageInPlace(
+        followersOwned,
+        followersActorIds,
+        followersData.actors,
+      );
+      setFollowing(followingOwned);
+      setFollowers(followersOwned);
       setFollowingHasMore(followingData.hasMore);
       setFollowersHasMore(followersData.hasMore);
       setFollowingTotal(followingData.total);
@@ -127,21 +150,20 @@ export function FriendsListPage() {
     const tab = activeTab();
     setLoadingMore(true);
     try {
-      const offset = (tab === "following" ? following() : followers()).length;
+      const target = tab === "following" ? followingOwned : followersOwned;
+      const seen = tab === "following" ? followingActorIds : followersActorIds;
+      const offset = target.length;
       const fetcher = tab === "following" ? fetchFollowing : fetchFollowers;
       const page = await fetcher(actor.ap_id, {
         limit: FRIENDS_PAGE,
         offset,
       });
-      const append = (prev: Actor[]) => {
-        const seen = new Set(prev.map((a) => a.ap_id));
-        return [...prev, ...page.actors.filter((a) => !seen.has(a.ap_id))];
-      };
+      appendActorPageInPlace(target, seen, page.actors);
       if (tab === "following") {
-        setFollowing(append);
+        setFollowing(followingOwned);
         setFollowingHasMore(page.hasMore);
       } else {
-        setFollowers(append);
+        setFollowers(followersOwned);
         setFollowersHasMore(page.hasMore);
       }
     } catch (e) {
@@ -158,18 +180,15 @@ export function FriendsListPage() {
 
   const currentList = () =>
     activeTab() === "following" ? following() : followers();
-  const filteredList = () => {
-    const query = searchQuery();
-    const list = currentList();
-    return query
-      ? list.filter(
-          (f) =>
-            f.name?.toLowerCase().includes(query.toLowerCase()) ||
-            f.preferred_username.toLowerCase().includes(query.toLowerCase()) ||
-            f.username.toLowerCase().includes(query.toLowerCase()),
-        )
-      : list;
-  };
+  const normalizedSearchQuery = createMemo(() => searchQuery().toLowerCase());
+  const filteredList = createMemo(
+    () => filterActorsByNormalizedQuery(currentList(), normalizedSearchQuery()),
+    undefined,
+    // Wave 20 keeps each tab in one owned array and notifies with the same
+    // reference. Propagate those list updates even when an empty query returns
+    // that owned array unchanged.
+    { equals: false },
+  );
 
   return (
     <div class="flex flex-col h-full">

@@ -14,6 +14,8 @@ import {
   unarchiveNotifications,
 } from "../lib/api.ts";
 import { handleTablistKeydown } from "../lib/tablistNav.ts";
+import { reconcileNewestNotifications } from "../lib/notification-reconciliation.ts";
+import { createKeyedPageOwner } from "../lib/keyed-page.ts";
 import { useI18n } from "../lib/i18n.tsx";
 import { formatRelativeTime } from "../lib/datetime.ts";
 import { UserAvatar } from "../components/UserAvatar.tsx";
@@ -28,20 +30,7 @@ import { EmptyState } from "../components/EmptyState.tsx";
 import { PostSkeleton } from "../components/timeline/PostSkeleton.tsx";
 import type { JSX } from "solid-js";
 
-// Preserve object identity for unchanged notifications across an in-place
-// refresh so the `<For>` (keyed by reference) re-renders only the rows that
-// actually changed, instead of rebuilding the whole list (visible flicker) on
-// every focus/visibility refresh.
-function mergeNotificationsById(
-  prev: Notification[],
-  next: Notification[],
-): Notification[] {
-  const prevById = new Map(prev.map((n) => [n.id, n]));
-  return next.map((n) => {
-    const old = prevById.get(n.id);
-    return old && JSON.stringify(old) === JSON.stringify(n) ? old : n;
-  });
-}
+const notificationId = (notification: Notification) => notification.id;
 
 const BellIcon = (props: { class?: string; strokeWidth?: number }) => (
   <svg
@@ -146,7 +135,34 @@ export function NotificationPage() {
   const [error, setError] = createSignal<string | null>(null);
   const clearError = () => setError(null);
   const [loadError, setLoadError] = createSignal<string | null>(null);
-  const [notifications, setNotifications] = createSignal<Notification[]>([]);
+  const notificationPage = createKeyedPageOwner<Notification, string>(
+    notificationId,
+  );
+  const [notifications, setNotifications] = createSignal<Notification[]>(
+    notificationPage.current(),
+    { equals: false },
+  );
+  const replaceNotifications = (page: readonly Notification[]) => {
+    setNotifications(notificationPage.replace(page));
+  };
+  const appendNotificationPage = (page: readonly Notification[]) => {
+    const previousLength = notificationPage.current().length;
+    const next = notificationPage.appendPage(page);
+    if (next.length !== previousLength) setNotifications(next);
+  };
+  const updateNotificationsPreservingKeys = (
+    updater: (previous: Notification[]) => Notification[],
+  ) => {
+    setNotifications(notificationPage.updatePreservingKeys(updater));
+  };
+  const updateNotificationsAndReindex = (
+    updater: (previous: Notification[]) => Notification[],
+  ) => {
+    setNotifications(notificationPage.updateAndReindex(updater));
+  };
+  const removeNotification = (id: string) => {
+    setNotifications(notificationPage.remove(id));
+  };
   const [loading, setLoading] = createSignal(true);
   const [pendingAction, setPendingAction] = createSignal<
     Record<string, boolean>
@@ -174,7 +190,7 @@ export function NotificationPage() {
     const archived = viewArchived();
     reloadKey();
 
-    setNotifications([]);
+    replaceNotifications([]);
     setHasMoreOlder(false);
     setNextCursor(null);
     setLoadError(null);
@@ -193,7 +209,7 @@ export function NotificationPage() {
           archived,
         });
         if (cancelled) return;
-        setNotifications(data);
+        replaceNotifications(data);
         setHasMoreOlder(hasMore);
         setNextCursor(pageCursor);
 
@@ -207,7 +223,7 @@ export function NotificationPage() {
           try {
             await markNotificationsRead(unread.map((n) => n.id));
             if (!cancelled) {
-              setNotifications((prev) =>
+              updateNotificationsPreservingKeys((prev) =>
                 prev.map((n) => (n.read ? n : { ...n, read: true })),
               );
               // Re-sync the shared badge from the backend (a filtered view may
@@ -246,7 +262,7 @@ export function NotificationPage() {
     if (archivingAll() || archiving()[notification.id]) return;
     const wasArchived = viewArchived();
     setArchiving((p) => ({ ...p, [notification.id]: true }));
-    setNotifications((prev) => prev.filter((n) => n.id !== notification.id));
+    removeNotification(notification.id);
     try {
       if (wasArchived) {
         await unarchiveNotifications([notification.id]);
@@ -259,7 +275,7 @@ export function NotificationPage() {
       // reset the list to page 1, flashed the skeleton and lost scroll on every
       // archive). A load-older page that raced the write may have re-added the
       // row after the filter above; drop it again.
-      setNotifications((prev) => prev.filter((n) => n.id !== notification.id));
+      removeNotification(notification.id);
     } catch (e) {
       console.error("Failed to (un)archive notification:", e);
       setError(
@@ -294,7 +310,7 @@ export function NotificationPage() {
       void refreshUnread();
       // Everything moved to the archive: the inbox is now empty by definition,
       // so reflect that in place instead of a skeleton-flashing full reload.
-      setNotifications([]);
+      replaceNotifications([]);
       setHasMoreOlder(false);
       setNextCursor(null);
     } catch (e) {
@@ -336,11 +352,7 @@ export function NotificationPage() {
         reloadKey() !== key
       )
         return; // changed mid-flight
-      setNotifications((prev) => {
-        const ids = new Set(prev.map((n) => n.id));
-        const fresh = older.filter((n) => !ids.has(n.id));
-        return fresh.length > 0 ? [...prev, ...fresh] : prev;
-      });
+      appendNotificationPage(older);
       setHasMoreOlder(hasMore);
       setNextCursor(pageCursor);
 
@@ -358,7 +370,7 @@ export function NotificationPage() {
             reloadKey() === key
           ) {
             const marked = new Set(ids);
-            setNotifications((prev) =>
+            updateNotificationsPreservingKeys((prev) =>
               prev.map((n) =>
                 !n.read && marked.has(n.id) ? { ...n, read: true } : n,
               ),
@@ -406,20 +418,9 @@ export function NotificationPage() {
       // Only re-append items STRICTLY older than the refreshed page's boundary
       // (same (created_at, id) keyset order): an item from the newest-page region
       // that the server dropped must not be resurrected or rendered out of order.
-      setNotifications((prev) => {
-        const merged = mergeNotificationsById(prev, data);
-        const newIds = new Set(merged.map((n) => n.id));
-        const boundary = data[data.length - 1];
-        const older = boundary
-          ? prev.filter(
-              (n) =>
-                !newIds.has(n.id) &&
-                (n.created_at < boundary.created_at ||
-                  (n.created_at === boundary.created_at && n.id < boundary.id)),
-            )
-          : [];
-        return older.length > 0 ? [...merged, ...older] : merged;
-      });
+      updateNotificationsAndReindex((prev) =>
+        reconcileNewestNotifications(prev, data),
+      );
 
       const unread = archived ? [] : data.filter((n) => !n.read);
       if (unread.length > 0) {
@@ -431,7 +432,7 @@ export function NotificationPage() {
             // rows were never POSTed — a blanket flip would mark them read
             // locally while the server still holds them unread.
             const marked = new Set(unread.map((n) => n.id));
-            setNotifications((prev) =>
+            updateNotificationsPreservingKeys((prev) =>
               prev.map((n) =>
                 n.read || !marked.has(n.id) ? n : { ...n, read: true },
               ),
@@ -472,7 +473,7 @@ export function NotificationPage() {
       } else {
         await rejectFollowRequest(notification.actor.ap_id);
       }
-      setNotifications((prev) => prev.filter((n) => n.id !== notification.id));
+      removeNotification(notification.id);
       void refreshUnread();
     } catch (e) {
       console.error("Failed to handle follow request:", e);

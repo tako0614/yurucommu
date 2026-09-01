@@ -5,7 +5,6 @@ import {
   claimTakosumiOidcAutoStart,
   shouldAutoStartTakosumiOidc,
   type AuthConfig,
-  type OAuthProvider,
 } from "../lib/auth-config.ts";
 import { useI18n } from "../lib/i18n.tsx";
 

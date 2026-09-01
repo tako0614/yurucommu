@@ -42,18 +42,22 @@ export function isPointInLayer(px: number, py: number, layer: Layer): boolean {
  * Find the topmost visible, unlocked, non-background layer at a given point.
  */
 export function hitTest(layers: Layer[], x: number, y: number): Layer | null {
-  // Check layers from top to bottom (reverse zIndex order)
-  const sortedLayers = [...layers]
-    .filter((l) => l.visible && !l.locked && l.type !== "background")
-    .sort((a, b) => b.zIndex - a.zIndex);
+  let topmostLayer: Layer | null = null;
+  let topmostZIndex = -Infinity;
 
-  for (const layer of sortedLayers) {
-    if (isPointInLayer(x, y, layer)) {
-      return layer;
-    }
+  // Scan in input order so equal z-indices retain the first intersecting layer.
+  for (const layer of layers) {
+    if (!layer.visible || layer.locked || layer.type === "background") continue;
+
+    const zIndex = layer.zIndex;
+    if (topmostLayer !== null && !(zIndex > topmostZIndex)) continue;
+    if (!isPointInLayer(x, y, layer)) continue;
+
+    topmostLayer = layer;
+    topmostZIndex = zIndex;
   }
 
-  return null;
+  return topmostLayer;
 }
 
 // ---------------------------------------------------------------------------

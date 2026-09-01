@@ -79,19 +79,6 @@ export function useTimelineState() {
   const [feedTab, setFeedTab] = useAtom(homeFeedTabAtom);
   const activeTab = (): HomeFeedTab => (scopeQuery() ? "all" : feedTab());
 
-  // Tab-dispatched views over the two feeds. Every consumer below (list,
-  // skeleton, sentinel, retry) reads these so the markup stays tab-agnostic.
-  const posts = () =>
-    activeTab() === "following" ? followingPosts() : allPosts();
-  const loading = () =>
-    activeTab() === "following" ? followingLoading() : allLoading();
-  const loadingMore = () =>
-    activeTab() === "following" ? followingLoadingMore() : allLoadingMore();
-  const hasMore = () =>
-    activeTab() === "following" ? followingHasMore() : allHasMore();
-  const loadError = () =>
-    activeTab() === "following" ? followingLoadError() : allLoadError();
-
   // Feed mutations (like/delete/edit/mute/...) must land in BOTH tabs' lists —
   // a post can be visible in each — plus the staged new-posts buffer where the
   // existing call sites already did.
@@ -121,13 +108,6 @@ export function useTimelineState() {
   const loadStories = useSetAtom(loadStoriesAtom);
   const hydrateScope = useSetAtom(hydrateScopeAtom);
 
-  // Tab-dispatched actions: the sentinel/load-more button and the inline
-  // retry drive whichever feed the active tab shows.
-  const reload = () =>
-    activeTab() === "following" ? loadFollowing() : loadTimeline();
-  const loadMore = () =>
-    activeTab() === "following" ? loadMoreFollowing() : loadMoreAll();
-
   // New-posts indicator
   const pendingNewPosts = useAtomValue(pendingNewPostsAtom);
   const checkNewPosts = useSetAtom(checkNewPostsAtom);
@@ -141,22 +121,72 @@ export function useTimelineState() {
   const timelineLoadedAt = useAtomValue(timelineLoadedAtAtom);
   const [savedScrollTop, setSavedScrollTop] = useAtom(timelineScrollTopAtom);
 
+  type TimelineFeedView = {
+    posts: () => Post[];
+    loading: () => boolean;
+    loadingMore: () => boolean;
+    hasMore: () => boolean;
+    loadError: () => string | null;
+    loadedAt: () => number | null;
+    scrollTop: () => number;
+    setScrollTop: (offset: number) => void;
+    reload: () => void;
+    loadMore: () => void;
+  };
+
+  // Keep the two feeds' tab-specific state behind one private view descriptor.
+  // The page can then render and operate on the active feed without repeating
+  // the all/following choice at every lifecycle seam.
+  const allFeed: TimelineFeedView = {
+    posts: allPosts,
+    loading: allLoading,
+    loadingMore: allLoadingMore,
+    hasMore: allHasMore,
+    loadError: allLoadError,
+    loadedAt: timelineLoadedAt,
+    scrollTop: savedScrollTop,
+    setScrollTop: (offset) => setSavedScrollTop(offset),
+    reload: () => loadTimeline(),
+    loadMore: () => loadMoreAll(),
+  };
+  const followingFeed: TimelineFeedView = {
+    posts: followingPosts,
+    loading: followingLoading,
+    loadingMore: followingLoadingMore,
+    hasMore: followingHasMore,
+    loadError: followingLoadError,
+    loadedAt: followingLoadedAt,
+    scrollTop: savedFollowingScrollTop,
+    setScrollTop: (offset) => setSavedFollowingScrollTop(offset),
+    reload: () => loadFollowing(),
+    loadMore: () => loadMoreFollowing(),
+  };
+  const feedFor = (tab: HomeFeedTab): TimelineFeedView =>
+    tab === "following" ? followingFeed : allFeed;
+  const activeFeed = () => feedFor(activeTab());
+
+  // Tab-dispatched views over the two feeds. Every consumer below (list,
+  // skeleton, sentinel, retry) reads these so the markup stays tab-agnostic.
+  const posts = () => activeFeed().posts();
+  const loading = () => activeFeed().loading();
+  const loadingMore = () => activeFeed().loadingMore();
+  const hasMore = () => activeFeed().hasMore();
+  const loadError = () => activeFeed().loadError();
+  const reload = () => activeFeed().reload();
+  const loadMore = () => activeFeed().loadMore();
+
   const feedIsFresh = (tab: HomeFeedTab) => {
-    const list = tab === "following" ? followingPosts() : allPosts();
-    const loadedAt =
-      tab === "following" ? followingLoadedAt() : timelineLoadedAt();
+    const feed = feedFor(tab);
+    const loadedAt = feed.loadedAt();
     return (
-      list.length > 0 &&
+      feed.posts().length > 0 &&
       loadedAt !== null &&
       Date.now() - loadedAt < TIMELINE_FRESH_MS
     );
   };
-  const savedScrollFor = (tab: HomeFeedTab) =>
-    tab === "following" ? savedFollowingScrollTop() : savedScrollTop();
-  const saveScrollFor = (tab: HomeFeedTab, offset: number) => {
-    if (tab === "following") setSavedFollowingScrollTop(offset);
-    else setSavedScrollTop(offset);
-  };
+  const savedScrollFor = (tab: HomeFeedTab) => feedFor(tab).scrollTop();
+  const saveScrollFor = (tab: HomeFeedTab, offset: number) =>
+    feedFor(tab).setScrollTop(offset);
 
   // Switch between the unified ("all") and following-only home feeds. The
   // outgoing tab's reading position is parked in its scroll atom; the incoming
@@ -176,8 +206,7 @@ export function useTimelineState() {
       // The saved position belonged to pages this reload discards.
       saveScrollFor(tab, 0);
       if (scrollContainerRef) scrollContainerRef.scrollTop = 0;
-      if (tab === "following") void loadFollowing();
-      else void loadTimeline();
+      void feedFor(tab).reload();
     }
   };
 
@@ -209,10 +238,8 @@ export function useTimelineState() {
           if (scrollContainerRef) scrollContainerRef.scrollTop = offset;
         });
       }
-    } else if (tab === "following") {
-      loadFollowing();
     } else {
-      loadTimeline();
+      feedFor(tab).reload();
     }
     loadStories();
   });

@@ -11,7 +11,7 @@ const wranglerConfig = await readFile(
 );
 
 const moduleSource = await readFile(
-  new URL("../main.tf", import.meta.url),
+  new URL("../deploy/takoform/main.tf", import.meta.url),
   "utf8",
 );
 
@@ -36,32 +36,36 @@ describe("generated worker entry", () => {
       "APP_URL must be an HTTPS origin for background invocations",
     );
     expect(entrySource).toContain(
-      "defaultTakosumiBackgroundQueueHandler(batch, runtimeEnv as Env)",
+      "await handleYurucommuQueueBatch(runtimeBatch, runtimeEnv as Env)",
     );
     expect(entrySource).toContain(
       "await runYurucommuRetention(withRequiredBackgroundAppUrl(runtimeEnv))",
     );
   });
 
-  test("fails closed instead of acknowledging an unmaterialized managed queue", () => {
+  test("fails closed instead of acknowledging an unconfigured queue", () => {
     expect(entrySource).toContain("withRequiredQueueIdentity");
     expect(entrySource).toContain(
-      "DELIVERY_QUEUE_NAME and DELIVERY_DLQ_NAME must identify distinct managed queues",
+      "DELIVERY_QUEUE_NAME and DELIVERY_DLQ_NAME must identify distinct configured queues",
     );
     expect(entrySource).toContain(
-      "Queue invocation does not match the managed queue identity",
+      "Queue invocation does not match the configured queue identity",
     );
     expect(entrySource).toContain(
       "withRequiredBackgroundAppUrl(wrapYurucommuWorkerBindings(env))",
     );
   });
 
-  test("routes the host-authenticated background HTTP ABI before app routes", () => {
-    expect(entrySource).toContain("handleTakosumiBackgroundEventInvocation({");
-    expect(entrySource).toContain("if (background) return background");
-    expect(entrySource).toContain(
-      "queue: defaultTakosumiBackgroundQueueHandler",
-    );
+  test("does not embed a host-specific runtime or background ABI", () => {
+    for (const forbidden of [
+      "TAKOSUMI_MANAGED_RUNTIME",
+      "managed-runtime-connections",
+      "TakosumiBackgroundEvent",
+      "@takosjp/takosumi-contract",
+      "handleTakosumiBackgroundEventInvocation",
+    ]) {
+      expect(entrySource).not.toContain(forbidden);
+    }
   });
 });
 
@@ -88,19 +92,18 @@ describe("retention cron surface", () => {
   // resource or an OpenTofu install silently never sweeps.
   test("the Capsule module schedules the sweep", () => {
     expect(moduleSource).toContain(
-      'resource "cloudflare_workers_cron_trigger" "retention"',
+      'resource "takoform_worker_cron_trigger" "retention"',
     );
   });
 });
 
 describe("managed bootstrap authentication", () => {
-  test("fails closed instead of generating an undisclosed login credential", () => {
+  test("keeps authentication credentials in the declared sensitive binding set", () => {
     expect(moduleSource).not.toContain(
       'resource "random_id" "bootstrap_auth_token"',
     );
-    expect(moduleSource).toContain(
-      'local.provided_auth_password_hash != "" || local.has_takosumi_accounts_oidc',
-    );
+    expect(moduleSource).toContain('"ENCRYPTION_KEY"');
+    expect(moduleSource).toContain('"TAKOSUMI_ACCOUNTS_CLIENT_ID"');
   });
 });
 

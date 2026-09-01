@@ -1,4 +1,4 @@
-import { atom } from "jotai/vanilla";
+import { atom, type Getter, type Setter } from "jotai/vanilla";
 import { atomWithStorage } from "jotai/vanilla/utils";
 import {
   feedItemKey,
@@ -234,31 +234,131 @@ export const showAccountSwitcherAtom = atom(false);
 
 // --- Actions ---
 
-// Monotonic generation guards. Switching the home filter fires a fresh load; a
-// slow prior fetch must NOT land its result over a newer view (last-writer-wins
-// would let a slow "すべて" response overwrite the community you just picked).
-// Each full reload bumps the counter and bails if superseded; loadMore captures
-// the counter and bails if a reload happened mid-flight.
-let timelineLoadGen = 0;
 let storiesLoadGen = 0;
 
-export const loadTimelineAtom = atom(null, async (get, set) => {
-  const gen = ++timelineLoadGen;
-  if (get(timelinePostsAtom).length === 0) set(timelineLoadingAtom, true);
-  set(timelineLoadErrorAtom, null);
-  set(timelineHasMoreAtom, true);
-  set(timelineCursorAtom, null);
-  try {
+type TimelinePage = Awaited<ReturnType<typeof fetchTimeline>>;
+
+type TimelineFeedAtoms = {
+  posts: typeof timelinePostsAtom;
+  loading: typeof timelineLoadingAtom;
+  loadingMore: typeof timelineLoadingMoreAtom;
+  hasMore: typeof timelineHasMoreAtom;
+  cursor: typeof timelineCursorAtom;
+  loadedAt: typeof timelineLoadedAtAtom;
+  loadError: typeof timelineLoadErrorAtom;
+};
+
+type TimelinePageFetcher = (
+  get: Getter,
+  options: { before?: string },
+) => Promise<TimelinePage>;
+
+type TimelineFeedLifecycleOptions = {
+  name: string;
+  atoms: TimelineFeedAtoms;
+  fetchPage: TimelinePageFetcher;
+  onInitialPage?: (set: Setter, page: TimelinePage) => void;
+};
+
+// Both home-feed tabs have the same lifecycle: a full load owns the cursor and
+// generation, while an older-page load echoes the opaque cursor and caps the
+// in-memory window. Keeping this state machine private prevents the two public
+// atom sets from drifting while allowing each feed to retain its own endpoint
+// and scope-specific success side effects.
+const createTimelineFeedLifecycle = ({
+  name,
+  atoms,
+  fetchPage,
+  onInitialPage,
+}: TimelineFeedLifecycleOptions) => {
+  let loadGeneration = 0;
+
+  const load = atom(null, async (get, set) => {
+    const generation = ++loadGeneration;
+    if (get(atoms.posts).length === 0) set(atoms.loading, true);
+    set(atoms.loadError, null);
+    set(atoms.hasMore, true);
+    set(atoms.cursor, null);
+    try {
+      const page = await fetchPage(get, {});
+      if (generation !== loadGeneration) return;
+      set(atoms.posts, page.posts);
+      set(atoms.cursor, page.nextCursor);
+      set(atoms.hasMore, page.hasMore);
+      set(atoms.loadedAt, Date.now());
+      onInitialPage?.(set, page);
+    } catch (e) {
+      if (generation !== loadGeneration) return;
+      console.error(`Failed to load ${name}:`, e);
+      set(atoms.loadError, get(tAtom)("common.loadFailed"));
+    } finally {
+      if (generation === loadGeneration) set(atoms.loading, false);
+    }
+  });
+
+  const loadMore = atom(null, async (get, set) => {
+    const loadingMore = get(atoms.loadingMore);
+    const hasMore = get(atoms.hasMore);
+    const posts = get(atoms.posts);
+    const cursor = get(atoms.cursor);
+    // No server cursor means there is no defined "next older" boundary to
+    // resume from — stop rather than refetch the head (which would re-serve
+    // page 1).
+    if (loadingMore || !hasMore || posts.length === 0 || !cursor) return;
+
+    set(atoms.loadingMore, true);
+    const generation = loadGeneration;
+    try {
+      const page = await fetchPage(get, { before: cursor });
+      // A full reload happened mid-flight — these are the previous view's next
+      // page; do not append them onto the newly loaded feed.
+      if (generation !== loadGeneration) return;
+      if (page.posts.length > 0) {
+        // The feed is newest-first and older pages append at the tail. Keep the
+        // active tail window and evict already-scrolled-past head entries.
+        const merged = [...get(atoms.posts), ...page.posts];
+        set(
+          atoms.posts,
+          merged.length > MAX_TIMELINE_POSTS
+            ? merged.slice(-MAX_TIMELINE_POSTS)
+            : merged,
+        );
+      }
+      set(atoms.cursor, page.nextCursor);
+      set(atoms.hasMore, page.hasMore);
+    } catch (e) {
+      console.error("Failed to load more:", e);
+      pushToast(toastWriter(set), get(tAtom)("common.loadFailed"), {
+        kind: "error",
+      });
+    } finally {
+      set(atoms.loadingMore, false);
+    }
+  });
+
+  return { load, loadMore };
+};
+
+const timelineFeedLifecycle = createTimelineFeedLifecycle({
+  name: "timeline",
+  atoms: {
+    posts: timelinePostsAtom,
+    loading: timelineLoadingAtom,
+    loadingMore: timelineLoadingMoreAtom,
+    hasMore: timelineHasMoreAtom,
+    cursor: timelineCursorAtom,
+    loadedAt: timelineLoadedAtAtom,
+    loadError: timelineLoadErrorAtom,
+  },
+  fetchPage: (get, { before }) => {
     const scope = get(scopeQueryAtom);
-    const page = await fetchTimeline({
+    return fetchTimeline({
       limit: 20,
+      before,
       community: scope?.community,
     });
-    if (gen !== timelineLoadGen) return; // a newer load superseded this one
-    set(timelinePostsAtom, page.posts);
-    set(timelineCursorAtom, page.nextCursor);
-    set(timelineHasMoreAtom, page.hasMore);
-    set(timelineLoadedAtAtom, Date.now());
+  },
+  onInitialPage: (set, page) => {
     // A full reload already shows the freshest head; drop any staged posts and
     // reset the new-posts watermark to this fresh head (page is newest-first).
     set(pendingNewPostsAtom, []);
@@ -266,130 +366,28 @@ export const loadTimelineAtom = atom(null, async (get, set) => {
       newestSeenKeyAtom,
       page.posts.length > 0 ? postKey(page.posts[0]) : null,
     );
-  } catch (e) {
-    if (gen !== timelineLoadGen) return;
-    console.error("Failed to load timeline:", e);
-    set(timelineLoadErrorAtom, get(tAtom)("common.loadFailed"));
-  } finally {
-    if (gen === timelineLoadGen) set(timelineLoadingAtom, false);
-  }
+  },
 });
 
-export const loadMoreTimelineAtom = atom(null, async (get, set) => {
-  const loadingMore = get(timelineLoadingMoreAtom);
-  const hasMore = get(timelineHasMoreAtom);
-  const posts = get(timelinePostsAtom);
-  const cursor = get(timelineCursorAtom);
-  // No server cursor means there is no defined "next older" boundary to resume
-  // from — stop rather than refetch the head (which would re-serve page 1).
-  if (loadingMore || !hasMore || posts.length === 0 || !cursor) return;
-
-  set(timelineLoadingMoreAtom, true);
-  const gen = timelineLoadGen;
-  try {
-    const scope = get(scopeQueryAtom);
-    const page = await fetchTimeline({
-      limit: 20,
-      // The server-issued composite cursor — NOT lastPost.ap_id, which decodes
-      // as a legacy published-only cursor that matches every row (the feed would
-      // re-serve page 1 forever and stall).
-      before: cursor,
-      community: scope?.community,
-    });
-    // A full reload (e.g. filter switch) happened mid-flight → these are the
-    // previous scope's next page; do not append them onto the new feed.
-    if (gen !== timelineLoadGen) return;
-    if (page.posts.length > 0) {
-      // Cap the in-memory feed: the IntersectionObserver auto-fires load-more on
-      // scroll, so an unbounded append would grow the live <For> DOM, memory, and
-      // the per-interaction O(n) array realloc without limit. The feed is
-      // newest-first and load-more appends OLDER posts at the tail, so slice(-N)
-      // keeps the window the user is actively scrolling through (the oldest tail)
-      // and evicts the already-scrolled-past newest head (a scroll back to the
-      // very top then re-fetches). The staging buffer is likewise capped.
-      const merged = [...get(timelinePostsAtom), ...page.posts];
-      set(
-        timelinePostsAtom,
-        merged.length > MAX_TIMELINE_POSTS
-          ? merged.slice(-MAX_TIMELINE_POSTS)
-          : merged,
-      );
-    }
-    set(timelineCursorAtom, page.nextCursor);
-    set(timelineHasMoreAtom, page.hasMore);
-  } catch (e) {
-    console.error("Failed to load more:", e);
-    pushToast(toastWriter(set), get(tAtom)("common.loadFailed"), {
-      kind: "error",
-    });
-  } finally {
-    set(timelineLoadingMoreAtom, false);
-  }
+const followingFeedLifecycle = createTimelineFeedLifecycle({
+  name: "following timeline",
+  atoms: {
+    posts: followingPostsAtom,
+    loading: followingLoadingAtom,
+    loadingMore: followingLoadingMoreAtom,
+    hasMore: followingHasMoreAtom,
+    cursor: followingCursorAtom,
+    loadedAt: followingLoadedAtAtom,
+    loadError: followingLoadErrorAtom,
+  },
+  fetchPage: (_get, { before }) =>
+    fetchFollowingTimeline({ limit: 20, before }),
 });
 
-// Monotonic generation guard for the following feed — same last-writer-wins
-// protection as timelineLoadGen, tracked separately per tab.
-let followingLoadGen = 0;
-
-// Full (re)load of the following-only feed. Mirrors loadTimelineAtom minus the
-// pieces that are unified-home-only (scope filter, staged new-posts buffer).
-export const loadFollowingTimelineAtom = atom(null, async (get, set) => {
-  const gen = ++followingLoadGen;
-  if (get(followingPostsAtom).length === 0) set(followingLoadingAtom, true);
-  set(followingLoadErrorAtom, null);
-  set(followingHasMoreAtom, true);
-  set(followingCursorAtom, null);
-  try {
-    const page = await fetchFollowingTimeline({ limit: 20 });
-    if (gen !== followingLoadGen) return; // a newer load superseded this one
-    set(followingPostsAtom, page.posts);
-    set(followingCursorAtom, page.nextCursor);
-    set(followingHasMoreAtom, page.hasMore);
-    set(followingLoadedAtAtom, Date.now());
-  } catch (e) {
-    if (gen !== followingLoadGen) return;
-    console.error("Failed to load following timeline:", e);
-    set(followingLoadErrorAtom, get(tAtom)("common.loadFailed"));
-  } finally {
-    if (gen === followingLoadGen) set(followingLoadingAtom, false);
-  }
-});
-
-// Older-page append for the following feed. Same cursor semantics and
-// in-memory cap as loadMoreTimelineAtom.
-export const loadMoreFollowingTimelineAtom = atom(null, async (get, set) => {
-  const loadingMore = get(followingLoadingMoreAtom);
-  const hasMore = get(followingHasMoreAtom);
-  const posts = get(followingPostsAtom);
-  const cursor = get(followingCursorAtom);
-  if (loadingMore || !hasMore || posts.length === 0 || !cursor) return;
-
-  set(followingLoadingMoreAtom, true);
-  const gen = followingLoadGen;
-  try {
-    const page = await fetchFollowingTimeline({ limit: 20, before: cursor });
-    // A full reload happened mid-flight → do not append a stale older page.
-    if (gen !== followingLoadGen) return;
-    if (page.posts.length > 0) {
-      const merged = [...get(followingPostsAtom), ...page.posts];
-      set(
-        followingPostsAtom,
-        merged.length > MAX_TIMELINE_POSTS
-          ? merged.slice(-MAX_TIMELINE_POSTS)
-          : merged,
-      );
-    }
-    set(followingCursorAtom, page.nextCursor);
-    set(followingHasMoreAtom, page.hasMore);
-  } catch (e) {
-    console.error("Failed to load more:", e);
-    pushToast(toastWriter(set), get(tAtom)("common.loadFailed"), {
-      kind: "error",
-    });
-  } finally {
-    set(followingLoadingMoreAtom, false);
-  }
-});
+export const loadTimelineAtom = timelineFeedLifecycle.load;
+export const loadMoreTimelineAtom = timelineFeedLifecycle.loadMore;
+export const loadFollowingTimelineAtom = followingFeedLifecycle.load;
+export const loadMoreFollowingTimelineAtom = followingFeedLifecycle.loadMore;
 
 export const loadStoriesAtom = atom(null, async (get, set) => {
   const gen = ++storiesLoadGen;

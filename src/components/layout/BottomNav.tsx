@@ -6,7 +6,7 @@ import { notificationUnreadAtom } from "../../atoms/notifications.ts";
 import { dmUnreadCountAtom } from "../../atoms/dm-unread.ts";
 import { showPostModalAtom } from "../../atoms/timeline.ts";
 import { NavBadge } from "./NavBadge.tsx";
-import { MOBILE_NAV_ITEMS, type NavItem } from "./navItems.ts";
+import { MOBILE_NAV_ITEMS, projectNavItem, type NavItem } from "./navItems.ts";
 import { CreateNavIcon } from "./NavIcons.tsx";
 
 // X-like mobile bar: keep only core destinations in the bottom rail. Compose is
@@ -18,33 +18,19 @@ export function BottomNav() {
   const dmUnread = useAtomValue(dmUnreadCountAtom);
   const openComposer = useSetAtom(showPostModalAtom);
 
-  // The badge count source depends on which nav item it is.
-  const badgeCount = (item: NavItem) =>
-    item.id === "messages" ? dmUnread() : unreadCount();
-  // Compose the unread COUNT into the badge's accessible name — NavBadge is a
-  // role="img" leaf whose visible digit is not exposed, so the bare nav name
-  // would announce "Messages" instead of "Messages (3 unread)".
-  const badgeLabel = (item: NavItem) => {
-    const name =
-      item.id === "messages" ? t("nav.messages") : t("nav.notifications");
-    return t("nav.unreadBadge")
-      .replace("{label}", name)
-      .replace("{count}", String(badgeCount(item)));
-  };
+  const project = (item: NavItem) =>
+    projectNavItem(item, {
+      pathname: location.pathname,
+      notificationUnreadCount:
+        item.badge && item.id !== "messages" ? unreadCount() : 0,
+      directMessageUnreadCount:
+        item.badge && item.id === "messages" ? dmUnread() : 0,
+      translate: t,
+    });
 
-  const isActive = (route: string) => {
-    if (route === "/") return location.pathname === "/";
-    // "/profile" is the OWN profile; foreign profiles live at
-    // "/profile/:actorId" and must not light up the Profile tab.
-    if (route === "/profile") return location.pathname === "/profile";
-    return location.pathname.startsWith(route);
-  };
-  const active = (item: NavItem) =>
-    item.route !== undefined && isActive(item.route);
-
-  const itemClass = (item: NavItem) =>
+  const itemClass = (active: boolean) =>
     `flex flex-col items-center justify-center p-2 ${
-      active(item) ? "text-white" : "text-neutral-500"
+      active ? "text-white" : "text-neutral-500"
     }`;
 
   return (
@@ -61,23 +47,27 @@ export function BottomNav() {
         <For each={MOBILE_NAV_ITEMS}>
           {(item) => {
             const Icon = item.icon;
-            const badge = () => (
-              <Show when={item.badge && badgeCount(item) > 0}>
-                <span class="absolute -top-1 -right-2">
-                  <NavBadge count={badgeCount(item)} label={badgeLabel(item)} />
-                </span>
-              </Show>
-            );
+            const projection = () => project(item);
+            const visibleBadge = () => {
+              const badge = projection().badge;
+              return badge && badge.count > 0 ? badge : undefined;
+            };
             return (
               <A
                 href={item.route!}
                 aria-label={t(item.labelKey)}
-                aria-current={active(item) ? "page" : undefined}
-                class={itemClass(item)}
+                aria-current={projection().active ? "page" : undefined}
+                class={itemClass(projection().active)}
               >
                 <span class="relative inline-flex">
-                  <Icon active={active(item)} />
-                  {badge()}
+                  <Icon active={projection().active} />
+                  <Show when={visibleBadge()}>
+                    {(badge) => (
+                      <span class="absolute -top-1 -right-2">
+                        <NavBadge count={badge().count} label={badge().label} />
+                      </span>
+                    )}
+                  </Show>
                 </span>
               </A>
             );

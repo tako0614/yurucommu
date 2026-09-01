@@ -124,6 +124,12 @@ try {
     throw new Error("created post was not returned by the post API");
   }
   checks.push("posts.crud");
+
+  await runArtifactEventSmoke();
+  checks.push("worker.queue");
+  checks.push("worker.scheduled");
+  checks.push("worker.media");
+  checks.push("worker.producer");
 } catch (error) {
   primaryError = error;
 }
@@ -248,4 +254,205 @@ function requiredEnv(name: string): string {
   const value = process.env[name]?.trim();
   if (!value) throw new Error(`${name} is required`);
   return value;
+}
+
+/**
+ * Queue and cron handlers are platform events, not HTTP routes.  The direct
+ * deployment smoke therefore imports the exact bundle that was just built and
+ * invokes both entrypoints with the ordinary worker.runtime projection.  This
+ * keeps event coverage honest without inventing an HTTP proxy or importing a
+ * source-side adapter into the release probe.
+ */
+async function runArtifactEventSmoke(): Promise<void> {
+  const artifactUrl = new URL("../dist/yurucommu-worker.js", import.meta.url);
+  const artifact = (await import(
+    `${artifactUrl.href}?post-deploy-smoke=${crypto.randomUUID()}`
+  )) as {
+    readonly default: {
+      readonly fetch: (
+        request: Request,
+        env: unknown,
+        ctx: ExecutionContext,
+      ) => Promise<Response>;
+      readonly queue: (batch: unknown, env: unknown) => Promise<void>;
+      readonly scheduled: (
+        controller: unknown,
+        env: unknown,
+        ctx: ExecutionContext,
+      ) => Promise<void>;
+    };
+  };
+  const trace = {
+    dbQueries: 0,
+    mediaGets: 0,
+    producerBatches: 0,
+  };
+  const db = {
+    async execute() {
+      return { rows: [], rowsWritten: 0 };
+    },
+    async query(sql: string) {
+      trace.dbQueries += 1;
+      const normalized = sql.toLowerCase();
+      // Retention's notification outbox query is deliberately non-empty so the
+      // artifact must exercise the byte-valued producer binding. The other
+      // cleanup reads stay empty, which makes the fixture deterministic.
+      if (
+        normalized.includes("notification_push_jobs") &&
+        normalized.includes("next_attempt_at")
+      ) {
+        return { rows: [{ id: "artifact-smoke-job" }], rowsWritten: 0 };
+      }
+      // Public media authorization first resolves the indexed upload and then
+      // the actor profile reference. Returning those two rows lets the actual
+      // object binding be reached without creating any durable records.
+      if (normalized.includes("media_uploads")) {
+        return {
+          rows: [{ uploaderApId: "https://artifact-smoke/actor" }],
+          rowsWritten: 0,
+        };
+      }
+      if (normalized.includes("from actors")) {
+        return {
+          rows: [{ apId: "https://artifact-smoke/actor" }],
+          rowsWritten: 0,
+        };
+      }
+      return { rows: [], rowsWritten: 0 };
+    },
+    async transaction(statements: readonly unknown[]) {
+      return {
+        results: statements.map(() => ({ rows: [], rowsWritten: 0 })),
+      };
+    },
+  };
+  const queue = {
+    async send() {
+      return { messageId: "artifact-smoke-message" };
+    },
+    async sendBatch() {
+      trace.producerBatches += 1;
+      return { messageIds: ["artifact-smoke-message"] };
+    },
+  };
+  const media = {
+    async head() {
+      return null;
+    },
+    async get() {
+      trace.mediaGets += 1;
+      return {
+        etag: "artifact-smoke-etag",
+        size: 4,
+        contentType: "image/png",
+        bodyStream: true as const,
+        partial: false,
+        body: new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new Uint8Array([0, 1, 2, 3]));
+            controller.close();
+          },
+        }),
+      };
+    },
+    async put() {
+      return { etag: "artifact-smoke-etag", size: 4 };
+    },
+    async delete() {},
+    async list() {
+      return { objects: [], truncated: false };
+    },
+    async createMultipartUpload() {
+      return { uploadId: "artifact-smoke-upload" };
+    },
+    async uploadPart() {
+      return { etag: "artifact-smoke-part" };
+    },
+    async completeMultipartUpload() {
+      return { etag: "artifact-smoke-etag", size: 4 };
+    },
+    async abortMultipartUpload() {},
+  };
+  const kv = {
+    async get() {
+      return null;
+    },
+    async getWithMetadata() {
+      return { value: null };
+    },
+    async put() {},
+    async delete() {},
+    async list() {
+      return { keys: [], listComplete: true };
+    },
+  };
+  const env = {
+    APP_URL: "https://artifact-smoke.example",
+    ENCRYPTION_KEY: "a".repeat(64),
+    AUTH_PASSWORD_HASH: "artifact-smoke-password-hash",
+    DB: db,
+    KV: kv,
+    MEDIA: media,
+    DELIVERY_QUEUE: queue,
+    DELIVERY_DLQ: queue,
+    DELIVERY_QUEUE_NAME: "artifact-smoke-delivery",
+    DELIVERY_DLQ_NAME: "artifact-smoke-delivery-dlq",
+  };
+  const ctx = {} as ExecutionContext;
+
+  const mediaResponse = await artifact.default.fetch(
+    new Request(
+      "https://artifact-smoke.example/media/00000000000000000000000000000000.png",
+    ),
+    env,
+    ctx,
+  );
+  if (mediaResponse.status !== 200) {
+    throw new Error(
+      `built artifact media probe returned ${mediaResponse.status}`,
+    );
+  }
+  const mediaBytes = new Uint8Array(await mediaResponse.arrayBuffer());
+  if (mediaBytes.length !== 4 || trace.mediaGets !== 1) {
+    throw new Error("built artifact media binding was not exercised");
+  }
+
+  await artifact.default.scheduled(
+    { cron: "0 * * * *", scheduledTime: Date.now() },
+    env,
+    ctx,
+  );
+  if (trace.dbQueries === 0 || trace.producerBatches === 0) {
+    throw new Error(
+      "built artifact scheduled/producer paths were not exercised",
+    );
+  }
+
+  try {
+    await artifact.default.queue(
+      {
+        batchId: "artifact-smoke-batch",
+        queue: "artifact-smoke-delivery",
+        messages: [
+          {
+            id: "artifact-smoke-message",
+            timestampMillis: Date.now(),
+            attempts: 1,
+            body: { encoding: "base64", data: btoa("{}") },
+          },
+        ],
+      },
+      env,
+    );
+    throw new Error(
+      "built artifact accepted a portable queue event without host settlement",
+    );
+  } catch (error) {
+    if (
+      !(error instanceof Error) ||
+      error.message !== "portable_queue_settlement_unavailable"
+    ) {
+      throw error;
+    }
+  }
 }

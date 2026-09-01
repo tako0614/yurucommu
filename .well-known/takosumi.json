@@ -191,11 +191,7 @@
           {
             "kind": "identity.oidc",
             "callbackPath": "/api/auth/callback/takos",
-            "scopes": [
-              "openid",
-              "profile",
-              "email"
-            ],
+            "scopes": ["openid", "profile", "email"],
             "deliver": {
               "variables": {
                 "issuerUrl": "takosumi_accounts_issuer_url",
@@ -212,9 +208,7 @@
               "ja": "パスワードでログイン",
               "en": "Sign in with a password"
             },
-            "inputs": [
-              "auth_password_hash"
-            ]
+            "inputs": ["auth_password_hash"]
           },
           {
             "id": "notification-push",
@@ -291,53 +285,22 @@
             "advanced": true
           },
           {
-            "name": "worker_release_tag",
+            "name": "app_url",
             "source": {
-              "kind": "module_default"
-            },
-            "type": "string",
-            "label": {
-              "ja": "リリース",
-              "en": "Release"
-            },
-            "helper": {
-              "ja": "配信する Yurucommu のリリースタグです。既定はこのリポジトリが固定した版です。",
-              "en": "The Yurucommu release tag to serve. Defaults to the version this repository pins."
-            },
-            "advanced": true
-          },
-          {
-            "name": "worker_bundle_url",
-            "source": {
-              "kind": "module_default"
+              "kind": "user"
             },
             "type": "string",
             "format": "url",
+            "required": true,
             "label": {
-              "ja": "リリースURL",
-              "en": "Release URL"
+              "ja": "公開URL",
+              "en": "Public URL"
             },
             "helper": {
-              "ja": "Worker 成果物の不変な HTTPS URL です。リリースタグと一致している必要があります。",
-              "en": "Immutable HTTPS URL of the Worker artifact. It must match the release tag."
+              "ja": "キューとスケジュール実行からも使う、末尾スラッシュのないHTTPS originです。",
+              "en": "The exact HTTPS origin used by HTTP, queue, and scheduled invocations; do not add a trailing slash."
             },
-            "advanced": true
-          },
-          {
-            "name": "worker_bundle_sha256",
-            "source": {
-              "kind": "module_default"
-            },
-            "type": "string",
-            "label": {
-              "ja": "リリースSHA-256",
-              "en": "Release SHA-256"
-            },
-            "helper": {
-              "ja": "取得した成果物を検証する SHA-256 です。",
-              "en": "SHA-256 that verifies the fetched artifact."
-            },
-            "advanced": true
+            "placeholder": "https://yurucommu.example.com"
           }
         ],
         "requires": [
@@ -354,11 +317,7 @@
           {
             "kind": "identity.oidc",
             "callbackPath": "/api/auth/callback/takos",
-            "scopes": [
-              "openid",
-              "profile",
-              "email"
-            ],
+            "scopes": ["openid", "profile", "email"],
             "deliver": {
               "bindings": {
                 "issuerUrl": "TAKOSUMI_ACCOUNTS_ISSUER_URL",

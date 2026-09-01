@@ -76,13 +76,13 @@ describe("release version", () => {
       expect(compareSemverTags(packageTag, deployedTag!)).toBeGreaterThan(0);
     }
 
-    for (const source of [moduleSource, takoformModuleSource]) {
-      expect(deploymentDefaultTag(source)).toBe(deployedTag);
-      if (source === takoformModuleSource) {
-        expect(source).toContain(deployedPin!.artifact.url);
-        expect(source).toContain(deployedPin!.artifact.sha256);
-      }
-    }
+    expect(deploymentDefaultTag(moduleSource)).toBe(deployedTag);
+    // Provider 3 bundles are assembled from this checkout and sent to the
+    // host's WorkerBundle resource; the portable module must not retain the
+    // retired release-url/sha input surface.
+    expect(takoformModuleSource).not.toContain("worker_release_tag");
+    expect(takoformModuleSource).not.toContain("worker_bundle_url");
+    expect(takoformModuleSource).not.toContain("worker_bundle_sha256");
   });
 
   test("pins the current Worker release after publication", () => {
@@ -103,8 +103,8 @@ describe("release version", () => {
       `https://github.com/tako0614/yurucommu/releases/download/${packageTag}/takosumi-artifact.json`,
     );
     expect(pin.manifest.sha256).toMatch(/^sha256:[a-f0-9]{64}$/);
-    expect(takoformModuleSource).toContain(pin.artifact.url);
-    expect(takoformModuleSource).toContain(pin.artifact.sha256);
+    expect(moduleSource).toContain(pin.artifact.url);
+    expect(moduleSource).toContain(pin.artifact.sha256);
   });
 
   test("matches the Git tag when the release workflow runs", () => {
@@ -127,14 +127,37 @@ describe("release surface status", () => {
       surfaces: Array<{
         surface: string;
         triggers: string[];
+        covers?: string[];
         obligations: Record<string, string>;
       }>;
     };
+    const worker = contract.surfaces.find(
+      (surface) => surface.surface === "yurucommu-worker",
+    );
+    expect(worker?.covers).toEqual(
+      expect.arrayContaining([
+        "package.json",
+        "bun.lock",
+        "scripts/build-yurucommu-worker.ts",
+        "scripts/runtime-ports.ts",
+        "dist/yurucommu-worker.js",
+        "wrangler.jsonc",
+      ]),
+    );
     const release = contract.surfaces.find(
       (surface) => surface.surface === "yurucommu-worker-release",
     );
 
     expect(release?.triggers).toEqual(["published-identity"]);
+    expect(release?.covers).toEqual(
+      expect.arrayContaining([
+        "package.json",
+        "bun.lock",
+        "scripts/build-yurucommu-worker.ts",
+        "scripts/runtime-ports.ts",
+        "dist/yurucommu-worker.js",
+      ]),
+    );
     expect(release?.obligations["no-overwrite"]).toContain("create-only");
     expect(release?.obligations.provenance).toContain("unpushed");
     expect(release?.obligations["post-conditions"]).toContain("downloads");

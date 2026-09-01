@@ -1,7 +1,7 @@
 import { createEffect, createSignal, For, Show } from "solid-js";
 import { A, useNavigate, useParams } from "@solidjs/router";
 import { useRequiredActor } from "../hooks/useRequiredActor.ts";
-import { MediaAttachment, Post } from "../types/index.ts";
+import { Post } from "../types/index.ts";
 import {
   bookmarkPost,
   createPost,
@@ -40,12 +40,14 @@ import {
   MediaLightbox,
   useMediaLightbox,
 } from "../components/MediaLightbox.tsx";
+import { createKeyedPageOwner } from "../lib/keyed-page.ts";
 
 // Mirrors the backend MAX_POST_CONTENT_LENGTH (posts/transformers.ts). The
 // server stays the authority (it rejects an over-length reply with 400); this
 // only powers the counter + a local submit gate so the user sees the limit
 // before the round-trip instead of an opaque error.
 const MAX_REPLY_LENGTH = 5000;
+const replyApId = (reply: Post) => reply.ap_id;
 
 const BackIcon = () => (
   <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -91,7 +93,27 @@ export function PostDetailPage() {
   const [error, setError] = createSignal<string | null>(null);
   const clearError = () => setError(null);
   const [post, setPost] = createSignal<Post | null>(null);
-  const [replies, setReplies] = createSignal<Post[]>([]);
+  const repliesPage = createKeyedPageOwner<Post, string>(replyApId);
+  const [replies, setReplies] = createSignal<Post[]>(repliesPage.current(), {
+    equals: false,
+  });
+  const replaceReplies = (page: readonly Post[]) => {
+    setReplies(repliesPage.replace(page));
+  };
+  const appendRepliesPage = (page: readonly Post[]) => {
+    setReplies(repliesPage.appendPage(page));
+  };
+  const appendLocalReply = (reply: Post) => {
+    setReplies(repliesPage.appendItem(reply));
+  };
+  const updateRepliesPreservingKeys = (
+    updater: (previous: Post[]) => Post[],
+  ) => {
+    setReplies(repliesPage.updatePreservingKeys(updater));
+  };
+  const removeRepliesByApId = (apId: string) => {
+    setReplies(repliesPage.remove(apId));
+  };
   const [repliesCursor, setRepliesCursor] = createSignal<string | null>(null);
   const [repliesHasMore, setRepliesHasMore] = createSignal(false);
   const [loadingMoreReplies, setLoadingMoreReplies] = createSignal(false);
@@ -128,7 +150,7 @@ export function PostDetailPage() {
 
     const gen = ++postLoadGen;
     setPost(null);
-    setReplies([]);
+    replaceReplies([]);
     setReplyContent("");
     setError(null);
     setLoadFailed(false);
@@ -156,7 +178,7 @@ export function PostDetailPage() {
           setRepliesFailed(true);
           return;
         }
-        setReplies(repliesResult.value.replies);
+        replaceReplies(repliesResult.value.replies);
         setRepliesCursor(repliesResult.value.nextCursor);
         setRepliesHasMore(repliesResult.value.hasMore);
       })
@@ -176,10 +198,7 @@ export function PostDetailPage() {
     try {
       const next = await fetchReplies(decodedPostId, { before: cursor });
       if (gen !== postLoadGen) return;
-      setReplies((prev) => {
-        const seen = new Set(prev.map((r) => r.ap_id));
-        return [...prev, ...next.replies.filter((r) => !seen.has(r.ap_id))];
-      });
+      appendRepliesPage(next.replies);
       setRepliesCursor(next.nextCursor);
       setRepliesHasMore(next.hasMore);
     } catch (e) {
@@ -269,7 +288,7 @@ export function PostDetailPage() {
       if (targetPost.liked) {
         await unlikePost(targetPost.ap_id);
         if (isReply) {
-          setReplies((prev) =>
+          updateRepliesPreservingKeys((prev) =>
             prev.map((r) =>
               r.ap_id === targetPost.ap_id
                 ? { ...r, liked: false, like_count: r.like_count - 1 }
@@ -291,7 +310,7 @@ export function PostDetailPage() {
       } else {
         await likePost(targetPost.ap_id);
         if (isReply) {
-          setReplies((prev) =>
+          updateRepliesPreservingKeys((prev) =>
             prev.map((r) =>
               r.ap_id === targetPost.ap_id
                 ? { ...r, liked: true, like_count: r.like_count + 1 }
@@ -330,7 +349,7 @@ export function PostDetailPage() {
         content: replyContent().trim(),
         in_reply_to: post()!.ap_id,
       });
-      setReplies((prev) => [...prev, newReply]);
+      appendLocalReply(newReply);
       setReplyContent("");
       setPost((prev) =>
         prev ? { ...prev, reply_count: prev.reply_count + 1 } : null,
@@ -384,7 +403,7 @@ export function PostDetailPage() {
           ? { ...p, content: updated.content, summary: updated.summary }
           : p;
       setPost((prev) => (prev ? merge(prev) : prev));
-      setReplies((prev) => prev.map(merge));
+      updateRepliesPreservingKeys((prev) => prev.map(merge));
       setEditingPost(null);
       pushToast(setToasts, t("feedback.postEdited"), { kind: "success" });
     } catch (e) {
@@ -402,9 +421,7 @@ export function PostDetailPage() {
     try {
       await deletePost(pending.post.ap_id);
       if (pending.isReply) {
-        setReplies((prev) =>
-          prev.filter((r) => r.ap_id !== pending.post.ap_id),
-        );
+        removeRepliesByApId(pending.post.ap_id);
         const currentPost = post();
         if (currentPost) {
           setPost({

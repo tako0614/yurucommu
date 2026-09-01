@@ -7,7 +7,7 @@ import {
   onCleanup,
   Show,
 } from "solid-js";
-import type { ActorStories } from "../../types/index.ts";
+import type { ActorStories, StoryAttachment } from "../../types/index.ts";
 import {
   deleteStory,
   likeStory,
@@ -40,6 +40,13 @@ interface StoryViewerProps {
 // How long a video may sit un-ready (never reaching loadedmetadata) before the
 // watchdog advances past it, so a stalled/broken video can't freeze the viewer.
 const VIDEO_STALL_TIMEOUT_MS = 8000;
+
+function getStoryMediaUrl(attachment: StoryAttachment): string {
+  return (
+    attachment.url || `/media/${attachment.r2_key.replace(/^uploads\//, "")}`
+  );
+}
+
 export function StoryViewer(props: StoryViewerProps) {
   const { t, language } = useI18n();
   const [localActorStories, setLocalActorStories] = createSignal(
@@ -669,13 +676,7 @@ export function StoryViewer(props: StoryViewerProps) {
               }
             >
               <img
-                src={
-                  currentStory()!.attachment.url ||
-                  `/media/${currentStory()!.attachment.r2_key.replace(
-                    /^uploads\//,
-                    "",
-                  )}`
-                }
+                src={getStoryMediaUrl(currentStory()!.attachment)}
                 alt=""
                 class="w-full h-full object-cover"
                 draggable={false}
@@ -690,13 +691,7 @@ export function StoryViewer(props: StoryViewerProps) {
             >
               <video
                 ref={videoRef}
-                src={
-                  currentStory()!.attachment.url ||
-                  `/media/${currentStory()!.attachment.r2_key.replace(
-                    /^uploads\//,
-                    "",
-                  )}`
-                }
+                src={getStoryMediaUrl(currentStory()!.attachment)}
                 class="w-full h-full object-cover"
                 muted={isMuted()}
                 playsinline

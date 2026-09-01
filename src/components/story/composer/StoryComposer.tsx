@@ -202,9 +202,6 @@ export function StoryComposer(props: StoryComposerProps) {
     get canvas() {
       return storyCanvas();
     },
-    get displayScale() {
-      return displayScale();
-    },
     onUpdate: bumpRenderKey,
     onSnapGuidesChange: setSnapGuides,
   });

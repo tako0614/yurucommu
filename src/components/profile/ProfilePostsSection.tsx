@@ -1,7 +1,8 @@
 import { createMemo, For, Show } from "solid-js";
 import { A } from "@solidjs/router";
-import type { MediaAttachment, Post } from "../../types/index.ts";
+import type { Post } from "../../types/index.ts";
 import { formatRelativeTime } from "../../lib/datetime.ts";
+import { isVideoMediaAttachment } from "../../lib/media.ts";
 import { UserAvatar } from "../UserAvatar.tsx";
 import { PostContent } from "../PostContent.tsx";
 import { HeartIcon, ReplyIcon } from "../icons/SocialIcons.tsx";
@@ -29,10 +30,6 @@ interface ProfilePostsSectionProps {
   hasMore?: boolean;
   loadingMore?: boolean;
   onLoadMore?: () => void;
-}
-
-function isVideo(m: MediaAttachment): boolean {
-  return (m.content_type || "").startsWith("video/");
 }
 
 const GridIcon = () => (
@@ -226,7 +223,7 @@ function ProfileMediaGrid(props: ProfileMediaGridProps) {
                 class="relative block aspect-square w-full overflow-hidden bg-neutral-900"
               >
                 <Show
-                  when={isVideo(first)}
+                  when={isVideoMediaAttachment(first)}
                   fallback={
                     <img
                       src={mediaAttachmentUrl(first)}
@@ -243,10 +240,10 @@ function ProfileMediaGrid(props: ProfileMediaGridProps) {
                     preload="metadata"
                   />
                 </Show>
-                <Show when={isVideo(first)}>
+                <Show when={isVideoMediaAttachment(first)}>
                   <VideoBadge />
                 </Show>
-                <Show when={!isVideo(first) && multiple}>
+                <Show when={!isVideoMediaAttachment(first) && multiple}>
                   <MultiBadge />
                 </Show>
               </button>

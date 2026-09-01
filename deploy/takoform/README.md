@@ -1,165 +1,94 @@
-# Yurucommu Takoform adapter
+# Yurucommu on Takoform
 
-This directory is the Takoform adapter for the product-owned neutral resource
-contract in [`../product-resources.json`](../product-resources.json). The
-direct Cloudflare root module is another adapter for the same roles and
-connection names; neither provider is part of Yurucommu domain logic.
+`deploy/takoform` is Yurucommu's portable OpenTofu adapter. The product-owned
+logical requirements are in [`../product-resources.json`](../product-resources.json);
+the root [`../../main.tf`](../../main.tf) is a separate direct-Cloudflare
+adapter. This module contains no Cloudflare account identifiers or credentials.
 
-This directory describes the resources Yurucommu needs when it is installed on
-Takosumi or another compatible host.
+## Provider and resource graph
 
-It uses Takoform, an OpenTofu provider whose resource types describe portable
-services such as an edge application, a SQL database, and an object bucket. The host
-decides how to implement those services. The definition does not contain
-Cloudflare account IDs, credentials, or Cloudflare-specific resource types.
+The module pins the independently published Takoform Provider `3.0.0` from
+`registry.terraform.io/tako0614/takoform`. It uses the current `v1beta1`
+resource topology:
 
-For the end-to-end installation steps, start with
-[the main README](../../README.en.md#install-on-takosumi).
+| Resource                                                                  | Role                                                                  |
+| ------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| `takoform_module_worker`                                                  | stable Worker identity                                                |
+| `takoform_worker_bundle`                                                  | ESM Worker bundle                                                     |
+| `takoform_worker_version`                                                 | bundle, bindings, variables, and `fetch`/`queue`/`scheduled` handlers |
+| `takoform_worker_deployment`                                              | serves the selected version                                           |
+| `takoform_worker_endpoint`                                                | ordinary public endpoint                                              |
+| `takoform_sqlite_database`                                                | durable relational store                                              |
+| `takoform_sqlite_migration_set` / `takoform_sqlite_migration_application` | ordered schema inputs and convergence                                 |
+| `takoform_edge_kv_namespace`                                              | sessions and rate-limit state                                         |
+| two `takoform_at_least_once_queue` resources                              | delivery queue and DLQ                                                |
+| two `takoform_queue_consumer` resources                                   | main retry/DLQ consumer and terminal DLQ consumer                     |
+| `takoform_worker_cron_trigger`                                            | hourly retention invocation                                           |
 
-## Source to select
-
-Use the Yurucommu repository with:
-
-| Field | Value                                   |
-| ----- | --------------------------------------- |
-| path  | `deploy/takoform`                       |
-| ref   | a stable release tag or reviewed commit |
-
-The selected source also contains
-[`/.well-known/takosumi.json`](../../.well-known/takosumi.json). Takosumi reads
-the `deploy/takoform` entry from that file to label the installation screen.
-The only service-specific value is the service name; the pinned release values
-come from this module's defaults. Provider credentials and secret values do not
-come from repository metadata.
-
-## Resources created
-
-| Resource              | Purpose                                                                  |
-| --------------------- | ------------------------------------------------------------------------ |
-| `EdgeWorker`          | Runs the Yurucommu web app and API                                       |
-| `RelationalDatabase`  | Stores accounts, posts, follows, messages, and notifications in SQLite   |
-| `ObjectBucket`        | Stores uploaded images and video                                         |
-| `KeyValueStore`       | Stores sessions, sign-in attempt limits, and rate limits                 |
-| two `Queue` resources | Handles delivery retries and keeps exhausted work in a dead-letter queue |
-| `Schedule`            | Invokes the retention task daily at 03:00 UTC                            |
-| `http.request@1`      | Lets OpenTofu read the host-resolved HTTPS endpoint                      |
-
-The HTTP service connects to the other resources through the names expected by
-the Yurucommu runtime:
+The Worker version receives these ordinary binding names:
 
 ```text
-DB
-MEDIA
-KV
-DELIVERY_QUEUE
-DELIVERY_DLQ
+DB  KV  MEDIA  DELIVERY_QUEUE  DELIVERY_DLQ
 ```
 
-These are connection names, not Cloudflare bindings. A compatible host maps
-them to its own database, storage, and queue implementations.
+`MEDIA` is one required standard `com.amazonaws.s3` service. The Host supplies
+that service as a sealed binding; bucket names, endpoints, regions, keys, and
+other credentials are not module inputs or outputs.
 
-## Release and database migration
+## Source and URL inputs
 
-The module pins three values together:
+The bundle input is the generated file
+`deploy/takoform/.generated/yurucommu-worker.js`. Build it before an apply:
 
-- the Yurucommu release tag;
-- the immutable Worker download URL; and
-- the Worker's SHA-256 digest.
+```bash
+bun run build:worker
+mkdir -p deploy/takoform/.generated
+cp dist/yurucommu-worker.js deploy/takoform/.generated/yurucommu-worker.js
+```
 
-An update must change all three to the same release. This prevents an
-installation from downloading different bytes under an unchanged definition.
+The generated directory is disposable and must not be committed. Migration SQL
+files under `deploy/takoform/migrations/sql/` are tracked module inputs.
 
-[`migrations/schema-bundle.json`](migrations/schema-bundle.json) is one
-self-contained immutable database artifact. It is generated from the exact
-installed and locked `@takosjp/yurucommu-core` migration files, with each SQL
-body and its SHA-256 digest inline. The database resource declares this bundle;
-the selected host verifies and converges it during that resource's Apply, before
-the resource can become Ready. Ordinary OpenTofu outputs are not used as
-permission to run SQL.
+`app_url` is a required, plan-known exact HTTPS origin (no path, query,
+fragment, userinfo, or trailing slash). It is injected as `APP_URL` so HTTP,
+queue, and scheduled invocations share one canonical origin. Queue identities
+are derived from `project_name` and are injected as `DELIVERY_QUEUE_NAME` and
+`DELIVERY_DLQ_NAME`; both consumers and producers use those same names.
 
-## How the app URL is discovered
+The endpoint URL is exposed through `launch_url` and `api_url` outputs after a
+successful deployment. It is ordinary discovery metadata, not an authorization
+grant, secret, or input to the immutable Worker version.
 
-The `EdgeWorker` Form declares `http.request@1`. After the Resource is Ready,
-the host resolves that Interface to a credential-free HTTPS `resource_uri`.
-The module reads it through the read-only `takoform_interface` data source and
-exposes:
+## Checks
 
-- `launch_url` for the web app;
-- `api_url` for the `/api` endpoint.
-
-`resource_uri` is runtime discovery metadata, not a Resource output, credential,
-or authorization grant. The reviewed v2 `interfaces` declaration in the repository
-manifest compiles to a Capsule-owned `interface.ui.surface@1` Interface. Its
-`inputs.url` explicitly maps to the ordinary `launch_url` module output; an output
-alone does not materialize the Apps-screen surface. Takosumi grants the installer
-permission through the declared binding request separately. The dashboard never
-guesses a URL from a Worker name or cloud resource ID.
-
-## What remains the host's responsibility
-
-This module describes the resource graph, but it cannot grant itself access to
-a cloud account or decide host policy. Before the installation is usable, the
-host must provide:
-
-- a public HTTPS URL for the HTTP service;
-- an `ENCRYPTION_KEY` secret;
-- password authentication or a complete OIDC setup;
-- working database, media, key-value, and queue connections;
-- queue consumers, dead-letter handling, and the daily scheduled invocation;
-- execution of the pinned database migration;
-- authorization for the person allowed to open the Yurucommu UI surface;
-- logs, backup, restore, update, and removal procedures.
-
-Browser Web Push is optional and is not stored in this module's state. A host
-that offers it must inject the gateway URL and public VAPID key as runtime
-configuration, plus a token when its gateway requires one.
-
-The root [`main.tf`](../../main.tf) and
-[`wrangler.jsonc`](../../wrangler.jsonc) are a separate Cloudflare self-hosting
-path. This module does not import them and does not send this resource graph
-through a Cloudflare compatibility API.
-
-## Check before publishing
-
-From the repository root:
+Run the focused contract checks and provider validation from the repository root:
 
 ```bash
 tofu -chdir=deploy/takoform init -backend=false -input=false -lockfile=readonly
 tofu -chdir=deploy/takoform validate
-bun test scripts/takoform-capsule.test.ts scripts/takosumi-install-ux.test.ts
+bun test scripts/takoform-capsule.test.ts \
+  scripts/worker-entry-contract.test.ts \
+  scripts/runtime-ports.test.ts \
+  scripts/built-worker-runtime.test.ts \
+  scripts/deploy-preflight.test.ts
 ```
 
-`bun run check` runs these checks as part of the repository's full gate.
+`bun run check` includes these checks, the direct-Cloudflare adapter, portable
+runtime tests, and the built-artifact gate. The built artifact test invokes
+`fetch`, `queue`, and `scheduled` paths and exercises the portable DB, KV,
+object, and queue producer ports. Portable queue events fail closed when the
+Host does not expose settlement operations; native Cloudflare batches retain
+their host-backed `ack`/`retry` methods.
 
-## Troubleshooting
+## Host responsibilities
 
-### The Apps screen has no Yurucommu link
+The Host must provide the generated sensitive runtime values, SQLite and its
+ordered migration application, KV, object storage, queue consumers/DLQ, and the
+hourly cron invocation. It must also return a reachable HTTPS endpoint and
+provide backup, restore, update, removal, and recovery procedures. A missing
+binding or endpoint is an incomplete installation; do not guess a URL from a
+resource name.
 
-Check, in this order:
-
-1. Apply completed successfully.
-2. `EdgeWorker` is Ready with exact canonical native-resource evidence.
-3. `http.request@1` returns a non-secret `resource_uri`.
-4. `launch_url` resolved and the current principal has `ui.open` permission.
-
-Do not build a fallback URL from a provider ID. A missing launcher is an
-incomplete installation, not a naming problem.
-
-### The service starts but `/healthz` lists missing bindings
-
-Compare the five connection names above with the host's realized connections.
-Then verify that the queue and schedule activations target the same HTTP
-service revision.
-
-### Apply succeeds but the schema is missing
-
-Check that `takoform_relational_database.database` declares the exact immutable
-`migrations/schema-bundle.json` URL and digest, and that the host recorded a
-successful migration before reporting that database Ready. Do not choose a
-database by a similar name and run SQL against it.
-
-### A release update is rejected
-
-Confirm that the release tag, artifact URL, and SHA-256 all refer to the same
-published Yurucommu release. Also confirm that the source ref includes the
-matching schema bundle.
+This module is a resource declaration only. It does not deploy Takoserver,
+publish a Worker artifact, or grant Takosumi permissions. Those authorities
+remain with their owning systems.
