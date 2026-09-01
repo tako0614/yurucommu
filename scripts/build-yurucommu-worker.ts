@@ -8,13 +8,43 @@ type StaticAsset = {
   body: string;
 };
 
+export type WorkerBuildTarget = "hosted" | "direct-cloudflare";
+
+type WorkerBuild = {
+  readonly target: WorkerBuildTarget;
+  readonly tempEntryFile: URL;
+  readonly outputFile: URL;
+};
+
 const rootDir = new URL("../", import.meta.url);
 const distDir = new URL("../dist/", import.meta.url);
-const tempEntryFile = new URL(
-  "../dist/yurucommu-entry.generated.ts",
-  import.meta.url,
-);
-const outputFile = new URL("../dist/yurucommu-worker.js", import.meta.url);
+const workerBuilds: readonly WorkerBuild[] = [
+  {
+    target: "direct-cloudflare",
+    tempEntryFile: new URL(
+      "../dist/yurucommu-direct-cloudflare-entry.generated.ts",
+      import.meta.url,
+    ),
+    outputFile: new URL("../dist/yurucommu-worker.js", import.meta.url),
+  },
+  {
+    target: "hosted",
+    tempEntryFile: new URL(
+      "../dist/yurucommu-hosted-entry.generated.ts",
+      import.meta.url,
+    ),
+    outputFile: new URL("../dist/yurucommu-hosted-worker.js", import.meta.url),
+  },
+];
+
+const generatedDistFiles = new Set([
+  "yurucommu-worker.js",
+  "yurucommu-hosted-worker.js",
+  "yurucommu-entry.generated.ts",
+  ...workerBuilds.map((workerBuild) =>
+    workerBuild.tempEntryFile.pathname.split("/").at(-1),
+  ),
+]);
 
 // Wire identity is never spelled out here. It is baked into the deployed
 // Worker, so a literal in this file is the one copy nobody can compare against
@@ -77,11 +107,7 @@ async function collectAssets(
       );
       continue;
     }
-    if (
-      !entry.isFile() ||
-      relativePath === "yurucommu-worker.js" ||
-      relativePath === "yurucommu-entry.generated.ts"
-    ) {
+    if (!entry.isFile() || generatedDistFiles.has(relativePath)) {
       continue;
     }
     const bytes = await readFile(url);
@@ -105,7 +131,26 @@ async function run(command: string[]): Promise<void> {
   }
 }
 
-export function createEntrySource(assets: Record<string, StaticAsset>): string {
+export function createEntrySource(
+  assets: Record<string, StaticAsset>,
+  target: WorkerBuildTarget,
+): string {
+  const adapterImports =
+    target === "hosted"
+      ? `import {
+  wrapYurucommuWorkerBindings as adaptWorkerBindings,
+} from "../scripts/yurucommu-worker-bindings.ts";
+import type {
+  YurucommuRuntimeEnv as RuntimeEnv,
+  YurucommuWorkerBindings as WorkerBindings,
+} from "../scripts/yurucommu-worker-bindings.ts";`
+      : `import {
+  wrapDirectCloudflareWorkerBindings as adaptWorkerBindings,
+} from "../scripts/yurucommu-cloudflare-bindings.ts";
+import type {
+  DirectCloudflareRuntimeEnv as RuntimeEnv,
+  DirectCloudflareWorkerBindings as WorkerBindings,
+} from "../scripts/yurucommu-cloudflare-bindings.ts";`;
   return `import {
   createYurucommuBackendApp,
   handleYurucommuQueueBatch,
@@ -116,21 +161,12 @@ import type {
   DeliveryQueueMessageV1,
   Env,
 } from "@takosjp/yurucommu-core/server";
-import {
-  wrapYurucommuWorkerBindings,
-} from "../scripts/yurucommu-worker-bindings.ts";
-import type {
-  YurucommuRuntimeEnv,
-  YurucommuWorkerBindings,
-} from "../scripts/yurucommu-worker-bindings.ts";
+${adapterImports}
 import type {
   Fetcher,
   MessageBatch,
   ScheduledController,
 } from "@cloudflare/workers-types";
-
-type RuntimeEnv = YurucommuRuntimeEnv;
-type WorkerBindings = YurucommuWorkerBindings;
 
 const CANONICAL_ORIGIN_KV_KEY = "__yurucommu/runtime/canonical-origin/v1";
 
@@ -310,7 +346,7 @@ export default {
   ): Promise<Response> {
     const envWithAppUrl = await withRequestAppUrl(
       request,
-      wrapYurucommuWorkerBindings(env),
+      adaptWorkerBindings(env),
     );
     const runtimeEnv = envWithAppUrl.ASSETS
       ? envWithAppUrl
@@ -327,7 +363,7 @@ export default {
   ): Promise<void> {
     const runtimeEnv = withDeliveryConsumerIdentity(
       batch,
-      await withRequiredQueueAppUrl(wrapYurucommuWorkerBindings(env)),
+      await withRequiredQueueAppUrl(adaptWorkerBindings(env)),
     );
     void ctx;
     return handleYurucommuQueueBatch(batch, runtimeEnv as Env);
@@ -347,7 +383,7 @@ export default {
   ): Promise<void> {
     void controller;
     void ctx;
-    const runtimeEnv = wrapYurucommuWorkerBindings(env);
+    const runtimeEnv = adaptWorkerBindings(env);
     await runRetention(runtimeEnv);
   },
 };
@@ -358,21 +394,30 @@ export async function main(): Promise<void> {
   await run(["bun", "run", "build:client"]);
   const assets: Record<string, StaticAsset> = {};
   await collectAssets(distDir, assets);
-  await writeFile(tempEntryFile, createEntrySource(assets));
   try {
-    await build({
-      entryPoints: [tempEntryFile.pathname],
-      outfile: outputFile.pathname,
-      bundle: true,
-      format: "esm",
-      platform: "browser",
-      target: "es2022",
-      conditions: ["workerd", "worker", "browser"],
-      external: ["cloudflare:*", "node:*"],
-    });
+    for (const workerBuild of workerBuilds) {
+      await writeFile(
+        workerBuild.tempEntryFile,
+        createEntrySource(assets, workerBuild.target),
+      );
+      await build({
+        entryPoints: [workerBuild.tempEntryFile.pathname],
+        outfile: workerBuild.outputFile.pathname,
+        bundle: true,
+        format: "esm",
+        platform: "browser",
+        target: "es2022",
+        conditions: ["workerd", "worker", "browser"],
+        external: ["cloudflare:*", "node:*"],
+      });
+    }
   } finally {
     stop();
-    await rm(tempEntryFile).catch(() => undefined);
+    await Promise.all(
+      workerBuilds.map((workerBuild) =>
+        rm(workerBuild.tempEntryFile).catch(() => undefined),
+      ),
+    );
   }
 }
 

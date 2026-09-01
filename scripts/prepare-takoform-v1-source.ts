@@ -5,7 +5,7 @@ import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const WORKER_INPUT_RELATIVE_PATH = "dist/yurucommu-worker.js";
+export const WORKER_INPUT_RELATIVE_PATH = "dist/yurucommu-hosted-worker.js";
 export const SCHEMA_BUNDLE_RELATIVE_PATH =
   "deploy/takoform/migrations/schema-bundle.json";
 export const WORKER_OUTPUT_RELATIVE_PATH =

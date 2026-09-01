@@ -15,7 +15,7 @@
 // 直接 `d1 execute` で行う operator 手順です。この script は D1 に触れません。
 
 import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import {
   copyFileSync,
   existsSync,
@@ -32,6 +32,8 @@ import process from "node:process";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const OWNER_GATE = "bun run check";
+const MAX_CHILD_OUTPUT_BYTES = 64 * 1024 * 1024;
+const MAX_SUCCESS_STDERR_BYTES = 64 * 1024;
 
 const W = {
   surface: "yurucommu-worker",
@@ -66,7 +68,7 @@ const CONTRACT = {
     {
       surface: W.surface,
       target: `cloudflare-worker:${W.worker}`,
-      covers: ["wrangler.jsonc"],
+      covers: ["wrangler.jsonc", "scripts/yurucommu-cloudflare-bindings.ts"],
       requiresScripts: ["check", "build:worker", "smoke:postdeploy"],
       requiresTools: ["git", "bun", "wrangler"],
       requiresEnv: ["YURUCOMMU_WRANGLER_CONFIG"],
@@ -75,7 +77,7 @@ const CONTRACT = {
       // この surface ではなく、別の deliberate な手順です。
       triggers: [],
       obligations: {
-        provenance: `refuses a dirty worktree, runs \`${OWNER_GATE}\`, builds ${W.bundle} from that worktree with \`bun run build\`, and records the commit and the bundle sha256 It takes the operator's realized deploy config from YURUCOMMU_WRANGLER_CONFIG and refuses to publish a config that still holds a self-host template placeholder.`,
+        provenance: `owns only the explicit direct-cloudflare artifact lane; refuses a dirty worktree, runs \`${OWNER_GATE}\`, builds ${W.bundle} from that worktree with \`bun run build:worker\`, and records the commit and the bundle sha256 It takes the operator's realized deploy config from YURUCOMMU_WRANGLER_CONFIG and refuses to publish a config that still holds a self-host template placeholder.`,
         "post-conditions": `runs \`bun run smoke:postdeploy\`, which exercises real request paths against the deployed Worker rather than a health endpoint`,
         reversal: `the current version id is read and printed before publishing; restore it with \`wrangler versions list --name ${W.worker}\` and \`wrangler versions deploy <previous-id>@100%\``,
         "failure-handling":
@@ -93,6 +95,7 @@ const CONTRACT = {
         "package.json",
         "scripts/build-yurucommu-worker.ts",
         "scripts/smoke-release-worker.mjs",
+        "scripts/yurucommu-cloudflare-bindings.ts",
         "scripts/yurucommu-worker-bindings.ts",
       ],
       requiresScripts: ["check", "build:worker", R.smokeScript],
@@ -101,9 +104,9 @@ const CONTRACT = {
       triggers: ["published-identity"],
       obligations: {
         provenance:
-          "refuses a dirty, detached, or unpushed worktree; requires main for publication; runs `bun run check`; builds and boots the embedded Worker from that exact commit; requires the repository manifest's default deploy/takoform module and sourceBuild-generated Worker/migration assets, plus direct-Cloudflare module release pins, to align with the same tag and artifact digest; and records the source commit plus SHA-256 in the release manifest",
+          "owns and publishes only the explicit direct-cloudflare artifact lane; refuses a dirty, detached, or unpushed worktree; requires main for publication; runs `bun run check`; builds and boots the embedded Worker from that exact commit; separately verifies the repository manifest's default deploy/takoform module and hosted sourceBuild-generated Worker/migration assets, plus direct-Cloudflare module release pins; and records the source commit plus SHA-256 in the release manifest",
         "post-conditions":
-          "reads the create-only tag and GitHub Release back, requires the tag to resolve to the source commit and the Release to report isImmutable:true, downloads all three assets, requires their exact SHA-256 digests, and boots the downloaded Worker in workerd with runtime-native DB/KV/MEDIA/queue bindings",
+          "reads the create-only tag and GitHub Release back, requires the tag to resolve to the source commit and the Release to report isImmutable:true, downloads all three assets, requires their exact SHA-256 digests, and boots the downloaded direct-cloudflare Worker in workerd with native DB/KV/R2/queue bindings while rejecting a hosted Fetcher",
         reversal:
           "the release identity is never replaced or deleted by this entrypoint; consumers remain able to pin the preceding release, and a defect is repaired by publishing a higher version",
         "failure-handling":
@@ -154,13 +157,42 @@ function die(message, detail = []) {
 }
 const git = (...a) =>
   execFileSync("git", a, { cwd: repo, encoding: "utf8" }).trim();
-const run = (c, a) =>
-  execFileSync(c, a, {
+const run = (command, args) => {
+  const result = spawnSync(command, args, {
     cwd: repo,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
-    maxBuffer: 64 * 1024 * 1024,
+    maxBuffer: MAX_CHILD_OUTPUT_BYTES,
   });
+  const stdout = result.stdout ?? "";
+  const stderr = result.stderr ?? "";
+  if (result.error) {
+    result.error.stdout = stdout;
+    result.error.stderr = stderr;
+    throw result.error;
+  }
+  if (result.status !== 0) {
+    const error = new Error(
+      `${command} exited with status ${String(result.status)}`,
+    );
+    error.stdout = stdout;
+    error.stderr = stderr;
+    error.status = result.status;
+    throw error;
+  }
+  if (stderr) {
+    const bytes = Buffer.from(stderr);
+    if (bytes.byteLength <= MAX_SUCCESS_STDERR_BYTES) {
+      process.stderr.write(bytes);
+    } else {
+      process.stderr.write(bytes.subarray(0, MAX_SUCCESS_STDERR_BYTES));
+      process.stderr.write(
+        `\n[deploy] successful ${command} stderr truncated after ${MAX_SUCCESS_STDERR_BYTES} bytes\n`,
+      );
+    }
+  }
+  return stdout;
+};
 const digest = (b) => createHash("sha256").update(b).digest("hex");
 
 function terraformStringDefault(source, variable) {
@@ -278,7 +310,7 @@ function requireReleaseIdentity(tag, artifactUrl, bundleDigest) {
 
 function smokeReleaseArtifact(artifactPath, expectedDigest, publishedTag) {
   process.stdout.write(
-    `\n==> bun run ${R.smokeScript} -- ${artifactPath} sha256:${expectedDigest}\n`,
+    `\n==> bun run ${R.smokeScript} -- ${artifactPath} sha256:${expectedDigest} --lane direct-cloudflare\n`,
   );
   try {
     const output = run("bun", [
@@ -287,6 +319,8 @@ function smokeReleaseArtifact(artifactPath, expectedDigest, publishedTag) {
       "--",
       artifactPath,
       `sha256:${expectedDigest}`,
+      "--lane",
+      "direct-cloudflare",
     ]);
     process.stdout.write(output);
   } catch (error) {

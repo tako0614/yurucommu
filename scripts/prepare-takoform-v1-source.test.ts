@@ -7,6 +7,7 @@ import { join } from "node:path";
 import {
   MIGRATION_OUTPUT_RELATIVE_PATH,
   prepareTakoformV1Source,
+  WORKER_INPUT_RELATIVE_PATH,
   WORKER_OUTPUT_RELATIVE_PATH,
 } from "./prepare-takoform-v1-source.ts";
 
@@ -15,6 +16,11 @@ function digest(value: string): string {
 }
 
 describe("Takoform v1 source preparation", () => {
+  test("selects only the hosted artifact as its source", () => {
+    expect(WORKER_INPUT_RELATIVE_PATH).toBe("dist/yurucommu-hosted-worker.js");
+    expect(WORKER_INPUT_RELATIVE_PATH).not.toBe("dist/yurucommu-worker.js");
+  });
+
   test("copies the current worktree Worker bytes and verifies every migration", async () => {
     const root = await mkdtemp(join(tmpdir(), "yurucommu-source-test-"));
     const worker =
@@ -25,7 +31,7 @@ describe("Takoform v1 source preparation", () => {
       mkdir(join(root, "deploy/takoform/migrations"), { recursive: true }),
     ]);
     await Promise.all([
-      writeFile(join(root, "dist/yurucommu-worker.js"), worker),
+      writeFile(join(root, WORKER_INPUT_RELATIVE_PATH), worker),
       writeFile(
         join(root, "deploy/takoform/migrations/schema-bundle.json"),
         JSON.stringify({
@@ -70,7 +76,7 @@ describe("Takoform v1 source preparation", () => {
       mkdir(join(root, "deploy/takoform/migrations"), { recursive: true }),
     ]);
     await Promise.all([
-      writeFile(join(root, "dist/yurucommu-worker.js"), "worker"),
+      writeFile(join(root, WORKER_INPUT_RELATIVE_PATH), "worker"),
       writeFile(
         join(root, "deploy/takoform/migrations/schema-bundle.json"),
         JSON.stringify({

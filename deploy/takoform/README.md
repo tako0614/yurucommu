@@ -21,7 +21,7 @@ bun scripts/prepare-takoform-v1-source.ts
 ```
 
 The second command hashes the current worktree's
-`dist/yurucommu-worker.js`, copies the exact bytes to
+`dist/yurucommu-hosted-worker.js`, copies the exact bytes to
 `.generated/yurucommu-worker.js`, verifies the copied digest, and refreshes the
 repository-owned `migrations/sql/` files from the digest-verified
 `migrations/schema-bundle.json`. A downloaded Worker from an older release is
@@ -76,9 +76,11 @@ external_services = [{
 
 The Host supplies that opaque standard service as a sealed runtime binding.
 No portable desired state, Provider state, or module output contains a bucket
-name, endpoint, region, access key, or credential. The Yurucommu hosted adapter
-accepts only object operations (`put`, `get`, `delete`, `list`, and `head`);
-the direct-Cloudflare adapter keeps its `R2Bucket` type in a separate file.
+name, endpoint, region, access key, or credential. The hosted artifact accepts
+only the sealed service's `fetch` capability and delegates its S3 wire behavior
+to Core's provider-neutral `ObjectStore` adapter (`put`, `get`, and `delete`).
+The separately built direct-Cloudflare artifact accepts only a native
+`R2Bucket` and uses Core's Cloudflare adapter.
 
 ## Endpoint and canonical origin
 

@@ -27,12 +27,14 @@ describe("product wire identity", () => {
     );
   });
 
-  test("the built Worker bakes in exactly this document", () => {
-    const entrySource = createEntrySource({});
-    expect(entrySource).toContain(
-      JSON.stringify(PRODUCT_WIRE_IDENTITY, null, 2),
-    );
-    expect(entrySource).toContain('"product": "yurucommu"');
+  test("both built Worker lanes bake in exactly this document", () => {
+    for (const target of ["hosted", "direct-cloudflare"] as const) {
+      const entrySource = createEntrySource({}, target);
+      expect(entrySource).toContain(
+        JSON.stringify(PRODUCT_WIRE_IDENTITY, null, 2),
+      );
+      expect(entrySource).toContain('"product": "yurucommu"');
+    }
   });
 });
 

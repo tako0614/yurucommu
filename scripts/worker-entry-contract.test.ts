@@ -3,7 +3,8 @@ import { readFile } from "node:fs/promises";
 
 import { createEntrySource } from "./build-yurucommu-worker.ts";
 
-const entrySource = createEntrySource({});
+const entrySource = createEntrySource({}, "hosted");
+const directCloudflareEntrySource = createEntrySource({}, "direct-cloudflare");
 
 const wranglerConfig = await readFile(
   new URL("../wrangler.jsonc", import.meta.url),
@@ -20,6 +21,22 @@ const takoformModuleSource = await readFile(
 );
 
 describe("generated worker entry", () => {
+  test("builds explicit hosted and direct Cloudflare adapter lanes", () => {
+    expect(entrySource).toContain("wrapYurucommuWorkerBindings");
+    expect(entrySource).toContain(
+      "wrapYurucommuWorkerBindings as adaptWorkerBindings",
+    );
+    expect(entrySource).not.toContain("wrapDirectCloudflareWorkerBindings");
+    expect(directCloudflareEntrySource).toContain(
+      "wrapDirectCloudflareWorkerBindings as adaptWorkerBindings",
+    );
+    expect(directCloudflareEntrySource).not.toContain(
+      "wrapYurucommuWorkerBindings",
+    );
+    expect(wranglerConfig).toContain('"main": "./dist/yurucommu-worker.js"');
+    expect(wranglerConfig).not.toContain("yurucommu-hosted-worker.js");
+  });
+
   // The cron trigger fires whatever the deployed module exports. This entry
   // builds its own default object rather than re-exporting the core one, so a
   // missing scheduled() here means the retention sweep never runs anywhere.
@@ -51,7 +68,7 @@ describe("generated worker entry", () => {
       "return env; // The direct adapter already declares both distinct queue identities.",
     );
     expect(entrySource).toContain(
-      "await withRequiredQueueAppUrl(wrapYurucommuWorkerBindings(env))",
+      "await withRequiredQueueAppUrl(adaptWorkerBindings(env))",
     );
   });
 
@@ -86,18 +103,33 @@ describe("generated worker entry", () => {
     // Building twice made this test race its 20s deadline on shared CI runners;
     // release-byte identity belongs to the separate release guard/smoke lane.
     buildWorker("test");
-    const workerSource = await readFile(
-      new URL("../dist/yurucommu-worker.js", import.meta.url),
-      "utf8",
+    const workerSources = await Promise.all(
+      ["yurucommu-worker.js", "yurucommu-hosted-worker.js"].map((filename) =>
+        readFile(new URL(`../dist/${filename}`, import.meta.url), "utf8"),
+      ),
     );
-    expect(workerSource).toContain(
-      "function configuredSubjectMatches(configuredSubject, providerUserId)",
+    expect(workerSources[0]).toContain(
+      "MEDIA must be a native Cloudflare R2 binding",
     );
-    expect(workerSource).toContain(
-      "configuredSubject === providerUserId.slice(namespaceSeparator + 1)",
+    expect(workerSources[0]).not.toContain(
+      "MEDIA must be an exact sealed S3 fetch binding",
     );
-    expect(workerSource).not.toContain("providerUserId !== ownerSub");
-  }, 20_000);
+    expect(workerSources[1]).toContain(
+      "MEDIA must be an exact sealed S3 fetch binding",
+    );
+    expect(workerSources[1]).not.toContain(
+      "MEDIA must be a native Cloudflare R2 binding",
+    );
+    for (const workerSource of workerSources) {
+      expect(workerSource).toContain(
+        "function configuredSubjectMatches(configuredSubject, providerUserId)",
+      );
+      expect(workerSource).toContain(
+        "configuredSubject === providerUserId.slice(namespaceSeparator + 1)",
+      );
+      expect(workerSource).not.toContain("providerUserId !== ownerSub");
+    }
+  }, 30_000);
 });
 
 describe("D1 migration ledger", () => {

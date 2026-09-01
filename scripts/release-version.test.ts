@@ -85,6 +85,7 @@ type ReleaseScenario = {
   immutableSettings: string;
   readback: string;
   createFails?: boolean;
+  smokeStderr?: string;
   manifestMutator?: (source: string) => string;
 };
 
@@ -190,6 +191,13 @@ esac
     `#!/bin/sh
 set -eu
 printf '%s\\n' "$*" >> "$FAKE_BUN_LOG"
+case " $* " in
+  *" smoke:release-artifact "*)
+    if [ -n "\${FAKE_SMOKE_STDERR:-}" ]; then
+      printf '%s\\n' "$FAKE_SMOKE_STDERR" >&2
+    fi
+    ;;
+esac
 exit 0
 `,
   );
@@ -248,6 +256,7 @@ exit 1
     FAKE_GH_IMMUTABLE_SETTINGS: scenario.immutableSettings,
     FAKE_GH_READBACK: scenario.readback,
     FAKE_GH_CREATE_FAIL: scenario.createFails ? "1" : "0",
+    FAKE_SMOKE_STDERR: scenario.smokeStderr ?? "",
     FAKE_TAG_STATE: tagStatePath,
     FAKE_ARTIFACT_PATH: artifactPath,
     FAKE_MANIFEST_PATH: manifestPath,
@@ -404,8 +413,17 @@ describe("release surface status", () => {
     const release = contract.surfaces.find(
       (surface) => surface.surface === "yurucommu-worker-release",
     );
+    const directDeploy = contract.surfaces.find(
+      (surface) => surface.surface === "yurucommu-worker",
+    );
 
+    expect(directDeploy?.obligations.provenance).toContain(
+      "only the explicit direct-cloudflare artifact lane",
+    );
     expect(release?.triggers).toEqual(["published-identity"]);
+    expect(release?.obligations.provenance).toContain(
+      "only the explicit direct-cloudflare artifact lane",
+    );
     expect(release?.obligations["no-overwrite"]).toContain("create-only");
     expect(release?.covers).toEqual(
       expect.arrayContaining([
@@ -422,9 +440,14 @@ describe("release surface status", () => {
     expect(release?.obligations.provenance).toContain("sourceBuild");
     expect(release?.requiresScripts).toContain("smoke:release-artifact");
     expect(release?.obligations["post-conditions"]).toContain(
-      "downloaded Worker in workerd",
+      "downloaded direct-cloudflare Worker in workerd",
     );
-    expect(release?.obligations["post-conditions"]).toContain("runtime-native");
+    expect(release?.obligations["post-conditions"]).toContain(
+      "direct-cloudflare",
+    );
+    expect(release?.obligations["post-conditions"]).toContain(
+      "rejecting a hosted Fetcher",
+    );
     expect(release?.obligations["post-conditions"]).toContain(
       "isImmutable:true",
     );
@@ -450,10 +473,16 @@ describe("release surface status", () => {
       "scripts/release-worker-smoke.test.ts",
     );
     expect(packageJson.scripts.check).toContain(
-      "bun run smoke:release-artifact",
+      "bun run smoke:worker-artifacts",
     );
     expect(packageJson.scripts["smoke:release-artifact"]).toBe(
       "bun scripts/smoke-release-worker.mjs",
+    );
+    expect(packageJson.scripts["smoke:worker-artifacts"]).toContain(
+      "dist/yurucommu-worker.js --lane direct-cloudflare",
+    );
+    expect(packageJson.scripts["smoke:worker-artifacts"]).toContain(
+      "dist/yurucommu-hosted-worker.js --lane hosted",
     );
     expect(Object.values(packageJson.scripts).join("\n")).not.toContain(
       "scripts/release-safety/",
@@ -607,6 +636,22 @@ describe("immutable GitHub release guard", () => {
     expect(result.exitCode).toBe(0);
     expect(settingRead).toBeGreaterThanOrEqual(0);
     expect(create).toBe(settingRead + 1);
+    expect(result.stdout).toContain('"status": "PUBLISHED"');
+  });
+
+  test("preserves bounded release-smoke stderr even when the smoke exits successfully", async () => {
+    const smokeDiagnostic = "successful release smoke diagnostic";
+    const hiddenTail = "successful-smoke-stderr-hidden-tail";
+    const result = await createReleaseHarness({
+      immutableSettings: JSON.stringify({ enabled: true }),
+      readback: readbackPayload(true),
+      smokeStderr: `${smokeDiagnostic}${"x".repeat(70 * 1024)}${hiddenTail}`,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toContain(smokeDiagnostic);
+    expect(result.stderr).toContain("stderr truncated after 65536 bytes");
+    expect(result.stderr).not.toContain(hiddenTail);
     expect(result.stdout).toContain('"status": "PUBLISHED"');
   });
 

@@ -345,10 +345,15 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
       // are already in the archive, while the final sourceBuild command
       // verifies and refreshes them from the repository bundle.
       await mkdir(join(sourceRoot, "dist"), { recursive: true });
-      await writeFile(
-        join(sourceRoot, "dist/yurucommu-worker.js"),
-        "export default { fetch() { return new Response('ok') } };\n",
-      );
+      const workerFixture =
+        "export default { fetch() { return new Response('ok') } };\n";
+      await Promise.all([
+        writeFile(join(sourceRoot, "dist/yurucommu-worker.js"), workerFixture),
+        writeFile(
+          join(sourceRoot, "dist/yurucommu-hosted-worker.js"),
+          workerFixture,
+        ),
+      ]);
       const preparation = Bun.spawnSync({
         cmd: sourceBuild.commands[2]?.argv ?? [],
         cwd: sourceRoot,
