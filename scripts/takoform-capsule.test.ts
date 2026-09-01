@@ -47,9 +47,9 @@ describe("portable Takoform v1 Capsule", () => {
     expect(dataSourceTypes).toEqual([]);
   });
 
-  test("pins the independently published Provider 3 contract exactly", () => {
-    expect(main).toContain('version = "= 3.0.0"');
-    expect(main).not.toContain('version = ">= 3.0.0"');
+  test("pins the Provider 3.1 runtime-input-v2 contract exactly", () => {
+    expect(main).toContain('version = "= 3.1.0"');
+    expect(main).not.toContain('version = ">= 3.1.0"');
   });
 
   test("ships migration inputs in the repository instead of depending on source-build output", async () => {
@@ -126,12 +126,26 @@ describe("portable Takoform v1 Capsule", () => {
     }
   });
 
-  test("publishes ordinary WorkerEndpoint URLs", () => {
+  test("publishes the pinned public origin while retaining WorkerEndpoint", () => {
     expect(outputs).toContain('output "launch_url"');
     expect(outputs).toContain('output "api_url"');
     expect(outputs).toContain("takoform_worker_endpoint");
-    expect(outputs).toContain(".url");
+    expect(outputs).toContain("value       = var.app_url");
+    expect(outputs).toContain('trimsuffix(var.app_url, "/")');
+    expect(outputs).not.toContain("takoform_worker_endpoint.worker.url");
     expect(outputs).not.toContain("resource_uri");
+  });
+
+  test("requires a plan-known exact HTTPS app_url without making it secret", () => {
+    const appUrlBlock = main.slice(
+      main.indexOf('variable "app_url"'),
+      main.indexOf("\nlocals"),
+    );
+    expect(appUrlBlock).toContain("type        = string");
+    expect(appUrlBlock).not.toContain("default");
+    expect(appUrlBlock).toContain("validation");
+    expect(appUrlBlock).not.toContain("sensitive");
+    expect(main).toContain("APP_URL");
   });
 
   test("admits the endpoint only after a fetch deployment without feeding its URL back into WorkerVersion", () => {
@@ -147,7 +161,10 @@ describe("portable Takoform v1 Capsule", () => {
     )?.[1];
     expect(workerVersion).toBeDefined();
     expect(workerVersion).not.toContain("worker_endpoint");
-    expect(workerVersion).not.toContain("APP_URL");
+    expect(workerVersion).toContain(
+      "vars_json      = jsonencode(local.worker_plain_values)",
+    );
+    expect(main).toContain("APP_URL                = var.app_url");
     expect(main).not.toMatch(/APP_URL\s*=\s*.*worker_endpoint/);
   });
 });

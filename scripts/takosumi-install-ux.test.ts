@@ -82,6 +82,15 @@ const managedModuleOutputsSource = await readFile(
 );
 const expectedManagedRuntimeRequirements = [
   {
+    kind: "http.endpoint",
+    deliver: {
+      variables: {
+        url: "app_url",
+        subdomain: "project_name",
+      },
+    },
+  },
+  {
     kind: "secret.generated",
     bytes: 32,
     encoding: "hex",
@@ -196,6 +205,7 @@ function assertLauncherInterface(
     outputName: "launch_url",
     outputType: "url",
   });
+
   assertExactKeys(launcher.spec.access as Record<string, unknown>, [
     "visibility",
   ]);
@@ -253,6 +263,33 @@ describe("repository-owned Takosumi install UX", () => {
     ]);
     assertLauncherInterface(rootModule, "yurucommu.launcher");
     assertLauncherInterface(managedModule, "yurucommu.launcher");
+  });
+
+  test("declares the managed public endpoint alongside OIDC", () => {
+    expect(managedModule.requires).toEqual(
+      expect.arrayContaining([
+        {
+          kind: "http.endpoint",
+          deliver: {
+            variables: {
+              url: "app_url",
+              subdomain: "project_name",
+            },
+          },
+        },
+        expect.objectContaining({ kind: "identity.oidc" }),
+      ]),
+    );
+    expect(
+      managedModule.requires?.filter(
+        (requirement) => requirement.kind === "http.endpoint",
+      ),
+    ).toHaveLength(1);
+    expect(
+      managedModule.requires?.filter(
+        (requirement) => requirement.kind === "identity.oidc",
+      ),
+    ).toHaveLength(1);
   });
 
   test("uses only the bounded repository presentation vocabulary", () => {
@@ -376,7 +413,7 @@ describe("repository-owned Takosumi install UX", () => {
   test("declares only provider-neutral runtime requirements", () => {
     expect(rootModule.requires).toBeUndefined();
     expect(managedModule.requires).toEqual(expectedManagedRuntimeRequirements);
-    expect(manifestText).not.toContain('"kind": "http.endpoint"');
+    expect(manifestText).toContain('"kind": "http.endpoint"');
     expect(manifestText).toContain('"kind": "identity.oidc"');
     expect(manifestText).toContain('"kind": "secret.generated"');
     expect(manifestText).not.toContain('"defaultModule"');
@@ -422,28 +459,19 @@ describe("repository-owned Takosumi install UX", () => {
     expect(
       managedModule.inputs.filter((input) => input.source.kind === "user"),
     ).toEqual([]);
+    expect(managedModule.inputs.some((input) => input.name === "app_url")).toBe(
+      false,
+    );
     expect(
       managedModule.inputs
         .map((input) => input.name)
         .filter((name) => !moduleVariables.has(name)),
     ).toEqual([]);
-    for (const input of managedModule.inputs.filter(
-      (candidate) => candidate.source.kind === "module_default",
-    )) {
-      const blockStart = managedModuleSource.indexOf(
-        `variable "${input.name}" {`,
-      );
-      const nextBlock = managedModuleSource.indexOf(
-        "\nvariable ",
-        blockStart + 1,
-      );
-      expect(
-        managedModuleSource.slice(
-          blockStart,
-          nextBlock < 0 ? undefined : nextBlock,
-        ),
-      ).toMatch(/\n\s+default\s+=/);
-    }
+    const appUrlBlock = managedModuleSource.slice(
+      managedModuleSource.indexOf('variable "app_url"'),
+      managedModuleSource.indexOf("\nlocals"),
+    );
+    expect(appUrlBlock).not.toContain("default");
     for (const forbidden of [
       "cloudflare",
       "provider",
@@ -476,6 +504,40 @@ describe("repository-owned Takosumi install UX", () => {
       'migration_root     = "${path.module}/migrations/sql"',
     );
     expect(managedModuleSource).not.toContain("${path.module}/../");
-    expect(managedModuleSource).toContain('version = "= 3.0.0"');
+    expect(managedModuleSource).toContain('version = "= 3.1.0"');
+  });
+
+  test("delivers the pinned app_url outside the install-input surface", () => {
+    const appUrlBlock = managedModuleSource.slice(
+      managedModuleSource.indexOf('variable "app_url"'),
+      managedModuleSource.indexOf("\nlocals"),
+    );
+    expect(appUrlBlock).toContain("type        = string");
+    expect(appUrlBlock).not.toContain("default");
+    expect(appUrlBlock).toContain("validation");
+    expect(managedModule.inputs).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: "app_url" })]),
+    );
+    expect(managedModule.requires).toEqual(
+      expect.arrayContaining([
+        {
+          kind: "http.endpoint",
+          deliver: {
+            variables: {
+              url: "app_url",
+              subdomain: "project_name",
+            },
+          },
+        },
+      ]),
+    );
+    expect(managedModuleSource).toContain("APP_URL");
+    expect(managedModuleOutputsSource).toContain("value       = var.app_url");
+    expect(managedModuleOutputsSource).toContain(
+      'trimsuffix(var.app_url, "/")',
+    );
+    expect(managedModuleOutputsSource).not.toContain(
+      "takoform_worker_endpoint.worker.url",
+    );
   });
 });

@@ -215,6 +215,15 @@
         ],
         "requires": [
           {
+            "kind": "http.endpoint",
+            "deliver": {
+              "variables": {
+                "url": "app_url",
+                "subdomain": "project_name"
+              }
+            }
+          },
+          {
             "kind": "secret.generated",
             "bytes": 32,
             "encoding": "hex",

@@ -4,7 +4,7 @@ terraform {
   required_providers {
     takoform = {
       source  = "registry.terraform.io/tako0614/takoform"
-      version = "= 3.0.0"
+      version = "= 3.1.0"
     }
   }
 }
@@ -20,12 +20,26 @@ variable "project_name" {
   }
 }
 
+variable "app_url" {
+  description = "Canonical public HTTPS origin for this Yurucommu instance."
+  type        = string
+
+  validation {
+    condition = trimspace(var.app_url) == var.app_url && (can(regex(
+      "^https://([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*(:[0-9]{1,5})?$",
+      var.app_url,
+    )) || can(regex("^https://\\[[0-9A-Fa-f:.]+\\](:[0-9]{1,5})?$", var.app_url)))
+    error_message = "app_url must be an exact HTTPS origin without a path, query, fragment, userinfo, or trailing slash."
+  }
+}
+
 locals {
   prefix             = var.project_name
   worker_bundle_path = "${path.module}/.generated/yurucommu-worker.js"
   migration_root     = "${path.module}/migrations/sql"
   migration_files    = fileset(local.migration_root, "*.sql")
   worker_plain_values = {
+    APP_URL                = var.app_url
     YURUCOMMU_RUNTIME_LANE = "takoform-v1"
   }
 }

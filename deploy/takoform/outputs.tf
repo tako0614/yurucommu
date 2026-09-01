@@ -4,13 +4,13 @@ output "worker_name" {
 }
 
 output "launch_url" {
-  description = "Ordinary public URL allocated by WorkerEndpoint."
-  value       = takoform_worker_endpoint.worker.url
+  description = "Canonical public URL delivered by the selected Provider/Takoserver authority."
+  value       = var.app_url
 }
 
 output "api_url" {
   description = "Primary Yurucommu social API endpoint."
-  value       = "${trimsuffix(takoform_worker_endpoint.worker.url, "/")}/api"
+  value       = "${trimsuffix(var.app_url, "/")}/api"
 }
 
 output "takoform_resource_ids" {

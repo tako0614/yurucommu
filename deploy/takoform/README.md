@@ -5,9 +5,11 @@ This directory is Yurucommu's portable OpenTofu adapter for the stable
 [`../product-resources.json`](../product-resources.json); the root OpenTofu
 module is the separate direct-Cloudflare adapter for the same product roles.
 
-The module targets the independently published Provider `3.0.0` contract
-exactly. It does not use the older compatibility resources, Host
-materialization output, or a portable object-bucket resource.
+The module targets the exact Provider `3.1.0` runtime-input-v2 contract. That
+release is currently an unpublished candidate, so registry initialization must
+fail closed until the immutable release is published; the module must not
+silently fall back to Provider `3.0.0`. It does not use the older compatibility
+resources, Host materialization output, or a portable object-bucket resource.
 
 ## Source preparation
 
@@ -34,20 +36,20 @@ untracked source-build output.
 
 ## Provider 3 graph
 
-| Provider resource                | Product role                                                    |
-| -------------------------------- | --------------------------------------------------------------- |
-| `ModuleWorker`                   | Stable Worker identity                                          |
-| `WorkerBundle`                   | Current, digest-verified ESM bundle                             |
-| `WorkerVersion`                  | Immutable bundle, bindings, variables, and native handlers      |
-| `WorkerDeployment`               | Routes 100% of traffic to the prepared version                  |
-| `WorkerEndpoint`                 | Allocates the ordinary public Worker URL after deployment       |
-| `SQLiteDatabase`                 | Stores Yurucommu durable relational data                        |
-| `SQLiteMigrationSet`             | Carries the exact ordered SQL files                             |
-| `SQLiteMigrationApplication`     | Converges the migration set before the Worker version           |
-| `EdgeKVNamespace`                | Stores sessions, rate limits, and the observed canonical origin |
-| two `AtLeastOnceQueue` resources | Delivery work and its dead-letter queue                         |
-| `QueueConsumer`                  | Delivers native queue batches and applies retry/DLQ policy      |
-| `WorkerCronTrigger`              | Invokes the native scheduled handler hourly                     |
+| Provider resource                | Product role                                               |
+| -------------------------------- | ---------------------------------------------------------- |
+| `ModuleWorker`                   | Stable Worker identity                                     |
+| `WorkerBundle`                   | Current, digest-verified ESM bundle                        |
+| `WorkerVersion`                  | Immutable bundle, bindings, variables, and native handlers |
+| `WorkerDeployment`               | Routes 100% of traffic to the prepared version             |
+| `WorkerEndpoint`                 | Attaches the runtime endpoint after deployment             |
+| `SQLiteDatabase`                 | Stores Yurucommu durable relational data                   |
+| `SQLiteMigrationSet`             | Carries the exact ordered SQL files                        |
+| `SQLiteMigrationApplication`     | Converges the migration set before the Worker version      |
+| `EdgeKVNamespace`                | Stores sessions and rate limits                            |
+| two `AtLeastOnceQueue` resources | Delivery work and its dead-letter queue                    |
+| `QueueConsumer`                  | Delivers native queue batches and applies retry/DLQ policy |
+| `WorkerCronTrigger`              | Invokes the native scheduled handler hourly                |
 
 The Worker version exports the native `fetch`, `queue`, and `scheduled`
 handlers. Queue and cron events are not translated through a Host-authenticated
@@ -84,20 +86,29 @@ The separately built direct-Cloudflare artifact accepts only a native
 
 ## Endpoint and canonical origin
 
-`WorkerEndpoint` is admitted only after `WorkerDeployment` serves a fetch
-handler. Its URL is exposed as the ordinary `launch_url` and `api_url` module
-outputs; it is never fed back into the immutable `WorkerVersion`.
+The repository manifest declares a generic `http.endpoint` requirement that
+delivers `url -> app_url` and `subdomain -> project_name`. The selected
+Provider/Takoserver authority chooses and pins the exact HTTPS origin and
+requested subdomain before Plan. Takosumi carries the installation contract;
+it does not allocate, mint, or own the public hostname.
 
-On its first successful fetch, the runtime validates the request origin and
-pins it in `KV` when no operator-supplied `APP_URL` exists. Native queue work
-fails closed until a fetch has established that origin. The scheduled
-retention path does not invent or consume an application URL.
+`app_url` is required, default-free, and validated as an exact HTTPS origin
+without a path, query, fragment, userinfo, or trailing slash. The value is
+injected into the immutable `WorkerVersion` as `APP_URL`; HTTP, OIDC,
+federation, queue, and scheduled behavior therefore use the same canonical
+origin. The `launch_url` and `api_url` outputs return that same pinned value.
+
+`WorkerEndpoint` remains the runtime attachment and is admitted only after
+`WorkerDeployment` serves a fetch handler. Its mutable `.url` is not used for
+`APP_URL` or module outputs, and the module never infers an origin from a
+resource name.
 
 ## Provider 3 validation
 
-The portable repository gate initializes the exact Provider `3.0.0` release
+The portable repository gate initializes the exact Provider `3.1.0` release
 from its public registry source in an isolated temporary directory, then
-validates the prepared module:
+validates the prepared module. Because `3.1.0` is currently unpublished, this
+registry lane is an expected blocker until that immutable release is available:
 
 ```bash
 bun scripts/validate-takoform-v1.ts
@@ -137,12 +148,16 @@ the selected source directory.
 
 ## Full current lifecycle E2E
 
-The current graph has a checked-in lifecycle runner for a caller-supplied
-stable Host. It copies this module after rebuilding the Worker and preparing
-the digest-verified source bundle, applies every one of the 13 Provider 3.0.0
-resources, reads the exact Host representations back, probes the assigned
-Yurucommu runtime, destroys the graph, and verifies that every exact resource
-reference is absent.
+The current graph also has a checked-in lifecycle runner for a caller-supplied
+stable Host. That runner predates the 3.1.0 pin and still contains
+3.0.0-specific registry and binary-handshake paths, so it is not a passing gate
+for this module until its owner updates it to runtime-input-v2. Running it
+against this module must stop at that explicit version mismatch rather than
+reinterpret a 3.0.0 binary as proof. Once updated, the runner should copy this
+module after rebuilding the Worker and preparing the digest-verified source
+bundle, apply all 13 Provider 3.1.0 resources, read exact Host
+representations, probe the assigned runtime, destroy the graph, and verify
+that every exact resource reference is absent.
 
 ```bash
 TAKOFORM_ENDPOINT=https://forms.example.test \
@@ -171,12 +186,13 @@ group. SIGINT/SIGTERM requests the same cleanup path.
 The local Provider executable is copied only after its digest is verified, and
 the runner uses a temporary OpenTofu state and CLI configuration.
 
-The passing report includes:
+When that runner is updated and passes, its report includes:
 
 - a run-bound provenance record containing the exact source HEAD and a digest
   of dirty/untracked state, the copied module file inventory, generated Worker
-  and migration digests, the supplied Provider SHA-256, and a Provider 3.0.0
-  schema handshake proving every current resource kind was loaded;
+  and migration digests, the supplied Provider SHA-256, and a Provider 3.1.0
+  runtime-input-v2 schema handshake proving every current resource kind was
+  loaded;
 - all 13 output UIDs and exact FormRef resource GET readbacks, each with
   `Ready=True` and matching apiVersion/kind/FormRef/name/space/UID/generation;
 - `SQLiteMigrationApplication` readiness plus `/nodeinfo/2.0` database-backed
@@ -201,7 +217,7 @@ disposable space and an explicit Provider binary/digest.
 
 ## Fetch-only local tracer
 
-The first stable-v1 E2E slice deliberately provisions only
+The retained fetch-only E2E slice deliberately provisions only
 `ModuleWorker -> WorkerBundle -> WorkerVersion(fetch) -> WorkerDeployment ->
 WorkerEndpoint`. It then sends an actual GET to the exact
 `WorkerEndpoint.url`, verifies a per-run nonce, and destroys the resources.
@@ -215,8 +231,10 @@ TAKOFORM_PROVIDER_SHA256=sha256:<64-lowercase-hex-digest> \
 bun run e2e:takoform-v1
 ```
 
-This retained tracer is useful for a small Host smoke check; the full current
-graph and lifecycle proof use `bun run e2e:takoform-v1:full` above.
+This retained tracer's fixture still pins Provider 3.0.0, so it is useful only
+for the prior small Host smoke check; it is not evidence for this module's
+Provider 3.1.0 runtime-input-v2 contract. The lifecycle proof needs a runner
+updated for the exact 3.1.0 candidate above.
 
 Loopback HTTP is accepted for a disposable local Host; non-loopback Host
 endpoints must use HTTPS. The tracer does not run a registry `init`, never
