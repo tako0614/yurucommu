@@ -225,13 +225,15 @@ The passing report includes:
 
 - a run-bound provenance record containing the exact source HEAD and a digest
   of dirty/untracked state, the copied module file inventory, generated Worker
-  and migration digests, the supplied Provider SHA-256, and a Provider 3.0.0
-  schema handshake proving every current resource kind was loaded;
-- all 13 output UIDs and exact FormRef resource GET readbacks, each with
+  and migration digests, the supplied Provider SHA-256, and a Provider schema
+  handshake at the pinned version proving every current resource kind was
+  loaded;
+- all 14 output UIDs and exact FormRef resource GET readbacks, each with
   `Ready=True` and matching apiVersion/kind/FormRef/name/space/UID/generation;
 - `SQLiteMigrationApplication` readiness plus `/nodeinfo/2.0` database-backed
   user/post counters, `/healthz`, `/readyz`, and social-server discovery;
-- Host `StandardServiceSupport` for the required `com.amazonaws.s3` service;
+- `ObjectBucket` readiness for `MEDIA`, which is a Form in this graph rather
+  than a standard service the Host has to be able to supply;
 - `QueueConsumer` and `WorkerCronTrigger` readiness from Host status; stable
   Host API v1 has no portable queue/cron invocation-counter surface, so the
   report explicitly records invocation counters as unavailable rather than
@@ -274,8 +276,7 @@ places the token in CLI arguments or its generated provider configuration, and
 preserves the temporary state path if cleanup fails.
 
 This tracer reports only `phase: "fetch-only"`. It is not evidence for SQLite,
-KV, queue delivery/DLQ behavior, cron dispatch, migrations, or the sealed S3
-service. Those phases must remain red until a stable Host both implements the
+KV, object-bucket, queue delivery/DLQ behavior, cron dispatch, or migrations. Those phases must remain red until a stable Host both implements the
 backends and returns a `WorkerEndpoint.url` that the tracer can request
 directly. A schema-valid `.invalid` URL plus an out-of-band loopback rewrite is
 diagnostic evidence, not a passing HTTP deployment proof.
@@ -291,25 +292,10 @@ credentials. A usable Host must provide:
 - a reachable HTTPS Worker endpoint;
 - logs, backup, restore, update, removal, and recovery procedures.
 
-Takoserver's operator-side Cloudflare R2 supply, when enabled by that Host, has
-this configuration identity:
-
-```json
-{
-  "kind": "takoserver.standard-service-supplies@v1",
-  "supplies": [
-    {
-      "serviceRef": {
-        "apiVersion": "standards.takoform.com/v1",
-        "protocol": "com.amazonaws.s3"
-      },
-      "backend": { "kind": "cloudflare-r2" }
-    }
-  ]
-}
-```
-
-That is Host operator configuration, not Yurucommu module input or output.
+How a Host backs the `ObjectBucket` — R2 on a Cloudflare-backed Takoserver, or
+anything else — is that Host's operator configuration, not Yurucommu module
+input or output. It reaches the Worker as a native `R2Bucket` on the
+`cloudflare` lane and as the `edge.objects` facade on the `portable` one.
 
 ## Focused checks
 

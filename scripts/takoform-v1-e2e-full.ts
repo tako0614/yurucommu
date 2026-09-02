@@ -16,10 +16,11 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { isAbsolute, join, relative, resolve } from "node:path";
 
+import { TAKOFORM_PROVIDER_VERSION } from "./takoform-provider-pin.ts";
+
 const PROVIDER_SOURCE = "registry.terraform.io/tako0614/takoform";
 const STABLE_DISCOVERY_PATH = "/.well-known/takoform/v1";
 const STABLE_API_PATH = "/apis/forms.takoform.com/v1";
-const STANDARD_SERVICE_PROTOCOL = "com.amazonaws.s3";
 const HEALTH_PATH = "/healthz";
 const READINESS_PATH = "/readyz";
 const SOCIAL_SERVER_PATH = "/.well-known/social-server";
@@ -52,6 +53,7 @@ export const CURRENT_RESOURCE_TYPES = [
   "takoform_sqlite_migration_set",
   "takoform_sqlite_migration_application",
   "takoform_edge_kv_namespace",
+  "takoform_edge_object_bucket",
   "takoform_at_least_once_queue",
   "takoform_at_least_once_queue",
   "takoform_worker_bundle",
@@ -72,6 +74,7 @@ const CURRENT_RESOURCE_ID_KEYS = [
   "migration_set",
   "migration_application",
   "kv",
+  "media",
   "delivery",
   "delivery_dlq",
   "delivery_consumer",
@@ -540,7 +543,7 @@ export function extractAppliedResourceIdentities(
   const actual = resources.map((resource) => resource.type).sort();
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
     throw new Error(
-      `tofu state did not contain the current 13-resource graph (got ${actual.join(",") || "none"})`,
+      `tofu state did not contain the current 14-resource graph (got ${actual.join(",") || "none"})`,
     );
   }
 
@@ -586,7 +589,7 @@ export function assertCurrentResourceOutputIds(
   const expected = [...CURRENT_RESOURCE_ID_KEYS].sort();
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
     throw new Error(
-      "takoform_resource_ids output did not contain all 13 current resources",
+      "takoform_resource_ids output did not contain all 14 current resources",
     );
   }
   for (const key of CURRENT_RESOURCE_ID_KEYS) {
@@ -628,6 +631,7 @@ function outputResourceKeyMatches(
     migration_set: "takoform_sqlite_migration_set",
     migration_application: "takoform_sqlite_migration_application",
     kv: "takoform_edge_kv_namespace",
+    media: "takoform_edge_object_bucket",
     delivery_consumer: "takoform_queue_consumer",
     retention: "takoform_worker_cron_trigger",
   };
@@ -956,19 +960,24 @@ export async function main(): Promise<void> {
         "WorkerVersion",
       );
 
-      const standardService = await readStandardServiceSupport(
-        hostDiscovery,
-        config,
+      // MEDIA is a Form in this graph now, so its evidence is the bucket's own
+      // Ready=True readback. Asking the Host whether it can satisfy a
+      // com.amazonaws.s3 standard service would prove something the module no
+      // longer requests, and would fail a Host that implements every Form here.
+      requireReadyType(
+        hostResources,
+        "takoform_edge_object_bucket",
+        "object bucket",
       );
       const runtimeBase = config.diagnosticRuntimeEndpoint ?? launchUrl;
       probes = {
         hostResourceReadback: {
           count: hostResources.length,
           ready: hostResources.length,
-          graph: "Provider 3.0.0/current-13-resources",
+          graph: `Provider ${TAKOFORM_PROVIDER_VERSION}/current-14-resources`,
         },
         migrationBackedHealth: await probeRuntime(runtimeBase),
-        standardService,
+        objectBucket: "Ready=True resource evidence",
         nativeHandlers: {
           queueConsumer: "Ready=True resource evidence",
           cronTrigger: "Ready=True resource evidence",
@@ -998,7 +1007,7 @@ export async function main(): Promise<void> {
         }
         if (identities.length !== CURRENT_RESOURCE_TYPES.length) {
           throw new Error(
-            "cannot verify authoritative absence without all 13 applied identities",
+            "cannot verify authoritative absence without all 14 applied identities",
           );
         }
         await verifyResourceAbsence(hostDiscovery, config, identities);
@@ -1415,39 +1424,6 @@ async function verifyResourceAbsence(
     );
     await assertAuthoritativeAbsence(response, identity.address);
   }
-}
-
-async function readStandardServiceSupport(
-  discovery: StableHostDiscovery,
-  config: TakoformV1E2EConfig,
-): Promise<Record<string, unknown>> {
-  const url = `${discovery.apiBase}/support/standard-services/${encodeURIComponent("com.amazonaws.s3")}`;
-  const response = await fetch(url, {
-    method: "GET",
-    headers: {
-      accept: "application/json",
-      authorization: `Bearer ${config.evidenceToken}`,
-    },
-    redirect: "error",
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-  });
-  const body = await responseJson(response, "S3 standard-service support", 200);
-  if (
-    !isRecord(body) ||
-    body.kind !== "StandardServiceSupport" ||
-    body.satisfiable !== true ||
-    !isRecord(body.serviceRef) ||
-    body.serviceRef.protocol !== STANDARD_SERVICE_PROTOCOL
-  ) {
-    throw new Error(
-      "Host did not report a satisfiable com.amazonaws.s3 standard service",
-    );
-  }
-  return {
-    kind: "StandardServiceSupport",
-    protocol: STANDARD_SERVICE_PROTOCOL,
-    satisfiable: true,
-  };
 }
 
 async function probeRuntime(
