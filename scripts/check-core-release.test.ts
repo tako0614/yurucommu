@@ -6,8 +6,8 @@ import {
 } from "./check-core-release.mjs";
 
 const readyLock = `
-"@takosjp/yurucommu-api": ["@takosjp/yurucommu-api@4.1.2", "", {}],
-"@takosjp/yurucommu-core": ["@takosjp/yurucommu-core@4.1.2", "", {}],
+"@takosjp/yurucommu-api": ["@takosjp/yurucommu-api@4.1.3", "", {}],
+"@takosjp/yurucommu-core": ["@takosjp/yurucommu-core@4.1.3", "", {}],
 `;
 
 const apiExports = [
@@ -39,14 +39,14 @@ describe("registry core/API product release gate", () => {
     const result = evaluateCoreRelease({
       packageJson: {
         dependencies: {
-          "@takosjp/yurucommu-api": "^4.1.2",
-          "@takosjp/yurucommu-core": "^4.1.2",
+          "@takosjp/yurucommu-api": "^4.1.3",
+          "@takosjp/yurucommu-core": "^4.1.3",
         },
       },
       lockText: readyLock,
       installedVersions: {
-        "@takosjp/yurucommu-api": "4.1.2",
-        "@takosjp/yurucommu-core": "4.1.2",
+        "@takosjp/yurucommu-api": "4.1.3",
+        "@takosjp/yurucommu-core": "4.1.3",
       },
       hasNotificationMigration: true,
       apiExports,
@@ -54,7 +54,7 @@ describe("registry core/API product release gate", () => {
     });
     expect(result).toEqual({ ok: true, blockers: [] });
     expect(lockedPackageVersion(readyLock, "@takosjp/yurucommu-core")).toBe(
-      "4.1.2",
+      "4.1.3",
     );
   });
 
@@ -66,7 +66,7 @@ describe("registry core/API product release gate", () => {
           "@takosjp/yurucommu-core": "^3.0.3",
         },
       },
-      lockText: readyLock.replaceAll("4.1.2", "3.0.3"),
+      lockText: readyLock.replaceAll("4.1.3", "3.0.3"),
       installedVersions: {
         "@takosjp/yurucommu-api": "3.0.3",
         "@takosjp/yurucommu-core": "3.0.3",
@@ -96,7 +96,7 @@ describe("registry core/API product release gate", () => {
           "@takosjp/yurucommu-core": "^4.0.0",
         },
       },
-      lockText: readyLock.replaceAll("4.1.2", "4.0.0"),
+      lockText: readyLock.replaceAll("4.1.3", "4.0.0"),
       installedVersions: {
         "@takosjp/yurucommu-api": "4.0.0",
         "@takosjp/yurucommu-core": "4.0.0",
@@ -129,7 +129,7 @@ describe("registry core/API product release gate", () => {
           "@takosjp/yurucommu-core": "^4.1.1",
         },
       },
-      lockText: readyLock.replaceAll("4.1.2", "4.1.1"),
+      lockText: readyLock.replaceAll("4.1.3", "4.1.1"),
       installedVersions: {
         "@takosjp/yurucommu-api": "4.1.1",
         "@takosjp/yurucommu-core": "4.1.1",
@@ -162,14 +162,14 @@ describe("registry core/API product release gate", () => {
     const result = evaluateCoreRelease({
       packageJson: {
         dependencies: {
-          "@takosjp/yurucommu-api": "^4.1.2",
-          "@takosjp/yurucommu-core": "^4.1.2",
+          "@takosjp/yurucommu-api": "^4.1.3",
+          "@takosjp/yurucommu-core": "^4.1.3",
         },
       },
       lockText: readyLock,
       installedVersions: {
-        "@takosjp/yurucommu-api": "4.1.2",
-        "@takosjp/yurucommu-core": "4.1.2",
+        "@takosjp/yurucommu-api": "4.1.3",
+        "@takosjp/yurucommu-core": "4.1.3",
       },
       hasNotificationMigration: true,
       apiExports,

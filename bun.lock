@@ -9,8 +9,8 @@
         "@ffmpeg/util": "^0.12.2",
         "@solidjs/router": "^0.15.0",
         "@takosjp/takosumi-contract": "^2.0.0",
-        "@takosjp/yurucommu-api": "^4.1.2",
-        "@takosjp/yurucommu-core": "^4.1.2",
+        "@takosjp/yurucommu-api": "^4.1.3",
+        "@takosjp/yurucommu-core": "^4.1.3",
         "html5-qrcode": "^2.3.8",
         "jotai": "^2.18.0",
         "qrcode-generator": "^2.0.4",
@@ -377,9 +377,9 @@
 
     "@takosjp/takosumi-contract": ["@takosjp/takosumi-contract@2.0.0", "", {}, "sha512-jXhqkilw1UaBLY0X3RY78eL7JcI16vvNr5qu6FiQUV7GLmLB7HZjw5h+0OeVghKkheBBWIB2S6N4EJ41ZpFBqA=="],
 
-    "@takosjp/yurucommu-api": ["@takosjp/yurucommu-api@4.1.2", "", {}, "sha512-u+Qt/YU5tlPTbpl/g29vWbsCxhZ1tpCFK7njAYphT7oBmQqPDhmhzGEAdPNAaHpSCCJMogKeoPXKixWOxkZstA=="],
+    "@takosjp/yurucommu-api": ["@takosjp/yurucommu-api@4.1.3", "", {}, "sha512-HYbqR8c1lmjZEPB4WMwJVog7oX/WkbifeEpouBBwKp/XBW41oR+2sYUYMDcAfnE3Bmp86PDShqGkhRwFTVr/mA=="],
 
-    "@takosjp/yurucommu-core": ["@takosjp/yurucommu-core@4.1.2", "", { "dependencies": { "@aws-sdk/client-s3": "^3.971.0", "@libsql/client": "^0.17.0", "@takosjp/takosumi-contract": "^1.0.0", "better-sqlite3": "^12.4.1", "drizzle-orm": "^0.45.1", "fdir": "^6.5.0", "hono": "^4.12.9", "picomatch": "^4.0.4", "tinyglobby": "^0.2.16" } }, "sha512-vDdZ/iJx4vF5skbGJIp4LZGwHFD9T9uh732J9axnMvoqBC2gwQgQ6yUlsLfxo/qyGjBh0+/EbcL/BQ+EEjGK8A=="],
+    "@takosjp/yurucommu-core": ["@takosjp/yurucommu-core@4.1.3", "", { "dependencies": { "@aws-sdk/client-s3": "^3.971.0", "@libsql/client": "^0.17.0", "@takosjp/takosumi-contract": "^1.0.0", "better-sqlite3": "^12.4.1", "drizzle-orm": "^0.45.1", "fdir": "^6.5.0", "hono": "^4.12.9", "picomatch": "^4.0.4", "tinyglobby": "^0.2.16" } }, "sha512-OuS3B8zmEwRTrOmH0gGfDqGvXejmkdFAwkiJdq/PKtFxuDfz/tTlXn/SnByLt/gd2EfJGKd6GK0zyMpxkLl57Q=="],
 
     "@types/babel__core": ["@types/babel__core@7.20.5", "", { "dependencies": { "@babel/parser": "^7.20.7", "@babel/types": "^7.20.7", "@types/babel__generator": "*", "@types/babel__template": "*", "@types/babel__traverse": "*" } }, "sha512-qoQprZvz5wQFJwMDqeseRXWv3rqMvhgpbXFfVyWhbx9X47POIA6i/+dXefEmZKoAgOaTdaIgNSMqMIU61yRyzA=="],
 

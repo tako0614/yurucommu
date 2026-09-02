@@ -139,14 +139,16 @@ is why `APP_URL` cannot simply be passed here: the origin does not exist yet
 when the version that would carry it is sealed, and there is no second apply
 that could inject it afterwards.
 
-**On `runtime_lane = portable`, leave `APP_URL` unset.** The Worker establishes
-its public origin from the first https request the Host routes to it and pins
-that value in `KV`, and every later request and every queue batch reads the pin.
-First writer wins: once a value is stored no later request replaces it, whatever
-`Host` header that request carried. The rule lives in
-`@takosjp/yurucommu-core` (`>= 4.1.2`, `src/backend/runtime/public-origin.ts`),
-not in this module and not in the product's Worker entry, because every actor
-id, delivery signature, and `.well-known` document is built from the same value.
+**Leave `APP_URL` unset and let the Worker establish its own origin.** The
+rule does not depend on the lane. On `cloudflare` and `portable` alike the
+Worker establishes its public origin from the first https request the Host
+routes to it and pins that value in `KV`, and every later request and every
+queue batch reads the pin. First writer wins: once a value is stored no later
+request replaces it, whatever `Host` header that request carried. The rule
+lives in `@takosjp/yurucommu-core` (`>= 4.1.3`,
+`src/backend/runtime/public-origin.ts`), not in this module and not in the
+product's Worker entry, because every actor id, delivery signature, and
+`.well-known` document is built from the same value.
 
 Only the request URL as the runtime delivers it is trusted — never
 `X-Forwarded-Host`, `X-Forwarded-Proto`, or a `Host` header. It must be https,
@@ -156,11 +158,13 @@ and must set `APP_URL`**, which it can: an operator who terminates TLS chose the
 hostname themselves. Refusing is the point; the alternative is trusting a
 forwarded-proto header that same proxy may not be the only writer of.
 
-**On `runtime_lane = cloudflare` nothing is inferred.** A Worker with raw
-Cloudflare bindings answers on workers.dev and on every custom domain and route
-pattern its account holds, so the first hostname to arrive must not be allowed
-to name the instance permanently. That lane requires an explicit `APP_URL`, and
-`/readyz` reports it as a missing binding until it has one.
+**What the inference does not decide.** A Worker deployed straight to
+Cloudflare answers on workers.dev and on every custom domain and route pattern
+its account holds, so an operator who wants one particular hostname to name
+the instance sets `APP_URL`, which always wins and is never pinned. That is a
+hostname choice, not a lane property: a Takoform Host allocates exactly one
+endpoint, so the first https request already carries the right name whichever
+lane the Worker runs on.
 
 ### The rule for `APP_URL` in this module
 
@@ -168,14 +172,10 @@ Neither `vars_json` nor the repository manifest declares `APP_URL` for the
 Takoform lane, and both stay that way. `local.worker_plain_values` carries
 `YURUCOMMU_RUNTIME_LANE` alone, so the `WorkerVersion` contains no origin at
 all — which is what lets the same immutable version serve whatever endpoint the
-Host later allocates. A Takoform install that needs the runtime to name itself
-therefore runs `runtime_lane = portable`.
-
-The consequence for the other lane is worth stating plainly: because this module
-passes no `APP_URL` and the `cloudflare` lane infers none, a `cloudflare`-lane
-Takoform install is not ready until its Host supplies the origin some other way.
-Choosing `portable` is the supported answer whenever the Host, not the deployer,
-picks the endpoint.
+Host later allocates. The Worker names itself from that endpoint on either
+lane, so an install is ready once the Host has routed one https request to it.
+`runtime_lane` selects the binding shape the Host supplies (the table above),
+not who names the instance.
 
 Native queue work fails closed with `PublicOriginError` until an origin exists,
 so delivery is retried after traffic has established one instead of addressed

@@ -264,10 +264,10 @@ export default {
     ctx: ExecutionContext,
   ): Promise<Response> {
     // No origin handling here. \`createYurucommuBackendApp\` registers the
-    // core's public-origin middleware before every route, so the portable lane
-    // establishes this instance's origin from the request and pins it, and the
-    // cloudflare lane keeps requiring an explicit \`APP_URL\` — one rule, owned
-    // by the package that mints the actor ids from it.
+    // core's public-origin middleware before every route, so on either lane
+    // this instance establishes its origin from the request and pins it unless
+    // an explicit \`APP_URL\` was set — one rule, owned by the package that
+    // mints the actor ids from it.
     const bindings = wrapYurucommuWorkerBindings(env);
     const runtimeEnv = bindings.ASSETS
       ? bindings
