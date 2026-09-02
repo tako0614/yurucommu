@@ -240,13 +240,14 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
     });
   });
 
-  test("extracts and requires the current 13 managed resources", () => {
+  test("extracts and requires the current 14 managed resources", () => {
     const kinds: Record<string, string> = {
       takoform_module_worker: "ModuleWorker",
       takoform_sqlite_database: "SQLiteDatabase",
       takoform_sqlite_migration_set: "SQLiteMigrationSet",
       takoform_sqlite_migration_application: "SQLiteMigrationApplication",
       takoform_edge_kv_namespace: "EdgeKVNamespace",
+      takoform_edge_object_bucket: "ObjectBucket",
       takoform_at_least_once_queue: "AtLeastOnceQueue",
       takoform_worker_bundle: "WorkerBundle",
       takoform_worker_version: "WorkerVersion",
@@ -275,13 +276,14 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
     const identities = extractAppliedResourceIdentities({
       values: { root_module: { resources } },
     });
-    expect(identities).toHaveLength(13);
+    expect(identities).toHaveLength(14);
     expect(identities[3]?.form.kind).toBe("SQLiteMigrationApplication");
+    expect(identities[5]?.form.kind).toBe("ObjectBucket");
     expect(() =>
       extractAppliedResourceIdentities({
-        values: { root_module: { resources: resources.slice(0, 12) } },
+        values: { root_module: { resources: resources.slice(0, 13) } },
       }),
-    ).toThrow("current 13-resource graph");
+    ).toThrow("current 14-resource graph");
   });
 
   test("prepares migrations from a fresh source archive before tofu", async () => {
@@ -556,7 +558,7 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
     expect(result.preservedWorkdir).toBe(false);
   });
 
-  test("checks all 13 output identity keys", () => {
+  test("checks all 14 output identity keys", () => {
     const ids = Object.fromEntries(
       [
         "worker",
@@ -568,6 +570,7 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
         "migration_set",
         "migration_application",
         "kv",
+        "media",
         "delivery",
         "delivery_dlq",
         "delivery_consumer",
@@ -577,7 +580,7 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
     expect(() => assertCurrentResourceOutputIds(ids)).not.toThrow();
     expect(() =>
       assertCurrentResourceOutputIds({ ...ids, unexpected: "uid" }),
-    ).toThrow("all 13 current resources");
+    ).toThrow("all 14 current resources");
   });
 
   test("binds output UID map to the corresponding tofu state UID", () => {
@@ -591,6 +594,7 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
         "uid-migration-application",
       ],
       ["takoform_edge_kv_namespace", "kv", "uid-kv"],
+      ["takoform_edge_object_bucket", "media", "uid-media"],
       ["takoform_at_least_once_queue", "e2e-delivery", "uid-delivery"],
       ["takoform_at_least_once_queue", "e2e-delivery-dlq", "uid-delivery-dlq"],
       ["takoform_worker_bundle", "worker-bundle", "uid-worker-bundle"],
@@ -627,6 +631,7 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
       migration_set: "uid-migration-set",
       migration_application: "uid-migration-application",
       kv: "uid-kv",
+      media: "uid-media",
       delivery: "uid-delivery",
       delivery_dlq: "uid-delivery-dlq",
       delivery_consumer: "uid-delivery-consumer",
