@@ -84,9 +84,9 @@ describe("Takosumi relational schema bundle", () => {
     expect(bundleText).not.toContain('"sizeBytes"');
   });
 
-  test("bundles every migration shipped by the locked core 4.1.2 release", async () => {
+  test("bundles every migration shipped by the locked core 4.1.3 release", async () => {
     const provenance = await readSchemaBundleProvenance(repositoryRoot);
-    expect(provenance.lockedVersion).toBe("4.1.2");
+    expect(provenance.lockedVersion).toBe("4.1.3");
     expect(bundle.entries).toHaveLength(28);
     expect(bundle.entries.at(-1)?.name).toBe(
       "0029_delivery_endpoint_recipients.sql",

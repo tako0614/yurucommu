@@ -617,15 +617,34 @@ describe("public origin per lane", () => {
     expect(kv.writes).toEqual([]);
   });
 
-  // A Worker deployed straight to Cloudflare answers on workers.dev and on
-  // every custom domain and route pattern the account holds, so the first
-  // hostname to arrive must not be allowed to name the instance. This lane
-  // reports the missing binding instead of inferring one.
-  test("cloudflare without APP_URL infers nothing and says so", async () => {
+  // The rule does not depend on the lane (core >= 4.1.3). A Takoform Host
+  // allocates exactly one endpoint whichever lane the Worker runs on, so the
+  // first https request already carries the right name; an operator who wants
+  // a different hostname among several sets `APP_URL`, which always wins.
+  test("cloudflare without APP_URL establishes the origin from the request and pins it", async () => {
     const { default: worker } = await loadEntry();
     const kv = nativeKv();
     const response = await worker.fetch(
       new Request("https://workers-dev.example.test/healthz"),
+      { DB: nativeD1(), KV: kv },
+      {},
+    );
+
+    expect(await health(response)).not.toContain("APP_URL");
+    expect(kv.writes).toEqual([CANONICAL_ORIGIN_KV_KEY]);
+    expect(kv.read(CANONICAL_ORIGIN_KV_KEY)).toBe(
+      "https://workers-dev.example.test",
+    );
+  });
+
+  // Only an https request URL may name the instance. A proxy that terminates
+  // TLS and speaks plain http to the Worker establishes nothing and must set
+  // `APP_URL`; the readiness report says so instead of pinning "http://".
+  test("cloudflare on plain http from a routable host establishes nothing and says so", async () => {
+    const { default: worker } = await loadEntry();
+    const kv = nativeKv();
+    const response = await worker.fetch(
+      new Request("http://workers-dev.example.test/healthz"),
       { DB: nativeD1(), KV: kv },
       {},
     );
