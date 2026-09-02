@@ -206,10 +206,24 @@ describe("runtime lane declaration", () => {
     expect(() =>
       wrapYurucommuWorkerBindings(portableBindings({ DB: nativeD1() })),
     ).toThrow(/D1Database/);
-    // MEDIA is decisive in the one direction that can be proven.
+  });
+
+  // core@4.1.1: `edge.objects@1.0.0` is R2's method set on purpose — the same
+  // `head`/`get`/`put`/`delete`/`list` names plus the four multipart helpers —
+  // so that an app written against R2 ports over unchanged (Takoserver ADR
+  // 0005/0007). A native R2Bucket therefore answers every shape probe the same
+  // way the facade does, so MEDIA carries no evidence about the lane and a
+  // shape check on it can only produce false refusals. 4.1.0 read that
+  // identity backwards and refused every self-hosted deployment; the declared
+  // lane is now the whole of the evidence for MEDIA, the same as it always was
+  // for KV and the queue producers.
+  test("accepts a bucket binding on the portable lane whatever shape it has", () => {
     expect(() =>
       wrapYurucommuWorkerBindings(portableBindings({ MEDIA: nativeR2([]) })),
-    ).toThrow(/R2Bucket/);
+    ).not.toThrow();
+    expect(() =>
+      wrapYurucommuWorkerBindings(portableBindings({ MEDIA: undefined })),
+    ).not.toThrow();
   });
 });
 
