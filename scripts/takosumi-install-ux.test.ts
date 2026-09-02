@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 
+import { TAKOFORM_PROVIDER_PIN } from "./takoform-provider-pin.ts";
+
 const rootUrl = new URL("../", import.meta.url);
 const manifestUrl = new URL(".well-known/takosumi.json", rootUrl);
 const manifestText = await readFile(manifestUrl, "utf8");
@@ -396,7 +398,14 @@ describe("repository-owned Takosumi install UX", () => {
       expect(managedModuleSource).toContain(JSON.stringify(name));
     }
     expect(managedModuleSource).toContain("required_sensitive_vars");
-    expect(managedModuleSource).toContain('protocol = "com.amazonaws.s3"');
+    // MEDIA is a Form the module owns, not a standard service the installer's
+    // Host has to be able to supply out of band.
+    expect(managedModuleSource).toContain(
+      'resource "takoform_edge_object_bucket" "media"',
+    );
+    expect(managedModuleSource).toContain("bucket_bindings");
+    expect(managedModuleSource).not.toContain("com.amazonaws.s3");
+    expect(managedModuleSource).not.toContain("external_services");
   });
 
   test("keeps host authority and secret values out of repository metadata", () => {
@@ -476,6 +485,17 @@ describe("repository-owned Takosumi install UX", () => {
       'migration_root     = "${path.module}/migrations/sql"',
     );
     expect(managedModuleSource).not.toContain("${path.module}/../");
-    expect(managedModuleSource).toContain('version = "= 3.0.0"');
+    expect(managedModuleSource).toContain(TAKOFORM_PROVIDER_PIN);
+
+    // runtime_lane is a module variable but deliberately NOT an install input:
+    // it names the binding shape the destination Host projects, which the
+    // installer cannot be asked about, and its default is the raw-binding lane
+    // that both plain Cloudflare and the production Takoserver backend are.
+    expect(moduleVariables).toContain("runtime_lane");
+    expect(managedModule.inputs.map((input) => input.name)).not.toContain(
+      "runtime_lane",
+    );
+    expect(manifestText).not.toContain("runtime_lane");
+    expect(manifestText).not.toContain("YURUCOMMU_RUNTIME_LANE");
   });
 });
