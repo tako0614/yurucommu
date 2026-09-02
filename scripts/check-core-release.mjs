@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const MINIMUM_PRODUCT_RELEASE = "3.4.4";
+export const MINIMUM_PRODUCT_RELEASE = "4.1.0";
 
 const PACKAGE_NAMES = ["@takosjp/yurucommu-core", "@takosjp/yurucommu-api"];
 const REQUIRED_API_EXPORTS = [
@@ -15,12 +15,19 @@ const REQUIRED_API_EXPORTS = [
   "getBrowserNotificationPushState",
   "refreshBrowserNotificationPush",
 ];
+// The Worker entry composes through the runtime-lane selector, so a core that
+// predates it cannot run this product's bundle at all: it would hand the
+// portable edge.sql facade to drizzle-orm/d1 and fail at the first prepare().
 const REQUIRED_CORE_EXPORTS = [
   "createManagedRuntimeKeyValueStore",
   "createManagedRuntimeObjectStorage",
   "createManagedRuntimeQueueProducer",
   "createManagedRelationalDatabase",
+  "resolveRuntimeLane",
   "runYurucommuRetention",
+  "wrapPortableBindings",
+  "wrapRuntimeBindings",
+  "wrapRuntimeMessageBatch",
 ];
 
 function parseSemver(value) {
