@@ -101,7 +101,7 @@ untracked source-build output.
 | `EdgeKVNamespace`                | Stores sessions, rate limits, and the observed public origin    |
 | `ObjectBucket`                   | Stores uploaded media objects                                   |
 | two `AtLeastOnceQueue` resources | Delivery work and its dead-letter queue                         |
-| `QueueConsumer`                  | Delivers native queue batches and applies retry/DLQ policy      |
+| two `QueueConsumer` resources    | Drains the delivery queue and its dead-letter queue             |
 | `WorkerCronTrigger`              | Invokes the native scheduled handler hourly                     |
 
 The Worker version exports the native `fetch`, `queue`, and `scheduled`
@@ -117,6 +117,20 @@ DELIVERY_QUEUE
 DELIVERY_DLQ
 MEDIA
 ```
+
+The plain variables the Worker reads are `YURUCOMMU_RUNTIME_LANE` and the pair
+`DELIVERY_QUEUE_NAME` / `DELIVERY_DLQ_NAME`. That pair is not decoration: the
+engine routes a queue batch by comparing `batch.queue` against those two values
+and ignores a batch that matches neither, and its built-in fallbacks are the
+queue names of an install left at the default `project_name`. Both are derived
+from the same locals the `AtLeastOnceQueue` resources are named from, so an
+instance that renamed the Capsule cannot end up accepting every delivery
+message and draining none of them.
+
+Both queues are consumed, by the same Worker. The dead-letter queue is not an
+archive: its batches are the recovery path for deliveries the main queue gave
+up on, so a graph that registered only the main consumer would drop exactly the
+messages that had already failed once.
 
 Every one of them refers to a resource in this graph, `MEDIA` included: it is a
 portable `ObjectBucket` the module owns, bound as an ordinary
@@ -178,12 +192,12 @@ lane the Worker runs on.
 
 Neither `vars_json` nor the repository manifest declares `APP_URL` for the
 Takoform lane, and both stay that way. `local.worker_plain_values` carries
-`YURUCOMMU_RUNTIME_LANE` alone, so the `WorkerVersion` contains no origin at
-all — which is what lets the same immutable version serve whatever endpoint the
-Host later allocates. The Worker names itself from that endpoint on either
-lane, so an install is ready once the Host has routed one https request to it.
-`runtime_lane` selects the binding shape the Host supplies (the table above),
-not who names the instance.
+`YURUCOMMU_RUNTIME_LANE` and the two delivery queue names, and no origin, so
+the `WorkerVersion` contains none at all — which is what lets the same immutable
+version serve whatever endpoint the Host later allocates. The Worker names
+itself from that endpoint on either lane, so an install is ready once the Host
+has routed one https request to it. `runtime_lane` selects the binding shape
+the Host supplies (the table above), not who names the instance.
 
 Native queue work fails closed with `PublicOriginError` until an origin exists,
 so delivery is retried after traffic has established one instead of addressed

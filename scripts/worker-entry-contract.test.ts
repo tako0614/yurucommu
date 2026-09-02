@@ -434,6 +434,182 @@ describe("generated entry lane behavior", () => {
   });
 });
 
+// What the module's two plain variables buy, run rather than read. The engine
+// routes a queue batch by comparing `batch.queue` against `DELIVERY_QUEUE_NAME`
+// and `DELIVERY_DLQ_NAME`, and its built-in fallbacks are the queue names of an
+// install left at the default `project_name`. A renamed install that projected
+// neither variable matched neither name, so every federation delivery was acked
+// as "unknown queue" and drained nowhere — and the dead-letter batches that
+// carry the recovery path were dropped the same way.
+describe("delivery routing in a renamed install", () => {
+  const prefix = "acme-social";
+  const deliveryQueue = `${prefix}-delivery`;
+  const deliveryDlq = `${prefix}-delivery-dlq`;
+
+  const entryFile = new URL(
+    "../dist/yurucommu-entry.routing-test.ts",
+    import.meta.url,
+  );
+  let entry: {
+    default: {
+      queue(batch: unknown, env: unknown, ctx: unknown): Promise<void>;
+    };
+  };
+
+  afterAll(async () => {
+    await rm(entryFile, { force: true });
+  });
+
+  async function loadEntry() {
+    if (entry) return entry;
+    await mkdir(new URL("../dist/", import.meta.url), { recursive: true });
+    await writeFile(entryFile, createEntrySource({}));
+    entry = (await import(
+      pathToFileURL(entryFile.pathname).href
+    )) as typeof entry;
+    return entry;
+  }
+
+  const kv = () => ({
+    get: async () => null,
+    getWithMetadata: async () => null,
+    put: async () => undefined,
+    delete: async () => undefined,
+    list: async () => ({ keys: [], list_complete: true, listComplete: true }),
+  });
+  const nativeD1 = () => ({
+    prepare: () => ({}),
+    batch: async () => [],
+    exec: async () => ({}),
+  });
+
+  // A body neither wire validator accepts. Both batch handlers ack such a
+  // message and say which one they are in the structured log, so the same
+  // input tells the two apart; an unrecognised queue never reaches either and
+  // settles the whole batch instead.
+  function batchOn(queue: string, settled: string[]) {
+    return {
+      queue,
+      messages: [
+        {
+          id: "m1",
+          timestamp: new Date("2026-09-01T00:00:00.000Z"),
+          attempts: 1,
+          body: { type: "not-a-delivery-message" },
+          ack: () => settled.push("ack:m1"),
+          retry: () => settled.push("retry:m1"),
+        },
+      ],
+      ackAll: () => settled.push("ackAll"),
+      retryAll: () => settled.push("retryAll"),
+    };
+  }
+
+  // The engine reports through the console, and the delivery path also logs the
+  // stub database refusing its outbox sweeps. Collect the lines rather than
+  // letting either kind reach the test output.
+  async function routeBatch(
+    queue: string,
+    env: Record<string, unknown>,
+  ): Promise<{ settled: string[]; events: string[] }> {
+    const { default: worker } = await loadEntry();
+    const settled: string[] = [];
+    const lines: string[] = [];
+    const console_ = {
+      log: console.log,
+      warn: console.warn,
+      error: console.error,
+    };
+    const collect = (...parts: unknown[]) => lines.push(parts.join(" "));
+    console.log = collect;
+    console.warn = collect;
+    console.error = collect;
+    try {
+      await worker.queue(
+        batchOn(queue, settled),
+        {
+          DB: nativeD1(),
+          KV: kv(),
+          APP_URL: "https://acme.example.test",
+          ...env,
+        },
+        {},
+      );
+    } finally {
+      console.log = console_.log;
+      console.warn = console_.warn;
+      console.error = console_.error;
+    }
+    const events = Array.from(
+      lines.join("\n").matchAll(/"event":"([^"]+)"/g),
+      (match) => match[1],
+    );
+    return { settled, events };
+  }
+
+  // The derivation this whole block assumes: one prefix names the Capsule, both
+  // queues, and both variables. Renaming the install moves all four together.
+  test("the module derives both queue names and both variables from one prefix", () => {
+    expect(takoformModuleSource).toContain(
+      'delivery_queue_name = "${local.prefix}-delivery"',
+    );
+    expect(takoformModuleSource).toContain(
+      'delivery_dlq_name   = "${local.prefix}-delivery-dlq"',
+    );
+    expect(takoformModuleSource).toMatch(
+      /DELIVERY_QUEUE_NAME\s*=\s*local\.delivery_queue_name/,
+    );
+    expect(takoformModuleSource).toMatch(
+      /DELIVERY_DLQ_NAME\s*=\s*local\.delivery_dlq_name/,
+    );
+  });
+
+  test("a batch on the renamed delivery queue reaches the delivery handler", async () => {
+    const { settled, events } = await routeBatch(deliveryQueue, {
+      DELIVERY_QUEUE_NAME: deliveryQueue,
+      DELIVERY_DLQ_NAME: deliveryDlq,
+    });
+    expect(events).toContain("delivery.queue.invalid_message");
+    expect(events).not.toContain("queue.unknown");
+    // The delivery handler settles per message; the unknown-queue path would
+    // have discarded the batch whole.
+    expect(settled).toEqual(["ack:m1"]);
+  });
+
+  test("a batch on the renamed dead-letter queue reaches the DLQ handler", async () => {
+    const { settled, events } = await routeBatch(deliveryDlq, {
+      DELIVERY_QUEUE_NAME: deliveryQueue,
+      DELIVERY_DLQ_NAME: deliveryDlq,
+    });
+    expect(events).toContain("delivery.dlq.invalid_message");
+    expect(events).not.toContain("delivery.queue.invalid_message");
+    expect(events).not.toContain("queue.unknown");
+    expect(settled).toEqual(["ack:m1"]);
+  });
+
+  // The defect, stated as the thing that must stay false: with the variables
+  // absent the engine falls back to the default install's queue names, so a
+  // renamed dead-letter queue matched neither and its repair work was dropped.
+  test("the built-in fallback names would strand a renamed dead-letter queue", async () => {
+    const { settled, events } = await routeBatch(deliveryDlq, {
+      DELIVERY_QUEUE_NAME: "yurucommu-delivery",
+      DELIVERY_DLQ_NAME: "yurucommu-delivery-dlq",
+    });
+    expect(events).toContain("queue.unknown");
+    expect(settled).toEqual(["ackAll"]);
+  });
+
+  // A Host that projects no variables at all is still served: the entry reads
+  // the authenticated invocation identity off the wrapped batch, so the single
+  // consumer it can be is the delivery one.
+  test("an invocation with no declared identities still reaches the delivery handler", async () => {
+    const { settled, events } = await routeBatch(deliveryQueue, {});
+    expect(events).toContain("delivery.queue.invalid_message");
+    expect(events).not.toContain("queue.unknown");
+    expect(settled).toEqual(["ack:m1"]);
+  });
+});
+
 // What the entry does about the public origin, run rather than read. The
 // generated module and this file resolve `@takosjp/yurucommu-core/server` to
 // the same module instance, so the isolate-level observation the core caches is

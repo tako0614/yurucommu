@@ -37,6 +37,7 @@ describe("portable Takoform v1 Capsule", () => {
         "takoform_edge_object_bucket",
         "takoform_module_worker",
         "takoform_queue_consumer",
+        "takoform_queue_consumer",
         "takoform_sqlite_database",
         "takoform_sqlite_migration_application",
         "takoform_sqlite_migration_set",
@@ -66,7 +67,7 @@ describe("portable Takoform v1 Capsule", () => {
 
   test("ships migration inputs in the repository instead of depending on source-build output", async () => {
     expect(main).toContain(
-      'migration_root     = "${path.module}/migrations/sql"',
+      'migration_root      = "${path.module}/migrations/sql"',
     );
     expect(main).not.toContain(".generated/migrations");
 
@@ -144,13 +145,77 @@ describe("portable Takoform v1 Capsule", () => {
     );
 
     expect(main).toMatch(
-      /worker_plain_values\s*=\s*\{\s*YURUCOMMU_RUNTIME_LANE\s*=\s*var\.runtime_lane\s*\}/,
+      /worker_plain_values\s*=\s*\{[\s\S]*?YURUCOMMU_RUNTIME_LANE\s*=\s*var\.runtime_lane/,
     );
     // The retired literal is not a lane this build supports; a deployment that
     // still declared it would refuse to start rather than guess.
     expect(main).not.toContain("takoform-v1");
     expect(main).toContain(
       "vars_json      = jsonencode(local.worker_plain_values)",
+    );
+  });
+
+  // The engine routes a queue batch by comparing `batch.queue` against these
+  // two variables, and its built-in fallbacks are the queue names of an install
+  // left at the default `project_name`. Leaving them unset made every renamed
+  // install accept delivery messages and drain none of them, which no gate
+  // downstream of here would notice.
+  test("tells the Worker which queue names carry its own deliveries", () => {
+    expect(main).toMatch(
+      /worker_plain_values\s*=\s*\{[\s\S]*?DELIVERY_QUEUE_NAME\s*=\s*local\.delivery_queue_name[\s\S]*?DELIVERY_DLQ_NAME\s*=\s*local\.delivery_dlq_name/,
+    );
+    expect(main).toContain('delivery_queue_name = "${local.prefix}-delivery"');
+    expect(main).toContain(
+      'delivery_dlq_name   = "${local.prefix}-delivery-dlq"',
+    );
+    // Named once and reused, so renaming the Capsule cannot separate the queue
+    // from the name the Worker is told to expect.
+    expect(main).toMatch(
+      /resource "takoform_at_least_once_queue" "delivery" \{\s*\n\s*name\s*=\s*local\.delivery_queue_name/,
+    );
+    expect(main).toMatch(
+      /resource "takoform_at_least_once_queue" "delivery_dlq" \{\s*\n\s*name\s*=\s*local\.delivery_dlq_name/,
+    );
+  });
+
+  // Both queues are consumed by the same Worker. The dead-letter queue is not
+  // an archive: its batches are the recovery path for deliveries the main queue
+  // gave up on, so a graph that registers only the main consumer drops exactly
+  // the messages that already failed once.
+  test("registers a consumer for the delivery queue and for its dead-letter queue", () => {
+    const consumers = Array.from(
+      main.matchAll(
+        /resource "takoform_queue_consumer" "([^"]+)" \{([\s\S]*?)\n\}/g,
+      ),
+      (match) => ({ name: match[1], body: match[2] }),
+    );
+    expect(consumers.map((consumer) => consumer.name)).toEqual([
+      "delivery",
+      "delivery_dlq",
+    ]);
+    const [delivery, dlq] = consumers;
+    expect(delivery.body).toMatch(
+      /queue\s*=\s*takoform_at_least_once_queue\.delivery\.name/,
+    );
+    expect(delivery.body).toMatch(
+      /dead_letter_queue\s*=\s*takoform_at_least_once_queue\.delivery_dlq\.name/,
+    );
+    expect(dlq.body).toMatch(
+      /queue\s*=\s*takoform_at_least_once_queue\.delivery_dlq\.name/,
+    );
+    // A dead-letter queue with its own dead-letter queue is a loop, not a
+    // safety net.
+    expect(dlq.body).not.toContain("dead_letter_queue");
+    for (const consumer of consumers) {
+      expect(consumer.body).toMatch(
+        /worker\s*=\s*takoform_module_worker\.worker\.name/,
+      );
+      expect(consumer.body).toMatch(
+        /depends_on\s*=\s*\[takoform_worker_deployment\.worker\]/,
+      );
+    }
+    expect(outputs).toContain(
+      "delivery_dlq_consumer = takoform_queue_consumer.delivery_dlq.uid",
     );
   });
 

@@ -260,7 +260,7 @@ function requireReleaseIdentity(tag, artifactUrl, bundleDigest) {
   );
   if (
     !takoformSource.includes(
-      'worker_bundle_path = "${path.module}/.generated/yurucommu-worker.js"',
+      'worker_bundle_path  = "${path.module}/.generated/yurucommu-worker.js"',
     )
   ) {
     failures.push(

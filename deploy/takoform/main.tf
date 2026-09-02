@@ -49,12 +49,25 @@ variable "runtime_lane" {
 }
 
 locals {
-  prefix             = var.project_name
-  worker_bundle_path = "${path.module}/.generated/yurucommu-worker.js"
-  migration_root     = "${path.module}/migrations/sql"
-  migration_files    = fileset(local.migration_root, "*.sql")
+  prefix              = var.project_name
+  worker_bundle_path  = "${path.module}/.generated/yurucommu-worker.js"
+  migration_root      = "${path.module}/migrations/sql"
+  migration_files     = fileset(local.migration_root, "*.sql")
+  delivery_queue_name = "${local.prefix}-delivery"
+  delivery_dlq_name   = "${local.prefix}-delivery-dlq"
+
+  # DELIVERY_QUEUE_NAME / DELIVERY_DLQ_NAME are not decoration: the engine's
+  # queue handler routes a batch by comparing `batch.queue` against these two
+  # values, and falls through to "unknown queue" when neither matches. Its
+  # built-in defaults are the queue names of an install left at the default
+  # `project_name`, so any instance that renamed the Capsule would accept every
+  # delivery message and drain none of them. They are derived from the same
+  # locals the queues are named from, so renaming the Capsule cannot separate
+  # the two.
   worker_plain_values = {
     YURUCOMMU_RUNTIME_LANE = var.runtime_lane
+    DELIVERY_QUEUE_NAME    = local.delivery_queue_name
+    DELIVERY_DLQ_NAME      = local.delivery_dlq_name
   }
 }
 
@@ -108,13 +121,13 @@ resource "takoform_edge_object_bucket" "media" {
 }
 
 resource "takoform_at_least_once_queue" "delivery" {
-  name                      = "${local.prefix}-delivery"
+  name                      = local.delivery_queue_name
   message_retention_seconds = 345600
   delivery_delay_seconds    = 0
 }
 
 resource "takoform_at_least_once_queue" "delivery_dlq" {
-  name                      = "${local.prefix}-delivery-dlq"
+  name                      = local.delivery_dlq_name
   message_retention_seconds = 1209600
   delivery_delay_seconds    = 0
 }
@@ -218,6 +231,25 @@ resource "takoform_queue_consumer" "delivery" {
   retry_delay_seconds       = 60
   dead_letter_queue         = takoform_at_least_once_queue.delivery_dlq.name
   max_concurrency           = 4
+
+  depends_on = [takoform_worker_deployment.worker]
+}
+
+# The dead-letter queue needs a consumer of its own. The Worker's queue handler
+# treats a DLQ batch as repair work — it recovers messages the main queue
+# dead-lettered after exhausting their retries, so an unconsumed DLQ is not an
+# idle backlog but silently dropped federation deliveries and stranded push
+# outbox rows. Concurrency is 1: repairs touch the same durable rows the main
+# lane failed on, and there is no throughput to win here.
+resource "takoform_queue_consumer" "delivery_dlq" {
+  name                      = "${local.prefix}-delivery-dlq-consumer"
+  queue                     = takoform_at_least_once_queue.delivery_dlq.name
+  worker                    = takoform_module_worker.worker.name
+  max_batch_size            = 10
+  max_batch_timeout_seconds = 60
+  max_retries               = 1
+  retry_delay_seconds       = 300
+  max_concurrency           = 1
 
   depends_on = [takoform_worker_deployment.worker]
 }

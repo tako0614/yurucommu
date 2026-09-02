@@ -1,9 +1,14 @@
 import { describe, expect, test } from "bun:test";
+import { readFile } from "node:fs/promises";
 
 import {
   evaluateCoreRelease,
   lockedPackageVersion,
 } from "./check-core-release.mjs";
+
+const packageManifest = JSON.parse(
+  await readFile(new URL("../package.json", import.meta.url), "utf8"),
+) as { scripts?: Record<string, string> };
 
 const readyLock = `
 "@takosjp/yurucommu-api": ["@takosjp/yurucommu-api@4.1.5", "", {}],
@@ -184,6 +189,18 @@ describe("registry core/API product release gate", () => {
         "core_export.wrapRuntimeBindings_missing",
         "core_export.wrapRuntimeMessageBatch_missing",
       ]),
+    );
+  });
+});
+
+// A gate nothing runs is not a floor. This one was written and left off the
+// portable complete gate, so a core below the required release — one missing
+// the runtime-lane composition the Worker entry is built on — would have been
+// caught by nothing before a deploy.
+describe("core release floor is gated", () => {
+  test("the portable complete gate runs the core release check", () => {
+    expect(packageManifest.scripts?.["check"]).toContain(
+      "bun run check:core-release",
     );
   });
 });
