@@ -29,6 +29,7 @@ output "takoform_resource_ids" {
     delivery              = takoform_at_least_once_queue.delivery.uid
     delivery_dlq          = takoform_at_least_once_queue.delivery_dlq.uid
     delivery_consumer     = takoform_queue_consumer.delivery.uid
+    delivery_dlq_consumer = takoform_queue_consumer.delivery_dlq.uid
     retention             = takoform_worker_cron_trigger.retention.uid
   }
 }

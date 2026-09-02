@@ -482,7 +482,7 @@ describe("repository-owned Takosumi install UX", () => {
       ),
     ).toBe(true);
     expect(managedModuleSource).toContain(
-      'migration_root     = "${path.module}/migrations/sql"',
+      'migration_root      = "${path.module}/migrations/sql"',
     );
     expect(managedModuleSource).not.toContain("${path.module}/../");
     expect(managedModuleSource).toContain(TAKOFORM_PROVIDER_PIN);

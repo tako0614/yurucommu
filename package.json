@@ -16,7 +16,7 @@
     "dev:mock": "bun scripts/dev-mock.ts",
     "dev:mock:api": "bun scripts/dev-mock-server.ts",
     "dev:site": "bunx serve site",
-    "check": "bun run fmt:check && bun run lint && bun run check:opentofu && bun run test && bun run build:worker && bun run smoke:release-artifact -- dist/yurucommu-worker.js",
+    "check": "bun run fmt:check && bun run lint && bun run check:core-release && bun run check:opentofu && bun run test && bun run build:worker && bun run smoke:release-artifact -- dist/yurucommu-worker.js",
     "deploy": "bun scripts/deploy.mjs",
     "test": "bun test src/ scripts/post-deploy-smoke.test.ts scripts/worker-entry-contract.test.ts scripts/yurucommu-worker-bindings.test.ts scripts/product-identity-contract.test.ts scripts/release-version.test.ts scripts/release-worker-smoke.test.ts scripts/prepare-takoform-v1-source.test.ts scripts/takoform-capsule.test.ts scripts/takoform-v1-e2e.test.ts scripts/takoform-v1-e2e-full.test.ts scripts/validate-takoform-v1.test.ts scripts/schema-bundle.test.ts scripts/takosumi-install-ux.test.ts scripts/takosumi-release.test.ts scripts/check-core-release.test.ts scripts/release-yurucommu-site.test.ts",
     "build": "bun run build:client",

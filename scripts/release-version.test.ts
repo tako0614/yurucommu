@@ -358,7 +358,7 @@ describe("release version", () => {
     expect(takoformModuleSource).not.toContain('variable "worker_release_tag"');
     expect(takoformModuleSource).not.toContain('variable "worker_bundle_url"');
     expect(takoformModuleSource).toContain(
-      'worker_bundle_path = "${path.module}/.generated/yurucommu-worker.js"',
+      'worker_bundle_path  = "${path.module}/.generated/yurucommu-worker.js"',
     );
   });
 
