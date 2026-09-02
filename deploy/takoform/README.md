@@ -59,6 +59,10 @@ disagreement, instead of handing a facade to a D1 client and failing later as a
 corrupt session. The retired value `takoform-v1` is not a lane and is refused
 the same way.
 
+The lane also decides where this instance's public origin comes from, which is
+the one difference that changes what an operator has to supply: see
+[Endpoint and public origin](#endpoint-and-public-origin).
+
 ## Source preparation
 
 The selected repository revision is the source of truth for both the module
@@ -94,7 +98,7 @@ untracked source-build output.
 | `SQLiteDatabase`                 | Stores Yurucommu durable relational data                        |
 | `SQLiteMigrationSet`             | Carries the exact ordered SQL files                             |
 | `SQLiteMigrationApplication`     | Converges the migration set before the Worker version           |
-| `EdgeKVNamespace`                | Stores sessions, rate limits, and the observed canonical origin |
+| `EdgeKVNamespace`                | Stores sessions, rate limits, and the observed public origin    |
 | `ObjectBucket`                   | Stores uploaded media objects                                   |
 | two `AtLeastOnceQueue` resources | Delivery work and its dead-letter queue                         |
 | `QueueConsumer`                  | Delivers native queue batches and applies retry/DLQ policy      |
@@ -126,16 +130,57 @@ bucket through the core's provider-neutral `ObjectStore` port (`put` / `get` /
 `delete` only) — materialized from a native `R2Bucket` on the `cloudflare` lane
 and from the `edge.objects` facade on the `portable` one.
 
-## Endpoint and canonical origin
+## Endpoint and public origin
 
 `WorkerEndpoint` is admitted only after `WorkerDeployment` serves a fetch
 handler. Its URL is exposed as the ordinary `launch_url` and `api_url` module
-outputs; it is never fed back into the immutable `WorkerVersion`.
+outputs; it is never fed back into the immutable `WorkerVersion`. That ordering
+is why `APP_URL` cannot simply be passed here: the origin does not exist yet
+when the version that would carry it is sealed, and there is no second apply
+that could inject it afterwards.
 
-On its first successful fetch, the runtime validates the request origin and
-pins it in `KV` when no operator-supplied `APP_URL` exists. Native queue work
-fails closed until a fetch has established that origin. The scheduled
-retention path does not invent or consume an application URL.
+**On `runtime_lane = portable`, leave `APP_URL` unset.** The Worker establishes
+its public origin from the first https request the Host routes to it and pins
+that value in `KV`, and every later request and every queue batch reads the pin.
+First writer wins: once a value is stored no later request replaces it, whatever
+`Host` header that request carried. The rule lives in
+`@takosjp/yurucommu-core` (`>= 4.1.2`, `src/backend/runtime/public-origin.ts`),
+not in this module and not in the product's Worker entry, because every actor
+id, delivery signature, and `.well-known` document is built from the same value.
+
+Only the request URL as the runtime delivers it is trusted — never
+`X-Forwarded-Host`, `X-Forwarded-Proto`, or a `Host` header. It must be https,
+with loopback http the single exception. **A self-host that terminates TLS in
+front of the Worker and speaks plain http to it therefore establishes nothing
+and must set `APP_URL`**, which it can: an operator who terminates TLS chose the
+hostname themselves. Refusing is the point; the alternative is trusting a
+forwarded-proto header that same proxy may not be the only writer of.
+
+**On `runtime_lane = cloudflare` nothing is inferred.** A Worker with raw
+Cloudflare bindings answers on workers.dev and on every custom domain and route
+pattern its account holds, so the first hostname to arrive must not be allowed
+to name the instance permanently. That lane requires an explicit `APP_URL`, and
+`/readyz` reports it as a missing binding until it has one.
+
+### The rule for `APP_URL` in this module
+
+Neither `vars_json` nor the repository manifest declares `APP_URL` for the
+Takoform lane, and both stay that way. `local.worker_plain_values` carries
+`YURUCOMMU_RUNTIME_LANE` alone, so the `WorkerVersion` contains no origin at
+all — which is what lets the same immutable version serve whatever endpoint the
+Host later allocates. A Takoform install that needs the runtime to name itself
+therefore runs `runtime_lane = portable`.
+
+The consequence for the other lane is worth stating plainly: because this module
+passes no `APP_URL` and the `cloudflare` lane infers none, a `cloudflare`-lane
+Takoform install is not ready until its Host supplies the origin some other way.
+Choosing `portable` is the supported answer whenever the Host, not the deployer,
+picks the endpoint.
+
+Native queue work fails closed with `PublicOriginError` until an origin exists,
+so delivery is retried after traffic has established one instead of addressed
+from `undefined/ap/users/...`. The scheduled retention path neither invents nor
+consumes an application URL.
 
 ## Provider validation
 
