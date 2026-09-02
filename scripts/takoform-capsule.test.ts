@@ -50,8 +50,8 @@ describe("portable Takoform v1 Capsule", () => {
     expect(dataSourceTypes).toEqual([]);
   });
 
-  // One declared pin, checked here and in the install-UX gate. Moving it after
-  // the Provider 4.0.0 publication is this constant plus the module's own line.
+  // One declared pin, checked here and in the install-UX gate. Moving it is
+  // that constant plus the module's own line.
   test("pins the independently published Provider contract exactly", () => {
     const providerBlock = main.match(/takoform\s*=\s*\{([\s\S]*?)\n\s*\}/)?.[1];
     expect(providerBlock).toBeDefined();

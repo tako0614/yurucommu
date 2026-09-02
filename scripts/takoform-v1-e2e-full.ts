@@ -16,7 +16,16 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { isAbsolute, join, relative, resolve } from "node:path";
 
-import { TAKOFORM_PROVIDER_VERSION } from "./takoform-provider-pin.ts";
+import {
+  TAKOFORM_PROVIDER_PIN,
+  TAKOFORM_PROVIDER_VERSION,
+} from "./takoform-provider-pin.ts";
+
+/** The exact Provider release this runner proves, taken from the module pin. */
+export type TakoformProviderVersion = typeof TAKOFORM_PROVIDER_VERSION;
+/** The exact `required_providers` constraint that release is pinned by. */
+export type TakoformProviderConstraint = `= ${TakoformProviderVersion}`;
+const TAKOFORM_PROVIDER_CONSTRAINT: TakoformProviderConstraint = `= ${TAKOFORM_PROVIDER_VERSION}`;
 
 const PROVIDER_SOURCE = "registry.terraform.io/tako0614/takoform";
 const STABLE_DISCOVERY_PATH = "/.well-known/takoform/v1";
@@ -165,13 +174,13 @@ export interface SourceProvenance {
     readonly bytes: number;
     readonly sha256: string;
   }[];
-  readonly providerConstraint: "= 3.0.0";
+  readonly providerConstraint: TakoformProviderConstraint;
 }
 
 export interface ProviderSchemaProof {
   readonly source: string;
-  readonly providerVersion: "3.0.0";
-  readonly versionConstraint: "= 3.0.0";
+  readonly providerVersion: TakoformProviderVersion;
+  readonly versionConstraint: TakoformProviderConstraint;
   readonly protocolSchemaVersion: number;
   readonly resourceKinds: readonly string[];
 }
@@ -780,8 +789,10 @@ export async function collectSourceProvenance(
     moduleFiles.push({ path, bytes: bytes.byteLength, sha256 });
   }
   const mainText = await readFile(join(sourceRoot, "main.tf"), "utf8");
-  if (!/version\s*=\s*"= 3\.0\.0"/u.test(mainText)) {
-    throw new Error("Takoform module no longer pins Provider 3.0.0 exactly");
+  if (!mainText.includes(TAKOFORM_PROVIDER_PIN)) {
+    throw new Error(
+      `Takoform module no longer pins Provider ${TAKOFORM_PROVIDER_VERSION} exactly`,
+    );
   }
   const workerPath = join(sourceRoot, ".generated", GENERATED_WORKER_FILE);
   await assertRegularFile(workerPath, "generated Yurucommu Worker");
@@ -824,7 +835,7 @@ export async function collectSourceProvenance(
       sha256: digestBytes(workerBytes),
     },
     migrations,
-    providerConstraint: "= 3.0.0",
+    providerConstraint: TAKOFORM_PROVIDER_CONSTRAINT,
   };
 }
 
@@ -1294,7 +1305,7 @@ async function readProviderSchemaProof(
   workdir: string,
   environment: Record<string, string | undefined>,
   timeoutMs: number,
-  providerVersion: "3.0.0",
+  providerVersion: TakoformProviderVersion,
 ): Promise<ProviderSchemaProof> {
   const raw = await runTofu(["providers", "schema", "-json"], {
     workdir,
@@ -1312,7 +1323,7 @@ async function readProviderSchemaProof(
 
 export function parseProviderSchemaProof(
   parsed: unknown,
-  providerVersion: "3.0.0",
+  providerVersion: TakoformProviderVersion,
 ): ProviderSchemaProof {
   if (!isRecord(parsed)) throw new Error("provider schema was not an object");
   const schemas = parsed.provider_schemas;
@@ -1343,7 +1354,7 @@ export function parseProviderSchemaProof(
   return {
     source,
     providerVersion,
-    versionConstraint: "= 3.0.0",
+    versionConstraint: TAKOFORM_PROVIDER_CONSTRAINT,
     protocolSchemaVersion,
     resourceKinds,
   };
@@ -1354,7 +1365,7 @@ export async function readProviderVersion(
   environment: Record<string, string | undefined>,
   cwd: string,
   timeoutMs: number,
-): Promise<"3.0.0"> {
+): Promise<TakoformProviderVersion> {
   const result = await runBoundedChild([providerBinary, "-version"], {
     cwd,
     environment,
@@ -1364,10 +1375,12 @@ export async function readProviderVersion(
   if (result.timedOut || result.outputTruncated || result.exitCode !== 0) {
     throw new Error("Takoform Provider version handshake failed");
   }
-  if (result.stdout.trim() !== "3.0.0") {
-    throw new Error("Takoform Provider binary did not report version 3.0.0");
+  if (result.stdout.trim() !== TAKOFORM_PROVIDER_VERSION) {
+    throw new Error(
+      `Takoform Provider binary did not report version ${TAKOFORM_PROVIDER_VERSION}`,
+    );
   }
-  return "3.0.0";
+  return TAKOFORM_PROVIDER_VERSION;
 }
 
 async function readAppliedResources(

@@ -8,32 +8,26 @@ module is the separate direct-Cloudflare adapter for the same product roles.
 The module targets the independently published Provider contract exactly. It
 does not use the older compatibility resources or Host materialization output.
 
-### Provider pin: the one change that lands after Provider 4.0.0
+### Provider pin
 
-`MEDIA` is now a portable `ObjectBucket` Form (`takoform_edge_object_bucket`)
-bound through `bucket_bindings`, and neither exists in Provider `3.0.0`. Both
-are the publisher-set Provider `4.0.0` contract, which is **not yet published**.
-The pin therefore still reads `= 3.0.0`, and `bun run check`'s `check:opentofu`
-stage is expected to fail with
+`MEDIA` is a portable `ObjectBucket` Form (`takoform_edge_object_bucket`) bound
+through `bucket_bindings`, and neither exists before the publisher-set Provider
+`4.0.0` contract. `main.tf` therefore pins that published release exactly:
 
-```text
-The provider registry.terraform.io/tako0614/takoform does not support
-resource type "takoform_edge_object_bucket".
+```hcl
+      version = "= 4.0.0"
 ```
 
-until publication. Nothing else in this configuration is `3.0.0`-specific.
-Immediately after Provider `4.0.0` is published, the operator applies exactly
-this, in `main.tf`, and re-runs `bun run check`:
-
-```diff
--      version = "= 3.0.0"
-+      version = "= 4.0.0"
-```
+Nothing else in this configuration is specific to that release. The same pin is
+declared once more as `TAKOFORM_PROVIDER_VERSION` in
+[`../../scripts/takoform-provider-pin.ts`](../../scripts/takoform-provider-pin.ts),
+so moving it stays a two-line change rather than a literal every gate has to
+find again.
 
 The root direct-Cloudflare module keeps its own checked-in
 `.terraform.lock.hcl`; this module has none, because `validate-takoform-v1.ts`
 initializes the pinned Provider fresh in an isolated temporary directory each
-run. A local candidate can be validated ahead of publication through
+run. An unpublished local candidate can be validated instead through
 `TAKOFORM_PROVIDER_BINARY` / `TAKOFORM_PROVIDER_SHA256` (below).
 
 ## Runtime lane
@@ -88,7 +82,7 @@ copying build output before it can construct `SQLiteMigrationSet`.
 `deploy/takoform/.generated/yurucommu-worker.js` remains intentionally
 untracked source-build output.
 
-## Provider 3 graph
+## Provider 4 graph
 
 | Provider resource                | Product role                                                    |
 | -------------------------------- | --------------------------------------------------------------- |
@@ -143,9 +137,9 @@ pins it in `KV` when no operator-supplied `APP_URL` exists. Native queue work
 fails closed until a fetch has established that origin. The scheduled
 retention path does not invent or consume an application URL.
 
-## Provider 3 validation
+## Provider validation
 
-The portable repository gate initializes the exact Provider `3.0.0` release
+The portable repository gate initializes the exact Provider `4.0.0` release
 from its public registry source in an isolated temporary directory, then
 validates the prepared module:
 
@@ -153,7 +147,7 @@ validates the prepared module:
 bun scripts/validate-takoform-v1.ts
 ```
 
-To validate an unpublished local Provider 3 candidate instead, provide both
+To validate an unpublished local Provider candidate instead, provide both
 the exact executable and its digest as explicit authority:
 
 ```bash
@@ -189,7 +183,7 @@ the selected source directory.
 
 The current graph has a checked-in lifecycle runner for a caller-supplied
 stable Host. It copies this module after rebuilding the Worker and preparing
-the digest-verified source bundle, applies every one of the 13 Provider 3.0.0
+the digest-verified source bundle, applies every one of the 14 Provider 4.0.0
 resources, reads the exact Host representations back, probes the assigned
 Yurucommu runtime, destroys the graph, and verifies that every exact resource
 reference is absent.
