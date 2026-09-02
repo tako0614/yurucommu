@@ -145,7 +145,7 @@ Worker establishes its public origin from the first https request the Host
 routes to it and pins that value in `KV`, and every later request and every
 queue batch reads the pin. First writer wins: once a value is stored no later
 request replaces it, whatever `Host` header that request carried. The rule
-lives in `@takosjp/yurucommu-core` (`>= 4.1.3`,
+lives in `@takosjp/yurucommu-core` (`>= 4.1.4`,
 `src/backend/runtime/public-origin.ts`), not in this module and not in the
 product's Worker entry, because every actor id, delivery signature, and
 `.well-known` document is built from the same value.
