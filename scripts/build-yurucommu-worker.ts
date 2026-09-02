@@ -110,13 +110,17 @@ export function createEntrySource(assets: Record<string, StaticAsset>): string {
   createYurucommuBackendApp,
   handleYurucommuQueueBatch,
   runYurucommuRetention,
+  wrapRuntimeMessageBatch,
 } from "@takosjp/yurucommu-core/server";
 import type {
   DeliveryDlqMessageV1,
   DeliveryQueueMessageV1,
+  EdgeQueueBatch,
   Env,
+  IQueueBatch,
 } from "@takosjp/yurucommu-core/server";
 import {
+  resolveYurucommuRuntimeLane,
   wrapYurucommuWorkerBindings,
 } from "../scripts/yurucommu-worker-bindings.ts";
 import type {
@@ -131,6 +135,10 @@ import type {
 
 type RuntimeEnv = YurucommuRuntimeEnv;
 type WorkerBindings = YurucommuWorkerBindings;
+type DeliveryMessage = DeliveryQueueMessageV1 | DeliveryDlqMessageV1;
+// Whichever shape the lane's host hands the queue handler: Cloudflare's
+// MessageBatch (ack/ackAll) or the edge.queue facade batch (acknowledgeAll).
+type DeliveryEvent = MessageBatch<DeliveryMessage> | EdgeQueueBatch;
 
 const CANONICAL_ORIGIN_KV_KEY = "__yurucommu/runtime/canonical-origin/v1";
 
@@ -258,8 +266,13 @@ async function runRetention(runtimeEnv: RuntimeEnv): Promise<void> {
   await runYurucommuRetention(runtimeEnv as Env);
 }
 
+// Takes the ALREADY WRAPPED batch, not the raw event. Both lanes carry a queue
+// name — Cloudflare's \`MessageBatch.queue\` and the facade's
+// \`EdgeQueueBatch.queue\` — and \`wrapRuntimeMessageBatch\` copies it straight
+// through, so reading it here is one lane-independent read of exactly the value
+// \`handleYurucommuQueueBatch\` will compare its own configured names against.
 function withDeliveryConsumerIdentity(
-  batch: MessageBatch<DeliveryQueueMessageV1 | DeliveryDlqMessageV1>,
+  batch: IQueueBatch<DeliveryMessage>,
   env: RuntimeEnv,
 ): RuntimeEnv {
   const configuredDelivery = env.DELIVERY_QUEUE_NAME?.trim() ?? "";
@@ -321,16 +334,21 @@ export default {
   },
 
   async queue(
-    batch: MessageBatch<DeliveryQueueMessageV1 | DeliveryDlqMessageV1>,
+    batch: DeliveryEvent,
     env: WorkerBindings,
     ctx: ExecutionContext,
   ): Promise<void> {
+    // The lane decides the batch's shape as much as the bindings', so both are
+    // adapted from the one declaration. A batch whose shape contradicts it
+    // (a facade batch on the cloudflare lane, or the reverse) is refused.
+    const lane = resolveYurucommuRuntimeLane(env);
+    const queueBatch = wrapRuntimeMessageBatch<DeliveryMessage>(batch, lane);
     const runtimeEnv = withDeliveryConsumerIdentity(
-      batch,
+      queueBatch,
       await withRequiredQueueAppUrl(wrapYurucommuWorkerBindings(env)),
     );
     void ctx;
-    return handleYurucommuQueueBatch(batch, runtimeEnv as Env);
+    return handleYurucommuQueueBatch(queueBatch, runtimeEnv as Env);
   },
 
   // Cron-triggered retention (delivery/session/call-session purge, media-orphan
@@ -338,8 +356,8 @@ export default {
   // instead of re-exporting the core one, so a cron trigger alone would fire at
   // a module that exports no \`scheduled\` and nothing would ever be purged —
   // the handler has to be forwarded here. The runtime-neutral core entrypoint
-  // receives the already adapted native Env; an older core
-  // fails loudly rather than silently sweeping nothing.
+  // receives the already adapted Env from whichever lane this deployment
+  // declared; an older core fails loudly rather than silently sweeping nothing.
   async scheduled(
     controller: ScheduledController,
     env: WorkerBindings,
