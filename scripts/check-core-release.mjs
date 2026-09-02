@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const MINIMUM_PRODUCT_RELEASE = "4.1.0";
+export const MINIMUM_PRODUCT_RELEASE = "4.1.2";
 
 const PACKAGE_NAMES = ["@takosjp/yurucommu-core", "@takosjp/yurucommu-api"];
 const REQUIRED_API_EXPORTS = [
@@ -18,13 +18,25 @@ const REQUIRED_API_EXPORTS = [
 // The Worker entry composes through the runtime-lane selector, so a core that
 // predates it cannot run this product's bundle at all: it would hand the
 // portable edge.sql facade to drizzle-orm/d1 and fail at the first prepare().
+//
+// The public-origin exports are listed for the same reason even though the
+// entry imports only `withRequiredBackgroundPublicOrigin` of them. This product
+// deleted its own copy of the rule and now depends on the core owning it end to
+// end: the request path is established by the middleware
+// `createYurucommuBackendApp` registers, which is not something an import list
+// can name. A core that carries the version but not these symbols would leave
+// the portable lane with no origin at all and mint `undefined/ap/users/...`.
 const REQUIRED_CORE_EXPORTS = [
+  "CANONICAL_ORIGIN_KV_KEY",
+  "PublicOriginError",
   "createManagedRuntimeKeyValueStore",
   "createManagedRuntimeObjectStorage",
   "createManagedRuntimeQueueProducer",
   "createManagedRelationalDatabase",
+  "establishRequestPublicOrigin",
   "resolveRuntimeLane",
   "runYurucommuRetention",
+  "withRequiredBackgroundPublicOrigin",
   "wrapPortableBindings",
   "wrapRuntimeBindings",
   "wrapRuntimeMessageBatch",
