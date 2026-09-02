@@ -14,7 +14,7 @@
 
 - Owns: Feed, story, and profile full-stack product and web client / yurucommu.com brand site and Worker artifact / Provider-neutral resource contract plus direct Cloudflare and portable Takoform adapters
 - Does not own: Reusable ActivityPub, API, and database engine / Takosumi platform federation / Yurumeet talk-first UI or site
-- Hazards: Generated dist/yurucommu-worker.js must not be committed. / Cloudflare and Takoform adapters must implement the same product-owned runtime connections. / Selectable Store install requires provider, lifecycle, and rollback evidence.
+- Hazards: Generated dist/yurucommu-worker.js must not be committed. / Cloudflare and Takoform adapters must implement the same product-owned runtime connections. / Selectable Store install requires provider, lifecycle, and rollback evidence. / The live D1 _cf_migrations ledger is stale; never run wrangler d1 migrations apply against it.
 
 ## Required workflow
 
