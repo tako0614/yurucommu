@@ -20,13 +20,41 @@ variable "project_name" {
   }
 }
 
+# Which binding shape the Host will hand this Worker. The lane names the
+# BINDING SHAPE, not the tool that published the Worker, so it cannot be
+# inferred from the fact that this is a Takoform module: the same configuration
+# lands on either kind of Host.
+#
+#   cloudflare (default)  the Host projects raw Cloudflare bindings — a
+#                         D1Database, a KV namespace, an R2 bucket, Queues.
+#                         The production Takoserver backend is ordinary
+#                         Workers and is therefore this lane, as is a plain
+#                         `wrangler deploy`.
+#   portable              a wrapper host — a self-hosted or managed Takoserver
+#                         — replaces env before the module sees it and each
+#                         binding arrives as the facade its Interface names:
+#                         edge.sql, edge.kv, edge.objects, edge.queue.
+#
+# The Worker refuses to start when this disagrees with the bindings that
+# actually arrive, rather than handing a facade to a D1 client.
+variable "runtime_lane" {
+  description = "Binding shape this deployment's Host projects: cloudflare (raw Cloudflare bindings, the default) or portable (edge.* facades)."
+  type        = string
+  default     = "cloudflare"
+
+  validation {
+    condition     = contains(["cloudflare", "portable"], var.runtime_lane)
+    error_message = "runtime_lane must be either \"cloudflare\" or \"portable\"."
+  }
+}
+
 locals {
   prefix             = var.project_name
   worker_bundle_path = "${path.module}/.generated/yurucommu-worker.js"
   migration_root     = "${path.module}/migrations/sql"
   migration_files    = fileset(local.migration_root, "*.sql")
   worker_plain_values = {
-    YURUCOMMU_RUNTIME_LANE = "takoform-v1"
+    YURUCOMMU_RUNTIME_LANE = var.runtime_lane
   }
 }
 

@@ -5,9 +5,65 @@ This directory is Yurucommu's portable OpenTofu adapter for the stable
 [`../product-resources.json`](../product-resources.json); the root OpenTofu
 module is the separate direct-Cloudflare adapter for the same product roles.
 
-The module targets the independently published Provider `3.0.0` contract
-exactly. It does not use the older compatibility resources, Host
-materialization output, or a portable object-bucket resource.
+The module targets the independently published Provider contract exactly. It
+does not use the older compatibility resources or Host materialization output.
+
+### Provider pin: the one change that lands after Provider 4.0.0
+
+`MEDIA` is now a portable `ObjectBucket` Form (`takoform_edge_object_bucket`)
+bound through `bucket_bindings`, and neither exists in Provider `3.0.0`. Both
+are the publisher-set Provider `4.0.0` contract, which is **not yet published**.
+The pin therefore still reads `= 3.0.0`, and `bun run check`'s `check:opentofu`
+stage is expected to fail with
+
+```text
+The provider registry.terraform.io/tako0614/takoform does not support
+resource type "takoform_edge_object_bucket".
+```
+
+until publication. Nothing else in this configuration is `3.0.0`-specific.
+Immediately after Provider `4.0.0` is published, the operator applies exactly
+this, in `main.tf`, and re-runs `bun run check`:
+
+```diff
+-      version = "= 3.0.0"
++      version = "= 4.0.0"
+```
+
+The root direct-Cloudflare module keeps its own checked-in
+`.terraform.lock.hcl`; this module has none, because `validate-takoform-v1.ts`
+initializes the pinned Provider fresh in an isolated temporary directory each
+run. A local candidate can be validated ahead of publication through
+`TAKOFORM_PROVIDER_BINARY` / `TAKOFORM_PROVIDER_SHA256` (below).
+
+## Runtime lane
+
+The Worker bundle runs on two binding shapes, and `runtime_lane` declares which
+one this deployment's Host will project. It becomes the Worker's
+`YURUCOMMU_RUNTIME_LANE` plain variable.
+
+| `runtime_lane`         | Host                                                                      | `DB`         | `KV`           | `MEDIA`        | queues       |
+| ---------------------- | ------------------------------------------------------------------------- | ------------ | -------------- | -------------- | ------------ |
+| `cloudflare` (default) | production Takoserver (ordinary Workers), and a plain `wrangler deploy`    | `D1Database` | KV namespace   | `R2Bucket`     | `Queue`      |
+| `portable`             | a wrapper host: a self-hosted Takoserver, or a managed Takoserver backend  | `edge.sql`   | `edge.kv`      | `edge.objects` | `edge.queue` |
+
+**Production Takoserver and plain Cloudflare leave it at the default.** A
+self-hosted or managed Takoserver sets it:
+
+```bash
+tofu apply -var runtime_lane=portable
+```
+
+The lane names the BINDING SHAPE, not the tool that published the Worker, so it
+cannot be inferred from the fact that this is a Takoform module — the same
+configuration lands on either kind of Host. It is declared rather than sniffed
+because two bindings are indistinguishable by shape: `edge.kv` and a KV
+namespace expose the same five methods, and both queue producers are
+`send`/`sendBatch`. The Worker cross-checks the declaration against the bindings
+that are decisive (`DB` always, `MEDIA` when bound) and refuses to start on a
+disagreement, instead of handing a facade to a D1 client and failing later as a
+corrupt session. The retired value `takoform-v1` is not a lane and is refused
+the same way.
 
 ## Source preparation
 
@@ -45,6 +101,7 @@ untracked source-build output.
 | `SQLiteMigrationSet`             | Carries the exact ordered SQL files                             |
 | `SQLiteMigrationApplication`     | Converges the migration set before the Worker version           |
 | `EdgeKVNamespace`                | Stores sessions, rate limits, and the observed canonical origin |
+| `ObjectBucket`                   | Stores uploaded media objects                                   |
 | two `AtLeastOnceQueue` resources | Delivery work and its dead-letter queue                         |
 | `QueueConsumer`                  | Delivers native queue batches and applies retry/DLQ policy      |
 | `WorkerCronTrigger`              | Invokes the native scheduled handler hourly                     |
@@ -63,22 +120,17 @@ DELIVERY_DLQ
 MEDIA
 ```
 
-`DB`, `KV`, and the two queues refer to resources in this graph. `MEDIA` is
-different: the Worker version requests exactly one required standard service:
+Every one of them refers to a resource in this graph, `MEDIA` included: it is a
+portable `ObjectBucket` the module owns, bound as an ordinary
+`bucket_bindings` entry. It used to be a required `com.amazonaws.s3`
+`external_services` entry, which asked every Host for a standard service no
+Host is obliged to supply; the Form asks for storage the graph itself creates.
 
-```hcl
-external_services = [{
-  name     = "MEDIA"
-  protocol = "com.amazonaws.s3"
-  required = true
-}]
-```
-
-The Host supplies that opaque standard service as a sealed runtime binding.
 No portable desired state, Provider state, or module output contains a bucket
-name, endpoint, region, access key, or credential. The Yurucommu hosted adapter
-accepts only object operations (`put`, `get`, `delete`, `list`, and `head`);
-the direct-Cloudflare adapter keeps its `R2Bucket` type in a separate file.
+name, endpoint, region, access key, or credential. The Worker reaches the
+bucket through the core's provider-neutral `ObjectStore` port (`put` / `get` /
+`delete` only) — materialized from a native `R2Bucket` on the `cloudflare` lane
+and from the `edge.objects` facade on the `portable` one.
 
 ## Endpoint and canonical origin
 
@@ -234,8 +286,8 @@ The module cannot grant itself cloud authority or synthesize portable storage
 credentials. A usable Host must provide:
 
 - the required generated `ENCRYPTION_KEY` and complete OIDC bindings;
-- SQLite, migration, KV, queue, consumer, DLQ, and cron implementations;
-- a sealed `com.amazonaws.s3` service for `MEDIA`;
+- SQLite, migration, KV, object-bucket, queue, consumer, DLQ, and cron
+  implementations;
 - a reachable HTTPS Worker endpoint;
 - logs, backup, restore, update, removal, and recovery procedures.
 

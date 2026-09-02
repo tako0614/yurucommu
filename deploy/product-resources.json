@@ -12,6 +12,7 @@
     { "name": "schema", "shape": "SQLiteMigrationSet" },
     { "name": "schema-application", "shape": "SQLiteMigrationApplication" },
     { "name": "cache", "shape": "EdgeKVNamespace" },
+    { "name": "media", "shape": "ObjectBucket" },
     { "name": "delivery", "shape": "AtLeastOnceQueue" },
     { "name": "delivery-dlq", "shape": "AtLeastOnceQueue" },
     { "name": "delivery-consumer", "shape": "QueueConsumer" },
@@ -20,12 +21,11 @@
   "runtimeConnections": [
     { "name": "DB", "resource": "database" },
     { "name": "KV", "resource": "cache" },
+    { "name": "MEDIA", "resource": "media" },
     { "name": "DELIVERY_QUEUE", "resource": "delivery" },
     { "name": "DELIVERY_DLQ", "resource": "delivery-dlq" }
   ],
-  "standardServices": [
-    { "name": "MEDIA", "protocol": "com.amazonaws.s3", "required": true }
-  ],
+  "standardServices": [],
   "nativeHandlers": [
     { "name": "fetch", "resource": "endpoint" },
     { "name": "queue", "resource": "delivery-consumer" },
