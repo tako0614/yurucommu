@@ -1,8 +1,13 @@
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 
-import { wrapRuntimeMessageBatch } from "@takosjp/yurucommu-core/server";
+import {
+  CANONICAL_ORIGIN_KV_KEY,
+  PublicOriginError,
+  resetObservedPublicOrigin,
+  wrapRuntimeMessageBatch,
+} from "@takosjp/yurucommu-core/server";
 
 import { createEntrySource } from "./build-yurucommu-worker.ts";
 
@@ -34,14 +39,45 @@ describe("generated worker entry", () => {
     );
   });
 
-  test("pins a request-derived canonical origin for native queue work", () => {
-    expect(entrySource).toContain("CANONICAL_ORIGIN_KV_KEY");
-    expect(entrySource).toContain("withRequestAppUrl");
-    expect(entrySource).toContain("withRequiredQueueAppUrl");
-    expect(entrySource).toContain(
-      "canonical request origin has not been observed; make one successful fetch before queue delivery",
-    );
+  // The origin every actor id, delivery signature, and `.well-known` document
+  // is built from is ONE rule, and it belongs to the package that mints those
+  // ids. This entry used to carry a second copy that also inferred an origin on
+  // the cloudflare lane — a Worker there answers on workers.dev and on every
+  // custom domain the account holds, so that copy let the first hostname to
+  // arrive name the instance for good.
+  test("owns no public-origin rule of its own", () => {
+    expect(entrySource).not.toContain("__yurucommu/runtime/canonical-origin");
+    expect(entrySource).not.toContain("CANONICAL_ORIGIN_KV_KEY");
+    expect(entrySource).not.toContain("withRequestAppUrl");
+    expect(entrySource).not.toContain("withRequiredQueueAppUrl");
+    expect(entrySource).not.toContain("function canonicalPublicOrigin");
     expect(entrySource).not.toContain("worker_endpoint");
+  });
+
+  // The request path calls nothing: `createYurucommuBackendApp` registers the
+  // core's public-origin middleware ahead of every route, including /readyz and
+  // the discovery documents. A call here would run after it and could only
+  // disagree with it.
+  test("delegates the request path to the core's middleware and the queue path to its background helper", () => {
+    expect(entrySource).toContain("withRequiredBackgroundPublicOrigin");
+    expect(entrySource).toContain(
+      "await withRequiredBackgroundPublicOrigin(\n        wrapYurucommuWorkerBindings(env) as Env,\n      )",
+    );
+    expect(entrySource).not.toContain("establishRequestPublicOrigin");
+    const fetchHandler = entrySource
+      .slice(
+        entrySource.indexOf("export default {"),
+        entrySource.indexOf("  async queue("),
+      )
+      .split("\n")
+      .filter((line) => !line.trim().startsWith("//"))
+      .join("\n");
+    expect(fetchHandler).toContain("wrapYurucommuWorkerBindings(env)");
+    expect(fetchHandler).not.toContain("APP_URL");
+    // One await, and it is the app itself. Anything else here would be a second
+    // origin rule running after the core's middleware had already decided.
+    expect(fetchHandler.match(/await /g)).toHaveLength(1);
+    expect(fetchHandler).toContain("await backendApp.fetch(");
   });
 
   test("preserves direct delivery and DLQ identities and synthesizes only the single-consumer Host identity", () => {
@@ -53,9 +89,7 @@ describe("generated worker entry", () => {
     expect(entrySource).toContain(
       "return env; // The direct adapter already declares both distinct queue identities.",
     );
-    expect(entrySource).toContain(
-      "await withRequiredQueueAppUrl(wrapYurucommuWorkerBindings(env))",
-    );
+    expect(entrySource).toContain("await withRequiredBackgroundPublicOrigin(");
   });
 
   // The lane names the BINDING SHAPE the host projects, and the entry has to
@@ -397,5 +431,257 @@ describe("generated entry lane behavior", () => {
         {},
       ),
     ).rejects.toThrow("Queue invocation has no native identity");
+  });
+});
+
+// What the entry does about the public origin, run rather than read. The
+// generated module and this file resolve `@takosjp/yurucommu-core/server` to
+// the same module instance, so the isolate-level observation the core caches is
+// shared and has to be cleared between cases.
+describe("public origin per lane", () => {
+  const entryFile = new URL(
+    "../dist/yurucommu-entry.origin-test.ts",
+    import.meta.url,
+  );
+  let entry: {
+    default: {
+      fetch(request: Request, env: unknown, ctx: unknown): Promise<Response>;
+      queue(batch: unknown, env: unknown, ctx: unknown): Promise<void>;
+    };
+  };
+
+  beforeEach(() => {
+    resetObservedPublicOrigin();
+  });
+
+  afterAll(async () => {
+    resetObservedPublicOrigin();
+    await rm(entryFile, { force: true });
+  });
+
+  async function loadEntry() {
+    if (entry) return entry;
+    await mkdir(new URL("../dist/", import.meta.url), { recursive: true });
+    await writeFile(entryFile, createEntrySource({}));
+    entry = (await import(
+      pathToFileURL(entryFile.pathname).href
+    )) as typeof entry;
+    return entry;
+  }
+
+  // The `edge.kv` facade carries bytes, which is what makes an observed origin
+  // a real round trip through the binding rather than a string handed back.
+  function edgeKv() {
+    const store = new Map<string, Uint8Array>();
+    const writes: string[] = [];
+    return {
+      writes,
+      read(key: string): string | undefined {
+        const value = store.get(key);
+        return value === undefined
+          ? undefined
+          : new TextDecoder().decode(value);
+      },
+      get: async (key: string) => store.get(key) ?? null,
+      getWithMetadata: async (key: string) => {
+        const value = store.get(key);
+        return value === undefined ? null : { value };
+      },
+      // `edge.kv` is a byte store, but its `put` also accepts a string — and
+      // that is the shape the core hands it. A fake that echoed the string back
+      // from `get` would never exercise the decode the real binding forces.
+      put: async (key: string, value: string | Uint8Array) => {
+        writes.push(key);
+        store.set(
+          key,
+          typeof value === "string" ? new TextEncoder().encode(value) : value,
+        );
+      },
+      delete: async (key: string) => {
+        store.delete(key);
+      },
+      list: async () => ({ keys: [], listComplete: true }),
+    };
+  }
+
+  function nativeKv() {
+    const store = new Map<string, string>();
+    const writes: string[] = [];
+    return {
+      writes,
+      read: (key: string) => store.get(key),
+      get: async (key: string) => store.get(key) ?? null,
+      getWithMetadata: async () => null,
+      put: async (key: string, value: string) => {
+        writes.push(key);
+        store.set(key, value);
+      },
+      delete: async (key: string) => {
+        store.delete(key);
+      },
+      list: async () => ({ keys: [], list_complete: true, listComplete: true }),
+    };
+  }
+
+  const edgeSql = () => ({
+    execute: async () => ({ rows: [], rowsWritten: 0 }),
+    query: async () => ({ rows: [], rowsWritten: 0 }),
+    transaction: async () => [],
+  });
+  const nativeD1 = () => ({
+    prepare: () => ({}),
+    batch: async () => [],
+    exec: async () => ({}),
+  });
+
+  async function health(response: Response): Promise<string[]> {
+    const body = (await response.json()) as { missingBindings: string[] };
+    return body.missingBindings;
+  }
+
+  // The whole reason the rule exists: a Takoform `WorkerEndpoint` allocates the
+  // public origin after the `WorkerVersion` that would have carried `APP_URL` is
+  // already immutable, so the only place the origin is ever spoken is on the
+  // requests the Host routes here.
+  test("portable without APP_URL establishes the origin from the request and pins it", async () => {
+    const { default: worker } = await loadEntry();
+    const kv = edgeKv();
+    const response = await worker.fetch(
+      new Request("https://pinned.example.test/healthz"),
+      {
+        DB: edgeSql(),
+        KV: kv,
+        YURUCOMMU_RUNTIME_LANE: "portable",
+      },
+      {},
+    );
+
+    expect(await health(response)).not.toContain("APP_URL");
+    expect(kv.writes).toEqual([CANONICAL_ORIGIN_KV_KEY]);
+    expect(kv.read(CANONICAL_ORIGIN_KV_KEY)).toBe(
+      "https://pinned.example.test",
+    );
+  });
+
+  // First writer wins, whatever `Host` a later request carries.
+  test("portable keeps the pinned origin against a request from another host", async () => {
+    const { default: worker } = await loadEntry();
+    const kv = edgeKv();
+    await kv.put(
+      CANONICAL_ORIGIN_KV_KEY,
+      new TextEncoder().encode("https://first.example.test"),
+    );
+    kv.writes.length = 0;
+
+    await worker.fetch(
+      new Request("https://second.example.test/healthz"),
+      { DB: edgeSql(), KV: kv, YURUCOMMU_RUNTIME_LANE: "portable" },
+      {},
+    );
+
+    expect(kv.writes).toEqual([]);
+    expect(kv.read(CANONICAL_ORIGIN_KV_KEY)).toBe("https://first.example.test");
+  });
+
+  // The lane wrangler deploys to. `APP_URL` is authoritative and nothing is
+  // observed, cached, or written — this is exactly the previous behavior.
+  test("cloudflare with APP_URL is untouched", async () => {
+    const { default: worker } = await loadEntry();
+    const kv = nativeKv();
+    const bindings = {
+      DB: nativeD1(),
+      KV: kv,
+      APP_URL: "https://configured.example.test",
+    };
+
+    expect(
+      await health(
+        await worker.fetch(
+          new Request("https://workers-dev.example.test/healthz"),
+          bindings,
+          {},
+        ),
+      ),
+    ).not.toContain("APP_URL");
+
+    const discovery = (await (
+      await worker.fetch(
+        new Request("https://workers-dev.example.test/.well-known/yurucommu"),
+        bindings,
+        {},
+      )
+    ).json()) as { server: { canonicalOrigin: string } };
+    expect(discovery.server.canonicalOrigin).toBe(
+      "https://configured.example.test",
+    );
+    expect(kv.writes).toEqual([]);
+  });
+
+  // A Worker deployed straight to Cloudflare answers on workers.dev and on
+  // every custom domain and route pattern the account holds, so the first
+  // hostname to arrive must not be allowed to name the instance. This lane
+  // reports the missing binding instead of inferring one.
+  test("cloudflare without APP_URL infers nothing and says so", async () => {
+    const { default: worker } = await loadEntry();
+    const kv = nativeKv();
+    const response = await worker.fetch(
+      new Request("https://workers-dev.example.test/healthz"),
+      { DB: nativeD1(), KV: kv },
+      {},
+    );
+
+    expect(await health(response)).toContain("APP_URL");
+    expect(kv.writes).toEqual([]);
+  });
+
+  function facadeBatch(queue: string) {
+    return {
+      batchId: "b1",
+      queue,
+      messages: [],
+      acknowledgeAll: () => undefined,
+      retryAll: () => undefined,
+    };
+  }
+
+  // Delivery signs from this instance's own actor ids. Throwing retries the
+  // batch after traffic has established an origin; the alternative is
+  // `undefined/ap/users/...` cached by every peer it reached.
+  test("queue with no origin at all fails closed", async () => {
+    const { default: worker } = await loadEntry();
+    await expect(
+      worker.queue(
+        facadeBatch("yurucommu-delivery"),
+        {
+          DB: edgeSql(),
+          KV: edgeKv(),
+          YURUCOMMU_RUNTIME_LANE: "portable",
+        },
+        {},
+      ),
+    ).rejects.toBeInstanceOf(PublicOriginError);
+  });
+
+  test("queue reads the origin a request already pinned", async () => {
+    const { default: worker } = await loadEntry();
+    const kv = edgeKv();
+    await worker.fetch(
+      new Request("https://pinned.example.test/healthz"),
+      { DB: edgeSql(), KV: kv, YURUCOMMU_RUNTIME_LANE: "portable" },
+      {},
+    );
+    resetObservedPublicOrigin();
+
+    // An unrecognised queue name settles the batch instead of reaching the
+    // database, so reaching this point at all is the assertion: the origin
+    // resolved without an `APP_URL` and without a request.
+    await worker.queue(
+      facadeBatch("some-other-queue"),
+      { DB: edgeSql(), KV: kv, YURUCOMMU_RUNTIME_LANE: "portable" },
+      {},
+    );
+    expect(kv.read(CANONICAL_ORIGIN_KV_KEY)).toBe(
+      "https://pinned.example.test",
+    );
   });
 });

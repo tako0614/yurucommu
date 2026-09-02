@@ -110,6 +110,7 @@ export function createEntrySource(assets: Record<string, StaticAsset>): string {
   createYurucommuBackendApp,
   handleYurucommuQueueBatch,
   runYurucommuRetention,
+  withRequiredBackgroundPublicOrigin,
   wrapRuntimeMessageBatch,
 } from "@takosjp/yurucommu-core/server";
 import type {
@@ -139,8 +140,6 @@ type DeliveryMessage = DeliveryQueueMessageV1 | DeliveryDlqMessageV1;
 // Whichever shape the lane's host hands the queue handler: Cloudflare's
 // MessageBatch (ack/ackAll) or the edge.queue facade batch (acknowledgeAll).
 type DeliveryEvent = MessageBatch<DeliveryMessage> | EdgeQueueBatch;
-
-const CANONICAL_ORIGIN_KV_KEY = "__yurucommu/runtime/canonical-origin/v1";
 
 const backendApp = createYurucommuBackendApp({
   discovery: ${JSON.stringify(discovery, null, 2)},
@@ -203,63 +202,6 @@ const embeddedAssetsFetcher: Fetcher = {
   },
 };
 
-async function withRequestAppUrl(
-  request: Request,
-  env: RuntimeEnv,
-): Promise<RuntimeEnv & { APP_URL: string }> {
-  if (typeof env.APP_URL === "string" && env.APP_URL.trim().length > 0) {
-    return { ...env, APP_URL: canonicalPublicOrigin(env.APP_URL) };
-  }
-  const stored = await env.KV.get(CANONICAL_ORIGIN_KV_KEY);
-  if (stored !== null) {
-    return { ...env, APP_URL: canonicalPublicOrigin(stored) };
-  }
-
-  const requestOrigin = canonicalPublicOrigin(new URL(request.url).origin);
-  await env.KV.put(CANONICAL_ORIGIN_KV_KEY, requestOrigin);
-  const readback = await env.KV.get(CANONICAL_ORIGIN_KV_KEY);
-  if (readback !== null && canonicalPublicOrigin(readback) !== requestOrigin) {
-    throw new Error("canonical request origin was concurrently pinned to another endpoint");
-  }
-  return { ...env, APP_URL: requestOrigin };
-}
-
-async function withRequiredQueueAppUrl(
-  env: RuntimeEnv,
-): Promise<RuntimeEnv & { APP_URL: string }> {
-  if (typeof env.APP_URL === "string" && env.APP_URL.trim().length > 0) {
-    return { ...env, APP_URL: canonicalPublicOrigin(env.APP_URL) };
-  }
-  const stored = await env.KV.get(CANONICAL_ORIGIN_KV_KEY);
-  if (stored === null) {
-    throw new Error(
-      "canonical request origin has not been observed; make one successful fetch before queue delivery",
-    );
-  }
-  return { ...env, APP_URL: canonicalPublicOrigin(stored) };
-}
-
-function canonicalPublicOrigin(value: string): string {
-  let url: URL;
-  try {
-    url = new URL(value);
-  } catch {
-    throw new Error("canonical request origin is invalid");
-  }
-  const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
-  if (
-    (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) ||
-    url.username ||
-    url.password ||
-    url.search ||
-    url.hash ||
-    url.pathname !== "/"
-  ) {
-    throw new Error("canonical request origin must be an HTTPS origin (or loopback HTTP)");
-  }
-  return url.origin;
-}
-
 async function runRetention(runtimeEnv: RuntimeEnv): Promise<void> {
   // The core retention implementation consumes DB/MEDIA/queue only. APP_URL
   // is intentionally not invented for this native scheduled invocation.
@@ -321,13 +263,15 @@ export default {
     env: WorkerBindings,
     ctx: ExecutionContext,
   ): Promise<Response> {
-    const envWithAppUrl = await withRequestAppUrl(
-      request,
-      wrapYurucommuWorkerBindings(env),
-    );
-    const runtimeEnv = envWithAppUrl.ASSETS
-      ? envWithAppUrl
-      : { ...envWithAppUrl, ASSETS: embeddedAssetsFetcher };
+    // No origin handling here. \`createYurucommuBackendApp\` registers the
+    // core's public-origin middleware before every route, so the portable lane
+    // establishes this instance's origin from the request and pins it, and the
+    // cloudflare lane keeps requiring an explicit \`APP_URL\` — one rule, owned
+    // by the package that mints the actor ids from it.
+    const bindings = wrapYurucommuWorkerBindings(env);
+    const runtimeEnv = bindings.ASSETS
+      ? bindings
+      : { ...bindings, ASSETS: embeddedAssetsFetcher };
     return applyProductBrowserMediaPolicy(
       await backendApp.fetch(request, runtimeEnv as Env, ctx),
     );
@@ -343,9 +287,15 @@ export default {
     // (a facade batch on the cloudflare lane, or the reverse) is refused.
     const lane = resolveYurucommuRuntimeLane(env);
     const queueBatch = wrapRuntimeMessageBatch<DeliveryMessage>(batch, lane);
+    // Federation delivery signs from this instance's own actor ids and there is
+    // no request to read the origin off. \`APP_URL\`, then the pinned origin,
+    // then a \`PublicOriginError\` — the batch is retried once traffic has
+    // established one, rather than delivered under \`undefined/ap/users/...\`.
     const runtimeEnv = withDeliveryConsumerIdentity(
       queueBatch,
-      await withRequiredQueueAppUrl(wrapYurucommuWorkerBindings(env)),
+      await withRequiredBackgroundPublicOrigin(
+        wrapYurucommuWorkerBindings(env) as Env,
+      ),
     );
     void ctx;
     return handleYurucommuQueueBatch(queueBatch, runtimeEnv as Env);
