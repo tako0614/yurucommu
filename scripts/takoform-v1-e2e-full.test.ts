@@ -38,6 +38,7 @@ import {
   runBoundedChild,
   installLifecycleSignalHandlers,
 } from "./takoform-v1-e2e-full.ts";
+import { TAKOFORM_PROVIDER_VERSION } from "./takoform-provider-pin.ts";
 
 const provider = {
   TAKOFORM_PROVIDER_BINARY: "/tmp/terraform-provider-takoform",
@@ -792,7 +793,8 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
       new TextEncoder().encode(payload).byteLength,
     );
     expect(
-      parseProviderSchemaProof(JSON.parse(payload), "3.0.0").resourceKinds,
+      parseProviderSchemaProof(JSON.parse(payload), TAKOFORM_PROVIDER_VERSION)
+        .resourceKinds,
     ).toEqual([...new Set(CURRENT_RESOURCE_TYPES)].sort());
   });
 
@@ -802,8 +804,7 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
     );
     const workdir = await mkdtemp(join(tmpdir(), "takoform-provider-copy-"));
     const providerPath = join(sourceRoot, "terraform-provider-takoform");
-    const original =
-      '#!/bin/sh\nif [ "$1" = "-version" ]; then printf "3.0.0\\n"; else exit 9; fi\n';
+    const original = `#!/bin/sh\nif [ "$1" = "-version" ]; then printf "${TAKOFORM_PROVIDER_VERSION}\\n"; else exit 9; fi\n`;
     try {
       await writeFile(providerPath, original, { mode: 0o755 });
       await chmod(providerPath, 0o755);
@@ -826,7 +827,7 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
           workdir,
           2_000,
         ),
-      ).resolves.toBe("3.0.0");
+      ).resolves.toBe(TAKOFORM_PROVIDER_VERSION);
       await expect(
         readProviderVersion(
           providerPath,
@@ -834,7 +835,7 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
           workdir,
           2_000,
         ),
-      ).rejects.toThrow("did not report version 3.0.0");
+      ).rejects.toThrow(`did not report version ${TAKOFORM_PROVIDER_VERSION}`);
     } finally {
       await rm(sourceRoot, { recursive: true, force: true });
       await rm(workdir, { recursive: true, force: true });
