@@ -152,11 +152,19 @@ product's Worker entry, because every actor id, delivery signature, and
 
 Only the request URL as the runtime delivers it is trusted — never
 `X-Forwarded-Host`, `X-Forwarded-Proto`, or a `Host` header. It must be https,
-with loopback http the single exception. **A self-host that terminates TLS in
-front of the Worker and speaks plain http to it therefore establishes nothing
-and must set `APP_URL`**, which it can: an operator who terminates TLS chose the
-hostname themselves. Refusing is the point; the alternative is trusting a
-forwarded-proto header that same proxy may not be the only writer of.
+with loopback http the single exception. **A proxy that terminates TLS in
+front of the Worker and speaks plain http to it therefore establishes
+nothing.** Refusing is the point; the alternative is trusting a
+forwarded-proto header that same proxy may not be the only writer of. Outside
+this module an operator in that position sets `APP_URL`; through this module
+nobody can, so on a self-hosted Takoform Host the TLS session must reach the
+Worker runtime itself. Takoserver serves https natively from its Worker
+runtime when the operator supplies a certificate (`TAKOSERVER_WORKERD_TLS_*`),
+and it mints a `WorkerEndpoint` only for an https address on the default port,
+so the self-host either binds that runtime to 443 or puts a passthrough 443
+front end in front of it and declares `TAKOSERVER_WORKER_ENDPOINT_PORT=443`.
+A plain-http or non-443 self-host still runs the Worker and its bindings but
+refuses the endpoint before any mutation, naming both remedies.
 
 **What the inference does not decide.** A Worker deployed straight to
 Cloudflare answers on workers.dev and on every custom domain and route pattern
