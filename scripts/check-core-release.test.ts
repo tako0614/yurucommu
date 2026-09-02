@@ -6,8 +6,8 @@ import {
 } from "./check-core-release.mjs";
 
 const readyLock = `
-"@takosjp/yurucommu-api": ["@takosjp/yurucommu-api@4.1.0", "", {}],
-"@takosjp/yurucommu-core": ["@takosjp/yurucommu-core@4.1.0", "", {}],
+"@takosjp/yurucommu-api": ["@takosjp/yurucommu-api@4.1.2", "", {}],
+"@takosjp/yurucommu-core": ["@takosjp/yurucommu-core@4.1.2", "", {}],
 `;
 
 const apiExports = [
@@ -19,12 +19,16 @@ const apiExports = [
   "refreshBrowserNotificationPush",
 ];
 const coreExports = [
+  "CANONICAL_ORIGIN_KV_KEY",
+  "PublicOriginError",
   "createManagedRuntimeKeyValueStore",
   "createManagedRuntimeObjectStorage",
   "createManagedRuntimeQueueProducer",
   "createManagedRelationalDatabase",
+  "establishRequestPublicOrigin",
   "resolveRuntimeLane",
   "runYurucommuRetention",
+  "withRequiredBackgroundPublicOrigin",
   "wrapPortableBindings",
   "wrapRuntimeBindings",
   "wrapRuntimeMessageBatch",
@@ -35,14 +39,14 @@ describe("registry core/API product release gate", () => {
     const result = evaluateCoreRelease({
       packageJson: {
         dependencies: {
-          "@takosjp/yurucommu-api": "^4.1.0",
-          "@takosjp/yurucommu-core": "^4.1.0",
+          "@takosjp/yurucommu-api": "^4.1.2",
+          "@takosjp/yurucommu-core": "^4.1.2",
         },
       },
       lockText: readyLock,
       installedVersions: {
-        "@takosjp/yurucommu-api": "4.1.0",
-        "@takosjp/yurucommu-core": "4.1.0",
+        "@takosjp/yurucommu-api": "4.1.2",
+        "@takosjp/yurucommu-core": "4.1.2",
       },
       hasNotificationMigration: true,
       apiExports,
@@ -50,7 +54,7 @@ describe("registry core/API product release gate", () => {
     });
     expect(result).toEqual({ ok: true, blockers: [] });
     expect(lockedPackageVersion(readyLock, "@takosjp/yurucommu-core")).toBe(
-      "4.1.0",
+      "4.1.2",
     );
   });
 
@@ -62,7 +66,7 @@ describe("registry core/API product release gate", () => {
           "@takosjp/yurucommu-core": "^3.0.3",
         },
       },
-      lockText: readyLock.replaceAll("4.1.0", "3.0.3"),
+      lockText: readyLock.replaceAll("4.1.2", "3.0.3"),
       installedVersions: {
         "@takosjp/yurucommu-api": "3.0.3",
         "@takosjp/yurucommu-core": "3.0.3",
@@ -92,7 +96,7 @@ describe("registry core/API product release gate", () => {
           "@takosjp/yurucommu-core": "^4.0.0",
         },
       },
-      lockText: readyLock.replaceAll("4.1.0", "4.0.0"),
+      lockText: readyLock.replaceAll("4.1.2", "4.0.0"),
       installedVersions: {
         "@takosjp/yurucommu-api": "4.0.0",
         "@takosjp/yurucommu-core": "4.0.0",
@@ -114,20 +118,58 @@ describe("registry core/API product release gate", () => {
     );
   });
 
+  // 4.1.1 has the lanes but not the request-derived public origin. This
+  // product deleted its own copy of that rule, so on 4.1.1 the portable lane
+  // would have no origin at all rather than an older one.
+  test("rejects the release before the request-derived public origin", () => {
+    const result = evaluateCoreRelease({
+      packageJson: {
+        dependencies: {
+          "@takosjp/yurucommu-api": "^4.1.1",
+          "@takosjp/yurucommu-core": "^4.1.1",
+        },
+      },
+      lockText: readyLock.replaceAll("4.1.2", "4.1.1"),
+      installedVersions: {
+        "@takosjp/yurucommu-api": "4.1.1",
+        "@takosjp/yurucommu-core": "4.1.1",
+      },
+      hasNotificationMigration: true,
+      apiExports,
+      coreExports: coreExports.filter(
+        (name) =>
+          name !== "CANONICAL_ORIGIN_KV_KEY" &&
+          name !== "PublicOriginError" &&
+          name !== "establishRequestPublicOrigin" &&
+          name !== "withRequiredBackgroundPublicOrigin",
+      ),
+    });
+    expect(result.ok).toBe(false);
+    expect(result.blockers).toEqual(
+      expect.arrayContaining([
+        "@takosjp/yurucommu-core.dependency_floor_too_old",
+        "@takosjp/yurucommu-core.lock_too_old",
+        "@takosjp/yurucommu-core.installed_too_old",
+        "core_export.establishRequestPublicOrigin_missing",
+        "core_export.withRequiredBackgroundPublicOrigin_missing",
+      ]),
+    );
+  });
+
   // The lane selector is what the generated Worker entry composes through. A
   // core that ships the version but not the export is a red the gate must see.
   test("blocks a core release that lacks the runtime-lane selector", () => {
     const result = evaluateCoreRelease({
       packageJson: {
         dependencies: {
-          "@takosjp/yurucommu-api": "^4.1.0",
-          "@takosjp/yurucommu-core": "^4.1.0",
+          "@takosjp/yurucommu-api": "^4.1.2",
+          "@takosjp/yurucommu-core": "^4.1.2",
         },
       },
       lockText: readyLock,
       installedVersions: {
-        "@takosjp/yurucommu-api": "4.1.0",
-        "@takosjp/yurucommu-core": "4.1.0",
+        "@takosjp/yurucommu-api": "4.1.2",
+        "@takosjp/yurucommu-core": "4.1.2",
       },
       hasNotificationMigration: true,
       apiExports,
