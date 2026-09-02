@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { readdir, readFile } from "node:fs/promises";
 
+import { TAKOFORM_PROVIDER_PIN } from "./takoform-provider-pin.ts";
+
 const moduleUrl = new URL("../deploy/takoform/", import.meta.url);
 const [main, outputs] = await Promise.all([
   readFile(new URL("main.tf", moduleUrl), "utf8"),
@@ -26,12 +28,13 @@ describe("portable Takoform v1 Capsule", () => {
     );
   });
 
-  test("owns the complete Provider 3 worker and service graph", () => {
+  test("owns the complete worker and service graph", () => {
     expect(resourceTypes.sort()).toEqual(
       [
         "takoform_at_least_once_queue",
         "takoform_at_least_once_queue",
         "takoform_edge_kv_namespace",
+        "takoform_edge_object_bucket",
         "takoform_module_worker",
         "takoform_queue_consumer",
         "takoform_sqlite_database",
@@ -47,9 +50,18 @@ describe("portable Takoform v1 Capsule", () => {
     expect(dataSourceTypes).toEqual([]);
   });
 
-  test("pins the independently published Provider 3 contract exactly", () => {
-    expect(main).toContain('version = "= 3.0.0"');
-    expect(main).not.toContain('version = ">= 3.0.0"');
+  // One declared pin, checked here and in the install-UX gate. Moving it after
+  // the Provider 4.0.0 publication is this constant plus the module's own line.
+  test("pins the independently published Provider contract exactly", () => {
+    const providerBlock = main.match(/takoform\s*=\s*\{([\s\S]*?)\n\s*\}/)?.[1];
+    expect(providerBlock).toBeDefined();
+    expect(providerBlock).toContain(
+      'source  = "registry.terraform.io/tako0614/takoform"',
+    );
+    expect(providerBlock).toContain(TAKOFORM_PROVIDER_PIN);
+    // Exact, never a range: a Provider that added a resource kind must be
+    // adopted deliberately, not picked up by a `tofu init` on some other day.
+    expect(providerBlock).toMatch(/version\s*=\s*"= \d+\.\d+\.\d+"\s*$/m);
   });
 
   test("ships migration inputs in the repository instead of depending on source-build output", async () => {
@@ -77,6 +89,7 @@ describe("portable Takoform v1 Capsule", () => {
     expect(dependencies).toEqual([
       "takoform_sqlite_database.database",
       "takoform_edge_kv_namespace.kv",
+      "takoform_edge_object_bucket.media",
       "takoform_at_least_once_queue.delivery",
       "takoform_at_least_once_queue.delivery_dlq",
     ]);
@@ -91,18 +104,54 @@ describe("portable Takoform v1 Capsule", () => {
     expect(main).not.toContain("background-events");
   });
 
-  test("requests MEDIA as one sealed standard S3 service", () => {
+  // MEDIA used to be a required `com.amazonaws.s3` external service: a standing
+  // request to every Host for a standard service no Host is obliged to supply.
+  // The graph now owns the bucket, so a Host that implements the module's Forms
+  // implements all of it.
+  test("owns MEDIA as an ObjectBucket rather than asking a Host for S3", () => {
     expect(main).toMatch(
-      /external_services\s*=\s*\[[\s\S]*name\s*=\s*"MEDIA"[\s\S]*protocol\s*=\s*"com\.amazonaws\.s3"[\s\S]*required\s*=\s*true[\s\S]*\]/,
+      /resource "takoform_edge_object_bucket" "media" \{[\s\S]*?name\s*=\s*"\$\{local\.prefix\}-media"[\s\S]*?\n\}/,
+    );
+    expect(main).toMatch(
+      /bucket_bindings\s*=\s*\[[\s\S]*?name\s*=\s*"MEDIA"[\s\S]*?target_name\s*=\s*takoform_edge_object_bucket\.media\.name[\s\S]*?\]/,
     );
     for (const forbidden of [
-      "takoform_object_bucket",
-      "bucket_bindings",
-      "edge.objects",
-      "ObjectBucket",
+      "external_services",
+      "com.amazonaws.s3",
+      "standard_service",
+      "StandardService",
+      "access_key",
+      "endpoint_url",
     ]) {
       expect(main).not.toContain(forbidden);
     }
+    expect(outputs).toContain("takoform_edge_object_bucket.media.uid");
+  });
+
+  // The lane names the binding shape the Host projects, not the tool that
+  // published the Worker, so it cannot be inferred from being a Takoform
+  // module. An unknown value is refused by the Worker at startup, which is why
+  // the module may only ever emit one of the two the build knows.
+  test("declares the runtime lane as a validated variable defaulting to cloudflare", () => {
+    const laneVariable = main.match(
+      /variable "runtime_lane" \{([\s\S]*?)\n\}/,
+    )?.[1];
+    expect(laneVariable).toBeDefined();
+    expect(laneVariable).toMatch(/type\s*=\s*string/);
+    expect(laneVariable).toMatch(/default\s*=\s*"cloudflare"/);
+    expect(laneVariable).toMatch(
+      /condition\s*=\s*contains\(\["cloudflare", "portable"\], var\.runtime_lane\)/,
+    );
+
+    expect(main).toMatch(
+      /worker_plain_values\s*=\s*\{\s*YURUCOMMU_RUNTIME_LANE\s*=\s*var\.runtime_lane\s*\}/,
+    );
+    // The retired literal is not a lane this build supports; a deployment that
+    // still declared it would refuse to start rather than guess.
+    expect(main).not.toContain("takoform-v1");
+    expect(main).toContain(
+      "vars_json      = jsonencode(local.worker_plain_values)",
+    );
   });
 
   test("does not route desired state through compatibility or Host materialization", () => {

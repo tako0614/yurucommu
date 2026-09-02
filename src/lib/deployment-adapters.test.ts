@@ -34,12 +34,16 @@ test("Yurucommu resource requirements are provider-neutral", () => {
   for (const connection of contract.runtimeConnections) {
     expect(resources.has(connection.resource)).toBe(true);
   }
-  expect(contract.standardServices).toEqual([
-    { name: "MEDIA", protocol: "com.amazonaws.s3", required: true },
-  ]);
+  // Every runtime connection now resolves to a resource the product's own graph
+  // owns. Asking a Host for a standard service it is not obliged to supply is
+  // what an ObjectBucket Form replaces.
+  expect(contract.standardServices).toEqual([]);
   expect(contract.resources.some(({ shape }) => shape === "ObjectBucket")).toBe(
-    false,
+    true,
   );
+  expect(
+    contract.runtimeConnections.find(({ name }) => name === "MEDIA")?.resource,
+  ).toBe("media");
 });
 
 test("Cloudflare direct and Takoform adapt the same runtime connections", () => {
@@ -56,5 +60,9 @@ test("Cloudflare direct and Takoform adapt the same runtime connections", () => 
   );
   expect(takoform).not.toContain("cloudflare_");
   expect(takoform).not.toContain("CLOUDFLARE_");
-  expect(takoform).toContain('protocol = "com.amazonaws.s3"');
+  // Both adapters bind MEDIA to a bucket they create: an R2 bucket on the
+  // direct root, a portable ObjectBucket in the Takoform module.
+  expect(cloudflare).toContain('type        = "r2_bucket"');
+  expect(takoform).toContain("takoform_edge_object_bucket");
+  expect(takoform).not.toContain("com.amazonaws.s3");
 });
