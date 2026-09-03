@@ -1,10 +1,11 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import {
   chmod,
   copyFile,
   lstat,
   mkdir,
   mkdtemp,
+  open,
   readFile,
   readlink,
   readdir,
@@ -12,6 +13,7 @@ import {
   stat,
   writeFile,
 } from "node:fs/promises";
+import { constants } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { isAbsolute, join, relative, resolve } from "node:path";
@@ -40,6 +42,8 @@ const MIN_COMMAND_TIMEOUT_MS = 100;
 const MAX_COMMAND_TIMEOUT_MS = 24 * 60 * 60 * 1_000;
 const CHILD_TERM_GRACE_MS = 5_000;
 const MAX_CHILD_OUTPUT_BYTES = 128 * 1024;
+const MAX_TOFU_DIAGNOSTIC_BYTES = 16 * 1024;
+const TOFU_DIAGNOSTIC_TRUNCATED_MARKER = "\n[OpenTofu diagnostics truncated]";
 const MAX_PROVENANCE_OUTPUT_BYTES = 64 * 1024 * 1024;
 /** Provider schema JSON is substantially larger than ordinary child output. */
 export const PROVIDER_SCHEMA_OUTPUT_MAX_BYTES = 4 * 1024 * 1024;
@@ -51,9 +55,28 @@ const SOURCE_MODULE_FILES = [
 ] as const;
 const SOURCE_COPIED_MODULE_FILES = ["main.tf", "outputs.tf"] as const;
 const SOURCE_OPTIONAL_MODULE_FILES = [".terraform.lock.hcl"] as const;
-const SOURCE_EXPECTED_UNUSED_ENTRIES = ["migrations", "e2e"] as const;
+const SOURCE_EXPECTED_UNUSED_ENTRIES = ["e2e"] as const;
+const SOURCE_MIGRATIONS_DIR = "migrations";
+const SOURCE_MIGRATIONS_SQL_DIR = "sql";
+const SOURCE_MIGRATION_ROOT_ENTRIES = [
+  "schema-bundle.json",
+  SOURCE_MIGRATIONS_SQL_DIR,
+  "takoform-overrides",
+] as const;
 const GENERATED_WORKER_FILE = "yurucommu-worker.js";
-const GENERATED_MIGRATIONS_DIR = "migrations";
+const MIGRATION_FILE_RE = /^\d{4}_[A-Za-z0-9_-]+\.sql$/u;
+const MIGRATION_DIGEST_RE = /^sha256:[a-f0-9]{64}$/u;
+export const RUNTIME_INPUT_VARIABLE = "takosumi_runtime_inputs__takoform";
+export const RUNTIME_INPUT_NAMES = [
+  "ENCRYPTION_KEY",
+  "TAKOSUMI_ACCOUNTS_CLIENT_ID",
+  "TAKOSUMI_ACCOUNTS_ISSUER_URL",
+  "TAKOSUMI_ACCOUNTS_OWNER_SUB",
+  "TAKOSUMI_ACCOUNTS_REDIRECT_URI",
+] as const;
+const RUNTIME_INPUT_NONCE_BYTES = 16;
+const RUNTIME_INPUT_OPEN_TIMEOUT_MS = 30_000;
+const RUNTIME_INPUT_POLL_MS = 5;
 
 /** The current Yurucommu Capsule graph. Keep this in lockstep with main.tf. */
 export const CURRENT_RESOURCE_GRAPH = [
@@ -169,6 +192,34 @@ export interface TakoformV1E2EConfig {
    * intentionally non-routable. It is diagnostic evidence, not endpoint proof.
    */
   readonly diagnosticRuntimeEndpoint?: string;
+}
+
+/**
+ * The five values declared by the Yurucommu WorkerVersion. Values are made
+ * only for this run and delivered through an OpenTofu ephemeral variable; the
+ * runner never reads them from the process environment or writes them to an
+ * ordinary file.
+ */
+export type TakoformRuntimeInputs = Readonly<
+  Record<(typeof RUNTIME_INPUT_NAMES)[number], string>
+>;
+
+export interface TakoformRuntimeInputMaterial {
+  /** Plan-stable, value-free nonce for this exact Provider instance. */
+  readonly nonce: string;
+  /** Exact required_sensitive_vars map supplied only during Apply. */
+  readonly values: TakoformRuntimeInputs;
+}
+
+export interface RuntimeInputVariableFile {
+  /** `-var-file=<FIFO>`; the path contains no secret material. */
+  readonly args: readonly string[];
+  /** Start delivery after the OpenTofu child exists. */
+  readonly onSpawn: (child: ChildProcess) => void;
+  /** Wait for the child to consume the whole body and surface write errors. */
+  delivered(): Promise<void>;
+  /** Remove the FIFO and its private directory. */
+  dispose(): Promise<void>;
 }
 
 export interface LocalProviderAuthority {
@@ -328,6 +379,218 @@ export function readTakoformV1E2EConfig(
   };
 }
 
+/**
+ * Create the value-free Provider nonce and the synthetic credentials needed by
+ * this install's required_sensitive_vars declaration. These are intentionally
+ * not configurable: the full E2E proves the ephemeral-input path with a fresh
+ * non-production set on every run.
+ */
+export function createRuntimeInputMaterial(
+  _runId: string,
+): TakoformRuntimeInputMaterial {
+  const nonce = randomBytes(RUNTIME_INPUT_NONCE_BYTES).toString("base64url");
+  const slug = nonce.slice(0, 22);
+  return {
+    nonce,
+    values: {
+      ENCRYPTION_KEY: randomBytes(32).toString("hex"),
+      TAKOSUMI_ACCOUNTS_ISSUER_URL: `https://accounts.invalid/yurucommu-e2e/${slug}`,
+      TAKOSUMI_ACCOUNTS_CLIENT_ID: `yurucommu-e2e-${slug}`,
+      TAKOSUMI_ACCOUNTS_OWNER_SUB: `takos:e2e:${slug}`,
+      TAKOSUMI_ACCOUNTS_REDIRECT_URI: `https://yurucommu.invalid/e2e/${slug}/oauth/callback`,
+    },
+  };
+}
+
+/**
+ * Render the tiny generated root extension that wires Provider 4's
+ * run-scoped inputs. It carries the nonce (which is not secret) but never a
+ * runtime value; the map arrives through {@link prepareRuntimeInputVariableFile}.
+ */
+export function renderRuntimeInputProviderConfig(nonce: string): string {
+  if (!/^[A-Za-z0-9_-]{22,128}$/u.test(nonce)) {
+    throw new Error(
+      "runtime_input_nonce must be 22..128 unpadded base64url characters",
+    );
+  }
+  return [
+    "# Generated by the Yurucommu full E2E runner; values are delivered by FIFO.",
+    `variable ${hclString(RUNTIME_INPUT_VARIABLE)} {`,
+    "  type      = map(string)",
+    "  sensitive = true",
+    "  ephemeral = true",
+    "}",
+    "",
+    'provider "takoform" {',
+    `  runtime_input_nonce = ${hclString(nonce)}`,
+    `  runtime_inputs = var.${RUNTIME_INPUT_VARIABLE}`,
+    "}",
+    "",
+  ].join("\n");
+}
+
+/** Render one ephemeral tfvars body. An empty map is used for Plan/Destroy. */
+export function renderRuntimeInputVariableFileBody(
+  values: Readonly<Partial<TakoformRuntimeInputs>> = {},
+): Uint8Array {
+  const names = Object.keys(values).sort();
+  for (const name of names) {
+    if (!(RUNTIME_INPUT_NAMES as readonly string[]).includes(name)) {
+      throw new Error(`unexpected runtime input name: ${name}`);
+    }
+    const value = values[name as keyof TakoformRuntimeInputs];
+    if (
+      typeof value !== "string" ||
+      value.length === 0 ||
+      value.includes("\0")
+    ) {
+      throw new Error(`runtime input ${name} is malformed`);
+    }
+  }
+  if (
+    names.length !== 0 &&
+    (names.length !== RUNTIME_INPUT_NAMES.length ||
+      names.some((name, index) => name !== RUNTIME_INPUT_NAMES[index]))
+  ) {
+    throw new Error(
+      "runtime input names did not match required_sensitive_vars",
+    );
+  }
+  const lines = [
+    `${RUNTIME_INPUT_VARIABLE} = {`,
+    ...names.map(
+      (name) =>
+        `  ${hclString(name)} = ${hclString(values[name as keyof TakoformRuntimeInputs]!)}`,
+    ),
+    "}",
+    "",
+  ];
+  return new TextEncoder().encode(lines.join("\n"));
+}
+
+/**
+ * Prepare an ephemeral `-var-file` FIFO. The directory and pipe are private to
+ * this run and contain no bytes at rest; callers must dispose in a finally
+ * block. Values are only handed to the writer after OpenTofu is spawned.
+ */
+export async function prepareRuntimeInputVariableFile(
+  workdir: string,
+  values: Readonly<Partial<TakoformRuntimeInputs>> = {},
+): Promise<RuntimeInputVariableFile> {
+  const body = renderRuntimeInputVariableFileBody(values);
+  const directory = await mkdtemp(join(workdir, "runtime-inputs-"));
+  const path = join(directory, "runtime-inputs.tfvars");
+  const made = Bun.spawnSync(["mkfifo", "-m", "600", path], {
+    env: { PATH: "/usr/local/bin:/usr/bin:/bin" },
+    stdout: "ignore",
+    stderr: "ignore",
+  });
+  if (made.exitCode !== 0) {
+    await rm(directory, { recursive: true, force: true });
+    throw new Error("could not create the ephemeral runtime-input FIFO");
+  }
+  let delivery: Promise<void> | undefined;
+  let failure: unknown;
+  return {
+    args: [`-var-file=${path}`],
+    onSpawn: (child) => {
+      delivery = feedRuntimeInputVariableFile(path, body, child).catch(
+        (error: unknown) => {
+          failure = error;
+        },
+      );
+    },
+    delivered: async () => {
+      await delivery;
+      if (failure !== undefined) throw failure;
+    },
+    dispose: async () => {
+      try {
+        await delivery;
+      } finally {
+        await rm(directory, { recursive: true, force: true });
+      }
+    },
+  };
+}
+
+async function feedRuntimeInputVariableFile(
+  path: string,
+  body: Uint8Array,
+  child: ChildProcess,
+): Promise<void> {
+  let exitCode: number | undefined;
+  void child.exited.then(
+    (code) => {
+      exitCode = code;
+    },
+    () => {
+      exitCode = -1;
+    },
+  );
+  const deadline = Date.now() + RUNTIME_INPUT_OPEN_TIMEOUT_MS;
+  let handle: import("node:fs/promises").FileHandle | undefined;
+  while (handle === undefined) {
+    try {
+      handle = await open(path, constants.O_WRONLY | constants.O_NONBLOCK);
+    } catch (error) {
+      if (errorCode(error) !== "ENXIO") throw error;
+      if (exitCode !== undefined) {
+        if (exitCode === 0) {
+          throw new Error(
+            "OpenTofu exited successfully without reading the ephemeral runtime-input FIFO",
+          );
+        }
+        return;
+      }
+      if (Date.now() > deadline) {
+        throw new Error(
+          "OpenTofu did not read the ephemeral runtime-input FIFO before the delivery deadline",
+        );
+      }
+      await Bun.sleep(RUNTIME_INPUT_POLL_MS);
+    }
+  }
+  try {
+    let written = 0;
+    while (written < body.byteLength) {
+      try {
+        const result = await handle.write(
+          body,
+          written,
+          body.byteLength - written,
+        );
+        written += result.bytesWritten;
+      } catch (error) {
+        const code = errorCode(error);
+        if (code === "EAGAIN") {
+          if (Date.now() > deadline) {
+            throw new Error(
+              "OpenTofu did not drain the ephemeral runtime-input FIFO before the delivery deadline",
+            );
+          }
+          await Bun.sleep(RUNTIME_INPUT_POLL_MS);
+          continue;
+        }
+        if (code === "EPIPE" && (await child.exited) !== 0) return;
+        throw error;
+      }
+    }
+  } finally {
+    await handle.close();
+  }
+}
+
+function hclString(value: string): string {
+  return JSON.stringify(value).replaceAll("${", "$${").replaceAll("%{", "%%{");
+}
+
+function errorCode(error: unknown): string | undefined {
+  return typeof error === "object" && error !== null && "code" in error
+    ? String((error as { readonly code?: unknown }).code)
+    : undefined;
+}
+
 export async function prepareProviderDevOverride(
   config: LocalProviderAuthority,
   workdir: string,
@@ -379,9 +642,7 @@ export function buildTofuCommand(
   phase: "apply" | "destroy",
   projectName: string,
 ): readonly string[] {
-  if (!/^[a-z][a-z0-9-]{1,50}[a-z0-9]$/u.test(projectName)) {
-    throw new Error("projectName is not a valid Takoform resource prefix");
-  }
+  assertProjectName(projectName);
   return [
     phase,
     "-auto-approve",
@@ -389,6 +650,31 @@ export function buildTofuCommand(
     "-no-color",
     `-var=project_name=${projectName}`,
   ];
+}
+
+/** Build the value-free plan that is later consumed by the saved-plan Apply. */
+export function buildTofuPlanCommand(
+  projectName: string,
+  planPath: string,
+): readonly string[] {
+  assertProjectName(projectName);
+  if (!isAbsolute(planPath)) {
+    throw new Error("planPath must be an absolute path");
+  }
+  return [
+    "plan",
+    "-input=false",
+    "-no-color",
+    "-out",
+    planPath,
+    `-var=project_name=${projectName}`,
+  ];
+}
+
+function assertProjectName(projectName: string): void {
+  if (!/^[a-z][a-z0-9-]{1,50}[a-z0-9]$/u.test(projectName)) {
+    throw new Error("projectName is not a valid Takoform resource prefix");
+  }
 }
 
 /**
@@ -737,12 +1023,19 @@ export function assertResourceIdentity(
   }
 }
 
-export async function collectSourceProvenance(
+export interface SourceProvenanceSnapshot {
+  /** Report projection derived from the exact migration snapshot below. */
+  readonly provenance: SourceProvenance;
+  /** Validated bytes carried directly into the workdir; never reread on copy. */
+  readonly migrations: readonly MigrationInventoryEntry[];
+}
+
+export async function collectSourceProvenanceSnapshot(
   repositoryRoot: string,
   sourceRoot: string,
   environment: Record<string, string | undefined>,
   timeoutMs: number,
-): Promise<SourceProvenance> {
+): Promise<SourceProvenanceSnapshot> {
   const sourceHead = (
     await runGitCapture(
       repositoryRoot,
@@ -836,46 +1129,55 @@ export async function collectSourceProvenance(
   const workerPath = join(sourceRoot, ".generated", GENERATED_WORKER_FILE);
   await assertRegularFile(workerPath, "generated Yurucommu Worker");
   const workerBytes = await readFile(workerPath);
-  const migrationRoot = join(
+  const migrationInventory = await collectTrackedMigrationInventory(
     sourceRoot,
-    ".generated",
-    GENERATED_MIGRATIONS_DIR,
+    repositoryRoot,
+    environment,
+    timeoutMs,
   );
-  const migrationEntries = (
-    await readdir(migrationRoot, { withFileTypes: true })
-  )
-    .map((entry) => entry.name)
-    .sort();
-  const migrations = [];
-  for (const name of migrationEntries) {
-    if (!/^\d{4}_[a-z0-9_]+\.sql$/u.test(name)) {
-      throw new Error(`unexpected generated migration entry: ${name}`);
-    }
-    const migrationPath = join(migrationRoot, name);
-    await assertRegularFile(migrationPath, `generated migration ${name}`);
-    const bytes = await readFile(migrationPath);
-    migrations.push({
-      path: `${GENERATED_MIGRATIONS_DIR}/${name}`,
-      bytes: bytes.byteLength,
-      sha256: digestBytes(bytes),
-    });
-  }
-  if (migrations.length === 0)
-    throw new Error("source migration inventory is empty");
+  const migrations = migrationInventory.map(({ path, bytes, sha256 }) => ({
+    path,
+    bytes,
+    sha256,
+  }));
   return {
-    sourceHead,
-    workspaceDirty: status.trim().length > 0,
-    workspaceStateDigest: `sha256:${workspaceHasher.digest("hex")}`,
-    module,
-    moduleFiles,
-    worker: {
-      path: `.generated/${GENERATED_WORKER_FILE}`,
-      bytes: workerBytes.byteLength,
-      sha256: digestBytes(workerBytes),
+    provenance: {
+      sourceHead,
+      workspaceDirty: status.trim().length > 0,
+      workspaceStateDigest: `sha256:${workspaceHasher.digest("hex")}`,
+      module,
+      moduleFiles,
+      worker: {
+        path: `.generated/${GENERATED_WORKER_FILE}`,
+        bytes: workerBytes.byteLength,
+        sha256: digestBytes(workerBytes),
+      },
+      migrations,
+      providerConstraint: TAKOFORM_PROVIDER_CONSTRAINT,
     },
-    migrations,
-    providerConstraint: TAKOFORM_PROVIDER_CONSTRAINT,
+    migrations: migrationInventory,
   };
+}
+
+/**
+ * Preserve the report-only provenance API for callers that do not need the
+ * validated bytes. The full runner uses the snapshot variant so report and
+ * applied migration content share one read.
+ */
+export async function collectSourceProvenance(
+  repositoryRoot: string,
+  sourceRoot: string,
+  environment: Record<string, string | undefined>,
+  timeoutMs: number,
+): Promise<SourceProvenance> {
+  return (
+    await collectSourceProvenanceSnapshot(
+      repositoryRoot,
+      sourceRoot,
+      environment,
+      timeoutMs,
+    )
+  ).provenance;
 }
 
 function digestBytes(bytes: Uint8Array): string {
@@ -888,8 +1190,13 @@ export async function main(): Promise<void> {
   const sourceRoot = join(repositoryRoot, "deploy", "takoform");
   const workdir = await mkdtemp(join(tmpdir(), "yurucommu-takoform-v1-"));
   const projectName = `yurucommu-e2e-${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
+  const runtimeInputs = createRuntimeInputMaterial(projectName);
   const toolEnvironment = buildSafeChildEnvironment(process.env);
   const tofuEnvironment = createTofuEnvironment(config, workdir);
+  const tofuRedactionValues = [
+    config.writerToken,
+    ...Object.values(runtimeInputs.values),
+  ];
   const removeSignalHandlers = installLifecycleSignalHandlers();
   let mutationAttempted = false;
   let primaryError: unknown;
@@ -916,17 +1223,24 @@ export async function main(): Promise<void> {
         toolEnvironment,
         config.commandTimeoutMs,
       );
-      sourceProvenance = await collectSourceProvenance(
+      const sourceSnapshot = await collectSourceProvenanceSnapshot(
         repositoryRoot,
         sourceRoot,
         toolEnvironment,
         config.commandTimeoutMs,
       );
+      sourceProvenance = sourceSnapshot.provenance;
       await copyCapsuleToWorkdir(sourceRoot, workdir, {
         repositoryRoot,
         environment: toolEnvironment,
         timeoutMs: config.commandTimeoutMs,
+        migrationInventory: sourceSnapshot.migrations,
       });
+      await writeFile(
+        join(workdir, "e2e-runtime-inputs.tf"),
+        renderRuntimeInputProviderConfig(runtimeInputs.nonce),
+        { mode: 0o600 },
+      );
 
       const providerOverride = await prepareProviderDevOverride(
         config,
@@ -945,14 +1259,58 @@ export async function main(): Promise<void> {
         tofuEnvironment,
         config.commandTimeoutMs,
         providerVersion,
+        tofuRedactionValues,
       );
 
-      mutationAttempted = true;
-      await runTofu(buildTofuCommand("apply", projectName), {
+      // Discover the authoritative Host before any mutation. A plan failure
+      // then remains pre-mutation and can remove its workdir without claiming
+      // that cleanup proved resources it never created.
+      hostDiscovery = await discoverStableHost(config);
+      const planPath = join(workdir, "e2e.tfplan");
+      const planInputs = await prepareRuntimeInputVariableFile(workdir);
+      try {
+        await runTofu(
+          [...buildTofuPlanCommand(projectName, planPath), ...planInputs.args],
+          {
+            workdir,
+            environment: tofuEnvironment,
+            timeoutMs: config.commandTimeoutMs,
+            onSpawn: planInputs.onSpawn,
+            redactionValues: tofuRedactionValues,
+          },
+        );
+        await planInputs.delivered();
+      } finally {
+        await planInputs.dispose();
+      }
+
+      const applyInputs = await prepareRuntimeInputVariableFile(
         workdir,
-        environment: tofuEnvironment,
-        timeoutMs: config.commandTimeoutMs,
-      });
+        runtimeInputs.values,
+      );
+      try {
+        mutationAttempted = true;
+        await runTofu(
+          [
+            "apply",
+            "-auto-approve",
+            "-input=false",
+            "-no-color",
+            ...applyInputs.args,
+            planPath,
+          ],
+          {
+            workdir,
+            environment: tofuEnvironment,
+            timeoutMs: config.commandTimeoutMs,
+            onSpawn: applyInputs.onSpawn,
+            redactionValues: tofuRedactionValues,
+          },
+        );
+        await applyInputs.delivered();
+      } finally {
+        await applyInputs.dispose();
+      }
 
       const outputs = parseTofuJson(
         await runTofu(["output", "-json"], {
@@ -960,6 +1318,7 @@ export async function main(): Promise<void> {
           environment: tofuEnvironment,
           captureStdout: true,
           timeoutMs: config.commandTimeoutMs,
+          redactionValues: tofuRedactionValues,
         }),
         "tofu output",
       );
@@ -976,6 +1335,7 @@ export async function main(): Promise<void> {
             environment: tofuEnvironment,
             captureStdout: true,
             timeoutMs: config.commandTimeoutMs,
+            redactionValues: tofuRedactionValues,
           }),
           "tofu show",
         ),
@@ -983,7 +1343,6 @@ export async function main(): Promise<void> {
       );
       assertCurrentResourceOutputIds(outputResourceIds, identities);
 
-      hostDiscovery = await discoverStableHost(config);
       const hostResources = await readAppliedResources(
         hostDiscovery,
         config,
@@ -1047,12 +1406,26 @@ export async function main(): Promise<void> {
     const cleanup = await cleanupTakoformV1E2E({
       mutationAttempted,
       destroy: async () => {
-        await runTofu(buildTofuCommand("destroy", projectName), {
-          workdir,
-          environment: tofuEnvironment,
-          timeoutMs: config.commandTimeoutMs,
-          allowAfterTermination: true,
-        });
+        const destroyInputs = await prepareRuntimeInputVariableFile(workdir);
+        try {
+          await runTofu(
+            [
+              ...buildTofuCommand("destroy", projectName),
+              ...destroyInputs.args,
+            ],
+            {
+              workdir,
+              environment: tofuEnvironment,
+              timeoutMs: config.commandTimeoutMs,
+              allowAfterTermination: true,
+              onSpawn: destroyInputs.onSpawn,
+              redactionValues: tofuRedactionValues,
+            },
+          );
+          await destroyInputs.delivered();
+        } finally {
+          await destroyInputs.dispose();
+        }
       },
       verifyAbsence: async () => {
         if (!hostDiscovery) {
@@ -1132,12 +1505,17 @@ export async function copyCapsuleToWorkdir(
     readonly repositoryRoot?: string;
     readonly timeoutMs?: number;
     readonly environment?: Record<string, string | undefined>;
+    /** Validated migration bytes captured with the provenance report. */
+    readonly migrationInventory?: readonly MigrationInventoryEntry[];
+    /** Test-only hook used to make source mutation between validation and copy deterministic. */
+    readonly beforeMigrationCopy?: () => Promise<void>;
   } = {},
 ): Promise<void> {
   const entries = await readdir(sourceRoot, { withFileTypes: true });
   const allowedRootEntries = new Set([
     ...SOURCE_MODULE_FILES,
     ...SOURCE_EXPECTED_UNUSED_ENTRIES,
+    SOURCE_MIGRATIONS_DIR,
     ".generated",
   ]);
   for (const entry of entries) {
@@ -1147,6 +1525,7 @@ export async function copyCapsuleToWorkdir(
     if (entry.name === ".generated") continue;
     const entryPath = join(sourceRoot, entry.name);
     if (
+      entry.name === SOURCE_MIGRATIONS_DIR ||
       (SOURCE_EXPECTED_UNUSED_ENTRIES as readonly string[]).includes(entry.name)
     ) {
       await assertRegularDirectory(entryPath, `Takoform source ${entry.name}`);
@@ -1193,10 +1572,7 @@ export async function copyCapsuleToWorkdir(
   const generatedEntries = await readdir(generatedRoot, {
     withFileTypes: true,
   });
-  const allowedGeneratedEntries = new Set([
-    GENERATED_WORKER_FILE,
-    GENERATED_MIGRATIONS_DIR,
-  ]);
+  const allowedGeneratedEntries = new Set([GENERATED_WORKER_FILE]);
   for (const entry of generatedEntries) {
     if (!allowedGeneratedEntries.has(entry.name)) {
       throw new Error(
@@ -1206,39 +1582,240 @@ export async function copyCapsuleToWorkdir(
   }
   const generatedWorker = join(generatedRoot, GENERATED_WORKER_FILE);
   await assertRegularFile(generatedWorker, "generated Yurucommu Worker");
-  await mkdir(join(workdir, ".generated", GENERATED_MIGRATIONS_DIR), {
-    recursive: true,
-  });
+  await mkdir(join(workdir, ".generated"), { recursive: true });
   await copyFile(
     generatedWorker,
     join(workdir, ".generated", GENERATED_WORKER_FILE),
   );
 
-  const migrationsRoot = join(generatedRoot, GENERATED_MIGRATIONS_DIR);
-  const migrationsMetadata = await lstat(migrationsRoot);
-  if (
-    migrationsMetadata.isSymbolicLink() ||
-    !migrationsMetadata.isDirectory()
-  ) {
-    throw new Error("generated migration source must be a regular directory");
+  const migrations =
+    options.migrationInventory ??
+    (await collectTrackedMigrationInventory(
+      sourceRoot,
+      options.repositoryRoot,
+      options.environment ?? buildSafeChildEnvironment(process.env),
+      options.timeoutMs ?? DEFAULT_COMMAND_TIMEOUT_MS,
+    ));
+  await options.beforeMigrationCopy?.();
+  await mkdir(join(workdir, SOURCE_MIGRATIONS_DIR, SOURCE_MIGRATIONS_SQL_DIR), {
+    recursive: true,
+  });
+  for (const migration of migrations) {
+    await writeFile(join(workdir, migration.path), migration.content);
   }
+}
+
+type MigrationManifestEntry = {
+  readonly name: string;
+  readonly sha256: string;
+  readonly sql: string;
+};
+
+type MigrationManifest = {
+  readonly apiVersion: "takosumi.resource-migrations/v1";
+  readonly engine: "sqlite";
+  readonly entries: readonly MigrationManifestEntry[];
+};
+
+type MigrationInventoryEntry = {
+  readonly path: string;
+  readonly bytes: number;
+  readonly sha256: string;
+  /** The exact bytes read during validation; never reopen the source on copy. */
+  readonly content: Uint8Array;
+};
+
+async function collectTrackedMigrationInventory(
+  sourceRoot: string,
+  repositoryRoot: string | undefined,
+  environment: Record<string, string | undefined>,
+  timeoutMs: number,
+): Promise<readonly MigrationInventoryEntry[]> {
+  const migrationsContainer = join(sourceRoot, SOURCE_MIGRATIONS_DIR);
+  await assertRegularDirectory(
+    migrationsContainer,
+    "Takoform source migrations",
+  );
+  const migrationContainerEntries = await readdir(migrationsContainer, {
+    withFileTypes: true,
+  });
+  const allowedMigrationRootEntries = new Set<string>(
+    SOURCE_MIGRATION_ROOT_ENTRIES,
+  );
+  for (const entry of migrationContainerEntries) {
+    if (!allowedMigrationRootEntries.has(entry.name)) {
+      throw new Error(
+        `unexpected Takoform migration source entry: ${entry.name}`,
+      );
+    }
+  }
+
+  const schemaBundlePath = join(migrationsContainer, "schema-bundle.json");
+  await assertRegularFile(schemaBundlePath, "Takoform migration schema bundle");
+  if (repositoryRoot) {
+    await assertTrackedSourcePath(
+      repositoryRoot,
+      join("deploy", "takoform", SOURCE_MIGRATIONS_DIR, "schema-bundle.json"),
+      environment,
+      timeoutMs,
+    );
+  }
+  const manifest = await readMigrationManifest(schemaBundlePath);
+  await assertRegularDirectory(
+    join(migrationsContainer, "takoform-overrides"),
+    "Takoform migration overrides",
+  );
+
+  const migrationsRoot = join(migrationsContainer, SOURCE_MIGRATIONS_SQL_DIR);
+  await assertRegularDirectory(migrationsRoot, "tracked migration source");
   const migrationEntries = await readdir(migrationsRoot, {
     withFileTypes: true,
   });
   if (migrationEntries.length === 0) {
-    throw new Error("generated migration source is empty");
+    throw new Error("tracked migration source is empty");
   }
-  for (const entry of migrationEntries) {
-    if (!/^\d{4}_[a-z0-9_]+\.sql$/u.test(entry.name)) {
-      throw new Error(`unexpected generated migration entry: ${entry.name}`);
+
+  const expectedByName = new Map(
+    manifest.entries.map((entry) => [entry.name, entry]),
+  );
+  const actualNames = migrationEntries.map((entry) => entry.name).sort();
+  for (const name of actualNames) {
+    if (!MIGRATION_FILE_RE.test(name)) {
+      throw new Error(`unexpected tracked migration entry: ${name}`);
     }
-    const sourcePath = join(migrationsRoot, entry.name);
-    await assertRegularFile(sourcePath, `generated migration ${entry.name}`);
-    await copyFile(
-      sourcePath,
-      join(workdir, ".generated", GENERATED_MIGRATIONS_DIR, entry.name),
+  }
+  const expectedNames = [...expectedByName.keys()].sort();
+  if (
+    actualNames.length !== expectedNames.length ||
+    actualNames.some((name, index) => name !== expectedNames[index])
+  ) {
+    throw new Error(
+      `tracked migration names did not match schema bundle (expected ${expectedNames.join(",")}; got ${actualNames.join(",")})`,
     );
   }
+
+  const inventory: MigrationInventoryEntry[] = [];
+  for (const name of actualNames) {
+    const sourcePath = join(migrationsRoot, name);
+    await assertRegularFile(sourcePath, `tracked migration ${name}`);
+    if (repositoryRoot) {
+      await assertTrackedSourcePath(
+        repositoryRoot,
+        join(
+          "deploy",
+          "takoform",
+          SOURCE_MIGRATIONS_DIR,
+          SOURCE_MIGRATIONS_SQL_DIR,
+          name,
+        ),
+        environment,
+        timeoutMs,
+      );
+    }
+    const bytes = await readFile(sourcePath);
+    if (bytes.byteLength === 0) {
+      throw new Error(`tracked migration ${name} is empty`);
+    }
+    const sha256 = digestBytes(bytes);
+    const expected = expectedByName.get(name);
+    if (!expected || sha256 !== expected.sha256) {
+      throw new Error(`tracked migration ${name} digest mismatch`);
+    }
+    inventory.push({
+      path: `${SOURCE_MIGRATIONS_DIR}/${SOURCE_MIGRATIONS_SQL_DIR}/${name}`,
+      bytes: bytes.byteLength,
+      sha256,
+      content: bytes,
+    });
+  }
+
+  if (repositoryRoot) {
+    const trackedOutput = await runGitCapture(
+      repositoryRoot,
+      [
+        "ls-files",
+        "-z",
+        "--",
+        join(
+          "deploy",
+          "takoform",
+          SOURCE_MIGRATIONS_DIR,
+          SOURCE_MIGRATIONS_SQL_DIR,
+        ),
+      ],
+      environment,
+      timeoutMs,
+    );
+    const trackedPaths = trackedOutput.split("\0").filter(Boolean).sort();
+    const expectedPaths = actualNames
+      .map((name) =>
+        join(
+          "deploy",
+          "takoform",
+          SOURCE_MIGRATIONS_DIR,
+          SOURCE_MIGRATIONS_SQL_DIR,
+          name,
+        ),
+      )
+      .sort();
+    if (
+      trackedPaths.length !== expectedPaths.length ||
+      trackedPaths.some((path, index) => path !== expectedPaths[index])
+    ) {
+      throw new Error(
+        `tracked migration inventory did not match source (expected ${expectedPaths.join(",")}; got ${trackedPaths.join(",")})`,
+      );
+    }
+  }
+  return inventory;
+}
+
+async function readMigrationManifest(path: string): Promise<MigrationManifest> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(await readFile(path, "utf8"));
+  } catch {
+    throw new Error("Takoform migration schema bundle is invalid JSON");
+  }
+  if (
+    !isRecord(parsed) ||
+    Object.keys(parsed).sort().join(",") !== "apiVersion,engine,entries" ||
+    parsed.apiVersion !== "takosumi.resource-migrations/v1" ||
+    parsed.engine !== "sqlite" ||
+    !Array.isArray(parsed.entries) ||
+    parsed.entries.length === 0
+  ) {
+    throw new Error("Takoform migration schema bundle identity is invalid");
+  }
+  const entries: MigrationManifestEntry[] = [];
+  const names = new Set<string>();
+  let previousName = "";
+  for (const value of parsed.entries) {
+    if (
+      !isRecord(value) ||
+      Object.keys(value).sort().join(",") !== "name,sha256,sql" ||
+      typeof value.name !== "string" ||
+      !MIGRATION_FILE_RE.test(value.name) ||
+      names.has(value.name) ||
+      value.name <= previousName ||
+      typeof value.sha256 !== "string" ||
+      !MIGRATION_DIGEST_RE.test(value.sha256) ||
+      typeof value.sql !== "string" ||
+      digestBytes(new TextEncoder().encode(value.sql)) !== value.sha256
+    ) {
+      throw new Error(
+        "Takoform migration schema bundle contains an invalid entry",
+      );
+    }
+    names.add(value.name);
+    previousName = value.name;
+    entries.push({ name: value.name, sha256: value.sha256, sql: value.sql });
+  }
+  return {
+    apiVersion: "takosumi.resource-migrations/v1",
+    engine: "sqlite",
+    entries,
+  };
 }
 
 async function assertRegularFile(path: string, label: string): Promise<void> {
@@ -1350,15 +1927,28 @@ async function readProviderSchemaProof(
   environment: Record<string, string | undefined>,
   timeoutMs: number,
   providerVersion: TakoformProviderVersion,
+  redactionValues: readonly string[] = [],
 ): Promise<ProviderSchemaProof> {
-  const raw = await runTofu(["providers", "schema", "-json"], {
-    workdir,
-    environment,
-    captureStdout: true,
-    timeoutMs,
-    maxOutputBytes: PROVIDER_SCHEMA_OUTPUT_MAX_BYTES,
-    outputLimitMessage: `provider schema exceeded ${PROVIDER_SCHEMA_OUTPUT_MAX_BYTES} byte capture limit`,
-  });
+  const variableFile = await prepareRuntimeInputVariableFile(workdir);
+  let raw: string;
+  try {
+    raw = await runTofu(
+      ["providers", "schema", "-json", ...variableFile.args],
+      {
+        workdir,
+        environment,
+        captureStdout: true,
+        timeoutMs,
+        maxOutputBytes: PROVIDER_SCHEMA_OUTPUT_MAX_BYTES,
+        outputLimitMessage: `provider schema exceeded ${PROVIDER_SCHEMA_OUTPUT_MAX_BYTES} byte capture limit`,
+        onSpawn: variableFile.onSpawn,
+        redactionValues,
+      },
+    );
+    await variableFile.delivered();
+  } finally {
+    await variableFile.dispose();
+  }
   return parseProviderSchemaProof(
     parseTofuJson(raw, "provider schema"),
     providerVersion,
@@ -1777,6 +2367,8 @@ export async function runBoundedChild(
     readonly label?: string;
     readonly maxOutputBytes?: number;
     readonly termGraceMs?: number;
+    /** Start an ephemeral input writer after the child process exists. */
+    readonly onSpawn?: (child: ChildProcess) => void;
   },
 ): Promise<BoundedChildResult> {
   if (!Number.isInteger(options.timeoutMs) || options.timeoutMs < 1) {
@@ -1797,6 +2389,13 @@ export async function runBoundedChild(
     detached: true,
   });
   activeChild = child;
+  try {
+    options.onSpawn?.(child);
+  } catch (error) {
+    signalChildProcess(child, "SIGTERM");
+    if (activeChild === child) activeChild = undefined;
+    throw error;
+  }
   const maxOutputBytes = options.maxOutputBytes ?? MAX_CHILD_OUTPUT_BYTES;
   const streamAbort = new AbortController();
   const stdoutPromise = readBoundedStream(
@@ -1940,7 +2539,7 @@ async function assertTrackedSourcePath(
   }
 }
 
-async function runTofu(
+export async function runTofu(
   args: readonly string[],
   options: {
     readonly workdir: string;
@@ -1949,6 +2548,9 @@ async function runTofu(
     readonly maxOutputBytes?: number;
     readonly outputLimitMessage?: string;
     readonly timeoutMs: number;
+    readonly onSpawn?: (child: ChildProcess) => void;
+    /** Explicit values to remove from bounded OpenTofu diagnostics. */
+    readonly redactionValues?: readonly string[];
     /** Cleanup must still be allowed after SIGINT/SIGTERM requested recovery. */
     readonly allowAfterTermination?: boolean;
   },
@@ -1960,21 +2562,110 @@ async function runTofu(
     timeoutMs: options.timeoutMs,
     label: `tofu ${args[0] ?? "command"}`,
     maxOutputBytes: options.maxOutputBytes,
+    onSpawn: options.onSpawn,
   });
-  if (result.timedOut)
-    throw new Error(`tofu ${args[0] ?? "command"} timed out`);
+  if (result.timedOut) {
+    throw new Error(
+      `tofu ${args[0] ?? "command"} timed out${formatTofuDiagnostics(result, options.redactionValues)}`,
+    );
+  }
   if (result.outputTruncated) {
     throw new Error(
-      options.outputLimitMessage ??
-        `tofu ${args[0] ?? "command"} output exceeded capture limit`,
+      `${options.outputLimitMessage ?? `tofu ${args[0] ?? "command"} output exceeded capture limit`}${formatTofuDiagnostics(result, options.redactionValues)}`,
     );
   }
-  if (result.exitCode !== 0) {
+  if (result.exitCode !== 0)
     throw new Error(
-      `tofu ${args[0] ?? "command"} failed with exit ${result.exitCode}`,
+      `tofu ${args[0] ?? "command"} failed with exit ${result.exitCode}${formatTofuDiagnostics(result, options.redactionValues)}`,
     );
-  }
   return options.captureStdout ? result.stdout : "";
+}
+
+/**
+ * Preserve a bounded, redacted stderr/stdout excerpt for operator diagnosis.
+ * The excerpt is deliberately attached to errors only; successful JSON
+ * reports never carry provider diagnostics or runtime values.
+ */
+export function formatTofuDiagnostics(
+  result: Pick<BoundedChildResult, "stdout" | "stderr" | "outputTruncated">,
+  redactionValues: readonly string[] = [],
+): string {
+  const candidates = buildDiagnosticRedactionCandidates(redactionValues);
+  const redactionOverlapBytes = candidates.reduce(
+    (maximum, value) =>
+      Math.max(maximum, new TextEncoder().encode(value).byteLength),
+    0,
+  );
+  // A child capture is allowed to end in the middle of a sensitive value. Drop
+  // enough bytes from every truncated stream before redaction so that neither
+  // a raw nor an HCL-escaped prefix can reach the bounded excerpt.
+  const overlapBytes = Math.max(0, redactionOverlapBytes - 1);
+  const sections = [
+    result.stderr
+      ? `\nstderr:\n${
+          result.outputTruncated
+            ? dropDiagnosticTail(result.stderr, overlapBytes)
+            : result.stderr
+        }`
+      : "",
+    result.stdout
+      ? `\nstdout:\n${
+          result.outputTruncated
+            ? dropDiagnosticTail(result.stdout, overlapBytes)
+            : result.stdout
+        }`
+      : "",
+  ].filter(Boolean);
+  if (sections.length === 0 && !result.outputTruncated) return "";
+  let text = redactDiagnosticCandidates(sections.join(""), candidates);
+  const bytes = new TextEncoder().encode(text);
+  if (bytes.byteLength > MAX_TOFU_DIAGNOSTIC_BYTES) {
+    const markerBytes = new TextEncoder().encode(
+      TOFU_DIAGNOSTIC_TRUNCATED_MARKER,
+    );
+    const prefixLimit = Math.max(
+      0,
+      MAX_TOFU_DIAGNOSTIC_BYTES - markerBytes.byteLength - overlapBytes,
+    );
+    text =
+      new TextDecoder().decode(bytes.slice(0, prefixLimit)) +
+      TOFU_DIAGNOSTIC_TRUNCATED_MARKER;
+  } else if (result.outputTruncated) {
+    text += TOFU_DIAGNOSTIC_TRUNCATED_MARKER;
+  }
+  return text;
+}
+
+function buildDiagnosticRedactionCandidates(
+  values: readonly string[],
+): readonly string[] {
+  return values
+    .filter((value) => value.length > 0)
+    .flatMap((value) => {
+      const escaped = hclString(value);
+      return [value, escaped, escaped.slice(1, -1)];
+    })
+    .sort((left, right) => right.length - left.length);
+}
+
+function redactDiagnosticCandidates(
+  text: string,
+  candidates: readonly string[],
+): string {
+  let result = text;
+  for (const value of candidates) {
+    result = result.replaceAll(value, "[REDACTED]");
+  }
+  return result;
+}
+
+function dropDiagnosticTail(text: string, overlapBytes: number): string {
+  if (overlapBytes <= 0) return text;
+  const bytes = new TextEncoder().encode(text);
+  if (bytes.byteLength <= overlapBytes) return "";
+  return new TextDecoder().decode(
+    bytes.slice(0, bytes.byteLength - overlapBytes),
+  );
 }
 
 async function readBoundedStream(
