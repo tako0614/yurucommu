@@ -270,8 +270,14 @@ bun run e2e:takoform-v1:full
 path before resource readback. `TAKOFORM_TOKEN` is supplied only to the
 Provider child for mutations; `TAKOFORM_EVIDENCE_TOKEN` is supplied only to
 direct Host discovery/readback/absence evidence. Keep them as separate
-credentials. Neither token nor any Worker runtime secret is synthesized or
-printed by the runner.
+credentials. The tokens are never synthesized or printed by the runner. For
+this full E2E the five `required_sensitive_vars` values are fresh synthetic
+test inputs generated in memory for each run; they
+are supplied only to the exact Provider 4 instance during Apply. The runner
+passes an empty ephemeral map for Plan/Destroy and the exact map for Apply
+through a private FIFO `-var-file`, then removes the FIFO. Values never enter
+argv, the process environment, an ordinary file, OpenTofu plan/state, or the
+passing report.
 Every Bun/OpenTofu/Git child has a hard timeout. The default is 20 minutes per
 child; set `TAKOFORM_E2E_TIMEOUT_SECONDS` (1--86400 integer seconds) when a
 Host needs a different bound. A timeout sends TERM, escalates to KILL after a

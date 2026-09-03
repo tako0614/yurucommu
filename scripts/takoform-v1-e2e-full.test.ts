@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   access,
   chmod,
+  lstat,
   mkdtemp,
   mkdir,
   readFile,
@@ -24,19 +25,29 @@ import {
   buildSafeChildEnvironment,
   buildResourceReadUrl,
   buildTofuCommand,
+  buildTofuPlanCommand,
   cleanupTakoformV1E2E,
+  collectSourceProvenanceSnapshot,
+  createRuntimeInputMaterial,
   copyCapsuleToWorkdir,
   CURRENT_RESOURCE_GRAPH,
   CURRENT_RESOURCE_TYPES,
   extractAppliedResourceIdentities,
   parseProviderSchemaProof,
   parseStableHostDiscovery,
+  formatTofuDiagnostics,
+  prepareRuntimeInputVariableFile,
   prepareProviderDevOverride,
   PROVIDER_SCHEMA_OUTPUT_MAX_BYTES,
   readProviderVersion,
   readTakoformV1E2EConfig,
   requireReadyType,
   responseJson,
+  renderRuntimeInputProviderConfig,
+  renderRuntimeInputVariableFileBody,
+  RUNTIME_INPUT_NAMES,
+  RUNTIME_INPUT_VARIABLE,
+  runTofu,
   runBoundedChild,
   installLifecycleSignalHandlers,
 } from "./takoform-v1-e2e-full.ts";
@@ -412,6 +423,196 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
     expect(() => buildTofuCommand("apply", "bad_name")).toThrow(
       "projectName is not a valid",
     );
+  });
+
+  test("builds a value-free plan command for the saved-plan Apply", () => {
+    expect(
+      buildTofuPlanCommand("yurucommu-e2e-abc", "/tmp/e2e.tfplan"),
+    ).toEqual([
+      "plan",
+      "-input=false",
+      "-no-color",
+      "-out",
+      "/tmp/e2e.tfplan",
+      "-var=project_name=yurucommu-e2e-abc",
+    ]);
+    expect(() =>
+      buildTofuPlanCommand("yurucommu-e2e-abc", "relative.tfplan"),
+    ).toThrow("planPath must be an absolute path");
+  });
+
+  test("wires Provider 4 runtime inputs without rendering their values", () => {
+    const material = createRuntimeInputMaterial("yurucommu-e2e-test");
+    expect(material.nonce).toMatch(/^[A-Za-z0-9_-]{22,128}$/u);
+    expect(Object.keys(material.values).sort()).toEqual([
+      ...RUNTIME_INPUT_NAMES,
+    ]);
+    expect(material.values.ENCRYPTION_KEY).toMatch(/^[a-f0-9]{64}$/u);
+    const providerConfig = renderRuntimeInputProviderConfig(material.nonce);
+    expect(providerConfig).toContain("ephemeral = true");
+    expect(providerConfig).toContain(
+      `runtime_input_nonce = \"${material.nonce}\"`,
+    );
+    expect(providerConfig).toContain(
+      `runtime_inputs = var.${RUNTIME_INPUT_VARIABLE}`,
+    );
+    for (const value of Object.values(material.values)) {
+      expect(providerConfig).not.toContain(value);
+    }
+    expect(() => renderRuntimeInputProviderConfig("too-short")).toThrow(
+      "22..128",
+    );
+  });
+
+  test("renders empty plan/destroy and exact apply runtime maps", () => {
+    const material = createRuntimeInputMaterial("yurucommu-e2e-test");
+    const empty = new TextDecoder().decode(
+      renderRuntimeInputVariableFileBody(),
+    );
+    expect(empty).toBe(`${RUNTIME_INPUT_VARIABLE} = {\n}\n`);
+    const exact = new TextDecoder().decode(
+      renderRuntimeInputVariableFileBody(material.values),
+    );
+    expect(exact).toContain(`${RUNTIME_INPUT_VARIABLE} = {`);
+    expect(exact).toContain(
+      `\"ENCRYPTION_KEY\" = \"${material.values.ENCRYPTION_KEY}\"`,
+    );
+    expect(exact).toContain(
+      `\"TAKOSUMI_ACCOUNTS_OWNER_SUB\" = \"${material.values.TAKOSUMI_ACCOUNTS_OWNER_SUB}\"`,
+    );
+    expect(() =>
+      renderRuntimeInputVariableFileBody({
+        ENCRYPTION_KEY: material.values.ENCRYPTION_KEY,
+      }),
+    ).toThrow("did not match required_sensitive_vars");
+  });
+
+  test("delivers runtime values through a FIFO and removes it afterwards", async () => {
+    const workdir = await mkdtemp(join(tmpdir(), "takoform-runtime-inputs-"));
+    const material = createRuntimeInputMaterial("yurucommu-e2e-test");
+    const variableFile = await prepareRuntimeInputVariableFile(
+      workdir,
+      material.values,
+    );
+    const fifoPath = variableFile.args[0]!.slice("-var-file=".length);
+    try {
+      const metadata = await lstat(fifoPath);
+      expect(metadata.isFIFO()).toBe(true);
+      expect(JSON.stringify(variableFile.args)).not.toContain(
+        material.values.ENCRYPTION_KEY,
+      );
+      const expectedBytes = renderRuntimeInputVariableFileBody(
+        material.values,
+      ).byteLength;
+      const result = await runBoundedChild(
+        [
+          "sh",
+          "-c",
+          'path="${1#-var-file=}"; test -p "$path"; test "$(wc -c < "$path")" -eq "$2"',
+          "sh",
+          variableFile.args[0]!,
+          String(expectedBytes),
+        ],
+        {
+          cwd: workdir,
+          environment: buildSafeChildEnvironment({ PATH: process.env.PATH }),
+          timeoutMs: 5_000,
+          onSpawn: variableFile.onSpawn,
+        },
+      );
+      expect(result.exitCode).toBe(0);
+      await variableFile.delivered();
+    } finally {
+      await variableFile.dispose();
+      await expect(lstat(fifoPath)).rejects.toThrow();
+      await rm(workdir, { recursive: true, force: true });
+    }
+  });
+
+  test("preserves bounded redacted OpenTofu diagnostics", () => {
+    const canary = "runtime-secret-canary-value";
+    const diagnostics = formatTofuDiagnostics(
+      {
+        stdout: "",
+        stderr: `provider rejected ${canary}`,
+        outputTruncated: false,
+      },
+      [canary],
+    );
+    expect(diagnostics).toContain("provider rejected [REDACTED]");
+    expect(diagnostics).not.toContain(canary);
+    const truncated = formatTofuDiagnostics(
+      {
+        stdout: "x".repeat(100_000),
+        stderr: "",
+        outputTruncated: true,
+      },
+      [],
+    );
+    expect(new TextEncoder().encode(truncated).byteLength).toBeLessThan(20_000);
+    expect(truncated).toContain("diagnostics truncated");
+  });
+
+  test("does not expose a runtime value fragment at the exact diagnostic cap", () => {
+    const marker = "\n[OpenTofu diagnostics truncated]";
+    const maxBytes = 16 * 1024;
+    const header = "\nstderr:\n";
+    const room =
+      maxBytes -
+      new TextEncoder().encode(marker).byteLength -
+      new TextEncoder().encode(header).byteLength;
+    for (const [secret, partialPrefix] of [
+      ["runtime-secret-boundary-canary", "runtime-secret-boundary-canar"],
+      [
+        "${runtime-secret-boundary-canary}",
+        '"$${runtime-secret-boundary-canar',
+      ],
+    ] as const) {
+      const body = "x".repeat(room - partialPrefix.length) + partialPrefix;
+      const diagnostics = formatTofuDiagnostics(
+        { stdout: "", stderr: body, outputTruncated: true },
+        [secret],
+      );
+      expect(diagnostics).not.toContain(partialPrefix);
+      expect(diagnostics).not.toContain(secret.slice(1));
+      expect(
+        new TextEncoder().encode(diagnostics).byteLength,
+      ).toBeLessThanOrEqual(maxBytes);
+    }
+  });
+
+  test("includes bounded redacted stderr on OpenTofu command failure", async () => {
+    const fixture = await mkdtemp(join(tmpdir(), "takoform-tofu-diagnostic-"));
+    const bin = join(fixture, "tofu");
+    const canary = "provider-runtime-secret-canary";
+    try {
+      await writeFile(
+        bin,
+        `#!/bin/sh\nprintf 'diagnostic %s\\n' '${canary}' >&2\nexit 17\n`,
+        { mode: 0o755 },
+      );
+      await chmod(bin, 0o755);
+      await expect(
+        runTofu(["plan"], {
+          workdir: fixture,
+          environment: buildSafeChildEnvironment({ PATH: fixture }),
+          timeoutMs: 5_000,
+          redactionValues: [canary],
+        }),
+      ).rejects.toThrow("diagnostic [REDACTED]");
+      try {
+        await runTofu(["plan"], {
+          workdir: fixture,
+          environment: buildSafeChildEnvironment({ PATH: fixture }),
+          timeoutMs: 5_000,
+          redactionValues: [canary],
+        });
+      } catch (error) {
+        expect(String(error)).not.toContain(canary);
+      }
+    } finally {
+      await rm(fixture, { recursive: true, force: true });
+    }
   });
 
   test("negotiates only the stable same-origin Host API", () => {
@@ -929,20 +1130,36 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
     const sourceRoot = await mkdtemp(join(tmpdir(), "takoform-source-test-"));
     const destination = await mkdtemp(join(tmpdir(), "takoform-copy-test-"));
     try {
-      await mkdir(join(sourceRoot, ".generated", "migrations"), {
+      await mkdir(join(sourceRoot, ".generated"), { recursive: true });
+      await mkdir(join(sourceRoot, "migrations", "sql"), {
         recursive: true,
       });
-      await mkdir(join(sourceRoot, "migrations"));
+      await mkdir(join(sourceRoot, "migrations", "takoform-overrides"));
       await mkdir(join(sourceRoot, "e2e"));
       await writeFile(join(sourceRoot, "main.tf"), "terraform {}\n");
       await writeFile(join(sourceRoot, "outputs.tf"), 'output "x" {}\n');
       await writeFile(join(sourceRoot, "README.md"), "docs\n");
       await writeFile(
+        join(sourceRoot, "migrations", "schema-bundle.json"),
+        JSON.stringify({
+          apiVersion: "takosumi.resource-migrations/v1",
+          engine: "sqlite",
+          entries: [
+            {
+              name: "0001_init.sql",
+              sha256:
+                "sha256:073a6add660a8ce214203964d294bb3600d53c35984babcde6e721adae3da911",
+              sql: "create table test (id integer);\n",
+            },
+          ],
+        }),
+      );
+      await writeFile(
         join(sourceRoot, ".generated", "yurucommu-worker.js"),
         "export default {}\n",
       );
       await writeFile(
-        join(sourceRoot, ".generated", "migrations", "0001_init.sql"),
+        join(sourceRoot, "migrations", "sql", "0001_init.sql"),
         "create table test (id integer);\n",
       );
       await writeFile(join(sourceRoot, "unexpected-secret.txt"), "canary\n");
@@ -956,11 +1173,74 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
       );
       expect(
         await readFile(
-          join(destination, ".generated", "migrations", "0001_init.sql"),
+          join(destination, "migrations", "sql", "0001_init.sql"),
           "utf8",
         ),
       ).toContain("create table");
       expect(await readdir(destination)).not.toContain("README.md");
+
+      await mkdir(join(sourceRoot, ".generated", "migrations"));
+      await expect(
+        copyCapsuleToWorkdir(sourceRoot, destination),
+      ).rejects.toThrow(
+        "unexpected generated Takoform source entry: migrations",
+      );
+      await rm(join(sourceRoot, ".generated", "migrations"), {
+        recursive: true,
+        force: true,
+      });
+
+      await writeFile(
+        join(sourceRoot, "migrations", "unexpected-entry.txt"),
+        "canary\n",
+      );
+      await expect(
+        copyCapsuleToWorkdir(sourceRoot, destination),
+      ).rejects.toThrow(
+        "unexpected Takoform migration source entry: unexpected-entry.txt",
+      );
+      await rm(join(sourceRoot, "migrations", "unexpected-entry.txt"));
+
+      const migrationPath = join(
+        sourceRoot,
+        "migrations",
+        "sql",
+        "0001_init.sql",
+      );
+      await rm(migrationPath);
+      await symlink(join(sourceRoot, "outputs.tf"), migrationPath);
+      await expect(
+        copyCapsuleToWorkdir(sourceRoot, destination),
+      ).rejects.toThrow(
+        "tracked migration 0001_init.sql must be a regular file",
+      );
+      await rm(migrationPath);
+      await writeFile(migrationPath, "create table test (id integer);\n");
+
+      const migrationsDirectory = join(sourceRoot, "migrations", "sql");
+      await rm(migrationsDirectory, { recursive: true, force: true });
+      await symlink(
+        join(sourceRoot, "migrations", "takoform-overrides"),
+        migrationsDirectory,
+      );
+      await expect(
+        copyCapsuleToWorkdir(sourceRoot, destination),
+      ).rejects.toThrow("tracked migration source must be a regular directory");
+      await rm(migrationsDirectory, { force: true });
+      await mkdir(migrationsDirectory);
+      await writeFile(migrationPath, "create table test (id integer);\n");
+
+      await rm(migrationPath);
+      await expect(
+        copyCapsuleToWorkdir(sourceRoot, destination),
+      ).rejects.toThrow("tracked migration source is empty");
+      await writeFile(migrationPath, "create table test (id integer);\n");
+
+      await writeFile(migrationPath, "create table changed (id integer);\n");
+      await expect(
+        copyCapsuleToWorkdir(sourceRoot, destination),
+      ).rejects.toThrow("tracked migration 0001_init.sql digest mismatch");
+      await writeFile(migrationPath, "create table test (id integer);\n");
 
       await rm(join(sourceRoot, "main.tf"));
       await symlink(
@@ -972,6 +1252,187 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
       ).rejects.toThrow("must be a regular file");
     } finally {
       await rm(sourceRoot, { recursive: true, force: true });
+      await rm(destination, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects an untracked migration SQL file when repositoryRoot is supplied", async () => {
+    const sourceRoot = await mkdtemp(join(tmpdir(), "takoform-source-test-"));
+    const destination = await mkdtemp(join(tmpdir(), "takoform-copy-test-"));
+    const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
+    const untrackedMigration = join(
+      sourceRoot,
+      "migrations",
+      "sql",
+      "9999_untracked.sql",
+    );
+    try {
+      await mkdir(join(sourceRoot, ".generated"), { recursive: true });
+      await mkdir(join(sourceRoot, "migrations", "sql"), {
+        recursive: true,
+      });
+      await mkdir(join(sourceRoot, "migrations", "takoform-overrides"));
+      await writeFile(join(sourceRoot, "main.tf"), "terraform {}\n");
+      await writeFile(join(sourceRoot, "outputs.tf"), 'output "x" {}\n');
+      await writeFile(
+        join(sourceRoot, "migrations", "schema-bundle.json"),
+        JSON.stringify({
+          apiVersion: "takosumi.resource-migrations/v1",
+          engine: "sqlite",
+          entries: [
+            {
+              name: "9999_untracked.sql",
+              sha256:
+                "sha256:073a6add660a8ce214203964d294bb3600d53c35984babcde6e721adae3da911",
+              sql: "create table test (id integer);\n",
+            },
+          ],
+        }),
+      );
+      await writeFile(
+        join(sourceRoot, ".generated", "yurucommu-worker.js"),
+        "export default {}\n",
+      );
+      await writeFile(untrackedMigration, "create table test (id integer);\n");
+
+      await expect(
+        copyCapsuleToWorkdir(sourceRoot, destination, {
+          repositoryRoot,
+          environment: buildSafeChildEnvironment({ PATH: process.env.PATH }),
+          timeoutMs: 5_000,
+        }),
+      ).rejects.toThrow("git ls-files failed with exit 1");
+    } finally {
+      await rm(sourceRoot, { recursive: true, force: true });
+      await rm(destination, { recursive: true, force: true });
+    }
+  });
+
+  test("uses one migration snapshot for report and workdir despite valid source changes", async () => {
+    const repositoryRoot = await mkdtemp(
+      join(tmpdir(), "takoform-source-test-"),
+    );
+    const sourceRoot = join(repositoryRoot, "deploy", "takoform");
+    const destination = await mkdtemp(join(tmpdir(), "takoform-copy-test-"));
+    const migrationPath = join(
+      sourceRoot,
+      "migrations",
+      "sql",
+      "0001_init.sql",
+    );
+    const schemaBundlePath = join(
+      sourceRoot,
+      "migrations",
+      "schema-bundle.json",
+    );
+    const original = "create table test (id integer);\n";
+    const changed = "create table changed (id integer);\n";
+    const originalDigest =
+      "sha256:073a6add660a8ce214203964d294bb3600d53c35984babcde6e721adae3da911";
+    const changedDigest = `sha256:${createHash("sha256")
+      .update(changed)
+      .digest("hex")}`;
+    try {
+      const runGit = (args: readonly string[]): void => {
+        const result = Bun.spawnSync(["git", ...args], {
+          cwd: repositoryRoot,
+          env: buildSafeChildEnvironment({ PATH: process.env.PATH }),
+          stdout: "ignore",
+          stderr: "pipe",
+        });
+        if (result.exitCode !== 0) {
+          throw new Error(`git fixture command failed: ${args.join(" ")}`);
+        }
+      };
+      runGit(["init", "-q"]);
+      await mkdir(join(sourceRoot, ".generated"), { recursive: true });
+      await mkdir(join(sourceRoot, "migrations", "sql"), {
+        recursive: true,
+      });
+      await mkdir(join(sourceRoot, "migrations", "takoform-overrides"));
+      await writeFile(join(sourceRoot, "main.tf"), takoformModuleMain);
+      await writeFile(join(sourceRoot, "outputs.tf"), takoformModuleOutputs);
+      await writeFile(
+        schemaBundlePath,
+        JSON.stringify({
+          apiVersion: "takosumi.resource-migrations/v1",
+          engine: "sqlite",
+          entries: [
+            {
+              name: "0001_init.sql",
+              sha256: originalDigest,
+              sql: original,
+            },
+          ],
+        }),
+      );
+      await writeFile(
+        join(sourceRoot, ".generated", "yurucommu-worker.js"),
+        "export default {}\n",
+      );
+      await writeFile(migrationPath, original);
+      runGit(["add", "."]);
+      runGit([
+        "-c",
+        "user.name=fixture",
+        "-c",
+        "user.email=fixture@example.invalid",
+        "commit",
+        "-qm",
+        "fixture",
+      ]);
+
+      const snapshot = await collectSourceProvenanceSnapshot(
+        repositoryRoot,
+        sourceRoot,
+        buildSafeChildEnvironment({ PATH: process.env.PATH }),
+        5_000,
+      );
+      const reportMigrations = snapshot.migrations.map(
+        ({ path, bytes, sha256 }) => ({ path, bytes, sha256 }),
+      );
+      await writeFile(
+        schemaBundlePath,
+        JSON.stringify({
+          apiVersion: "takosumi.resource-migrations/v1",
+          engine: "sqlite",
+          entries: [
+            { name: "0001_init.sql", sha256: changedDigest, sql: changed },
+          ],
+        }),
+      );
+      await writeFile(migrationPath, changed);
+
+      await copyCapsuleToWorkdir(sourceRoot, destination, {
+        repositoryRoot,
+        environment: buildSafeChildEnvironment({ PATH: process.env.PATH }),
+        timeoutMs: 5_000,
+        migrationInventory: snapshot.migrations,
+      });
+      expect(
+        await readFile(
+          join(destination, "migrations/sql/0001_init.sql"),
+          "utf8",
+        ),
+      ).toBe(original);
+      expect(await readFile(migrationPath, "utf8")).toBe(changed);
+      expect(snapshot.provenance.migrations).toEqual(reportMigrations);
+      expect(snapshot.provenance.migrations).toEqual([
+        {
+          path: "migrations/sql/0001_init.sql",
+          bytes: new TextEncoder().encode(original).byteLength,
+          sha256: originalDigest,
+        },
+      ]);
+      expect(
+        `sha256:${createHash("sha256")
+          .update(
+            await readFile(join(destination, "migrations/sql/0001_init.sql")),
+          )
+          .digest("hex")}`,
+      ).toBe(snapshot.provenance.migrations[0]!.sha256);
+    } finally {
+      await rm(repositoryRoot, { recursive: true, force: true });
       await rm(destination, { recursive: true, force: true });
     }
   });
