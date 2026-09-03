@@ -56,39 +56,91 @@ const GENERATED_WORKER_FILE = "yurucommu-worker.js";
 const GENERATED_MIGRATIONS_DIR = "migrations";
 
 /** The current Yurucommu Capsule graph. Keep this in lockstep with main.tf. */
-export const CURRENT_RESOURCE_TYPES = [
-  "takoform_module_worker",
-  "takoform_sqlite_database",
-  "takoform_sqlite_migration_set",
-  "takoform_sqlite_migration_application",
-  "takoform_edge_kv_namespace",
-  "takoform_edge_object_bucket",
-  "takoform_at_least_once_queue",
-  "takoform_at_least_once_queue",
-  "takoform_worker_bundle",
-  "takoform_worker_version",
-  "takoform_worker_deployment",
-  "takoform_worker_endpoint",
-  "takoform_queue_consumer",
-  "takoform_worker_cron_trigger",
+export const CURRENT_RESOURCE_GRAPH = [
+  {
+    address: "takoform_module_worker.worker",
+    type: "takoform_module_worker",
+    outputKey: "worker",
+  },
+  {
+    address: "takoform_sqlite_database.database",
+    type: "takoform_sqlite_database",
+    outputKey: "database",
+  },
+  {
+    address: "takoform_sqlite_migration_set.schema",
+    type: "takoform_sqlite_migration_set",
+    outputKey: "migration_set",
+  },
+  {
+    address: "takoform_sqlite_migration_application.schema",
+    type: "takoform_sqlite_migration_application",
+    outputKey: "migration_application",
+  },
+  {
+    address: "takoform_edge_kv_namespace.kv",
+    type: "takoform_edge_kv_namespace",
+    outputKey: "kv",
+  },
+  {
+    address: "takoform_edge_object_bucket.media",
+    type: "takoform_edge_object_bucket",
+    outputKey: "media",
+  },
+  {
+    address: "takoform_at_least_once_queue.delivery",
+    type: "takoform_at_least_once_queue",
+    outputKey: "delivery",
+  },
+  {
+    address: "takoform_at_least_once_queue.delivery_dlq",
+    type: "takoform_at_least_once_queue",
+    outputKey: "delivery_dlq",
+  },
+  {
+    address: "takoform_worker_bundle.worker",
+    type: "takoform_worker_bundle",
+    outputKey: "worker_bundle",
+  },
+  {
+    address: "takoform_worker_version.worker",
+    type: "takoform_worker_version",
+    outputKey: "worker_version",
+  },
+  {
+    address: "takoform_worker_deployment.worker",
+    type: "takoform_worker_deployment",
+    outputKey: "worker_deployment",
+  },
+  {
+    address: "takoform_worker_endpoint.worker",
+    type: "takoform_worker_endpoint",
+    outputKey: "worker_endpoint",
+  },
+  {
+    address: "takoform_queue_consumer.delivery",
+    type: "takoform_queue_consumer",
+    outputKey: "delivery_consumer",
+  },
+  {
+    address: "takoform_queue_consumer.delivery_dlq",
+    type: "takoform_queue_consumer",
+    outputKey: "delivery_dlq_consumer",
+  },
+  {
+    address: "takoform_worker_cron_trigger.retention",
+    type: "takoform_worker_cron_trigger",
+    outputKey: "retention",
+  },
 ] as const;
 
-const CURRENT_RESOURCE_ID_KEYS = [
-  "worker",
-  "worker_bundle",
-  "worker_version",
-  "worker_deployment",
-  "worker_endpoint",
-  "database",
-  "migration_set",
-  "migration_application",
-  "kv",
-  "media",
-  "delivery",
-  "delivery_dlq",
-  "delivery_consumer",
-  "retention",
-] as const;
+export const CURRENT_RESOURCE_TYPES = CURRENT_RESOURCE_GRAPH.map(
+  (resource) => resource.type,
+);
+const CURRENT_RESOURCE_ID_KEYS = CURRENT_RESOURCE_GRAPH.map(
+  (resource) => resource.outputKey,
+);
+const CURRENT_RESOURCE_COUNT = CURRENT_RESOURCE_GRAPH.length;
 
 const REQUIRED_DISCOVERY_FEATURES = [
   "service_forms",
@@ -548,11 +600,15 @@ export function extractAppliedResourceIdentities(
     visitModule(state);
   }
 
-  const expected = [...CURRENT_RESOURCE_TYPES].sort();
-  const actual = resources.map((resource) => resource.type).sort();
+  const expected = CURRENT_RESOURCE_GRAPH.map(
+    (resource) => `${resource.address}\0${resource.type}`,
+  ).sort();
+  const actual = resources
+    .map((resource) => `${resource.address}\0${resource.type}`)
+    .sort();
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
     throw new Error(
-      `tofu state did not contain the current 14-resource graph (got ${actual.join(",") || "none"})`,
+      `tofu state did not contain the current ${CURRENT_RESOURCE_COUNT}-resource graph (got ${actual.join(",") || "none"})`,
     );
   }
 
@@ -598,7 +654,7 @@ export function assertCurrentResourceOutputIds(
   const expected = [...CURRENT_RESOURCE_ID_KEYS].sort();
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
     throw new Error(
-      "takoform_resource_ids output did not contain all 14 current resources",
+      `takoform_resource_ids output did not contain all ${CURRENT_RESOURCE_COUNT} current resources`,
     );
   }
   for (const key of CURRENT_RESOURCE_ID_KEYS) {
@@ -628,29 +684,12 @@ function outputResourceKeyMatches(
   key: (typeof CURRENT_RESOURCE_ID_KEYS)[number],
   identity: AppliedResourceIdentity,
 ): boolean {
-  const exact: Partial<
-    Record<(typeof CURRENT_RESOURCE_ID_KEYS)[number], string>
-  > = {
-    worker: "takoform_module_worker",
-    worker_bundle: "takoform_worker_bundle",
-    worker_version: "takoform_worker_version",
-    worker_deployment: "takoform_worker_deployment",
-    worker_endpoint: "takoform_worker_endpoint",
-    database: "takoform_sqlite_database",
-    migration_set: "takoform_sqlite_migration_set",
-    migration_application: "takoform_sqlite_migration_application",
-    kv: "takoform_edge_kv_namespace",
-    media: "takoform_edge_object_bucket",
-    delivery_consumer: "takoform_queue_consumer",
-    retention: "takoform_worker_cron_trigger",
-  };
-  if (key === "delivery" || key === "delivery_dlq") {
-    return (
-      identity.type === "takoform_at_least_once_queue" &&
-      identity.name.endsWith(key === "delivery" ? "-delivery" : "-delivery-dlq")
-    );
-  }
-  return identity.type === exact[key];
+  const resource = CURRENT_RESOURCE_GRAPH.find(
+    (candidate) => candidate.outputKey === key,
+  );
+  return (
+    resource?.address === identity.address && resource.type === identity.type
+  );
 }
 
 export function assertReadyResource(body: unknown, label: string): void {
@@ -954,21 +993,25 @@ export async function main(): Promise<void> {
         hostResources,
         "takoform_sqlite_migration_application",
         "SQLite migration application",
+        identities,
       );
       requireReadyType(
         hostResources,
         "takoform_queue_consumer",
         "queue consumer",
+        identities,
       );
       requireReadyType(
         hostResources,
         "takoform_worker_cron_trigger",
         "cron trigger",
+        identities,
       );
       requireReadyType(
         hostResources,
         "takoform_worker_version",
         "WorkerVersion",
+        identities,
       );
 
       // MEDIA is a Form in this graph now, so its evidence is the bucket's own
@@ -979,13 +1022,14 @@ export async function main(): Promise<void> {
         hostResources,
         "takoform_edge_object_bucket",
         "object bucket",
+        identities,
       );
       const runtimeBase = config.diagnosticRuntimeEndpoint ?? launchUrl;
       probes = {
         hostResourceReadback: {
           count: hostResources.length,
           ready: hostResources.length,
-          graph: `Provider ${TAKOFORM_PROVIDER_VERSION}/current-14-resources`,
+          graph: `Provider ${TAKOFORM_PROVIDER_VERSION}/current-${CURRENT_RESOURCE_COUNT}-resources`,
         },
         migrationBackedHealth: await probeRuntime(runtimeBase),
         objectBucket: "Ready=True resource evidence",
@@ -1018,7 +1062,7 @@ export async function main(): Promise<void> {
         }
         if (identities.length !== CURRENT_RESOURCE_TYPES.length) {
           throw new Error(
-            "cannot verify authoritative absence without all 14 applied identities",
+            `cannot verify authoritative absence without all ${CURRENT_RESOURCE_COUNT} applied identities`,
           );
         }
         await verifyResourceAbsence(hostDiscovery, config, identities);
@@ -1520,17 +1564,69 @@ async function runtimeJson(
   return responseJson(response, label, 200);
 }
 
-function requireReadyType(
+export function requireReadyType(
   resources: readonly Record<string, unknown>[],
   type: string,
   label: string,
+  identities?: readonly AppliedResourceIdentity[],
 ): void {
+  const expected = CURRENT_RESOURCE_GRAPH.filter(
+    (resource) => resource.type === type,
+  );
+  if (expected.length === 0) {
+    throw new Error(`unknown current resource type ${type}`);
+  }
   const matches = resources.filter(
     (resource) => resource.kind === kindFromType(type),
   );
-  if (matches.length !== 1)
-    throw new Error(`Host readback did not contain one ${label}`);
-  assertReadyResource(matches[0], label);
+  if (matches.length !== expected.length) {
+    throw new Error(
+      `Host readback did not contain all ${expected.length} ${label} resources`,
+    );
+  }
+  if (!identities) {
+    matches.forEach((resource, index) =>
+      assertReadyResource(resource, `${label} ${index + 1}`),
+    );
+    return;
+  }
+
+  const expectedAddresses = expected.map((resource) => resource.address).sort();
+  const actualAddresses = identities
+    .filter((identity) => identity.type === type)
+    .map((identity) => identity.address)
+    .sort();
+  if (JSON.stringify(actualAddresses) !== JSON.stringify(expectedAddresses)) {
+    throw new Error(
+      `${label} state identities did not match the current resource graph`,
+    );
+  }
+
+  const usedMatches = new Set<Record<string, unknown>>();
+  for (const resource of expected) {
+    const identity = identities.find(
+      (candidate) => candidate.address === resource.address,
+    );
+    if (!identity) {
+      throw new Error(`${label} state omitted ${resource.address}`);
+    }
+    const match = matches.find((candidate) => {
+      if (usedMatches.has(candidate) || !isRecord(candidate.metadata)) {
+        return false;
+      }
+      return (
+        candidate.metadata.name === identity.name &&
+        candidate.metadata.space === identity.space &&
+        candidate.metadata.uid === identity.uid &&
+        candidate.metadata.generation === identity.generation
+      );
+    });
+    if (!match) {
+      throw new Error(`${label} readback omitted ${resource.address}`);
+    }
+    usedMatches.add(match);
+    assertReadyResource(match, `${label} (${resource.address})`);
+  }
 }
 
 function kindFromType(type: string): string {
