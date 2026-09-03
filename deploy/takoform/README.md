@@ -250,7 +250,7 @@ the selected source directory.
 
 The current graph has a checked-in lifecycle runner for a caller-supplied
 stable Host. It copies this module after rebuilding the Worker and preparing
-the digest-verified source bundle, applies every one of the 14 Provider 4.0.0
+the digest-verified source bundle, applies every one of the 15 Provider 4.0.0
 resources, reads the exact Host representations back, probes the assigned
 Yurucommu runtime, destroys the graph, and verifies that every exact resource
 reference is absent.
@@ -289,7 +289,9 @@ The passing report includes:
   and migration digests, the supplied Provider SHA-256, and a Provider schema
   handshake at the pinned version proving every current resource kind was
   loaded;
-- all 14 output UIDs and exact FormRef resource GET readbacks, each with
+- all 15 output UIDs (including distinct `delivery_consumer` and
+  `delivery_dlq_consumer` identities) and exact FormRef resource GET
+  readbacks, each with
   `Ready=True` and matching apiVersion/kind/FormRef/name/space/UID/generation;
 - `SQLiteMigrationApplication` readiness plus `/nodeinfo/2.0` database-backed
   user/post counters, `/healthz`, `/readyz`, and social-server discovery;

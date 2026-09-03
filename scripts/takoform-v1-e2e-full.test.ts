@@ -26,6 +26,7 @@ import {
   buildTofuCommand,
   cleanupTakoformV1E2E,
   copyCapsuleToWorkdir,
+  CURRENT_RESOURCE_GRAPH,
   CURRENT_RESOURCE_TYPES,
   extractAppliedResourceIdentities,
   parseProviderSchemaProof,
@@ -34,6 +35,7 @@ import {
   PROVIDER_SCHEMA_OUTPUT_MAX_BYTES,
   readProviderVersion,
   readTakoformV1E2EConfig,
+  requireReadyType,
   responseJson,
   runBoundedChild,
   installLifecycleSignalHandlers,
@@ -55,6 +57,229 @@ const discoveryFeatures = {
   artifact_upload: true,
   support_profiles: true,
 };
+
+const takoformModuleMain = await readFile(
+  new URL("../deploy/takoform/main.tf", import.meta.url),
+  "utf8",
+);
+const takoformModuleOutputs = await readFile(
+  new URL("../deploy/takoform/outputs.tf", import.meta.url),
+  "utf8",
+);
+
+interface HclBlock {
+  readonly keyword: string;
+  readonly labels: readonly string[];
+  readonly body: string;
+}
+
+function stripHclComments(source: string): string {
+  let result = "";
+  let state: "code" | "string" | "line" | "block" = "code";
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index]!;
+    const next = source[index + 1];
+    if (state === "string") {
+      result += character;
+      if (character === "\\" && next !== undefined) {
+        result += next;
+        index += 1;
+      } else if (character === '"') {
+        state = "code";
+      }
+      continue;
+    }
+    if (state === "line") {
+      if (character === "\n") {
+        result += "\n";
+        state = "code";
+      } else {
+        result += " ";
+      }
+      continue;
+    }
+    if (state === "block") {
+      if (character === "*" && next === "/") {
+        result += "  ";
+        index += 1;
+        state = "code";
+      } else if (character === "\n") {
+        result += "\n";
+      } else {
+        result += " ";
+      }
+      continue;
+    }
+    if (character === '"') {
+      result += character;
+      state = "string";
+    } else if (character === "#") {
+      result += " ";
+      state = "line";
+    } else if (character === "/" && next === "/") {
+      result += "  ";
+      index += 1;
+      state = "line";
+    } else if (character === "/" && next === "*") {
+      result += "  ";
+      index += 1;
+      state = "block";
+    } else {
+      result += character;
+    }
+  }
+  return result;
+}
+
+function skipHclWhitespace(source: string, start: number): number {
+  let index = start;
+  while (index < source.length && /\s/u.test(source[index]!)) index += 1;
+  return index;
+}
+
+function readHclIdentifier(
+  source: string,
+  start: number,
+): { readonly value: string; readonly end: number } | undefined {
+  if (!/[A-Za-z_]/u.test(source[start] ?? "")) return undefined;
+  let end = start + 1;
+  while (end < source.length && /[A-Za-z0-9_-]/u.test(source[end]!)) end += 1;
+  return { value: source.slice(start, end), end };
+}
+
+function readHclString(
+  source: string,
+  start: number,
+): { readonly value: string; readonly end: number } | undefined {
+  if (source[start] !== '"') return undefined;
+  let value = "";
+  for (let index = start + 1; index < source.length; index += 1) {
+    const character = source[index]!;
+    if (character === "\\" && source[index + 1] !== undefined) {
+      value += source[index + 1];
+      index += 1;
+    } else if (character === '"') {
+      return { value, end: index + 1 };
+    } else {
+      value += character;
+    }
+  }
+  return undefined;
+}
+
+function skipHclString(source: string, start: number): number {
+  return readHclString(source, start)?.end ?? source.length;
+}
+
+function findHclClosingBrace(source: string, openingBrace: number): number {
+  let depth = 0;
+  for (let index = openingBrace; index < source.length; index += 1) {
+    const character = source[index]!;
+    if (character === '"') {
+      index = skipHclString(source, index) - 1;
+    } else if (character === "{") {
+      depth += 1;
+    } else if (character === "}") {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+  }
+  return -1;
+}
+
+function parseTopLevelHclBlocks(source: string): readonly HclBlock[] {
+  const uncommented = stripHclComments(source);
+  const blocks: HclBlock[] = [];
+  let depth = 0;
+  for (let index = 0; index < uncommented.length;) {
+    const character = uncommented[index]!;
+    if (character === '"') {
+      index = skipHclString(uncommented, index);
+      continue;
+    }
+    if (character === "{") {
+      depth += 1;
+      index += 1;
+      continue;
+    }
+    if (character === "}") {
+      depth = Math.max(0, depth - 1);
+      index += 1;
+      continue;
+    }
+    if (depth !== 0 || !/[A-Za-z_]/u.test(character)) {
+      index += 1;
+      continue;
+    }
+    const identifier = readHclIdentifier(uncommented, index);
+    if (!identifier || !["resource", "output"].includes(identifier.value)) {
+      index = identifier?.end ?? index + 1;
+      continue;
+    }
+    let cursor = skipHclWhitespace(uncommented, identifier.end);
+    const labels: string[] = [];
+    while (uncommented[cursor] === '"') {
+      const label = readHclString(uncommented, cursor);
+      if (!label) break;
+      labels.push(label.value);
+      cursor = skipHclWhitespace(uncommented, label.end);
+    }
+    if (uncommented[cursor] !== "{") {
+      index = identifier.end;
+      continue;
+    }
+    const closingBrace = findHclClosingBrace(uncommented, cursor);
+    if (closingBrace < 0) {
+      index = identifier.end;
+      continue;
+    }
+    blocks.push({
+      keyword: identifier.value,
+      labels,
+      body: uncommented.slice(cursor + 1, closingBrace),
+    });
+    index = closingBrace + 1;
+  }
+  return blocks;
+}
+
+function parseResourceAddresses(source: string): readonly string[] {
+  return parseTopLevelHclBlocks(source)
+    .filter(
+      (block) => block.keyword === "resource" && block.labels.length === 2,
+    )
+    .map((block) => `${block.labels[0]}.${block.labels[1]}`);
+}
+
+function parseCanonicalResourceOutputIds(
+  source: string,
+): readonly { readonly key: string; readonly address: string }[] {
+  const output = parseTopLevelHclBlocks(source).find(
+    (block) =>
+      block.keyword === "output" &&
+      block.labels.length === 1 &&
+      block.labels[0] === "takoform_resource_ids",
+  );
+  if (!output) return [];
+  const valueMatch = /(?:^|\n)\s*value\s*=\s*\{/mu.exec(output.body);
+  if (!valueMatch || valueMatch.index === undefined) return [];
+  const openingBrace = output.body.indexOf("{", valueMatch.index);
+  const closingBrace = findHclClosingBrace(output.body, openingBrace);
+  if (closingBrace < 0) return [];
+  return Array.from(
+    output.body
+      .slice(openingBrace + 1, closingBrace)
+      .matchAll(
+        /^\s+([a-z0-9_]+)\s*=\s*(takoform_[a-z0-9_]+\.[a-z0-9_]+)\.uid\s*$/gmu,
+      ),
+    (match) => ({ key: match[1]!, address: match[2]! }),
+  );
+}
+
+const declaredResourceAddresses = parseResourceAddresses(takoformModuleMain);
+const declaredOutputResourceAddresses = parseCanonicalResourceOutputIds(
+  takoformModuleOutputs,
+);
 
 describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
   test("requires a bare caller-supplied Host origin", () => {
@@ -241,7 +466,86 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
     });
   });
 
-  test("extracts and requires the current 14 managed resources", () => {
+  test("models every declared resource identity, including the DLQ consumer", () => {
+    expect(CURRENT_RESOURCE_GRAPH).toHaveLength(15);
+    expect(declaredResourceAddresses).toEqual(
+      CURRENT_RESOURCE_GRAPH.map((resource) => resource.address),
+    );
+    expect([...CURRENT_RESOURCE_TYPES].sort()).toEqual(
+      CURRENT_RESOURCE_GRAPH.map((resource) => resource.type).sort(),
+    );
+    expect(
+      [...declaredOutputResourceAddresses].sort((a, b) =>
+        a.key.localeCompare(b.key),
+      ),
+    ).toEqual(
+      [...CURRENT_RESOURCE_GRAPH]
+        .map((resource) => ({
+          key: resource.outputKey,
+          address: resource.address,
+        }))
+        .sort((a, b) => a.key.localeCompare(b.key)),
+    );
+    expect(CURRENT_RESOURCE_GRAPH).toContainEqual({
+      address: "takoform_queue_consumer.delivery_dlq",
+      type: "takoform_queue_consumer",
+      outputKey: "delivery_dlq_consumer",
+    });
+  });
+
+  test("requires every declared QueueConsumer readback to be ready", () => {
+    const queueConsumers = CURRENT_RESOURCE_GRAPH.filter(
+      (resource) => resource.type === "takoform_queue_consumer",
+    );
+    const identities = queueConsumers.map((resource, index) => ({
+      address: resource.address,
+      type: resource.type,
+      name: `e2e-${index === 0 ? "delivery" : "delivery-dlq"}-consumer`,
+      space: "e2e-space",
+      uid: `uid-${index}`,
+      generation: "1",
+      form: {
+        apiVersion: "edge.forms.takoform.com",
+        kind: "QueueConsumer",
+        definitionVersion: "0.1.0",
+        schemaDigest: "sha256:" + "a".repeat(64),
+      },
+    }));
+    const hostResources = identities.map((identity) => ({
+      apiVersion: identity.form.apiVersion,
+      kind: identity.form.kind,
+      metadata: {
+        name: identity.name,
+        space: identity.space,
+        uid: identity.uid,
+        generation: identity.generation,
+      },
+      status: { conditions: [{ type: "Ready", status: "True" }] },
+    }));
+    expect(() =>
+      requireReadyType(
+        hostResources,
+        "takoform_queue_consumer",
+        "queue consumer",
+        identities,
+      ),
+    ).not.toThrow();
+  });
+
+  test("ignores block-commented resources and UID assignments outside the canonical output", () => {
+    const commentedResourceSource = `/* resource "takoform_fake" "commented" {\n  name = "not-real"\n} */\n${takoformModuleMain}`;
+    expect(parseResourceAddresses(commentedResourceSource)).toEqual(
+      declaredResourceAddresses,
+    );
+
+    const renamedOutputSource = takoformModuleOutputs.replace(
+      'output "takoform_resource_ids"',
+      'output "renamed_resource_ids"',
+    );
+    expect(parseCanonicalResourceOutputIds(renamedOutputSource)).toEqual([]);
+  });
+
+  test("extracts and requires the current 15 managed resources", () => {
     const kinds: Record<string, string> = {
       takoform_module_worker: "ModuleWorker",
       takoform_sqlite_database: "SQLiteDatabase",
@@ -257,18 +561,18 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
       takoform_queue_consumer: "QueueConsumer",
       takoform_worker_cron_trigger: "WorkerCronTrigger",
     };
-    const resources = CURRENT_RESOURCE_TYPES.map((type, index) => ({
-      address: `module.${type}.${index}`,
+    const resources = CURRENT_RESOURCE_GRAPH.map((resource, index) => ({
+      address: resource.address,
       mode: "managed",
-      type,
-      name: type,
+      type: resource.type,
+      name: `e2e-resource-${index}`,
       values: {
         name: `e2e-resource-${index}`,
         space: "e2e-space",
         uid: `uid-${index}`,
         generation: "1",
         form_api_version: "edge.forms.takoform.com",
-        form_kind: kinds[type],
+        form_kind: kinds[resource.type],
         form_definition_version: "0.1.0",
         form_schema_digest:
           "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -277,14 +581,27 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
     const identities = extractAppliedResourceIdentities({
       values: { root_module: { resources } },
     });
-    expect(identities).toHaveLength(14);
+    expect(identities).toHaveLength(CURRENT_RESOURCE_GRAPH.length);
     expect(identities[3]?.form.kind).toBe("SQLiteMigrationApplication");
     expect(identities[5]?.form.kind).toBe("ObjectBucket");
+    expect(
+      identities.find(
+        (identity) =>
+          identity.address === "takoform_queue_consumer.delivery_dlq",
+      ),
+    ).toMatchObject({
+      type: "takoform_queue_consumer",
+      name: "e2e-resource-13",
+    });
     expect(() =>
       extractAppliedResourceIdentities({
-        values: { root_module: { resources: resources.slice(0, 13) } },
+        values: {
+          root_module: {
+            resources: resources.slice(0, CURRENT_RESOURCE_GRAPH.length - 1),
+          },
+        },
       }),
-    ).toThrow("current 14-resource graph");
+    ).toThrow("current 15-resource graph");
   });
 
   test("prepares migrations from a fresh source archive before tofu", async () => {
@@ -559,61 +876,30 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
     expect(result.preservedWorkdir).toBe(false);
   });
 
-  test("checks all 14 output identity keys", () => {
+  test("checks all 15 output identity keys", () => {
     const ids = Object.fromEntries(
-      [
-        "worker",
-        "worker_bundle",
-        "worker_version",
-        "worker_deployment",
-        "worker_endpoint",
-        "database",
-        "migration_set",
-        "migration_application",
-        "kv",
-        "media",
-        "delivery",
-        "delivery_dlq",
-        "delivery_consumer",
-        "retention",
-      ].map((key) => [key, `uid-${key}`]),
+      CURRENT_RESOURCE_GRAPH.map(({ outputKey }) => [
+        outputKey,
+        `uid-${outputKey}`,
+      ]),
     );
     expect(() => assertCurrentResourceOutputIds(ids)).not.toThrow();
+    expect(ids).toHaveProperty(
+      "delivery_dlq_consumer",
+      "uid-delivery_dlq_consumer",
+    );
     expect(() =>
       assertCurrentResourceOutputIds({ ...ids, unexpected: "uid" }),
-    ).toThrow("all 14 current resources");
+    ).toThrow("all 15 current resources");
   });
 
   test("binds output UID map to the corresponding tofu state UID", () => {
-    const identities = [
-      ["takoform_module_worker", "worker", "uid-worker"],
-      ["takoform_sqlite_database", "database", "uid-database"],
-      ["takoform_sqlite_migration_set", "migration-set", "uid-migration-set"],
-      [
-        "takoform_sqlite_migration_application",
-        "migration-application",
-        "uid-migration-application",
-      ],
-      ["takoform_edge_kv_namespace", "kv", "uid-kv"],
-      ["takoform_edge_object_bucket", "media", "uid-media"],
-      ["takoform_at_least_once_queue", "e2e-delivery", "uid-delivery"],
-      ["takoform_at_least_once_queue", "e2e-delivery-dlq", "uid-delivery-dlq"],
-      ["takoform_worker_bundle", "worker-bundle", "uid-worker-bundle"],
-      ["takoform_worker_version", "worker-version", "uid-worker-version"],
-      [
-        "takoform_worker_deployment",
-        "worker-deployment",
-        "uid-worker-deployment",
-      ],
-      ["takoform_worker_endpoint", "worker-endpoint", "uid-worker-endpoint"],
-      ["takoform_queue_consumer", "delivery-consumer", "uid-delivery-consumer"],
-      ["takoform_worker_cron_trigger", "retention", "uid-retention"],
-    ].map(([type, name, uid], index) => ({
-      address: `resource.${index}`,
-      type,
-      name,
+    const identities = CURRENT_RESOURCE_GRAPH.map((resource) => ({
+      address: resource.address,
+      type: resource.type,
+      name: resource.outputKey,
       space: "e2e-space",
-      uid,
+      uid: `uid-${resource.outputKey}`,
       generation: "1",
       form: {
         apiVersion: "edge.forms.takoform.com",
@@ -622,22 +908,12 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
         schemaDigest: "sha256:" + "a".repeat(64),
       },
     }));
-    const outputIds = {
-      worker: "uid-worker",
-      worker_bundle: "uid-worker-bundle",
-      worker_version: "uid-worker-version",
-      worker_deployment: "uid-worker-deployment",
-      worker_endpoint: "uid-worker-endpoint",
-      database: "uid-database",
-      migration_set: "uid-migration-set",
-      migration_application: "uid-migration-application",
-      kv: "uid-kv",
-      media: "uid-media",
-      delivery: "uid-delivery",
-      delivery_dlq: "uid-delivery-dlq",
-      delivery_consumer: "uid-delivery-consumer",
-      retention: "uid-retention",
-    };
+    const outputIds = Object.fromEntries(
+      CURRENT_RESOURCE_GRAPH.map(({ outputKey }) => [
+        outputKey,
+        `uid-${outputKey}`,
+      ]),
+    );
     expect(() =>
       assertCurrentResourceOutputIds(outputIds, identities),
     ).not.toThrow();
