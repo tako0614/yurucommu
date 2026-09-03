@@ -7,6 +7,7 @@
 - Scope: Feed, story, and profile focused yurucommu full-stack product and Capsule.
 - Repository kind: `product`
 - Direct sibling dependencies: なし
+- Published contracts consumed: `@takosjp/yurucommu-core` (yurucommu-core, npm-package)
 - Repository gate: `bun run check`
 - Canonical docs: [README.md](README.md), [deploy/takoform/README.md](deploy/takoform/README.md), [site/DEPLOY.md](site/DEPLOY.md)
 
