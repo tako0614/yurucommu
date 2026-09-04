@@ -51,6 +51,8 @@ import {
 } from "./takosumi-managed-staging-e2e.ts";
 import { CURRENT_RESOURCE_GRAPH } from "./takoform-v1-e2e-full.ts";
 
+const YURUCOMMU_REPOSITORY_URL = "https://github.com/tako0614/yurucommu.git";
+
 const BASE_ENV = {
   TAKOSUMI_STAGING_URL: "https://app.example.test",
   TAKOSUMI_STAGING_DEPLOY_RECEIPT_FILE: "/run/private/takosumi-receipt.json",
@@ -63,11 +65,26 @@ const BASE_ENV = {
   TAKOSERVER_STAGING_ORGANIZATION_ID: "org_staging",
   TAKOSERVER_STAGING_EVIDENCE_CREDENTIAL_FILE:
     "/run/private/takoserver-evidence-token",
-  TAKOSUMI_STAGING_SOURCE_URL: "https://github.com/takosjp/yurucommu.git",
+  TAKOSUMI_STAGING_SOURCE_URL: YURUCOMMU_REPOSITORY_URL,
   TAKOSUMI_STAGING_SOURCE_REF: "refs/heads/main",
   TAKOSUMI_STAGING_MODULE_PATH: MANAGED_MODULE_PATH,
   TAKOSUMI_STAGING_PROVIDER_CONNECTION_ID: "conn_takoform",
 };
+
+test("the managed staging sample names the canonical repository", async () => {
+  const documentation = await readFile(
+    new URL("../deploy/takoform/README.md", import.meta.url),
+    "utf8",
+  );
+  const sourceUrl = documentation.match(
+    /^TAKOSUMI_STAGING_SOURCE_URL=(\S+)/mu,
+  )?.[1];
+  if (!sourceUrl) {
+    throw new Error("managed staging documentation is missing its source URL");
+  }
+  expect(sourceUrl).toBe(YURUCOMMU_REPOSITORY_URL);
+  expect(BASE_ENV.TAKOSUMI_STAGING_SOURCE_URL).toBe(sourceUrl);
+});
 
 const TAKOSERVER_OWNER_ORIGIN = "https://api.takoserver.example.test";
 const TAKOSERVER_EXECUTION_EVIDENCE_PATH =
@@ -1799,7 +1816,7 @@ describe("Takosumi managed staging contract", () => {
   test("requires exact SourceSnapshot identity on PlanRun and ApplyRun", () => {
     const evidence = {
       id: "snapshot_1",
-      url: "https://github.com/takosjp/yurucommu.git",
+      url: YURUCOMMU_REPOSITORY_URL,
       resolvedCommit: "a".repeat(40),
       archiveDigest: `sha256:${"b".repeat(64)}`,
       ref: "refs/heads/main",
