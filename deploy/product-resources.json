@@ -16,6 +16,7 @@
     { "name": "delivery", "shape": "AtLeastOnceQueue" },
     { "name": "delivery-dlq", "shape": "AtLeastOnceQueue" },
     { "name": "delivery-consumer", "shape": "QueueConsumer" },
+    { "name": "delivery-dlq-consumer", "shape": "QueueConsumer" },
     { "name": "retention", "shape": "WorkerCronTrigger" }
   ],
   "runtimeConnections": [
@@ -29,6 +30,7 @@
   "nativeHandlers": [
     { "name": "fetch", "resource": "endpoint" },
     { "name": "queue", "resource": "delivery-consumer" },
+    { "name": "queue", "resource": "delivery-dlq-consumer" },
     { "name": "scheduled", "resource": "retention" }
   ],
   "outputs": [
