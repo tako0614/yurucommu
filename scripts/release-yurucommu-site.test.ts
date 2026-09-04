@@ -135,6 +135,51 @@ describe("small yurucommu Pages publisher", () => {
       expect(uploads).toBe(0);
     }));
 
+  test("classifies a Wrangler startup failure before child start as pre-upload", () =>
+    cleanFixture(async ({ repo }) => {
+      let wranglerAttempts = 0;
+      const failure = await deployYurucommuSite({
+        repo,
+        environment: "integration",
+        git: async (args) => (args[0] === "branch" ? "feature/site" : commit),
+        run: async (command) => {
+          if (command === "bun") return "site ok";
+          if (command === "wrangler") {
+            wranglerAttempts += 1;
+            throw Object.assign(new Error("spawn wrangler ENOENT"), {
+              code: "ENOENT",
+            });
+          }
+          throw new Error(`unexpected process ${command}`);
+        },
+      }).catch((error) => error);
+      expect(failureOf(failure).phase).toBe("PRE_UPLOAD_FAILURE");
+      expect(failure.message).toContain("spawn wrangler ENOENT");
+      expect(wranglerAttempts).toBe(1);
+    }));
+
+  test("classifies a Wrangler failure after child start as indeterminate", () =>
+    cleanFixture(async ({ repo }) => {
+      let wranglerAttempts = 0;
+      const failure = await deployYurucommuSite({
+        repo,
+        environment: "integration",
+        git: async (args) => (args[0] === "branch" ? "feature/site" : commit),
+        run: async (command, _args, options) => {
+          if (command === "bun") return "site ok";
+          if (command === "wrangler") {
+            wranglerAttempts += 1;
+            (options as { onSpawn?: () => void } | undefined)?.onSpawn?.();
+            throw new Error("provider request failed");
+          }
+          throw new Error(`unexpected process ${command}`);
+        },
+      }).catch((error) => error);
+      expect(failureOf(failure).phase).toBe("POST_UPLOAD_INDETERMINATE");
+      expect(failure.message).toContain("provider request failed");
+      expect(wranglerAttempts).toBe(1);
+    }));
+
   test("classifies a provider error after upload begins as indeterminate", () =>
     cleanFixture(async ({ repo }) => {
       let uploads = 0;

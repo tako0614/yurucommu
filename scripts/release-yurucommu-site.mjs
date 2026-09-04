@@ -41,13 +41,18 @@ export class YurucommuSiteReleaseFailure extends Error {
   }
 }
 
-function defaultRun(command, args, { cwd = REPO, env = process.env } = {}) {
+function defaultRun(
+  command,
+  args,
+  { cwd = REPO, env = process.env, onSpawn } = {},
+) {
   const result = spawnSync(command, args, {
     cwd,
     env,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
   });
+  if (result.pid > 0 && typeof onSpawn === "function") onSpawn();
   if (result.error) throw result.error;
   if (result.status !== 0) throw new CommandFailure([command, ...args], result);
   return { stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
@@ -237,7 +242,7 @@ export async function deployYurucommuSite({
   const gitRun = git ?? ((args) => command("git", args, { cwd: repo }));
   const source = { branch: "integration", commit: null };
   let siteDigest = null;
-  let uploaded = false;
+  let uploadStarted = false;
   let url = null;
   let providerOutput = null;
   try {
@@ -262,16 +267,24 @@ export async function deployYurucommuSite({
       source.branch,
       `--commit-dirty=${environment === "integration" ? "true" : "false"}`,
     ];
-    uploaded = true;
-    const raw = provider.upload
-      ? await provider.upload({
-          repo,
-          environment,
-          siteRoot,
-          branch: source.branch,
-          commit: source.commit,
-        })
-      : await invoke(command, "wrangler", uploadArgs, { cwd: repo });
+    let raw;
+    if (provider.upload) {
+      uploadStarted = true;
+      raw = await provider.upload({
+        repo,
+        environment,
+        siteRoot,
+        branch: source.branch,
+        commit: source.commit,
+      });
+    } else {
+      raw = await invoke(command, "wrangler", uploadArgs, {
+        cwd: repo,
+        onSpawn: () => {
+          uploadStarted = true;
+        },
+      });
+    }
     providerOutput = outputOf(raw);
     url = parsePagesDeploymentUrl(raw);
 
@@ -303,7 +316,9 @@ export async function deployYurucommuSite({
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     return result;
   } catch (error) {
-    const phase = uploaded ? "POST_UPLOAD_INDETERMINATE" : "PRE_UPLOAD_FAILURE";
+    const phase = uploadStarted
+      ? "POST_UPLOAD_INDETERMINATE"
+      : "PRE_UPLOAD_FAILURE";
     if (error instanceof YurucommuSiteReleaseFailure) throw error;
     throw new YurucommuSiteReleaseFailure(
       error instanceof Error ? error.message : "site publication failed",
