@@ -5,7 +5,7 @@
 // 共通の obligation と trigger は takos-control の
 // `engineering.policy.json` → `deploy` が正本です。
 //
-//   bun run deploy -- yurucommu-worker
+//   bun run deploy -- yurucommu-worker --environment=production --commit=<40-hex>
 //
 // この surface が publish するのは **Worker の code だけ** です。durable store
 // (D1 DB / KV / R2 MEDIA) には触れません。schema 変更は `irreversible` な別の作業で、
@@ -36,11 +36,7 @@ const OWNER_GATE = "bun run check";
 const W = {
   surface: "yurucommu-worker",
   worker: "yurucommu",
-  config: "wrangler.jsonc",
   bundle: "dist/yurucommu-worker.js",
-  build: ["bun", "run", "build:worker"],
-  url: "https://test.yurucommu.com",
-  smoke: ["bun", "run", "smoke:postdeploy"],
 };
 
 const R = {
@@ -66,20 +62,30 @@ const CONTRACT = {
     {
       surface: W.surface,
       target: `cloudflare-worker:${W.worker}`,
-      covers: ["wrangler.jsonc"],
+      covers: [
+        "wrangler.jsonc",
+        "scripts/build-yurucommu-worker.ts",
+        "scripts/post-deploy-smoke.ts",
+        "scripts/release-yurucommu-worker.mjs",
+      ],
       requiresScripts: ["check", "build:worker", "smoke:postdeploy"],
-      requiresTools: ["git", "bun", "wrangler"],
-      requiresEnv: ["YURUCOMMU_WRANGLER_CONFIG"],
-      // code だけを差し替えます。直前の version がそのまま戻し先として残るので
-      // irreversible は立ちません。durable store の schema を変える作業は
-      // この surface ではなく、別の deliberate な手順です。
+      requiresTools: ["git", "bun", "tofu"],
+      requiresEnv: [
+        "CLOUDFLARE_API_TOKEN",
+        "YURUCOMMU_E2E_PASSWORD",
+        "YURUCOMMU_WORKER_DEPLOY_TARGET",
+      ],
+      // code だけを差し替えます。直前の Version は manual reversal の候補として
+      // 残りますが、read/write の CAS がないためこの surface は自動 rollback しません。
+      // durable store の schema を変える作業はこの surface ではなく、別の deliberate な
+      // 手順です。
       triggers: [],
       obligations: {
-        provenance: `refuses a dirty worktree, runs \`${OWNER_GATE}\`, builds ${W.bundle} from that worktree with \`bun run build\`, and records the commit and the bundle sha256 It takes the operator's realized deploy config from YURUCOMMU_WRANGLER_CONFIG and refuses to publish a config that still holds a self-host template placeholder.`,
-        "post-conditions": `runs \`bun run smoke:postdeploy\`, which exercises real request paths against the deployed Worker rather than a health endpoint`,
-        reversal: `the current version id is read and printed before publishing; restore it with \`wrangler versions list --name ${W.worker}\` and \`wrangler versions deploy <previous-id>@100%\``,
+        provenance: `requires exactly --environment=production and --commit=<40-hex>; requires a clean HEAD equal to that commit and either freshly pushed main or an exact commit contained by freshly fetched origin/main; uses CLOUDFLARE_API_TOKEN only for provider authentication, reads the operator-private target/config from YURUCOMMU_WORKER_DEPLOY_TARGET as link-free 0600 regular files under 0700 directories outside every discovered Git repository, common directory, and linked worktree, and uses YURUCOMMU_E2E_PASSWORD only for the post-deploy application smoke; runs \`${OWNER_GATE}\` once; and binds the commit, ${W.bundle} sha256, and selected config digest into the uploaded Version annotation`,
+        "post-conditions": `uses one direct Cloudflare API Version upload and one direct Cloudflare API Deployment write; binds each acknowledgement to the exact Version and Deployment ids; verifies the selected Version's authoritative resources.script.etag against the uploaded ${W.bundle} bytes and compares its full non-code closure with the active predecessor; re-reads the active Deployment and exact hostname/service/environment custom-domain filters across bounded stable pages; runs \`bun run smoke:postdeploy\` through the selected public origin; then requires a final route and active Deployment readback before PUBLISHED`,
+        reversal: `reads the pre-upload active Deployment and its exact one-Version 100 percent version set rather than Version-list order; a failed smoke never writes an automatic rollback because Cloudflare exposes no compare-and-swap across the read/write boundary, and instead reports that exact predecessor for manual reversal after an authoritative concurrency readback`,
         "failure-handling":
-          "prints the provider's own stdout and stderr, names whether the failure was before or after publication, and on a failed post-condition exits non-zero naming the previous version instead of retrying",
+          "prints provider diagnostics without credentials, reports PRE_UPLOAD_FAILURE, POST_UPLOAD_INDETERMINATE, POST_DEPLOY_INDETERMINATE, or POST_CONDITION_INDETERMINATE, and never retries an upload or deployment whose acknowledgement was lost",
       },
     },
     {
@@ -140,7 +146,7 @@ if (process.argv.includes("--contract")) {
 const requestedSurface = process.argv[2];
 if (![W.surface, R.surface, S.surface].includes(requestedSurface)) {
   process.stderr.write(
-    `usage: bun run deploy -- ${W.surface}\n` +
+    `usage: bun run deploy -- ${W.surface} --environment=production --commit=<40-hex>\n` +
       `       bun run deploy -- ${R.surface} [--dry-run|--execute]\n` +
       `       bun run deploy -- ${S.surface} --environment=integration|production\n`,
   );
@@ -152,11 +158,31 @@ function die(message, detail = []) {
   for (const line of detail) process.stderr.write(`- ${line}\n`);
   process.exit(1);
 }
+function gitSubprocessEnvironment() {
+  const env = {};
+  for (const name of [
+    "HOME",
+    "LANG",
+    "LC_ALL",
+    "PATH",
+    "TERM",
+    "TMPDIR",
+    "TZ",
+  ]) {
+    if (process.env[name] !== undefined) env[name] = process.env[name];
+  }
+  return env;
+}
 const git = (...a) =>
-  execFileSync("git", a, { cwd: repo, encoding: "utf8" }).trim();
+  execFileSync("git", a, {
+    cwd: repo,
+    env: gitSubprocessEnvironment(),
+    encoding: "utf8",
+  }).trim();
 const run = (c, a) =>
   execFileSync(c, a, {
     cwd: repo,
+    env: c === "git" ? gitSubprocessEnvironment() : process.env,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
     maxBuffer: 64 * 1024 * 1024,
@@ -342,7 +368,7 @@ function requireCleanPushedSource(execute) {
       "origin",
       `refs/heads/${branch}:refs/remotes/origin/${branch}`,
     ],
-    { cwd: repo },
+    { cwd: repo, env: gitSubprocessEnvironment() },
   );
   const remoteCommit = git("rev-parse", upstream);
   if (commit !== remoteCommit) {
@@ -625,126 +651,42 @@ if (requestedSurface === S.surface) {
   process.exit(0);
 }
 
-// operator の realized config を受け取れるようにします。repo の wrangler config が
-// self-host 向け placeholder を含んだままなら止めます。本番と取り違えて publish
-// しないためです。
-const CONFIG_ENV = "YURUCOMMU_WRANGLER_CONFIG";
-const configPath = process.env[CONFIG_ENV] ?? W.config;
-const resolvedConfig = existsSync(resolve(repo, configPath))
-  ? resolve(repo, configPath)
-  : configPath;
-if (!existsSync(resolvedConfig)) {
-  die(
-    `deploy config ${configPath} does not exist; set ${CONFIG_ENV} to the operator's realized config`,
-  );
-}
-const configValues = readFileSync(resolvedConfig, "utf8")
-  .split("\n")
-  .filter((line) => !/^\s*(?:#|\/\/)/u.test(line))
-  .join("\n");
-const placeholder =
-  /(?:[=:]\s*["']?[^"'\n]*)(example\.com|REPLACE_[A-Z_]+|<[a-z-]+>|xxxxx)/iu.exec(
-    configValues,
-  );
-if (placeholder) {
-  die(
-    `${configPath} still contains the self-host template placeholder ${JSON.stringify(placeholder[1])}; ` +
-      `set ${CONFIG_ENV} to the operator's realized config instead of publishing the template`,
-  );
-}
-
-// provenance
-const dirty = git("status", "--porcelain");
-if (dirty !== "") {
-  die(
-    "the worktree is not clean; the published bundle must belong to one commit",
-    dirty.split("\n").slice(0, 20),
-  );
-}
-const commit = git("rev-parse", "HEAD");
-process.stdout.write(
-  `source ${commit} (${git("rev-parse", "--abbrev-ref", "HEAD")})\n`,
+const workerArgs = process.argv.slice(3);
+const environmentArgument = workerArgs.find((argument) =>
+  argument.startsWith("--environment="),
 );
-
-process.stdout.write(`\n==> ${OWNER_GATE}\n`);
-execFileSync("bun", ["run", "check"], { cwd: repo, stdio: "inherit" });
-
-process.stdout.write(`\n==> bun run build\n`);
-execFileSync(W.build[0], W.build.slice(1), { cwd: repo, stdio: "inherit" });
-
-const bundlePath = resolve(repo, W.bundle);
-if (!existsSync(bundlePath)) die(`${W.bundle} is missing after the build`);
-const bundleDigest = digest(readFileSync(bundlePath));
-process.stdout.write(
-  `\ncandidate ${W.bundle} sha256 ${bundleDigest.slice(0, 16)}\n`,
+const commitArgument = workerArgs.find((argument) =>
+  argument.startsWith("--commit="),
 );
-
-// reversal: 戻し先の version を先に読む。読めなければ publish しない。
-let previous = null;
-try {
-  const listed = run("wrangler", [
-    "versions",
-    "list",
-    "--name",
-    W.worker,
-    "--config",
-    configPath,
-  ]);
-  previous =
-    listed.match(
-      /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/u,
-    )?.[1] ?? null;
-} catch (error) {
-  die(`cannot read the current version list: ${error.message}`);
-}
-if (!previous)
-  die("no current version was readable, so there is no revert point");
-process.stdout.write(`previous version ${previous}\n`);
-
-process.stdout.write(`\n==> publishing ${W.worker}\n`);
-let output;
-try {
-  output = run("wrangler", ["deploy", "--config", configPath]);
-} catch (error) {
-  process.stderr.write(`${error.stdout ?? ""}${error.stderr ?? ""}\n`);
+if (
+  workerArgs.length !== 2 ||
+  environmentArgument !== "--environment=production" ||
+  !/^--commit=[0-9a-f]{40}$/u.test(commitArgument ?? "") ||
+  new Set(workerArgs).size !== 2
+) {
   die(
-    "publication failed; production may be unchanged or partially updated. " +
-      `Reconcile against version ${previous} before retrying.`,
+    `${W.surface} requires exactly --environment=production and --commit=<40-hex>`,
   );
 }
-process.stdout.write(output);
 
-// post-conditions: 実利用者の経路が通ることまで確認する。
-let postOk = false;
-let postDetail = null;
+const {
+  deployYurucommuWorker,
+  loadYurucommuWorkerTarget,
+  reportYurucommuWorkerReleaseFailure,
+} = await import("./release-yurucommu-worker.mjs");
 try {
-  process.stdout.write(`\n==> bun run smoke:postdeploy\n`);
-  postDetail = run(W.smoke[0], W.smoke.slice(1));
-  process.stdout.write(postDetail);
-  postOk = true;
+  const target = loadYurucommuWorkerTarget({
+    environment: "production",
+    path: process.env.YURUCOMMU_WORKER_DEPLOY_TARGET,
+    repo,
+  });
+  const result = await deployYurucommuWorker({
+    environment: "production",
+    commit: commitArgument.slice("--commit=".length),
+    target,
+  });
+  process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
 } catch (error) {
-  postDetail = `${error.stdout ?? ""}${error.stderr ?? ""}`;
-  process.stderr.write(postDetail);
-  postOk = false;
-}
-
-const result = {
-  kind: "takos.deploy-result@v1",
-  surface: W.surface,
-  target: `cloudflare-worker:${W.worker}`,
-  commit,
-  bundleDigest,
-  previousVersion: previous,
-  postConditions: postOk ? "PASSED" : "FAILED",
-  status: postOk ? "PUBLISHED" : "INDETERMINATE",
-};
-process.stdout.write(`\n${JSON.stringify(result, null, 2)}\n`);
-
-if (!postOk) {
-  process.stderr.write(
-    `\nthe new version is live on ${W.worker} but the post-conditions did not pass. ` +
-      `Do not retry blindly: read \`wrangler versions list --name ${W.worker}\` and decide whether to ` +
-      `roll back to ${previous}.\n`,
-  );
+  reportYurucommuWorkerReleaseFailure(error);
   process.exit(1);
 }
