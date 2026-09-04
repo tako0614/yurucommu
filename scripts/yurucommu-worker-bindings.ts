@@ -27,12 +27,13 @@ import type {
  *
  *   unset / "cloudflare"  raw Cloudflare bindings — `DB` a `D1Database`, `KV` a
  *                         KV namespace, `MEDIA` an `R2Bucket`, the queues
- *                         Cloudflare `Queue`s. This is a `wrangler deploy`, and
- *                         equally the production Takoserver backend, which is
- *                         ordinary Workers and projects those same raw bindings.
+ *                         Cloudflare `Queue`s. This is an explicit raw-binding
+ *                         Takoform Host override (and is also the shape used
+ *                         by a direct `wrangler deploy`).
  *   "portable"            the facades a wrapper host projects — `edge.sql`,
  *                         `edge.kv`, `edge.objects`, `edge.queue`. A
- *                         self-hosted or managed Takoserver sets it.
+ *                         self-hosted or managed Takoserver uses this lane,
+ *                         which is the Takoform module default.
  *
  * The lane is DECLARED rather than sniffed because two of the bindings cannot
  * be told apart by shape: `edge.kv` and `KVNamespace` expose the same five
