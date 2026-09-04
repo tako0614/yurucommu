@@ -36,28 +36,32 @@ The Worker bundle runs on two binding shapes, and `runtime_lane` declares which
 one this deployment's Host will project. It becomes the Worker's
 `YURUCOMMU_RUNTIME_LANE` plain variable.
 
-| `runtime_lane`         | Host                                                                      | `DB`         | `KV`           | `MEDIA`        | queues       |
-| ---------------------- | ------------------------------------------------------------------------- | ------------ | -------------- | -------------- | ------------ |
-| `cloudflare` (default) | production Takoserver (ordinary Workers), and a plain `wrangler deploy`    | `D1Database` | KV namespace   | `R2Bucket`     | `Queue`      |
-| `portable`             | a wrapper host: a self-hosted Takoserver, or a managed Takoserver backend  | `edge.sql`   | `edge.kv`      | `edge.objects` | `edge.queue` |
+| `runtime_lane`         | Host                                                                     | `DB`         | `KV`           | `MEDIA`        | queues       |
+| ---------------------- | ------------------------------------------------------------------------ | ------------ | -------------- | -------------- | ------------ |
+| `portable` (default)   | a wrapper host: a self-hosted Takoserver, or a managed Takoserver backend | `edge.sql`   | `edge.kv`      | `edge.objects` | `edge.queue` |
+| `cloudflare`            | a raw-binding Takoform Host                                              | `D1Database` | KV namespace   | `R2Bucket`     | `Queue`      |
 
-**Production Takoserver and plain Cloudflare leave it at the default.** A
-self-hosted or managed Takoserver sets it:
+**Portable is the default.** An ordinary Takosumi guided install on a managed
+Takoserver, or a self-hosted Takoserver, leaves `runtime_lane` unset and gets
+the `edge.*` facade bindings. A raw-binding Takoform Host must opt in to the
+Cloudflare shape explicitly:
 
 ```bash
-tofu apply -var runtime_lane=portable
+tofu apply -var runtime_lane=cloudflare
 ```
 
 The lane names the BINDING SHAPE, not the tool that published the Worker, so it
 cannot be inferred from the fact that this is a Takoform module — the same
-configuration lands on either kind of Host. It is declared rather than sniffed
-because two bindings are indistinguishable by shape: `edge.kv` and a KV
+configuration can land on either kind of Host. It is declared rather than
+sniffed because two bindings are indistinguishable by shape: `edge.kv` and a KV
 namespace expose the same five methods, and both queue producers are
 `send`/`sendBatch`. The Worker cross-checks the declaration against the bindings
 that are decisive (`DB` always, `MEDIA` when bound) and refuses to start on a
 disagreement, instead of handing a facade to a D1 client and failing later as a
 corrupt session. The retired value `takoform-v1` is not a lane and is refused
-the same way.
+the same way. The direct Cloudflare adapter remains the repository root module;
+this module's `cloudflare` value is only for a Takoform Host that explicitly
+projects raw bindings.
 
 The lane also decides where this instance's public origin comes from, which is
 the one difference that changes what an operator has to supply: see
@@ -361,10 +365,11 @@ credentials. A usable Host must provide:
 - a reachable HTTPS Worker endpoint;
 - logs, backup, restore, update, removal, and recovery procedures.
 
-How a Host backs the `ObjectBucket` — R2 on a Cloudflare-backed Takoserver, or
+How a Host backs the `ObjectBucket` — R2 on a Cloudflare-backed Host, or
 anything else — is that Host's operator configuration, not Yurucommu module
-input or output. It reaches the Worker as a native `R2Bucket` on the
-`cloudflare` lane and as the `edge.objects` facade on the `portable` one.
+input or output. It reaches the Worker as a native `R2Bucket` on the explicit
+`cloudflare` lane and as the `edge.objects` facade on the default `portable`
+one.
 
 ## Focused checks
 

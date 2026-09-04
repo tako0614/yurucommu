@@ -489,8 +489,9 @@ describe("repository-owned Takosumi install UX", () => {
 
     // runtime_lane is a module variable but deliberately NOT an install input:
     // it names the binding shape the destination Host projects, which the
-    // installer cannot be asked about, and its default is the raw-binding lane
-    // that both plain Cloudflare and the production Takoserver backend are.
+    // installer cannot be asked about. The module defaults to portable for the
+    // ordinary managed/self-hosted Takoserver path; cloudflare remains an
+    // explicit raw-binding Takoform Host override.
     expect(moduleVariables).toContain("runtime_lane");
     expect(managedModule.inputs.map((input) => input.name)).not.toContain(
       "runtime_lane",

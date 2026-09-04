@@ -132,14 +132,16 @@ describe("portable Takoform v1 Capsule", () => {
   // The lane names the binding shape the Host projects, not the tool that
   // published the Worker, so it cannot be inferred from being a Takoform
   // module. An unknown value is refused by the Worker at startup, which is why
-  // the module may only ever emit one of the two the build knows.
-  test("declares the runtime lane as a validated variable defaulting to cloudflare", () => {
+  // the module may only ever emit one of the two the build knows. The portable
+  // adapter defaults to the facade lane; raw Cloudflare bindings remain an
+  // explicit override for a Takoform Host that projects them.
+  test("declares the runtime lane as a validated variable defaulting to portable", () => {
     const laneVariable = main.match(
       /variable "runtime_lane" \{([\s\S]*?)\n\}/,
     )?.[1];
     expect(laneVariable).toBeDefined();
     expect(laneVariable).toMatch(/type\s*=\s*string/);
-    expect(laneVariable).toMatch(/default\s*=\s*"cloudflare"/);
+    expect(laneVariable).toMatch(/default\s*=\s*"portable"/);
     expect(laneVariable).toMatch(
       /condition\s*=\s*contains\(\["cloudflare", "portable"\], var\.runtime_lane\)/,
     );
