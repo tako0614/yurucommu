@@ -237,10 +237,74 @@ binding 権限のいずれかが未解決ならリンクは表示されません
 失敗を手動で無限に再試行せず、対象の配送、最終エラー、再試行回数を確認してから
 復旧してください。
 
-リポジトリ管理者が Worker を公開するときは、唯一の入口である
-`bun run deploy -- yurucommu-worker` を使います。この処理は Worker コードだけを
-更新し、データベースには触れません。必要条件は `bun run deploy -- --contract`
-で副作用なしに確認できます。
+リポジトリ管理者が既存の production Worker を更新するときは、唯一の入口である
+次の command を使います。
+
+```bash
+YURUCOMMU_WORKER_DEPLOY_TARGET=/absolute/operator-private/production-target.json \
+CLOUDFLARE_API_TOKEN='...' \
+YURUCOMMU_E2E_PASSWORD='...' \
+bun run deploy -- yurucommu-worker \
+  --environment=production \
+  --commit="$(git rev-parse HEAD)"
+```
+
+target descriptor は secret を含まない operator-private JSON です。production の
+account、Worker、公開 route と、実際に upload する JSON/JSONC config の absolute path
+と SHA-256 を一つに固定します。config は `name`、`account_id`、選択 bundle を指す
+`main`、`compatibility_date`、必要なら既存値と一致する runtime flags / limits / usage
+model だけを許し、vars、bindings、route、trigger、queue、migration、secret、asset など
+authority を持つ key は拒否します。bindings などは active Version から strict inherit し、
+upload 後の authoritative Version closure と predecessor に一致することを確認します。
+次は shape の例であり、実値を repository へ追加してはいけません。descriptor と config は
+mode `0700` の operator-private directory 内に mode `0600` の regular file として置き、
+repository、Git common directory、linked worktree を含むすべての発見済み Git repository の外に置きます。
+link やより広い権限は拒否されます。
+
+```json
+{
+  "kind": "yurucommu.worker-deploy-target@v1",
+  "environment": "production",
+  "accountId": "00000000000000000000000000000000",
+  "workerName": "yurucommu",
+  "publicOrigin": "https://test.yurucommu.com",
+  "route": {
+    "kind": "custom-domain",
+    "hostname": "test.yurucommu.com"
+  },
+  "config": {
+    "path": "/absolute/operator-private/production.wrangler.jsonc",
+    "sha256": "sha256:<64-lowercase-hex>"
+  }
+}
+```
+
+この surface は Cloudflare Version Upload API へ multipart POST を一回だけ送り、source
+commit / bundle / config digest の annotation と、active Version の bindings、vars、
+compatibility/runtime settings、limits などの非コード closure を authoritative readback
+で照合してから、その Version だけを Cloudflare Deployments API で 100% へ deploy します。各
+inherit binding には pre-upload の active Version ID を明示し、Version Detail の
+`resources.script.etag` が upload bytes の SHA-256 と一致することも確認します。
+現在配信中の戻し先は Version 一覧ではなく pre-upload の active Deployment から読みます。
+deploy 後は active Deployment、Version、hostname/service/environment を絞った custom domain の
+bounded pagination と安定再読を確認して実 request smoke を実行し、
+その後も route と active Deployment を再読してからだけ `PUBLISHED` を返します。smoke が
+失敗しても Cloudflare には read と write をまたぐ CAS がないため自動 rollback はせず、観測した
+active Deployment と正確な predecessor Version を `INDETERMINATE` と manual reversal の
+対象として報告します。
+
+`wrangler deploy`、`wrangler triggers deploy`、D1 migration、secret 更新は実行しません。
+route、cron/queue consumer、schema/data、secret の変更は別 surface / operator 手順です。
+upload/deploy acknowledgement を失った場合は `INDETERMINATE` で停止し、自動 retry
+しません。Cloudflare の active Deployment と Version を照合してから再開してください。
+Version と Deployment の分離、active Deployment の応答 shape、multipart Version Upload と
+Deployment API は
+[Cloudflare の Versions / Deployments](https://developers.cloudflare.com/workers/versions-and-deployments/)、
+[Version Upload API](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/versions/methods/create/)、
+[Deployments API](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/deployments/)、
+を正本とします。
+必要条件は `bun run deploy -- --contract` で副作用なしに確認できます。
+Worker surface の実行環境には `git`、`bun`、`tofu` と、上記の operator-private env が必要です。
 
 ## リポジトリ内の案内
 

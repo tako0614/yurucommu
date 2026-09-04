@@ -169,7 +169,7 @@ async function createReleaseHarness(scenario: ReleaseScenario) {
     join(fakeBin, "git"),
     `#!/bin/sh
 set -eu
-printf '%s\\n' "$*" >> "$FAKE_GIT_LOG"
+printf '%s\\n' "$*" >> ${JSON.stringify(ghLogPath)}
 case "$*" in
   "status --porcelain") exit 0 ;;
   "rev-parse --abbrev-ref HEAD") printf 'main\\n' ;;
@@ -177,7 +177,7 @@ case "$*" in
   "rev-parse HEAD"|"rev-parse origin/main") printf '%s\\n' '${fakeCommit}' ;;
   "tag --list"*) exit 0 ;;
   "ls-remote --tags"*)
-    if [ -s "$FAKE_TAG_STATE" ]; then printf '%s\\trefs/tags/${tag}\\n' '${fakeCommit}'; fi
+    if [ -s ${JSON.stringify(tagStatePath)} ]; then printf '%s\\trefs/tags/${tag}\\n' '${fakeCommit}'; fi
     exit 0
     ;;
   "fetch"*) exit 0 ;;
@@ -385,6 +385,124 @@ describe("release version", () => {
 });
 
 describe("release surface status", () => {
+  test("declares exact production authority and Deployment readback for the Worker", () => {
+    const result = Bun.spawnSync(["bun", "scripts/deploy.mjs", "--contract"], {
+      cwd: new URL("../", import.meta.url).pathname,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    expect(result.exitCode).toBe(0);
+    const contract = JSON.parse(result.stdout.toString()) as {
+      surfaces: Array<{
+        surface: string;
+        covers: string[];
+        requiresEnv: string[];
+        requiresTools: string[];
+        obligations: Record<string, string>;
+      }>;
+    };
+    const worker = contract.surfaces.find(
+      (surface) => surface.surface === "yurucommu-worker",
+    );
+
+    expect(worker?.requiresEnv).toEqual(
+      expect.arrayContaining([
+        "CLOUDFLARE_API_TOKEN",
+        "YURUCOMMU_E2E_PASSWORD",
+        "YURUCOMMU_WORKER_DEPLOY_TARGET",
+      ]),
+    );
+    const obligationText = Object.values(worker?.obligations ?? {}).join("\n");
+    for (const envName of worker?.requiresEnv ?? []) {
+      expect(obligationText).toContain(envName);
+    }
+    expect(worker?.covers).toContain("scripts/release-yurucommu-worker.mjs");
+    expect(worker?.requiresTools).not.toContain("wrangler");
+    expect(worker?.requiresTools).toContain("tofu");
+    expect(worker?.obligations.provenance).toContain(
+      "--environment=production",
+    );
+    expect(worker?.obligations.provenance).toContain("--commit=<40-hex>");
+    expect(worker?.obligations.provenance).toContain("config digest");
+    expect(worker?.obligations.provenance).toContain(
+      "discovered Git repository",
+    );
+    expect(worker?.obligations["post-conditions"]).toContain(
+      "active Deployment",
+    );
+    expect(worker?.obligations["post-conditions"]).toContain(
+      "non-code closure",
+    );
+    expect(worker?.obligations["post-conditions"]).toContain("script.etag");
+    expect(worker?.obligations["post-conditions"]).toContain("bounded");
+    expect(worker?.obligations["post-conditions"]).toContain(
+      "direct Cloudflare API",
+    );
+    expect(worker?.obligations.reversal).toContain(
+      "pre-upload active Deployment",
+    );
+    expect(worker?.obligations.reversal).toContain("automatic rollback");
+    expect(worker?.obligations["failure-handling"]).toContain("never retries");
+  });
+
+  test("requires an explicit production environment and selected commit", () => {
+    const result = Bun.spawnSync(
+      ["bun", "scripts/deploy.mjs", "yurucommu-worker"],
+      {
+        cwd: new URL("../", import.meta.url).pathname,
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr.toString()).toContain("--environment=production");
+    expect(result.stderr.toString()).toContain("--commit=<40-hex>");
+  });
+
+  test("scrubs deploy and private-path credentials from the deploy wrapper's git subprocess", async () => {
+    const root = await mkdtemp(join(process.cwd(), ".yurucommu-git-env-"));
+    const fakeBin = join(root, "bin");
+    await mkdir(fakeBin, { recursive: true });
+    const capturePath = join(root, "git-env.txt");
+    await writeFile(
+      join(fakeBin, "git"),
+      `#!/bin/sh\n/usr/bin/env > ${JSON.stringify(capturePath)}\nexit 1\n`,
+      { mode: 0o700 },
+    );
+    await chmod(join(fakeBin, "git"), 0o700);
+    const environment = {
+      ...process.env,
+      PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
+      CLOUDFLARE_API_TOKEN: "token-presence-only",
+      YURUCOMMU_E2E_PASSWORD: "password-presence-only",
+      YURUCOMMU_WORKER_DEPLOY_TARGET: "/private/target-presence-only.json",
+      YURUCOMMU_WRANGLER_CONFIG: "/private/config-presence-only.json",
+    };
+    try {
+      Bun.spawnSync(
+        ["bun", "scripts/deploy.mjs", "yurucommu-worker-release", "--dry-run"],
+        {
+          cwd: new URL("../", import.meta.url).pathname,
+          env: environment,
+          stdout: "pipe",
+          stderr: "pipe",
+        },
+      );
+      const captured = await readFile(capturePath, "utf8");
+      for (const name of [
+        "CLOUDFLARE_API_TOKEN",
+        "YURUCOMMU_E2E_PASSWORD",
+        "YURUCOMMU_WORKER_DEPLOY_TARGET",
+        "YURUCOMMU_WRANGLER_CONFIG",
+      ]) {
+        expect(captured).not.toContain(`${name}=`);
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("declares create-only publication for the managed Worker artifact", () => {
     const result = Bun.spawnSync(["bun", "scripts/deploy.mjs", "--contract"], {
       cwd: new URL("../", import.meta.url).pathname,

@@ -246,10 +246,63 @@ Inspect the delivery Queue consumer and the dead-letter queue. Do not retry
 indefinitely by hand; first identify the delivery, final error, and retry
 count.
 
-Repository maintainers publish Worker code through the single
-`bun run deploy -- yurucommu-worker` entrypoint. It does not modify the
-database. Inspect its requirements without side effects with
+Repository maintainers update the existing production Worker through the
+single entrypoint:
+
+```bash
+YURUCOMMU_WORKER_DEPLOY_TARGET=/absolute/operator-private/production-target.json \
+CLOUDFLARE_API_TOKEN='...' \
+YURUCOMMU_E2E_PASSWORD='...' \
+bun run deploy -- yurucommu-worker \
+  --environment=production \
+  --commit="$(git rev-parse HEAD)"
+```
+
+The operator-private JSON target descriptor contains no secrets. It fixes the
+production account, `yurucommu` script, `test.yurucommu.com` custom domain, and
+the absolute path and SHA-256 of the realized JSON/JSONC config. The config is
+limited to `name`, `account_id`, the selected bundle `main`, `compatibility_date`,
+and (when present) runtime flags, limits, or usage model that must match the
+authoritative active Version. Vars, bindings, routes, triggers, queues,
+migrations, secrets, and assets are authority outside this code-only surface
+and are rejected. Existing bindings are inherited strictly from the active
+Version and the uploaded Version's full non-code closure is compared with it.
+Its kind is `yurucommu.worker-deploy-target@v1`; use the descriptor shape in the
+Japanese README and never commit its production values. Keep both the
+descriptor and config as mode `0600` regular files in a mode `0700`
+operator-private directory outside the repository, its Git common directory,
+linked worktrees, and every other discovered Git repository; links and broader
+permissions are rejected.
+
+This code-only surface sends exactly one multipart POST to Cloudflare's Version
+Upload API, pins every inherited binding to the pre-upload active Version ID,
+verifies the source commit / bundle / config annotation, the authoritative
+`resources.script.etag` against the uploaded bundle bytes, and the non-code
+Version closure (bindings, vars, compatibility/runtime settings, limits, and
+lifecycle fields), and then creates exactly one
+Cloudflare Deployment at 100% for that Version. It reads the predecessor from
+the pre-upload active Deployment, not Version-list order. After deployment it
+re-reads the active Deployment, Version, and exact hostname/service/environment
+custom-domain inventory across bounded stable pages, runs the real
+request smoke, then re-reads the route and active Deployment before reporting
+`PUBLISHED`. A failed smoke is never rolled back automatically: Cloudflare has
+no compare-and-swap across the read → write boundary, so the exact predecessor
+and observed active Deployment are reported as `INDETERMINATE` for manual
+reversal. A lost upload/deploy acknowledgement is `INDETERMINATE` and is never
+retried automatically.
+
+It does not run `wrangler deploy`, trigger deployment, D1 migrations, or secret
+updates. Route, cron/queue consumer, schema/data, and secret changes remain
+separate operations. Inspect all requirements without side effects with
 `bun run deploy -- --contract`.
+The Worker surface requires `git`, `bun`, and `tofu` in addition to the
+operator-private environment above.
+
+The readback contract follows Cloudflare's primary
+[Versions and Deployments](https://developers.cloudflare.com/workers/versions-and-deployments/),
+[Version Upload API](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/versions/methods/create/),
+and [Deployments API](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/deployments/)
+documentation.
 
 ## Repository guide
 
