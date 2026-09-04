@@ -96,7 +96,7 @@ a manual self-hosting concern until sealed install inputs exist.
 5. Open Yurucommu from the Apps screen.
 
 After installation, the `WorkerEndpoint` created after `WorkerDeployment`
-returns the ordinary `launch_url` output. The reviewed v2.3
+returns the ordinary `launch_url` output. The reviewed v2.4
 [`interfaces`](.well-known/takosumi.json)
 declaration compiles to an `interface.ui.surface@1` Interface whose `inputs.url`
 explicitly references that `launch_url` output. The output alone does not create
@@ -228,7 +228,7 @@ issues.
 ### Yurucommu is missing from the Apps screen
 
 A successful Apply is not enough if the `launch_url` from `WorkerEndpoint.url`
-is unresolved, the UI surface compiled from the v2.3 `interfaces` declaration
+is unresolved, the UI surface compiled from the v2.4 `interfaces` declaration
 is unresolved, or the current account lacks permission to open it. Inspect the
 Endpoint output and Interface instead of constructing a URL from a cloud
 resource ID.

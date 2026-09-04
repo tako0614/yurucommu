@@ -98,7 +98,7 @@ Push gateway token は受け付けません。認証不要の Push gateway は U
 5. Apps 画面から Yurucommu を開く
 
 インストール後、`WorkerDeployment` の後に作られる `WorkerEndpoint`
-が通常の `launch_url` Output を返します。リポジリの v2.3
+が通常の `launch_url` Output を返します。リポジリの v2.4
 [`interfaces`](.well-known/takosumi.json) 宣言がレビュー済みの
 `interface.ui.surface@1` Interface に compile され、その `inputs.url` が
 `launch_url` Output を明示的に参照します。Output だけでは Apps 画面用の surface
@@ -221,7 +221,7 @@ OIDC を使う場合は issuer、client ID、callback URL、最初の owner に�
 ### Apps 画面に Yurucommu が表示されない
 
 Takosumi の Apply が成功していても、`WorkerEndpoint.url` 由来の
-`launch_url`、v2.3 `interfaces` 宣言から compile された UI surface、開く
+`launch_url`、v2.4 `interfaces` 宣言から compile された UI surface、開く
 binding 権限のいずれかが未解決ならリンクは表示されません。クラウド
 内部のリソース ID から URL を作らず、Endpoint Output と Interface を確認します。
 

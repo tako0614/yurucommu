@@ -36,10 +36,10 @@ The Worker bundle runs on two binding shapes, and `runtime_lane` declares which
 one this deployment's Host will project. It becomes the Worker's
 `YURUCOMMU_RUNTIME_LANE` plain variable.
 
-| `runtime_lane`         | Host                                                                     | `DB`         | `KV`           | `MEDIA`        | queues       |
-| ---------------------- | ------------------------------------------------------------------------ | ------------ | -------------- | -------------- | ------------ |
-| `portable` (default)   | a wrapper host: a self-hosted Takoserver, or a managed Takoserver backend | `edge.sql`   | `edge.kv`      | `edge.objects` | `edge.queue` |
-| `cloudflare`            | a raw-binding Takoform Host                                              | `D1Database` | KV namespace   | `R2Bucket`     | `Queue`      |
+| `runtime_lane`       | Host                                                                      | `DB`         | `KV`         | `MEDIA`        | queues       |
+| -------------------- | ------------------------------------------------------------------------- | ------------ | ------------ | -------------- | ------------ |
+| `portable` (default) | a wrapper host: a self-hosted Takoserver, or a managed Takoserver backend | `edge.sql`   | `edge.kv`    | `edge.objects` | `edge.queue` |
+| `cloudflare`         | a raw-binding Takoform Host                                               | `D1Database` | KV namespace | `R2Bucket`     | `Queue`      |
 
 **Portable is the default.** An ordinary Takosumi guided install on a managed
 Takoserver, or a self-hosted Takoserver, leaves `runtime_lane` unset and gets
@@ -92,21 +92,21 @@ untracked source-build output.
 
 ## Provider 4 graph
 
-| Provider resource                | Product role                                                    |
-| -------------------------------- | --------------------------------------------------------------- |
-| `ModuleWorker`                   | Stable Worker identity                                          |
-| `WorkerBundle`                   | Current, digest-verified ESM bundle                             |
-| `WorkerVersion`                  | Immutable bundle, bindings, variables, and native handlers      |
-| `WorkerDeployment`               | Routes 100% of traffic to the prepared version                  |
-| `WorkerEndpoint`                 | Allocates the ordinary public Worker URL after deployment       |
-| `SQLiteDatabase`                 | Stores Yurucommu durable relational data                        |
-| `SQLiteMigrationSet`             | Carries the exact ordered SQL files                             |
-| `SQLiteMigrationApplication`     | Converges the migration set before the Worker version           |
-| `EdgeKVNamespace`                | Stores sessions, rate limits, and the observed public origin    |
-| `ObjectBucket`                   | Stores uploaded media objects                                   |
-| two `AtLeastOnceQueue` resources | Delivery work and its dead-letter queue                         |
-| two `QueueConsumer` resources    | Drains the delivery queue and its dead-letter queue             |
-| `WorkerCronTrigger`              | Invokes the native scheduled handler hourly                     |
+| Provider resource                | Product role                                                 |
+| -------------------------------- | ------------------------------------------------------------ |
+| `ModuleWorker`                   | Stable Worker identity                                       |
+| `WorkerBundle`                   | Current, digest-verified ESM bundle                          |
+| `WorkerVersion`                  | Immutable bundle, bindings, variables, and native handlers   |
+| `WorkerDeployment`               | Routes 100% of traffic to the prepared version               |
+| `WorkerEndpoint`                 | Allocates the ordinary public Worker URL after deployment    |
+| `SQLiteDatabase`                 | Stores Yurucommu durable relational data                     |
+| `SQLiteMigrationSet`             | Carries the exact ordered SQL files                          |
+| `SQLiteMigrationApplication`     | Converges the migration set before the Worker version        |
+| `EdgeKVNamespace`                | Stores sessions, rate limits, and the observed public origin |
+| `ObjectBucket`                   | Stores uploaded media objects                                |
+| two `AtLeastOnceQueue` resources | Delivery work and its dead-letter queue                      |
+| two `QueueConsumer` resources    | Drains the delivery queue and its dead-letter queue          |
+| `WorkerCronTrigger`              | Invokes the native scheduled handler hourly                  |
 
 The Worker version exports the native `fetch`, `queue`, and `scheduled`
 handlers. Queue and cron events are not translated through a Host-authenticated
@@ -323,6 +323,105 @@ does not turn the assigned URL into a passing HTTP deployment proof.
 The full runner is deliberately not executed by repository checks: it mutates
 the caller's Host and requires operator credentials. Run it only with a
 disposable space and an explicit Provider binary/digest.
+
+## Takosumi managed staging E2E
+
+The repository also carries an owner-safe staging harness for the managed
+Takoserver path. It exercises the real Git install-plan coordinator, selects
+the exact `ProviderConnection`/`CredentialRecipe` tuple for the selected module,
+reviews and applies the plan, checks the value-free 15-resource inventory and
+the resolved `launch_url`/`ui.open` launcher, then uses a session cookie minted
+by the configured Takosumi Accounts OIDC callback for the authenticated
+Yurucommu probe. Destroy is attempted after a known-safe lifecycle phase and
+the Capsule's Output and ProviderBindingSet must be absent afterwards; a
+post-dispatch lost acknowledgement refuses automatic destroy until the Run is
+reconciled.
+
+The harness is staging-only and has no production switch. It reads the
+Takosumi bearer token and the real Yurucommu OIDC session cookie from private
+files; neither value is accepted in argv, logged, or written to the evidence
+report. Before either credential file is opened, it probes the bare Takosumi
+origin and requires the owner-supplied
+`takosumi.platform-worker-release-evidence@v2` ready staging receipt to match
+the exact `x-takosumi-version-id` response header. The closed receipt key set
+binds source commit, deployed/predecessor Worker versions and healthy
+containers, release digests, reviewer, plan confirmation, and reversal
+identity. The expected version is derived from that receipt; there is no
+separate version selector. The receipt is read from a canonical private
+regular file and only its opaque digest and version ID are reported.
+A managed `deploy/takoform` run requires one exact Provider
+`registry.terraform.io/tako0614/takoform` binding and the module's pinned
+Provider `4.0.0`; the managed harness rejects the repository root module because
+it is a different graph. The owner must also supply a separate Takoserver
+origin, Organization id, and read-only execution-evidence credential file.
+The OIDC session is pinned to the exact `/ap/` actor in
+`TAKOSUMI_STAGING_PROBE_ACTOR_AP_ID` for post-author identity only. Notes CRUD
+is disabled in this probe until an owner-published, pinned `/api/notes/me`
+contract or run-scoped actor boundary exists; no note is created or deleted.
+
+```bash
+TAKOSUMI_STAGING_URL=https://app.example.test \
+TAKOSUMI_STAGING_DEPLOY_RECEIPT_FILE=/run/private/takosumi-staging-receipt.json \
+TAKOSERVER_STAGING_URL=https://api.takoserver.example.test \
+TAKOSERVER_STAGING_ORGANIZATION_ID=org_staging \
+TAKOSERVER_STAGING_EVIDENCE_CREDENTIAL_FILE=/run/private/takoserver-evidence-token \
+TAKOSUMI_STAGING_WORKSPACE_ID=ws_staging \
+TAKOSUMI_STAGING_PROBE_ACTOR_AP_ID=https://app.example.test/ap/users/e2e-probe \
+TAKOSUMI_STAGING_SESSION_TOKEN_FILE=/run/private/takosumi-session \
+TAKOSUMI_STAGING_SESSION_COOKIE_FILE=/run/private/yurucommu-session \
+TAKOSUMI_STAGING_SOURCE_URL=https://github.com/takosjp/yurucommu.git \
+TAKOSUMI_STAGING_SOURCE_REF=refs/heads/main \
+TAKOSUMI_STAGING_MODULE_PATH=deploy/takoform \
+TAKOSUMI_STAGING_PROVIDER_CONNECTION_ID=conn_takoform \
+bun run e2e:takosumi:managed-staging
+```
+
+`TAKOSUMI_STAGING_CAPSULE_NAME` may be supplied only with the
+`yurucommu-e2e-` prefix. The default is a fresh random name, so the runner
+cannot silently destroy an ordinary Capsule. Missing install/configuration-plan
+or live run contracts fail closed; this harness never falls back to a direct
+Provider invocation or a synthetic OIDC session.
+
+The configuration Plan is approved only when its review projection requires
+approval; an ordinary `succeeded` Plan is not sent through the approval route.
+Destroy is a separate two-stage Plan and must stop in `waiting_approval` before
+the approval and Apply calls. Every action, approval, Apply, and destroy
+mutation carries a stable `Idempotency-Key`. A lost acknowledgement is
+reconciled against the same Run where possible; after a post-dispatch
+uncertainty the harness refuses to start destroy cleanup and reports the
+indeterminate boundary for operator recovery.
+
+Before any InstallPlan or Capsule mutation the harness authenticates an
+auth-first negative request against the exact Takoserver owner endpoint
+`/v1/organizations/{organizationId}/resources/{resourceUid}/execution-evidence`
+and requires the closed 0048 `not_found` envelope for an impossible UID. A
+missing endpoint, wrong origin, unauthenticated response, or generic Takosumi
+Run projection fails closed. After Apply it joins all 15 inventory addresses
+with the module's `takoform_resource_ids` output and requires complete committed
+create/update evidence plus each Resource's exact address and FormRef from the
+versioned `takoserver.resource-execution-evidence/v1` response. After Destroy it
+requires committed delete evidence, authenticated Resource absence, a
+provider-native `status: "absent"` attestation from Takoserver's
+`/native-residual` route, an empty Takosumi inventory, and no current Output,
+ProviderBindingSet, or resolved UI launcher.
+After Apply the harness checks the exact SourceSnapshot ID, Git commit, archive
+digest, Capsule/Workspace identity, base-state generation, and current
+StateVersion guard, plus the immutable `sourceArchive { ref, digest }` carried
+by each Plan/Apply Run. It then checks the 15-resource current inventory, the
+`launch_url` Output, and the authorized `interface.ui.surface`/`ui.open`
+launcher. The accepted upstream dependency is the separate authenticated
+Takoserver Resource execution-evidence and native-residual endpoints and their
+owner-published contracts; until they are deployed, this harness cannot pass
+and never substitutes Takosumi generic Run/event fields.
+Likewise, the public Run projection must expose the immutable nested Git source
+descriptor, source archive, Capsule/Workspace/state identity, and Apply guard
+needed to bind each Plan/Apply Run to the recorded SourceSnapshot. Until those
+upstream projections are available, the harness fails closed instead of
+inferring source identity from a Capsule id or mutable ref.
+Destroy must leave an empty current resource inventory, no current Output or
+ProviderBindingSet, and no resolved UI launcher. Run IDs, receipt/version IDs,
+SourceSnapshot evidence, and only opaque digests are included in the JSON
+report.
 
 ## Fetch-only local tracer
 
