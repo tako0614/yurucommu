@@ -1,5 +1,23 @@
 # Changelog
 
+## 2.2.0-rc.1 - 2026-09-05
+
+- Publish a fresh-install conformance candidate with Takoform Provider `4.0.0`,
+  Yurucommu core/API `4.1.5`, and the complete 15-resource module. MEDIA uses
+  the exact Edge ObjectBucket contract, and both delivery queues have consumers.
+- Use the explicit `portable` runtime lane and the source-built Worker with its
+  unchanged, tracked 28-file SQLite migration bundle.
+- This prerelease is for explicitly selected new test installations. Full live
+  Store install/plan/apply/runtime/destroy/recovery qualification is not yet
+  complete. Stable Store selection and the website's `v2.1.10` source stay
+  unchanged until a separately published stable release is qualified.
+- Existing `v2.1.x` installations must retain their selected release. This
+  candidate provides no existing-media adoption/copy or backlog migration:
+  changing an existing source to it would create a different MEDIA bucket and
+  enable a DLQ consumer. No in-place upgrade or state migration is authorized.
+- Publish immutable prerelease tags as GitHub prereleases without advancing
+  latest; project these checked-in release notes into the GitHub Release.
+
 ## 2.1.10 - 2026-08-29
 
 - Ship the Takoform SQLite migration inputs as tracked release source so a

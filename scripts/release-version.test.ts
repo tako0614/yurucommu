@@ -84,6 +84,8 @@ function sha256(value: string | Uint8Array): string {
 type ReleaseScenario = {
   immutableSettings: string;
   readback: string;
+  version?: string;
+  changelog?: string;
   createFails?: boolean;
   manifestMutator?: (source: string) => string;
 };
@@ -105,7 +107,8 @@ async function createReleaseHarness(scenario: ReleaseScenario) {
 
   const artifact = Buffer.from("test release worker artifact\n");
   const artifactDigest = sha256(artifact);
-  const tag = `v${packageVersion}`;
+  const version = scenario.version ?? packageVersion;
+  const tag = `v${version}`;
   const artifactUrl = `https://github.com/tako0614/yurucommu/releases/download/${tag}/yurucommu-worker.js`;
   const manifestUrl = `https://github.com/tako0614/yurucommu/releases/download/${tag}/takosumi-artifact.json`;
   const manifest = {
@@ -129,6 +132,7 @@ async function createReleaseHarness(scenario: ReleaseScenario) {
   const manifestPath = join(root, "takosumi-artifact.json");
   const checksumPath = join(root, "yurucommu-worker.js.sha256");
   const ghLogPath = join(root, "gh.log");
+  const createArgsPath = join(root, "gh-create-args");
   const tagStatePath = join(root, "tag-created");
 
   const [
@@ -151,17 +155,29 @@ async function createReleaseHarness(scenario: ReleaseScenario) {
     );
   await Promise.all([
     writeFile(join(scripts, "deploy.mjs"), deploySource),
-    writeFile(join(root, "package.json"), packageText),
+    writeFile(
+      join(root, "package.json"),
+      JSON.stringify({ ...JSON.parse(packageText), version }),
+    ),
+    writeFile(
+      join(root, "CHANGELOG.md"),
+      scenario.changelog ??
+        `# Changelog\n\n## ${version} - 2026-09-05\n\nFresh-install candidate only; no existing-state migration.\n`,
+    ),
     writeFile(
       join(wellKnown, "takosumi.json"),
       scenario.manifestMutator?.(repositoryText) ?? repositoryText,
     ),
-    writeFile(join(root, "main.tf"), replaceDigest(rootModule)),
+    writeFile(
+      join(root, "main.tf"),
+      replaceDigest(rootModule.replaceAll(packageTag, tag)),
+    ),
     writeFile(join(takoform, "main.tf"), replaceDigest(takoformModule)),
     writeFile(artifactPath, artifact),
     writeFile(manifestPath, manifestText),
     writeFile(checksumPath, checksumText),
     writeFile(ghLogPath, ""),
+    writeFile(createArgsPath, ""),
     writeFile(tagStatePath, ""),
   ]);
 
@@ -209,6 +225,7 @@ if [ "$1" = "release" ] && [ "$2" = "view" ]; then
   esac
 fi
 if [ "$1" = "release" ] && [ "$2" = "create" ]; then
+  printf '%s\\0' "$@" > "$FAKE_GH_CREATE_ARGS"
   if [ "\${FAKE_GH_CREATE_FAIL:-0}" = "1" ]; then
     printf '%s\\n' 'simulated release create lost acknowledgement' >&2
     exit 1
@@ -245,6 +262,7 @@ exit 1
     FAKE_GIT_LOG: ghLogPath,
     FAKE_BUN_LOG: ghLogPath,
     FAKE_GH_LOG: ghLogPath,
+    FAKE_GH_CREATE_ARGS: createArgsPath,
     FAKE_GH_IMMUTABLE_SETTINGS: scenario.immutableSettings,
     FAKE_GH_READBACK: scenario.readback,
     FAKE_GH_CREATE_FAIL: scenario.createFails ? "1" : "0",
@@ -267,14 +285,21 @@ exit 1
     stdout: result.stdout.toString(),
     stderr: result.stderr.toString(),
     ghLog: await readFile(ghLogPath, "utf8"),
+    createArgs: (await readFile(createArgsPath, "utf8"))
+      .split("\0")
+      .filter(Boolean),
   };
   await rm(root, { recursive: true, force: true });
   return output;
 }
 
 describe("release version", () => {
-  test("records v2.1.10 while retaining the authoritative v2.1.9 rollback pin", () => {
-    expect(packageVersion).toBe("2.1.10");
+  test("records the fresh-install candidate while retaining authoritative rollback pins", () => {
+    expect(packageVersion).toBe("2.2.0-rc.1");
+    expect(changelogSource).toContain("## 2.2.0-rc.1 - 2026-09-05");
+    expect(changelogSource).toContain(
+      "No in-place upgrade or state migration is authorized.",
+    );
     expect(changelogSource).toContain("## 2.1.10 - 2026-08-29");
     expect(changelogSource).toContain("## 2.1.9 - 2026-08-29");
     expect(changelogSource).not.toContain("## 2.1.9 - Unreleased");
@@ -353,7 +378,7 @@ describe("release version", () => {
       artifactUrl,
     );
     expect(deploymentDefault(moduleSource, "worker_bundle_sha256")).toBe(
-      "sha256:bb8d110be44c8d89fae28375ab32ec19833df18e3824fcc505c8b0d2615acb3f",
+      "sha256:bc72d81893b50ce0a2a63cca503bbf33279a2faa2cafbde018bbc2dfdddbc9a4",
     );
     expect(takoformModuleSource).not.toContain('variable "worker_release_tag"');
     expect(takoformModuleSource).not.toContain('variable "worker_bundle_url"');
@@ -604,10 +629,14 @@ describe("release surface status", () => {
   });
 });
 
-function readbackPayload(isImmutable: boolean | undefined): string {
+function readbackPayload(
+  isImmutable: boolean | undefined,
+  options: { version?: string; isPrerelease?: boolean } = {},
+): string {
   const artifact = Buffer.from("test release worker artifact\n");
   const artifactDigest = sha256(artifact);
-  const tag = `v${packageVersion}`;
+  const version = options.version ?? packageVersion;
+  const tag = `v${version}`;
   const artifactUrl = `https://github.com/tako0614/yurucommu/releases/download/${tag}/yurucommu-worker.js`;
   const manifestUrl = `https://github.com/tako0614/yurucommu/releases/download/${tag}/takosumi-artifact.json`;
   const manifest = {
@@ -629,7 +658,7 @@ function readbackPayload(isImmutable: boolean | undefined): string {
   const checksumText = `${artifactDigest}  yurucommu-worker.js\n`;
   const payload: Record<string, unknown> = {
     isDraft: false,
-    isPrerelease: false,
+    isPrerelease: options.isPrerelease ?? version.includes("-"),
     isImmutable,
     tagName: tag,
     url: `https://github.com/tako0614/yurucommu/releases/tag/${tag}`,
@@ -650,6 +679,87 @@ function readbackPayload(isImmutable: boolean | undefined): string {
 }
 
 describe("immutable GitHub release guard", () => {
+  test("refuses publication without notes for the exact candidate version", async () => {
+    const result = await createReleaseHarness({
+      immutableSettings: JSON.stringify({ enabled: true }),
+      readback: readbackPayload(true),
+      changelog: "# Changelog\n\n## 1.0.0 - 2020-01-01\n\nOld release.\n",
+    });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.ghLog).not.toContain("release create");
+    expect(result.stderr).toContain("CHANGELOG.md has no release notes");
+  });
+
+  test("publishes a stable version without prerelease flags", async () => {
+    const version = "2.2.0";
+    const result = await createReleaseHarness({
+      version,
+      immutableSettings: JSON.stringify({ enabled: true }),
+      readback: readbackPayload(true, { version, isPrerelease: false }),
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.createArgs.slice(0, 3)).toEqual([
+      "release",
+      "create",
+      "v2.2.0",
+    ]);
+    expect(result.createArgs).not.toContain("--prerelease");
+    expect(result.createArgs).not.toContain("--latest=false");
+    expect(result.stdout).toContain('"status": "PUBLISHED"');
+  });
+
+  test.each([
+    ["2.2.0", true],
+    ["2.2.0-rc.1", false],
+  ] as const)(
+    "rejects %s read back with isPrerelease=%s without retrying create",
+    async (version, isPrerelease) => {
+      const result = await createReleaseHarness({
+        version,
+        immutableSettings: JSON.stringify({ enabled: true }),
+        readback: readbackPayload(true, { version, isPrerelease }),
+      });
+
+      expect(result.exitCode).not.toBe(0);
+      expect(result.ghLog.match(/release create /gu)).toHaveLength(1);
+      expect(result.stdout).not.toContain('"status": "PUBLISHED"');
+      expect(result.stderr).toContain("expectedPrerelease=");
+    },
+  );
+
+  test("publishes the candidate's checked-in release notes", async () => {
+    const result = await createReleaseHarness({
+      immutableSettings: JSON.stringify({ enabled: true }),
+      readback: readbackPayload(true),
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.ghLog).toContain(
+      "Fresh-install candidate only; no existing-state migration.",
+    );
+  });
+
+  test("publishes an immutable prerelease without advancing the stable release", async () => {
+    const version = "2.2.0-rc.1";
+    const result = await createReleaseHarness({
+      version,
+      immutableSettings: JSON.stringify({ enabled: true }),
+      readback: readbackPayload(true, { version, isPrerelease: true }),
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.createArgs.slice(0, 3)).toEqual([
+      "release",
+      "create",
+      "v2.2.0-rc.1",
+    ]);
+    expect(result.createArgs).toContain("--prerelease");
+    expect(result.createArgs).toContain("--latest=false");
+    expect(result.stdout).toContain('"status": "PUBLISHED"');
+  });
+
   test("does not call release create when the repository setting is disabled", async () => {
     const result = await createReleaseHarness({
       immutableSettings: JSON.stringify({ enabled: false }),

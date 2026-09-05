@@ -97,6 +97,7 @@ const CONTRACT = {
         "deploy/takoform/main.tf",
         "main.tf",
         "package.json",
+        "CHANGELOG.md",
         "scripts/build-yurucommu-worker.ts",
         "scripts/smoke-release-worker.mjs",
         "scripts/yurucommu-worker-bindings.ts",
@@ -107,9 +108,9 @@ const CONTRACT = {
       triggers: ["published-identity"],
       obligations: {
         provenance:
-          "refuses a dirty, detached, or unpushed worktree; requires main for publication; runs `bun run check`; builds and boots the embedded Worker from that exact commit; requires the repository manifest's default deploy/takoform module and sourceBuild-generated Worker/migration assets, plus direct-Cloudflare module release pins, to align with the same tag and artifact digest; and records the source commit plus SHA-256 in the release manifest",
+          "refuses a dirty, detached, or unpushed worktree; requires main for publication; runs `bun run check`; builds and boots the embedded Worker from that exact commit; requires the repository manifest's default deploy/takoform module and sourceBuild-generated Worker/migration assets, plus direct-Cloudflare module release pins, to align with the same tag and artifact digest; records the source commit plus SHA-256 in the release manifest; and projects the exact version's checked-in CHANGELOG.md section into Release notes",
         "post-conditions":
-          "reads the create-only tag and GitHub Release back, requires the tag to resolve to the source commit and the Release to report isImmutable:true, downloads all three assets, requires their exact SHA-256 digests, and boots the downloaded Worker in workerd with runtime-native DB/KV/MEDIA/queue bindings",
+          "derives the prerelease lane from the SemVer suffix and creates prereleases with --prerelease --latest=false; reads the create-only tag and GitHub Release back, requires the tag to resolve to the source commit, isImmutable:true, and the exact expected isPrerelease boolean; downloads all three assets, requires their exact SHA-256 digests, and boots the downloaded Worker in workerd with runtime-native DB/KV/MEDIA/queue bindings",
         reversal:
           "the release identity is never replaced or deleted by this entrypoint; consumers remain able to pin the preceding release, and a defect is repaired by publishing a higher version",
         "failure-handling":
@@ -407,6 +408,17 @@ function requireRepositoryImmutableReleases() {
   process.stdout.write(`${endpoint} enabled:true\n`);
 }
 
+function releaseNotes(version, commit) {
+  const sections = readFileSync(resolve(repo, "CHANGELOG.md"), "utf8").split(
+    /\r?\n(?=## )/u,
+  );
+  const section = sections.find((value) =>
+    value.startsWith(`## ${version} - `),
+  );
+  if (!section) die(`CHANGELOG.md has no release notes for ${version}`);
+  return `Worker release built from ${commit}.\n\n${section.trim()}`;
+}
+
 function publishWorkerRelease() {
   if (
     process.argv.includes("--execute") &&
@@ -424,6 +436,8 @@ function publishWorkerRelease() {
     die(`package.json version ${JSON.stringify(version)} is not SemVer`);
   }
   const tag = `v${version}`;
+  const prerelease = version.includes("-");
+  const notes = releaseNotes(version, commit);
   const localTag = git("tag", "--list", tag);
   if (localTag !== "") die(`local tag ${tag} already exists`);
   const remoteTag = run("git", [
@@ -523,7 +537,8 @@ function publishWorkerRelease() {
       "--title",
       `Yurucommu ${tag}`,
       "--notes",
-      `Worker release built from ${commit}.`,
+      notes,
+      ...(prerelease ? ["--prerelease", "--latest=false"] : []),
     ]);
     process.stdout.write(output);
   } catch (error) {
@@ -559,12 +574,12 @@ function publishWorkerRelease() {
   );
   if (
     release.isDraft ||
-    release.isPrerelease ||
+    release.isPrerelease !== prerelease ||
     release.isImmutable !== true ||
     release.tagName !== tag
   ) {
     die(
-      `published Release ${tag} has unexpected state (isImmutable=${String(release.isImmutable)})`,
+      `published Release ${tag} has unexpected state (isImmutable=${String(release.isImmutable)}, isPrerelease=${String(release.isPrerelease)}, expectedPrerelease=${prerelease})`,
     );
   }
   const remoteAssets = new Map(

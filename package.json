@@ -1,6 +1,6 @@
 {
   "name": "@takosjp/yurucommu",
-  "version": "2.1.10",
+  "version": "2.2.0-rc.1",
   "license": "AGPL-3.0-only",
   "type": "module",
   "private": true,
