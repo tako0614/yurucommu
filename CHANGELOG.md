@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.2.0-rc.2 - 2026-09-06
+
+- Prepare the next fresh-install conformance candidate with Takoform Provider
+  `4.0.0` and Yurucommu core/API `4.1.6`. The portable lane carries the
+  published edge.sql transaction-envelope fix, and the exact source was
+  verified through the full local OIDC application lifecycle.
+- This prerelease is for explicitly selected new test installations only. It
+  makes no staging or production qualification claim. Stable Store selection
+  and the website's `v2.1.10` source remain unchanged.
+- Existing installations retain their selected release. This candidate adds no
+  existing-media adoption/copy, backlog migration, in-place upgrade, or state
+  migration support.
+- Publish an immutable prerelease tag without advancing latest; keep the prior
+  `v2.2.0-rc.1` release notes and identity historical and untouched.
+
 ## 2.2.0-rc.1 - 2026-09-05
 
 - Publish a fresh-install conformance candidate with Takoform Provider `4.0.0`,
