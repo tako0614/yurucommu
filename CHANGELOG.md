@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.2.0-rc.3 - 2026-09-06
+
+- Prepare the next fresh-install conformance candidate with Takoform Provider
+  `4.0.0` and Yurucommu core/API `4.1.7`. The portable lane carries the
+  unavailable-cache runtime fix required by hosts that expose no default Cache,
+  and the exact source remains tied to the published Core/API pair.
+- This prerelease is for explicitly selected new test installations only. It
+  makes no staging or production qualification claim. Stable Store selection
+  and the website's `v2.1.10` source remain unchanged.
+- Existing installations retain their selected release. This candidate adds no
+  existing-media adoption/copy, backlog migration, in-place upgrade, or state
+  migration support.
+- Publish an immutable prerelease tag without advancing latest; keep the prior
+  `v2.2.0-rc.2` and `v2.2.0-rc.1` release notes and identities historical and
+  untouched.
+
 ## 2.2.0-rc.2 - 2026-09-06
 
 - Prepare the next fresh-install conformance candidate with Takoform Provider

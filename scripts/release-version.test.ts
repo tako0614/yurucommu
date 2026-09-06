@@ -295,7 +295,8 @@ exit 1
 
 describe("release version", () => {
   test("records the fresh-install candidate while retaining authoritative rollback pins", () => {
-    expect(packageVersion).toBe("2.2.0-rc.2");
+    expect(packageVersion).toBe("2.2.0-rc.3");
+    expect(changelogSource).toContain("## 2.2.0-rc.3 - 2026-09-06");
     expect(changelogSource).toContain("## 2.2.0-rc.2 - 2026-09-06");
     expect(changelogSource).toContain("## 2.2.0-rc.1 - 2026-09-05");
     expect(changelogSource).toContain(
@@ -379,7 +380,7 @@ describe("release version", () => {
       artifactUrl,
     );
     expect(deploymentDefault(moduleSource, "worker_bundle_sha256")).toBe(
-      "sha256:49383b0f78cb03c6297f2e44e778a8d4880ed7217e59c7252a62af003b35a52a",
+      "sha256:67aebddf7f4435353184deeb13855bdebe5a0f39a4393af400b7acc9b7c66257",
     );
     expect(takoformModuleSource).not.toContain('variable "worker_release_tag"');
     expect(takoformModuleSource).not.toContain('variable "worker_bundle_url"');
@@ -713,7 +714,7 @@ describe("immutable GitHub release guard", () => {
 
   test.each([
     ["2.2.0", true],
-    ["2.2.0-rc.2", false],
+    ["2.2.0-rc.3", false],
   ] as const)(
     "rejects %s read back with isPrerelease=%s without retrying create",
     async (version, isPrerelease) => {
@@ -743,7 +744,7 @@ describe("immutable GitHub release guard", () => {
   });
 
   test("publishes an immutable prerelease without advancing the stable release", async () => {
-    const version = "2.2.0-rc.2";
+    const version = "2.2.0-rc.3";
     const result = await createReleaseHarness({
       version,
       immutableSettings: JSON.stringify({ enabled: true }),
@@ -754,7 +755,7 @@ describe("immutable GitHub release guard", () => {
     expect(result.createArgs.slice(0, 3)).toEqual([
       "release",
       "create",
-      "v2.2.0-rc.2",
+      "v2.2.0-rc.3",
     ]);
     expect(result.createArgs).toContain("--prerelease");
     expect(result.createArgs).toContain("--latest=false");

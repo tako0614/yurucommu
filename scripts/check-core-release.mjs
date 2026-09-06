@@ -4,9 +4,9 @@ import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// Earlier versions misread the published edge.sql transaction envelope,
-// so portable multi-statement operations such as post creation fail at runtime.
-export const MINIMUM_PRODUCT_RELEASE = "4.1.6";
+// 4.1.6 reads caches.default outside the unavailable-cache guard, so portable
+// runtimes without a configured Cache can fail before public actor routes run.
+export const MINIMUM_PRODUCT_RELEASE = "4.1.7";
 
 const PACKAGE_NAMES = ["@takosjp/yurucommu-core", "@takosjp/yurucommu-api"];
 const REQUIRED_API_EXPORTS = [
