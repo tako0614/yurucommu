@@ -4,7 +4,9 @@ import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const MINIMUM_PRODUCT_RELEASE = "4.1.5";
+// Earlier versions misread the published edge.sql transaction envelope,
+// so portable multi-statement operations such as post creation fail at runtime.
+export const MINIMUM_PRODUCT_RELEASE = "4.1.6";
 
 const PACKAGE_NAMES = ["@takosjp/yurucommu-core", "@takosjp/yurucommu-api"];
 const REQUIRED_API_EXPORTS = [

@@ -251,6 +251,65 @@ export interface AppliedResourceIdentity {
   readonly form: FormRef;
 }
 
+/**
+ * Preserve every exact resource incarnation observed across lifecycle
+ * applies. A nonce-rotated WorkerVersion may keep its Terraform address while
+ * receiving a new UID/form identity; cleanup must prove absence for both the
+ * old and replacement identities rather than silently replacing the first
+ * snapshot.
+ */
+export function mergeAppliedResourceIdentities(
+  ...groups: readonly (readonly AppliedResourceIdentity[])[]
+): readonly AppliedResourceIdentity[] {
+  const merged: AppliedResourceIdentity[] = [];
+  const seen = new Set<string>();
+  for (const group of groups) {
+    for (const identity of group) {
+      const key = JSON.stringify([
+        identity.address,
+        identity.type,
+        identity.name,
+        identity.space,
+        identity.uid,
+        identity.generation,
+        identity.form.apiVersion,
+        identity.form.kind,
+        identity.form.definitionVersion,
+        identity.form.schemaDigest,
+      ]);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push(identity);
+    }
+  }
+  return merged;
+}
+
+/** Require the nonce-rotated update to materialize a new WorkerVersion UID. */
+export function assertNormalOidcWorkerVersionUpdate(
+  initialIdentities: readonly AppliedResourceIdentity[],
+  updatedIdentities: readonly AppliedResourceIdentity[],
+): {
+  readonly initial: AppliedResourceIdentity;
+  readonly updated: AppliedResourceIdentity;
+} {
+  const initial = initialIdentities.find(
+    (identity) => identity.type === "takoform_worker_version",
+  );
+  const updated = updatedIdentities.find(
+    (identity) => identity.type === "takoform_worker_version",
+  );
+  if (!initial || !updated) {
+    throw new Error("normal OIDC update omitted WorkerVersion identity");
+  }
+  if (initial.uid === updated.uid) {
+    throw new Error(
+      "normal OIDC runtime-input update did not replace the WorkerVersion identity",
+    );
+  }
+  return { initial, updated };
+}
+
 export interface CleanupResult {
   readonly cleanupVerified: boolean;
   readonly preservedWorkdir: boolean;
@@ -400,6 +459,110 @@ export function createRuntimeInputMaterial(
       TAKOSUMI_ACCOUNTS_REDIRECT_URI: `https://yurucommu.invalid/e2e/${slug}/oauth/callback`,
     },
   };
+}
+
+/**
+ * Build the second, normal-OIDC runtime-input set from the exact assigned
+ * WorkerEndpoint output. The immutable encryption key is intentionally carried
+ * forward; only the Provider nonce and OIDC settings change for the update.
+ */
+export function createNormalOidcRuntimeInputMaterial(
+  runId: string,
+  issuerUrl: string,
+  launchUrl: string,
+  encryptionKey: string,
+): TakoformRuntimeInputMaterial {
+  if (!/^[a-z][a-z0-9-]{1,50}[a-z0-9]$/u.test(runId)) {
+    throw new Error("normal OIDC run id is not a safe lifecycle identifier");
+  }
+  if (!/^[a-f0-9]{64}$/u.test(encryptionKey)) {
+    throw new Error("normal OIDC update requires the original encryption key");
+  }
+  const issuer = absoluteHttpUrl(issuerUrl, "OIDC issuer URL");
+  if (issuer.protocol !== "https:") {
+    throw new Error("OIDC issuer URL must be HTTPS");
+  }
+  if (issuer.pathname !== "/") {
+    throw new Error("OIDC issuer URL must be an origin root");
+  }
+  const launch = absoluteHttpUrl(launchUrl, "assigned WorkerEndpoint URL");
+  if (launch.protocol !== "https:" || launch.pathname !== "/") {
+    throw new Error("assigned WorkerEndpoint URL must be an HTTPS origin root");
+  }
+  const callbackUri = new URL("/api/auth/callback/takos", launch).toString();
+  const clientId = `yurucommu-e2e-${runId}`;
+  const ownerSub = `tsub_${createHash("sha256")
+    .update(`${clientId}\0tsub_local`)
+    .digest("base64url")
+    .slice(0, 32)}`;
+  return {
+    nonce: randomBytes(RUNTIME_INPUT_NONCE_BYTES).toString("base64url"),
+    values: {
+      ENCRYPTION_KEY: encryptionKey,
+      TAKOSUMI_ACCOUNTS_CLIENT_ID: clientId,
+      TAKOSUMI_ACCOUNTS_ISSUER_URL: issuer.origin,
+      TAKOSUMI_ACCOUNTS_OWNER_SUB: ownerSub,
+      TAKOSUMI_ACCOUNTS_REDIRECT_URI: callbackUri,
+    },
+  };
+}
+
+export interface ExternalOidcHandoff {
+  readonly issuer: string;
+  readonly callback: string;
+  readonly launchUrl: string;
+  readonly runtimeInputNonce: string;
+}
+
+/**
+ * Publish public callback data to a disposable harness and wait for its
+ * nonce-bound issuer registration acknowledgement. The marker is private
+ * run-state, not an authority or a generic readiness hook.
+ */
+export async function waitForExternalOidcRegistration(options: {
+  readonly handoffFile: string;
+  readonly issuerUrl: string;
+  readonly launchUrl: string;
+  readonly runtimeInputNonce: string;
+}): Promise<void> {
+  if (!isAbsolute(options.handoffFile)) {
+    throw new Error("OIDC handoff file must be an absolute path");
+  }
+  const issuer = absoluteHttpUrl(options.issuerUrl, "OIDC issuer URL");
+  const launch = absoluteHttpUrl(
+    options.launchUrl,
+    "assigned WorkerEndpoint URL",
+  );
+  if (issuer.protocol !== "https:" || launch.protocol !== "https:") {
+    throw new Error(
+      "OIDC handoff requires HTTPS issuer and assigned launch URL",
+    );
+  }
+  const callback = new URL("/api/auth/callback/takos", launch).toString();
+  const handoff: ExternalOidcHandoff = {
+    issuer: issuer.origin,
+    callback,
+    launchUrl: launch.origin + "/",
+    runtimeInputNonce: options.runtimeInputNonce,
+  };
+  const marker = `${options.handoffFile}.ready`;
+  await rm(marker, { force: true });
+  await writeFile(options.handoffFile, `${JSON.stringify(handoff)}\n`, {
+    mode: 0o600,
+  });
+  const expectedMarker = `ready:${options.runtimeInputNonce}`;
+  const deadline = Date.now() + REQUEST_TIMEOUT_MS * 2;
+  while (Date.now() < deadline) {
+    try {
+      if ((await readFile(marker, "utf8")).trim() === expectedMarker) return;
+    } catch {
+      // The disposable harness has not acknowledged this exact nonce yet.
+    }
+    await Bun.sleep(150);
+  }
+  throw new Error(
+    "external OIDC issuer registration was not acknowledged for the runtime nonce",
+  );
 }
 
 /**
@@ -808,10 +971,10 @@ export function buildResourceReadUrl(
   const url = new URL(
     `${apiBase.replace(/\/$/u, "")}/resources/${encodeURIComponent(group)}/${encodeURIComponent(resource.form.kind)}/${encodeURIComponent(resource.name)}`,
   );
+  // Frozen Host API v1 supplies group/kind in the path, not duplicated in the
+  // query. The five-key availability probe uses a different /forms route.
   url.search = new URLSearchParams({
     space: resource.space,
-    group: resource.form.apiVersion,
-    kind: resource.form.kind,
     definitionVersion: resource.form.definitionVersion,
     schemaDigest: resource.form.schemaDigest,
   }).toString();
@@ -848,6 +1011,7 @@ export async function assertAuthoritativeAbsence(
 export function extractAppliedResourceIdentities(
   state: unknown,
   fallbackSpace?: string,
+  options: { readonly requireCurrentGraph?: boolean } = {},
 ): readonly AppliedResourceIdentity[] {
   const resources: Array<{
     readonly type: string;
@@ -892,7 +1056,10 @@ export function extractAppliedResourceIdentities(
   const actual = resources
     .map((resource) => `${resource.address}\0${resource.type}`)
     .sort();
-  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+  if (
+    options.requireCurrentGraph !== false &&
+    JSON.stringify(actual) !== JSON.stringify(expected)
+  ) {
     throw new Error(
       `tofu state did not contain the current ${CURRENT_RESOURCE_COUNT}-resource graph (got ${actual.join(",") || "none"})`,
     );
@@ -1186,6 +1353,17 @@ function digestBytes(bytes: Uint8Array): string {
 
 export async function main(): Promise<void> {
   const config = readTakoformV1E2EConfig(process.env);
+  const normalOidcIssuer = process.env.YURU_OIDC_ISSUER_URL?.trim() ?? "";
+  const normalOidcHandoff = process.env.YURU_OIDC_HANDOFF_FILE?.trim() ?? "";
+  const normalOidcRequested =
+    process.env.TAKOFORM_USER_JOURNEY?.trim() === "normal-oidc" ||
+    normalOidcIssuer.length > 0 ||
+    normalOidcHandoff.length > 0;
+  if (normalOidcRequested && (!normalOidcIssuer || !normalOidcHandoff)) {
+    throw new Error(
+      "normal OIDC journey requires YURU_OIDC_ISSUER_URL and YURU_OIDC_HANDOFF_FILE",
+    );
+  }
   const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
   const sourceRoot = join(repositoryRoot, "deploy", "takoform");
   const workdir = await mkdtemp(join(tmpdir(), "yurucommu-takoform-v1-"));
@@ -1193,14 +1371,17 @@ export async function main(): Promise<void> {
   const runtimeInputs = createRuntimeInputMaterial(projectName);
   const toolEnvironment = buildSafeChildEnvironment(process.env);
   const tofuEnvironment = createTofuEnvironment(config, workdir);
-  const tofuRedactionValues = [
+  const tofuRedactionValues: string[] = [
     config.writerToken,
+    runtimeInputs.nonce,
     ...Object.values(runtimeInputs.values),
   ];
   const removeSignalHandlers = installLifecycleSignalHandlers();
   let mutationAttempted = false;
   let primaryError: unknown;
   let identities: readonly AppliedResourceIdentity[] = [];
+  let initialIdentities: readonly AppliedResourceIdentity[] = [];
+  let appliedIdentityUnion: readonly AppliedResourceIdentity[] = [];
   let hostDiscovery: StableHostDiscovery | undefined;
   let sourceProvenance: SourceProvenance | undefined;
   let providerSchemaProof: ProviderSchemaProof | undefined;
@@ -1208,6 +1389,7 @@ export async function main(): Promise<void> {
   let launchUrl = "";
   let apiUrl = "";
   let probes: Record<string, unknown> = {};
+  let applicationJourney: unknown;
 
   try {
     try {
@@ -1328,7 +1510,7 @@ export async function main(): Promise<void> {
       assertApiOutput(apiUrl, launchUrl);
       const outputResourceIds = outputValue(outputs, "takoform_resource_ids");
 
-      identities = extractAppliedResourceIdentities(
+      initialIdentities = extractAppliedResourceIdentities(
         parseTofuJson(
           await runTofu(["show", "-json"], {
             workdir,
@@ -1341,7 +1523,9 @@ export async function main(): Promise<void> {
         ),
         config.space,
       );
-      assertCurrentResourceOutputIds(outputResourceIds, identities);
+      identities = initialIdentities;
+      appliedIdentityUnion = mergeAppliedResourceIdentities(initialIdentities);
+      assertCurrentResourceOutputIds(outputResourceIds, initialIdentities);
 
       const hostResources = await readAppliedResources(
         hostDiscovery,
@@ -1398,10 +1582,212 @@ export async function main(): Promise<void> {
           invocationCounters: "not exposed by portable Host API v1",
         },
       };
+
+      if (normalOidcRequested) {
+        // The first Apply intentionally used the value-free fake issuer. The
+        // handoff is published only after its exact assigned HTTPS output is
+        // known; the disposable harness registers that callback, then the
+        // second plan/apply rotates the immutable Provider nonce. ENCRYPTION_KEY
+        // remains identical across both WorkerVersion inputs.
+        const normalInputs = createNormalOidcRuntimeInputMaterial(
+          projectName,
+          normalOidcIssuer,
+          launchUrl,
+          runtimeInputs.values.ENCRYPTION_KEY,
+        );
+        tofuRedactionValues.push(
+          normalInputs.nonce,
+          ...Object.values(normalInputs.values),
+        );
+        await waitForExternalOidcRegistration({
+          handoffFile: normalOidcHandoff,
+          issuerUrl: normalOidcIssuer,
+          launchUrl,
+          runtimeInputNonce: normalInputs.nonce,
+        });
+        await writeFile(
+          join(workdir, "e2e-runtime-inputs.tf"),
+          renderRuntimeInputProviderConfig(normalInputs.nonce),
+          { mode: 0o600 },
+        );
+
+        const updatePlanPath = join(workdir, "e2e-oidc-update.tfplan");
+        const updatePlanInputs = await prepareRuntimeInputVariableFile(workdir);
+        try {
+          await runTofu(
+            [
+              ...buildTofuPlanCommand(projectName, updatePlanPath),
+              ...updatePlanInputs.args,
+            ],
+            {
+              workdir,
+              environment: tofuEnvironment,
+              timeoutMs: config.commandTimeoutMs,
+              onSpawn: updatePlanInputs.onSpawn,
+              redactionValues: tofuRedactionValues,
+            },
+          );
+          await updatePlanInputs.delivered();
+        } finally {
+          await updatePlanInputs.dispose();
+        }
+
+        const updateApplyInputs = await prepareRuntimeInputVariableFile(
+          workdir,
+          normalInputs.values,
+        );
+        try {
+          mutationAttempted = true;
+          await runTofu(
+            [
+              ...buildTofuCommand("apply", projectName),
+              ...updateApplyInputs.args,
+              updatePlanPath,
+            ],
+            {
+              workdir,
+              environment: tofuEnvironment,
+              timeoutMs: config.commandTimeoutMs,
+              onSpawn: updateApplyInputs.onSpawn,
+              redactionValues: tofuRedactionValues,
+            },
+          );
+          await updateApplyInputs.delivered();
+        } finally {
+          await updateApplyInputs.dispose();
+        }
+
+        const updatedOutputs = parseTofuJson(
+          await runTofu(["output", "-json"], {
+            workdir,
+            environment: tofuEnvironment,
+            captureStdout: true,
+            timeoutMs: config.commandTimeoutMs,
+            redactionValues: tofuRedactionValues,
+          }),
+          "updated tofu output",
+        );
+        const updatedLaunchUrl = outputString(updatedOutputs, "launch_url");
+        const updatedApiUrl = outputString(updatedOutputs, "api_url");
+        assertWorkerEndpointUrl(updatedLaunchUrl);
+        assertApiOutput(updatedApiUrl, updatedLaunchUrl);
+        if (updatedLaunchUrl !== launchUrl || updatedApiUrl !== apiUrl) {
+          throw new Error(
+            "normal OIDC runtime-input update rewrote the assigned endpoint",
+          );
+        }
+        const updatedOutputResourceIds = outputValue(
+          updatedOutputs,
+          "takoform_resource_ids",
+        );
+        const updatedIdentities = extractAppliedResourceIdentities(
+          parseTofuJson(
+            await runTofu(["show", "-json"], {
+              workdir,
+              environment: tofuEnvironment,
+              captureStdout: true,
+              timeoutMs: config.commandTimeoutMs,
+              redactionValues: tofuRedactionValues,
+            }),
+            "updated tofu show",
+          ),
+          config.space,
+        );
+        identities = updatedIdentities;
+        appliedIdentityUnion = mergeAppliedResourceIdentities(
+          appliedIdentityUnion,
+          updatedIdentities,
+        );
+        assertCurrentResourceOutputIds(
+          updatedOutputResourceIds,
+          updatedIdentities,
+        );
+        const updatedHostResources = await readAppliedResources(
+          hostDiscovery,
+          config,
+          updatedIdentities,
+        );
+        for (const [type, label] of [
+          [
+            "takoform_sqlite_migration_application",
+            "SQLite migration application",
+          ],
+          ["takoform_queue_consumer", "queue consumer"],
+          ["takoform_worker_cron_trigger", "cron trigger"],
+          ["takoform_worker_version", "WorkerVersion"],
+          ["takoform_edge_object_bucket", "object bucket"],
+        ] as const) {
+          requireReadyType(
+            updatedHostResources,
+            type,
+            label,
+            updatedIdentities,
+          );
+        }
+        const { initial: initialWorkerVersion, updated: updatedWorkerVersion } =
+          assertNormalOidcWorkerVersionUpdate(
+            initialIdentities,
+            updatedIdentities,
+          );
+        probes.normalOidcRuntimeInputUpdate = {
+          nonceRotated: true,
+          encryptionKeyPreserved: true,
+          assignedEndpointPreserved: true,
+          hostResourceReadback: updatedHostResources.length,
+          migrationBackedHealth: await probeRuntime(launchUrl),
+          resourceIdentityIncarnations: appliedIdentityUnion.length,
+          workerVersion: {
+            initialUid: initialWorkerVersion.uid,
+            updatedUid: updatedWorkerVersion.uid,
+            initialGeneration: initialWorkerVersion.generation,
+            updatedGeneration: updatedWorkerVersion.generation,
+            uidChanged: initialWorkerVersion.uid !== updatedWorkerVersion.uid,
+          },
+        };
+
+        const { runNormalOidcApplicationJourney } =
+          await import("./takoform-v1-e2e-user-journey.ts");
+        applicationJourney = await runNormalOidcApplicationJourney({
+          launchUrl,
+          issuerUrl: normalInputs.values.TAKOSUMI_ACCOUNTS_ISSUER_URL,
+          callbackUri: normalInputs.values.TAKOSUMI_ACCOUNTS_REDIRECT_URI,
+          ownerSub: normalInputs.values.TAKOSUMI_ACCOUNTS_OWNER_SUB,
+        });
+      }
     } catch (error) {
       primaryError = error;
     }
     if (!primaryError && terminationRequest) primaryError = terminationRequest;
+
+    // If the second Apply or a post-Apply assertion failed after the Provider
+    // had written state, capture the state snapshot before Destroy. This keeps
+    // replacement identities in the authoritative absence set even when the
+    // normal lane never reached its successful second `show` readback.
+    if (mutationAttempted) {
+      try {
+        const postAttemptIdentities = extractAppliedResourceIdentities(
+          parseTofuJson(
+            await runTofu(["show", "-json"], {
+              workdir,
+              environment: tofuEnvironment,
+              captureStdout: true,
+              timeoutMs: config.commandTimeoutMs,
+              redactionValues: tofuRedactionValues,
+            }),
+            "post-attempt tofu show",
+          ),
+          config.space,
+          { requireCurrentGraph: false },
+        );
+        appliedIdentityUnion = mergeAppliedResourceIdentities(
+          appliedIdentityUnion,
+          postAttemptIdentities,
+        );
+      } catch {
+        // A failed plan/apply can leave no readable state. The initial
+        // snapshot remains available for cleanup and is never discarded.
+      }
+    }
 
     const cleanup = await cleanupTakoformV1E2E({
       mutationAttempted,
@@ -1433,12 +1819,16 @@ export async function main(): Promise<void> {
             "cannot verify authoritative absence without stable Host discovery",
           );
         }
-        if (identities.length !== CURRENT_RESOURCE_TYPES.length) {
+        if (appliedIdentityUnion.length < CURRENT_RESOURCE_TYPES.length) {
           throw new Error(
             `cannot verify authoritative absence without all ${CURRENT_RESOURCE_COUNT} applied identities`,
           );
         }
-        await verifyResourceAbsence(hostDiscovery, config, identities);
+        await verifyResourceAbsence(
+          hostDiscovery,
+          config,
+          appliedIdentityUnion,
+        );
       },
       removeWorkdir: () => rm(workdir, { recursive: true, force: true }),
       workdir,
@@ -1464,7 +1854,9 @@ export async function main(): Promise<void> {
       JSON.stringify({
         kind: "yurucommu.takoform-v1-e2e@v3",
         status: "passed",
-        phase: "full-lifecycle",
+        phase: normalOidcRequested
+          ? "full-lifecycle+normal-oidc-application"
+          : "full-lifecycle",
         runId: projectName,
         provider: {
           source: PROVIDER_SOURCE,
@@ -1480,15 +1872,19 @@ export async function main(): Promise<void> {
           apiBase: hostDiscovery?.apiBase,
           apiVersions: hostDiscovery?.apiVersions,
           features: hostDiscovery?.features,
+          resourceCount: identities.length,
+          resourceIdentityIncarnationCount: appliedIdentityUnion.length,
         },
         projectName,
         launchUrl,
         apiUrl,
         resourceCount: identities.length,
+        resourceIdentityIncarnationCount: appliedIdentityUnion.length,
         runtimeEndpointClassification: config.diagnosticRuntimeEndpoint
           ? "test-only-loopback-diagnostic"
           : "assigned-worker-endpoint",
         probes,
+        ...(normalOidcRequested ? { applicationJourney } : {}),
         cleanupVerified: cleanup.cleanupVerified,
         authoritativeAbsenceVerified: true,
       }),
@@ -1891,7 +2287,8 @@ export function buildSafeChildEnvironment(
   return safe;
 }
 
-function createTofuEnvironment(
+/** Build the scrubbed OpenTofu environment for a reusable lifecycle runner. */
+export function createTofuEnvironment(
   config: TakoformV1E2EConfig,
   workdir: string,
 ): Record<string, string | undefined> {
@@ -1903,7 +2300,8 @@ function createTofuEnvironment(
   };
 }
 
-async function discoverStableHost(
+/** Discover the authoritative stable Host API before lifecycle mutation. */
+export async function discoverStableHost(
   config: TakoformV1E2EConfig,
 ): Promise<StableHostDiscovery> {
   const response = await fetch(
@@ -2017,7 +2415,8 @@ export async function readProviderVersion(
   return TAKOFORM_PROVIDER_VERSION;
 }
 
-async function readAppliedResources(
+/** Read every applied resource through the authoritative stable Host API. */
+export async function readAppliedResources(
   discovery: StableHostDiscovery,
   config: TakoformV1E2EConfig,
   identities: readonly AppliedResourceIdentity[],
@@ -2051,7 +2450,8 @@ async function readAppliedResources(
   return resources;
 }
 
-async function verifyResourceAbsence(
+/** Prove exact stable-v1 absence for every resource after destroy. */
+export async function verifyResourceAbsence(
   discovery: StableHostDiscovery,
   config: TakoformV1E2EConfig,
   identities: readonly AppliedResourceIdentity[],
@@ -2073,7 +2473,8 @@ async function verifyResourceAbsence(
   }
 }
 
-async function probeRuntime(
+/** Probe the assigned Yuru runtime's public migration/readiness contract. */
+export async function probeRuntime(
   runtimeBase: string,
 ): Promise<Record<string, unknown>> {
   const base = absoluteHttpUrl(runtimeBase, "runtime endpoint");
@@ -2140,7 +2541,7 @@ async function probeRuntime(
   };
 }
 
-async function runtimeJson(
+export async function runtimeJson(
   base: URL,
   pathname: string,
   label: string,
@@ -2226,6 +2627,7 @@ function kindFromType(type: string): string {
     takoform_sqlite_migration_set: "SQLiteMigrationSet",
     takoform_sqlite_migration_application: "SQLiteMigrationApplication",
     takoform_edge_kv_namespace: "EdgeKVNamespace",
+    takoform_edge_object_bucket: "ObjectBucket",
     takoform_at_least_once_queue: "AtLeastOnceQueue",
     takoform_worker_bundle: "WorkerBundle",
     takoform_worker_version: "WorkerVersion",
@@ -2239,7 +2641,7 @@ function kindFromType(type: string): string {
   return result;
 }
 
-function assertWorkerEndpointUrl(value: string): void {
+export function assertWorkerEndpointUrl(value: string): void {
   const url = absoluteHttpUrl(value, "WorkerEndpoint.url");
   const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
   if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) {
@@ -2256,7 +2658,7 @@ function assertWorkerEndpointUrl(value: string): void {
   }
 }
 
-function assertApiOutput(apiUrl: string, launchUrl: string): void {
+export function assertApiOutput(apiUrl: string, launchUrl: string): void {
   const api = absoluteHttpUrl(apiUrl, "api_url");
   const launch = new URL(launchUrl);
   if (api.origin !== launch.origin || api.pathname !== "/api") {
@@ -2280,21 +2682,30 @@ export async function responseJson(
   }
 }
 
-function outputValue(outputs: Record<string, unknown>, name: string): unknown {
+export function outputValue(
+  outputs: Record<string, unknown>,
+  name: string,
+): unknown {
   const output = outputs[name];
   if (!isRecord(output) || !("value" in output))
     throw new Error(`tofu output omitted ${name}`);
   return output.value;
 }
 
-function outputString(outputs: Record<string, unknown>, name: string): string {
+export function outputString(
+  outputs: Record<string, unknown>,
+  name: string,
+): string {
   const value = outputValue(outputs, name);
   if (typeof value !== "string" || value.length === 0)
     throw new Error(`tofu output ${name} was not a non-empty string`);
   return value;
 }
 
-function parseTofuJson(value: string, label: string): Record<string, unknown> {
+export function parseTofuJson(
+  value: string,
+  label: string,
+): Record<string, unknown> {
   try {
     const parsed: unknown = JSON.parse(value);
     if (!isRecord(parsed)) throw new Error("not an object");

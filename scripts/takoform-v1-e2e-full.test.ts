@@ -22,6 +22,7 @@ import {
   assertResourceIdentity,
   assertReadyResource,
   assertLifecycleNotTerminated,
+  assertNormalOidcWorkerVersionUpdate,
   buildSafeChildEnvironment,
   buildResourceReadUrl,
   buildTofuCommand,
@@ -29,6 +30,7 @@ import {
   cleanupTakoformV1E2E,
   collectSourceProvenanceSnapshot,
   createRuntimeInputMaterial,
+  createNormalOidcRuntimeInputMaterial,
   copyCapsuleToWorkdir,
   CURRENT_RESOURCE_GRAPH,
   CURRENT_RESOURCE_TYPES,
@@ -49,7 +51,9 @@ import {
   RUNTIME_INPUT_VARIABLE,
   runTofu,
   runBoundedChild,
+  waitForExternalOidcRegistration,
   installLifecycleSignalHandlers,
+  mergeAppliedResourceIdentities,
 } from "./takoform-v1-e2e-full.ts";
 import { TAKOFORM_PROVIDER_VERSION } from "./takoform-provider-pin.ts";
 
@@ -637,7 +641,7 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
     ).toThrow("same-origin");
   });
 
-  test("uses every exact FormRef member for resource readback", () => {
+  test("uses the frozen stable-v1 path and exact query for readback and absence", () => {
     const url = new URL(
       buildResourceReadUrl(
         "https://forms.example.test/apis/forms.takoform.com/v1",
@@ -659,8 +663,6 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
     );
     expect(Object.fromEntries(url.searchParams)).toEqual({
       space: "space-a",
-      group: "edge.forms.takoform.com",
-      kind: "SQLiteDatabase",
       definitionVersion: "0.1.0",
       schemaDigest:
         "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -746,7 +748,7 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
     expect(parseCanonicalResourceOutputIds(renamedOutputSource)).toEqual([]);
   });
 
-  test("extracts and requires the current 15 managed resources", () => {
+  test("extracts and checks readiness for every type in the current 15-resource graph", () => {
     const kinds: Record<string, string> = {
       takoform_module_worker: "ModuleWorker",
       takoform_sqlite_database: "SQLiteDatabase",
@@ -785,6 +787,38 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
     expect(identities).toHaveLength(CURRENT_RESOURCE_GRAPH.length);
     expect(identities[3]?.form.kind).toBe("SQLiteMigrationApplication");
     expect(identities[5]?.form.kind).toBe("ObjectBucket");
+    const readback = identities.map((identity) => ({
+      apiVersion: identity.form.apiVersion,
+      kind: identity.form.kind,
+      metadata: {
+        name: identity.name,
+        space: identity.space,
+        uid: identity.uid,
+        generation: identity.generation,
+      },
+      status: { conditions: [{ type: "Ready", status: "True" }] },
+    }));
+    for (const type of new Set(CURRENT_RESOURCE_TYPES)) {
+      expect(() =>
+        requireReadyType(readback, type, type, identities),
+      ).not.toThrow();
+    }
+    const unreadyBucket = readback.map((resource) =>
+      resource.kind === "ObjectBucket"
+        ? {
+            ...resource,
+            status: { conditions: [{ type: "Ready", status: "False" }] },
+          }
+        : resource,
+    );
+    expect(() =>
+      requireReadyType(
+        unreadyBucket,
+        "takoform_edge_object_bucket",
+        "object bucket",
+        identities,
+      ),
+    ).toThrow("did not report a Ready=True condition");
     expect(
       identities.find(
         (identity) =>
@@ -803,6 +837,51 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
         },
       }),
     ).toThrow("current 15-resource graph");
+    expect(
+      extractAppliedResourceIdentities(
+        {
+          values: {
+            root_module: { resources: resources.slice(0, 1) },
+          },
+        },
+        undefined,
+        { requireCurrentGraph: false },
+      ),
+    ).toHaveLength(1);
+  });
+
+  test("preserves distinct resource incarnations while deduplicating exact identities", () => {
+    const base = {
+      address: "takoform_worker_version.worker",
+      type: "takoform_worker_version",
+      name: "worker-version",
+      space: "e2e-space",
+      uid: "uid-old",
+      generation: "1",
+      form: {
+        apiVersion: "edge.forms.takoform.com",
+        kind: "WorkerVersion",
+        definitionVersion: "0.1.0",
+        schemaDigest:
+          "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      },
+    } as const;
+    const replacement = {
+      ...base,
+      uid: "uid-new",
+      generation: "2",
+    } as const;
+
+    expect(mergeAppliedResourceIdentities([base, base], [replacement])).toEqual(
+      [base, replacement],
+    );
+    expect(assertNormalOidcWorkerVersionUpdate([base], [replacement])).toEqual({
+      initial: base,
+      updated: replacement,
+    });
+    expect(() => assertNormalOidcWorkerVersionUpdate([base], [base])).toThrow(
+      "did not replace the WorkerVersion identity",
+    );
   });
 
   test("prepares migrations from a fresh source archive before tofu", async () => {
@@ -1575,6 +1654,59 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
       ).rejects.toThrow(`did not report version ${TAKOFORM_PROVIDER_VERSION}`);
     } finally {
       await rm(sourceRoot, { recursive: true, force: true });
+      await rm(workdir, { recursive: true, force: true });
+    }
+  });
+
+  test("builds a nonce-rotated OIDC update while preserving ENCRYPTION_KEY", () => {
+    const material = createNormalOidcRuntimeInputMaterial(
+      "run-abc",
+      "https://accounts.yuru.test",
+      "https://worker-123.apps.yuru.test/",
+      "a".repeat(64),
+    );
+    expect(material.nonce).toMatch(/^[A-Za-z0-9_-]{22}$/u);
+    expect(material.values.ENCRYPTION_KEY).toBe("a".repeat(64));
+    expect(material.values.TAKOSUMI_ACCOUNTS_REDIRECT_URI).toBe(
+      "https://worker-123.apps.yuru.test/api/auth/callback/takos",
+    );
+    // Independent fixture value for the dev issuer's documented pairwise
+    // subject; this test does not re-run the production hash implementation.
+    expect(material.values.TAKOSUMI_ACCOUNTS_OWNER_SUB).toBe(
+      "tsub_Glo51brOvz8uBNm2JTMnjNo3vXdXUgXF",
+    );
+  });
+
+  test("requires the exact nonce-bound external issuer acknowledgement", async () => {
+    const workdir = await mkdtemp(join(tmpdir(), "takoform-oidc-handoff-"));
+    const handoffFile = join(workdir, "handoff.json");
+    try {
+      const pending = waitForExternalOidcRegistration({
+        handoffFile,
+        issuerUrl: "https://accounts.yuru.test",
+        launchUrl: "https://worker-123.apps.yuru.test/",
+        runtimeInputNonce: "nonce-bound-12345678901234567890",
+      });
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        try {
+          const handoff = JSON.parse(await readFile(handoffFile, "utf8")) as {
+            runtimeInputNonce: string;
+          };
+          expect(handoff.runtimeInputNonce).toBe(
+            "nonce-bound-12345678901234567890",
+          );
+          await writeFile(
+            `${handoffFile}.ready`,
+            `ready:${handoff.runtimeInputNonce}\n`,
+            { mode: 0o600 },
+          );
+          break;
+        } catch {
+          await Bun.sleep(5);
+        }
+      }
+      await expect(pending).resolves.toBeUndefined();
+    } finally {
       await rm(workdir, { recursive: true, force: true });
     }
   });
