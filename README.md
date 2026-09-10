@@ -85,11 +85,17 @@ source-options 文書はありません。必要な場合だけ ref、module pat
 interfaceの補助情報を足すだけで、候補の作成・順序・既定選択は行いません。クラウドの
 認証情報、シークレット、公開 URL、データ移行、実行権限は Takosumi 側が管理します。
 
-Takosumi の Cloudflare profile は Takosumi Accounts の OIDC を使います。
-初回インストール画面では、sealed な保存経路を持たない初期パスワードと認証付き
-Push gateway token は受け付けません。認証不要の Push gateway は URL と公開鍵を
-指定できます。token が必要な gateway は、sealed install input が用意されるまで
-手動セルフホストの運用範囲です。
+Cloudflare のルートモジュールでは、初期パスワードまたは設定済みの OIDC が必要です。
+manifest だけで Takosumi Accounts のクライアントや所有者が自動設定されるわけでは
+ありません。初期パスワードの入力欄は秘密値として宣言していますが、初回インストール
+の通常入力には値を送れません。サービス設定の configuration-plan 経路で保存し、
+認証設定を含む Plan を確認してからリソースを作成します。具体的な前提と手順は
+[`deploy/cloudflare-install.md`](deploy/cloudflare-install.md) を参照してください。
+認証不要の Push gateway は URL と公開鍵を指定できます。認証付き gateway の token は
+引き続き初回インストールの通常入力では扱いません。
+
+Takoform の対応ホストでは、基本の流れは次のとおりです。Cloudflare のルート
+モジュールには、上記リンクの段階的な認証設定と DB 初期化の設定が別途必要です。
 
 1. Git URL を渡す
 2. Takosumi がソース tree と manifest を同期し、作成するものを表示する

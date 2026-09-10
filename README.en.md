@@ -83,11 +83,19 @@ assistance only to modules proven to exist by the tree scan; they cannot create,
 order, or default candidates. Takosumi still owns cloud credentials, secrets,
 the public URL, migrations, and runtime authorization.
 
-Takosumi's Cloudflare profile uses Takosumi Accounts OIDC. The initial install
-screen does not accept an initial password or an authenticated push-gateway
-token because that path has no sealed input transport. A gateway that needs no
-token can still use its URL and public key. Token-authenticated gateways remain
-a manual self-hosting concern until sealed install inputs exist.
+The Cloudflare root module needs a bootstrap password or configured OIDC.
+Its manifest does not automatically register a Takosumi Accounts client or pin
+the owner. The password is declared as a secret input, but its value must not be
+sent through the initial install's ordinary inputs. Save it through the service
+settings configuration-plan path, then review the authenticated Plan before
+creating resources. See [`deploy/cloudflare-install.md`](deploy/cloudflare-install.md)
+for prerequisites and the staged procedure. A gateway that needs no token can
+still use its URL and public key. Authenticated gateway tokens remain excluded
+from the initial install's ordinary inputs.
+
+On a compatible Takoform host, the basic flow is below. The direct Cloudflare
+root additionally needs the staged authentication and database initialization
+configuration described in the linked guide.
 
 1. Pass the Git URL.
 2. Let Takosumi sync the source tree and manifest and show what it will create.

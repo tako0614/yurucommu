@@ -19,6 +19,7 @@ const manifest = JSON.parse(manifestText) as {
           type?: string;
           format?: string;
           required?: boolean;
+          role?: string;
           label: { ja: string; en: string };
           helper?: { ja: string; en: string };
           placeholder?: string;
@@ -245,6 +246,7 @@ describe("repository-owned Takosumi install UX", () => {
     assertExactKeys(rootModule as unknown as Record<string, unknown>, [
       "inputs",
       "features",
+      "sourceBuild",
       "interfaces",
     ]);
     assertExactKeys(managedModule as unknown as Record<string, unknown>, [
@@ -311,7 +313,7 @@ describe("repository-owned Takosumi install UX", () => {
     }
   });
 
-  test("keeps the direct Cloudflare install on the sealed Accounts OIDC lane", () => {
+  test("keeps direct Cloudflare authentication on the sealed settings lane", () => {
     const rootInputNames = rootModule.inputs.map((input) => input.name);
     expect(
       rootModule.inputs.find((input) => input.name === "app_url")?.source,
@@ -324,7 +326,22 @@ describe("repository-owned Takosumi install UX", () => {
         rootModule.inputs.find((input) => input.name === name)?.source,
       ).toEqual({ kind: "module_default" });
     }
-    expect(rootInputNames).not.toContain("auth_password_hash");
+    const password = rootModule.inputs.find(
+      (input) => input.name === "auth_password_hash",
+    );
+    expect(password).toMatchObject({
+      source: { kind: "user" },
+      role: "initial_secret",
+      type: "string",
+      secret: true,
+      required: false,
+      advanced: true,
+    });
+    expect(password).not.toHaveProperty("value");
+    expect(password).not.toHaveProperty("defaultValue");
+    expect(rootModuleSource).toMatch(
+      /variable "auth_password_hash" \{[\s\S]*?sensitive\s*=\s*true/,
+    );
     expect(rootInputNames).not.toContain("notification_push_gateway_token");
     expect(rootModule.features?.map((feature) => feature.id)).not.toContain(
       "password-authentication",
@@ -342,6 +359,46 @@ describe("repository-owned Takosumi install UX", () => {
     expect(rootModuleSource).toContain(
       'launch_url                    = trimspace(var.app_url) != "" ? trimspace(var.app_url) : local.workers_dev_url',
     );
+  });
+
+  test("prepares locked migration dependencies without deployment authority", () => {
+    expect(rootModule.sourceBuild).toEqual({
+      commands: [{ argv: ["bun", "install", "--frozen-lockfile"] }],
+      outputs: ["node_modules/@takosjp/yurucommu-core/migrations"],
+    });
+    expect(rootModule).not.toHaveProperty("lifecycleActions");
+    expect(rootModule).not.toHaveProperty("policy");
+  });
+
+  test("offers database initialization only as an operator-reviewed lifecycle contribution", async () => {
+    const patch = JSON.parse(
+      await readFile(
+        new URL("deploy/cloudflare-install-config.patch.json", rootUrl),
+        "utf8",
+      ),
+    );
+    expect(patch.kind).toBe("takosumi.install-config-patch@v1");
+    expect(patch.lifecycleActions).toEqual([
+      {
+        apiVersion: "takosumi.dev/v1alpha1",
+        kind: "command",
+        id: "yurucommu-d1-migrations",
+        phase: "post_apply",
+        executor: "runner",
+        command: ["bun", "scripts/takosumi-release.ts", "--migrations-only"],
+        runnerCapability: "capsule.lifecycle.command.v1",
+        useProviderCredentials: true,
+        timeoutSeconds: 900,
+      },
+    ]);
+    expect(patch.lifecycleActionPolicy).toEqual({
+      allowedExecutors: ["runner"],
+      allowedRunnerCapabilities: ["capsule.lifecycle.command.v1"],
+      allowProviderCredentials: true,
+    });
+    expect(patch).not.toHaveProperty("variableMapping");
+    expect(patch).not.toHaveProperty("credentials");
+    expect(patch.lifecycleActions[0]).not.toHaveProperty("env");
   });
 
   test("references only declared module variables and ordinary outputs", () => {

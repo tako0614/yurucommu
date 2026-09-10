@@ -1,0 +1,21 @@
+{
+  "kind": "takosumi.install-config-patch@v1",
+  "lifecycleActions": [
+    {
+      "apiVersion": "takosumi.dev/v1alpha1",
+      "kind": "command",
+      "id": "yurucommu-d1-migrations",
+      "phase": "post_apply",
+      "executor": "runner",
+      "command": ["bun", "scripts/takosumi-release.ts", "--migrations-only"],
+      "runnerCapability": "capsule.lifecycle.command.v1",
+      "useProviderCredentials": true,
+      "timeoutSeconds": 900
+    }
+  ],
+  "lifecycleActionPolicy": {
+    "allowedExecutors": ["runner"],
+    "allowedRunnerCapabilities": ["capsule.lifecycle.command.v1"],
+    "allowProviderCredentials": true
+  }
+}

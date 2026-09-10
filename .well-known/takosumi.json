@@ -24,6 +24,25 @@
             "advanced": true
           },
           {
+            "name": "auth_password_hash",
+            "source": {
+              "kind": "user"
+            },
+            "role": "initial_secret",
+            "type": "string",
+            "secret": true,
+            "required": false,
+            "label": {
+              "ja": "初期パスワード",
+              "en": "Initial password"
+            },
+            "helper": {
+              "ja": "サービスの設定画面から秘密値として保存します。PBKDF2ハッシュまたは十分に強い初期パスワードを指定してください。初回インストールの通常入力には含めません。",
+              "en": "Save through the service's secret settings. Use a PBKDF2 hash or a strong bootstrap password; do not include it in the initial install's ordinary inputs."
+            },
+            "advanced": true
+          },
+          {
             "name": "app_url",
             "source": {
               "kind": "module_default"
@@ -138,6 +157,14 @@
             "advanced": true
           }
         ],
+        "sourceBuild": {
+          "commands": [
+            {
+              "argv": ["bun", "install", "--frozen-lockfile"]
+            }
+          ],
+          "outputs": ["node_modules/@takosjp/yurucommu-core/migrations"]
+        },
         "features": [
           {
             "id": "notification-push",
