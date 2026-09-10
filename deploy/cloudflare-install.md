@@ -30,12 +30,15 @@ D1 の初期化まで含めるには、次の設定が必要です。現時点�
 
 運用者権限で変更可能な共有設定を明示的に選ぶか、独立した撮影用ホストの設定へ
 この内容を組み込みます。Workspace 所有の設定やコンパイル済みの設定へ、PATCH で
-実行権限を追加することはできません。対象を限定する `sourceSelector` はこの
-ファイルに含まれないため、Git URL と module path をホスト側で別途固定します。
+実行権限を追加することはできません。この設定例は、既存のデフォルトを上書きせず、
+独立したホストで一意の ID を持つ共有 base InstallConfig として登録します。
 
-独立した導入用の base InstallConfig を、対象 Git URL・ルート module `.` と
-結び付けてから利用します。すでにコンパイルされた不変の設定へ権限を後付けせず、
-ホスト側の設定で、上記の post_apply と対応する policy を明示します。選択する
+共有 base 自体には `sourceSelector` を付けません。対象の Capsule、正確な
+SourceSnapshot、選択済みの module `.` を確認し、authority guard を指定した
+`install-config-re-adoptions` でこの base を明示的に選択します。導出された設定の
+Git URL・module・Snapshot が対象に一致することを確認してから、設定変更 Plan へ
+進みます。すでにコンパイルされた不変の設定へ権限を後付けせず、
+ホスト側の base に post_apply と対応する policy を明示します。選択する
 runner が `capsule.lifecycle.command.v1` を提供していることも確認します。
 ホスト側にも、その post_apply を実行する release activator が必要です。
 
@@ -56,7 +59,9 @@ DB 初期化に失敗すると、Apply Run と Capsule はエラーになりま�
 
 ## 検証状態
 
-この設定は現在ローカルでの修正・契約検査段階です。公開リリースや本番環境への
-適用、Takosumi からの新規導入の成功を示すものではありません。実際に使う際は、
-修正版の正確な Git commit を同期し、Plan と適用結果をその commit に対応させて
-記録します。
+撮影用ブランチで契約検査とビルドを通し、独立した撮影用ホストから新規導入を
+確認しました。対象を固定した Plan と Apply の成功に加え、パスワード認証、
+投稿の保存と再読み込みを確認しています。専用の operator 設定を用いた一件の
+確認であり、公開リリースや一般のホストでの導入保証ではありません。実際に使う際は、
+修正版の正確な Git commit とホスト側の設定を確認し、Plan と適用結果をその
+commit に対応させて記録します。
