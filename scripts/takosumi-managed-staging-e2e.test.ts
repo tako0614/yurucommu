@@ -34,6 +34,9 @@ import {
   assertResourceExecutionEvidenceSequence,
   parseResourceExecutionEvidenceResponse,
   proveTakoserverEvidenceCapability,
+  ManagedBrowserCleanupUncertainError,
+  invokeManagedAppSessionOperation,
+  readLiveAccountsSubject,
   readManagedResourceIdentities,
   MANAGED_MODULE_PATH,
   parseConfigurationPlanResponse,
@@ -44,6 +47,7 @@ import {
   readTakosumiDeployReceipt,
   readPrivateFile,
   readPrivateFileForTest,
+  validateManagedSessionCookie,
   STAGING_ENVIRONMENT,
   TAKOFORM_PROVIDER_SOURCE,
   type DestroyAcknowledgementInterval,
@@ -57,10 +61,7 @@ const BASE_ENV = {
   TAKOSUMI_STAGING_URL: "https://app.example.test",
   TAKOSUMI_STAGING_DEPLOY_RECEIPT_FILE: "/run/private/takosumi-receipt.json",
   TAKOSUMI_STAGING_WORKSPACE_ID: "ws_staging",
-  TAKOSUMI_STAGING_PROBE_ACTOR_AP_ID:
-    "https://app.example.test/ap/users/e2e-probe",
   TAKOSUMI_STAGING_SESSION_TOKEN_FILE: "/run/private/takosumi-session",
-  TAKOSUMI_STAGING_SESSION_COOKIE_FILE: "/run/private/yurucommu-session",
   TAKOSERVER_STAGING_URL: "https://api.takoserver.example.test",
   TAKOSERVER_STAGING_ORGANIZATION_ID: "org_staging",
   TAKOSERVER_STAGING_EVIDENCE_CREDENTIAL_FILE:
@@ -440,10 +441,8 @@ describe("Takosumi managed staging contract", () => {
     expect(config.takosumiOrigin).toBe("https://app.example.test");
     expect(config.timeoutMs).toBeGreaterThan(0);
     expect(config.sessionTokenFile).toBe("/run/private/takosumi-session");
-    expect(config.sessionCookieFile).toBe("/run/private/yurucommu-session");
-    expect(config.probeActorApId).toBe(
-      "https://app.example.test/ap/users/e2e-probe",
-    );
+    expect("sessionCookieFile" in config).toBe(false);
+    expect("probeActorApId" in config).toBe(false);
     expect(config.takoserverOwnerOrigin).toBe(
       "https://api.takoserver.example.test",
     );
@@ -480,15 +479,22 @@ describe("Takosumi managed staging contract", () => {
     expect(() =>
       readManagedStagingConfig({
         ...BASE_ENV,
-        TAKOSUMI_STAGING_PROBE_ACTOR_AP_ID: undefined,
+        TAKOSUMI_STAGING_SESSION_COOKIE_FILE: "/run/private/yurucommu-session",
+      }),
+    ).toThrow("SESSION_COOKIE_FILE");
+    expect(() =>
+      readManagedStagingConfig({
+        ...BASE_ENV,
+        TAKOSUMI_STAGING_PROBE_ACTOR_AP_ID:
+          "https://app.example.test/ap/users/e2e-probe",
       }),
     ).toThrow("PROBE_ACTOR_AP_ID");
     expect(() =>
       readManagedStagingConfig({
         ...BASE_ENV,
-        TAKOSUMI_STAGING_PROBE_ACTOR_AP_ID: "https://app.example.test/actor",
+        TAKOSUMI_STAGING_PROBE_ACTOR_AP_ID: "",
       }),
-    ).toThrow("/ap/");
+    ).toThrow("PROBE_ACTOR_AP_ID");
     expect(() =>
       readManagedStagingConfig({
         ...BASE_ENV,
@@ -520,6 +526,153 @@ describe("Takosumi managed staging contract", () => {
         TAKOSERVER_STAGING_EVIDENCE_CREDENTIAL_FILE: undefined,
       }),
     ).toThrow("TAKOSERVER_STAGING_EVIDENCE_CREDENTIAL_FILE");
+  });
+
+  test("requires a canonical live Accounts session subject", () => {
+    const expiresAt = Date.now() + 60_000;
+    expect(
+      readLiveAccountsSubject({
+        subject: "tsub_live",
+        createdAt: 0,
+        expiresAt,
+      }),
+    ).toBe("tsub_live");
+    expect(() =>
+      readLiveAccountsSubject({
+        session: null,
+        createdAt: 0,
+        expiresAt,
+      }),
+    ).toThrow("valid live subject");
+    expect(() =>
+      readLiveAccountsSubject({
+        subject: "not-a-subject",
+        createdAt: 0,
+        expiresAt,
+      }),
+    ).toThrow("valid live subject");
+    expect(() =>
+      readLiveAccountsSubject({
+        subject: "tsub_expired",
+        createdAt: 0,
+        expiresAt: Date.now() - 1,
+      }),
+    ).toThrow("timestamps");
+    expect(() =>
+      readLiveAccountsSubject({
+        subject: "tsub_reversed",
+        createdAt: expiresAt + 1,
+        expiresAt,
+      }),
+    ).toThrow("timestamps");
+    expect(() =>
+      readLiveAccountsSubject({
+        subject: "tsub_negative",
+        createdAt: -1,
+        expiresAt,
+      }),
+    ).toThrow("timestamps");
+  });
+
+  test("bounds, cancels, and sanitizes one browser operation", async () => {
+    let calls = 0;
+    let closeCalls = 0;
+    const result = await invokeManagedAppSessionOperation(
+      "Accounts identity preflight",
+      100,
+      async (signal) => {
+        calls += 1;
+        expect(signal.aborted).toBe(false);
+        return "ok";
+      },
+      async () => {
+        closeCalls += 1;
+      },
+    );
+    expect(result).toBe("ok");
+    expect(calls).toBe(1);
+    expect(closeCalls).toBe(0);
+
+    let timedOutCalls = 0;
+    const timeoutEvents: string[] = [];
+    await expect(
+      invokeManagedAppSessionOperation(
+        "application session acquisition",
+        20,
+        (signal) => {
+          timedOutCalls += 1;
+          timeoutEvents.push("operation");
+          signal.addEventListener("abort", () => timeoutEvents.push("abort"), {
+            once: true,
+          });
+          return new Promise<never>(() => undefined);
+        },
+        async () => {
+          timeoutEvents.push("close");
+        },
+      ),
+    ).rejects.toThrow("timed out");
+    expect(timedOutCalls).toBe(1);
+    expect(timeoutEvents).toEqual(["operation", "abort", "close"]);
+
+    const sanitizedFailure = await invokeManagedAppSessionOperation(
+      "application session acquisition",
+      100,
+      async () => {
+        throw new Error("raw browser URL and token must not escape");
+      },
+      async () => undefined,
+    ).catch((error: unknown) => error);
+    expect(sanitizedFailure).toBeInstanceOf(Error);
+    expect((sanitizedFailure as Error).message).toBe(
+      "application session acquisition failed",
+    );
+    expect((sanitizedFailure as Error).message).not.toContain("token");
+
+    const closeFailure = await invokeManagedAppSessionOperation(
+      "application session acquisition",
+      100,
+      async () => {
+        throw new Error("raw browser failure");
+      },
+      async () => {
+        throw new Error("raw close failure");
+      },
+      20,
+    ).catch((error: unknown) => error);
+    expect(closeFailure).toBeInstanceOf(ManagedBrowserCleanupUncertainError);
+    expect((closeFailure as Error).message).toBe(
+      "managed browser shutdown was not confirmed",
+    );
+
+    const closeTimeout = await invokeManagedAppSessionOperation(
+      "application session acquisition",
+      100,
+      async () => {
+        throw new Error("raw browser timeout");
+      },
+      () => new Promise<void>(() => undefined),
+      20,
+    ).catch((error: unknown) => error);
+    expect(closeTimeout).toBeInstanceOf(ManagedBrowserCleanupUncertainError);
+  });
+
+  test("accepts only one in-memory app session cookie header", () => {
+    expect(
+      validateManagedSessionCookie({ sessionCookie: "session=opaque_1" }),
+    ).toBe("session=opaque_1");
+    for (const value of [
+      " session=opaque_1",
+      "session=opaque_1 ",
+      "session=opaque_1; other=value",
+      "session=opaque_1\nother=value",
+      "takosumi_session=opaque_1",
+      "session=",
+    ]) {
+      expect(() =>
+        validateManagedSessionCookie({ sessionCookie: value }),
+      ).toThrow("invalid session cookie");
+    }
   });
 
   test("derives an exact single Takoform binding for the managed module", () => {
@@ -2335,6 +2488,18 @@ describe("Takosumi managed staging contract", () => {
     expect(source).toContain("/current-resource-inventory");
     expect(source).toContain("runFunctionalProbe");
     expect(source).toContain("requireOidc: true");
+    expect(source).toContain("export async function runManagedStagingE2E");
+    expect(source).toContain("export interface ManagedAppSessionOperator");
+    expect(source).toContain("close(): Promise<void>");
+    expect(source).toContain("ManagedBrowserCleanupUncertainError");
+    expect(source).toContain("/api/v1/account/session/me");
+    expect(source).toContain("preflightAccountsIdentity");
+    expect(source).toContain("acquireAppSession");
+    expect(source).toContain("/api/auth/callback/takos");
+    expect(source).toContain("managed staging E2E is a library");
+    expect(source).not.toContain("expectedActorApId:");
+    expect(source).not.toContain("sessionCookieFile");
+    expect(source).not.toContain("probeActorApId");
     expect(source).toContain("x-takosumi-version-id");
     expect(source).toContain("Idempotency-Key");
     expect(source).toContain("client.requestJson(path, options)");

@@ -31,6 +31,8 @@ const DEFAULT_SOURCE_PATH = ".";
 const DEFAULT_TIMEOUT_SECONDS = 20 * 60;
 const MIN_TIMEOUT_SECONDS = 30;
 const MAX_TIMEOUT_SECONDS = 24 * 60 * 60;
+const DEFAULT_MANAGED_BROWSER_CLEANUP_TIMEOUT_MS = 5_000;
+const MAX_MANAGED_BROWSER_CLEANUP_TIMEOUT_MS = 60_000;
 const POLL_DELAY_MS = 1_000;
 const MAX_SOURCE_URL_BYTES = 2_048;
 const MAX_REF_BYTES = 512;
@@ -201,8 +203,6 @@ export interface ManagedStagingConfig {
   readonly takoserverEvidenceCredentialFile: string;
   readonly workspaceId: string;
   readonly sessionTokenFile: string;
-  readonly sessionCookieFile: string;
-  readonly probeActorApId: string;
   readonly sourceUrl: string;
   readonly sourceRef: string;
   readonly sourcePath: string;
@@ -210,6 +210,60 @@ export interface ManagedStagingConfig {
   readonly capsuleName: string;
   readonly providerConnectionId: string;
   readonly timeoutMs: number;
+}
+
+/**
+ * Browser-owned application-session operations used by the managed staging
+ * runner.  The runner passes no bearer or browser credential to this
+ * operator; the wrapper owns the browser context and returns only the app
+ * cookie needed by the product smoke.
+ */
+export interface ManagedAppSessionOperator {
+  /** Idempotently close the browser context and acknowledge shutdown. */
+  close(): Promise<void>;
+  preflightAccountsIdentity(input: {
+    readonly accountsOrigin: string;
+    readonly expectedSubject: string;
+    readonly signal: AbortSignal;
+  }): Promise<void>;
+  acquireAppSession(input: {
+    readonly launchUrl: string;
+    readonly callbackUrl: string;
+    readonly expectedSubject: string;
+    readonly signal: AbortSignal;
+  }): Promise<{ readonly sessionCookie: string }>;
+}
+
+export interface ManagedStagingE2EResult {
+  readonly kind: "yurucommu.takosumi-managed-staging-e2e@v1";
+  readonly status: "passed";
+  readonly environment: typeof STAGING_ENVIRONMENT;
+  readonly provider: {
+    readonly source: typeof TAKOFORM_PROVIDER_SOURCE;
+    readonly version: typeof TAKOFORM_PROVIDER_VERSION;
+  };
+  readonly graph: {
+    readonly resources: number;
+    readonly kinds: number;
+  };
+  readonly takosumi: {
+    readonly deployVersionId: string;
+    readonly predecessorVersionId: string;
+    readonly deploySourceCommit: string;
+    readonly planConfirmation: string;
+    readonly deployReceiptDigest: string;
+    readonly installPlanRunId: string;
+    readonly configurationPlanRunId: string;
+    readonly applyRunId: string;
+    readonly destroyPlanRunId: string;
+    readonly destroyApplyRunId: string;
+  };
+  readonly sourceSnapshot: SourceSnapshotEvidence | undefined;
+  readonly checks: readonly {
+    readonly name: string;
+    readonly status: "passed";
+  }[];
+  readonly cleanupVerified: true;
 }
 
 interface TakosumiDeployReceiptBase {
@@ -398,11 +452,161 @@ class MutationUncertainError extends Error {
   }
 }
 
+/**
+ * Browser shutdown was not acknowledged after a failed managed operation.
+ * This is an uncertainty fence for cleanup, not proof that a product
+ * mutation occurred.
+ */
+export class ManagedBrowserCleanupUncertainError extends Error {
+  constructor() {
+    super("managed browser shutdown was not confirmed");
+    this.name = "ManagedBrowserCleanupUncertainError";
+  }
+}
+
 function isMutationUncertain(value: unknown): boolean {
   return (
     value instanceof MutationUncertainError ||
+    value instanceof ManagedBrowserCleanupUncertainError ||
     (value instanceof ApiRequestError && value.uncertain)
   );
+}
+
+const TAKOSUMI_SUBJECT_PATTERN = /^tsub_[^\s]+$/u;
+
+/** Read only the canonical live subject; never include the value in errors. */
+export function readLiveAccountsSubject(value: unknown): string {
+  if (!isRecord(value)) {
+    throw new Error(
+      "Takosumi account session did not contain a valid live subject",
+    );
+  }
+  if (Object.prototype.hasOwnProperty.call(value, "session")) {
+    throw new Error(
+      "Takosumi account session did not contain a valid live subject",
+    );
+  }
+  const subject = value.subject;
+  if (
+    typeof subject !== "string" ||
+    subject.length > MAX_ID_BYTES ||
+    !TAKOSUMI_SUBJECT_PATTERN.test(subject)
+  ) {
+    throw new Error(
+      "Takosumi account session did not contain a valid live subject",
+    );
+  }
+  const createdAt = value.createdAt;
+  const expiresAt = value.expiresAt;
+  if (
+    !Number.isSafeInteger(createdAt) ||
+    !Number.isSafeInteger(expiresAt) ||
+    Number(createdAt) < 0 ||
+    Number(expiresAt) <= Date.now() ||
+    Number(createdAt) > Number(expiresAt)
+  ) {
+    throw new Error("Takosumi account session timestamps were invalid");
+  }
+  return subject;
+}
+
+/**
+ * Invoke one browser operation exactly once with a bounded, abortable budget.
+ * A timeout or browser rejection is deliberately collapsed to a constant
+ * message so subjects, tokens, and browser diagnostics cannot reach logs.
+ */
+export async function invokeManagedAppSessionOperation<T>(
+  label: "Accounts identity preflight" | "application session acquisition",
+  timeoutMs: number,
+  operation: (signal: AbortSignal) => Promise<T>,
+  close: () => Promise<void>,
+  cleanupTimeoutMs = DEFAULT_MANAGED_BROWSER_CLEANUP_TIMEOUT_MS,
+): Promise<T> {
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1) {
+    throw new Error("managed app operation timeout was invalid");
+  }
+  if (
+    !Number.isSafeInteger(cleanupTimeoutMs) ||
+    cleanupTimeoutMs < 1 ||
+    cleanupTimeoutMs > MAX_MANAGED_BROWSER_CLEANUP_TIMEOUT_MS
+  ) {
+    throw new Error("managed browser cleanup timeout was invalid");
+  }
+  const controller = new AbortController();
+  let timedOut = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+      reject(new Error("managed app operation timed out"));
+    }, timeoutMs);
+  });
+  // Promise.race attaches a rejection handler to this promise, so a browser
+  // implementation that ignores AbortSignal cannot create an unhandled raw
+  // diagnostic after the bounded timeout has returned.
+  const invocation = Promise.resolve().then(() => operation(controller.signal));
+  try {
+    return await Promise.race([invocation, timeout]);
+  } catch {
+    const operationTimedOut = timedOut;
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      timer = undefined;
+    }
+    controller.abort();
+    try {
+      await awaitManagedBrowserClose(close, cleanupTimeoutMs);
+    } catch {
+      throw new ManagedBrowserCleanupUncertainError();
+    }
+    throw new Error(
+      operationTimedOut ? `${label} timed out` : `${label} failed`,
+    );
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+    controller.abort();
+  }
+}
+
+export async function awaitManagedBrowserClose(
+  close: () => Promise<void>,
+  timeoutMs = DEFAULT_MANAGED_BROWSER_CLEANUP_TIMEOUT_MS,
+): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error("managed browser cleanup timed out")),
+      timeoutMs,
+    );
+  });
+  const closing = Promise.resolve().then(close);
+  try {
+    await Promise.race([closing, timeout]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+/** Require exactly one product session cookie pair, retained only in memory. */
+export function validateManagedSessionCookie(value: unknown): string {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    Array.isArray(value) ||
+    typeof (value as JsonRecord).sessionCookie !== "string"
+  ) {
+    throw new Error(
+      "managed app session acquisition returned an invalid session cookie",
+    );
+  }
+  const cookie = (value as JsonRecord).sessionCookie as string;
+  if (!/^session=[A-Za-z0-9._~-]{1,4096}$/u.test(cookie)) {
+    throw new Error(
+      "managed app session acquisition returned an invalid session cookie",
+    );
+  }
+  return cookie;
 }
 
 /**
@@ -441,17 +645,17 @@ export function readManagedStagingConfig(
     environment.TAKOSUMI_STAGING_WORKSPACE_ID,
     "TAKOSUMI_STAGING_WORKSPACE_ID",
   );
-  const probeActorApId = readActorApId(
-    environment.TAKOSUMI_STAGING_PROBE_ACTOR_AP_ID,
-    "TAKOSUMI_STAGING_PROBE_ACTOR_AP_ID",
-  );
   const sessionTokenFile = requiredAbsolutePath(
     environment.TAKOSUMI_STAGING_SESSION_TOKEN_FILE,
     "TAKOSUMI_STAGING_SESSION_TOKEN_FILE",
   );
-  const sessionCookieFile = requiredAbsolutePath(
-    environment.TAKOSUMI_STAGING_SESSION_COOKIE_FILE,
+  rejectObsoleteManagedStagingEnv(
+    environment,
     "TAKOSUMI_STAGING_SESSION_COOKIE_FILE",
+  );
+  rejectObsoleteManagedStagingEnv(
+    environment,
+    "TAKOSUMI_STAGING_PROBE_ACTOR_AP_ID",
   );
   const sourceUrl = readGitSourceUrl(environment.TAKOSUMI_STAGING_SOURCE_URL);
   const sourceRef = boundedText(
@@ -513,8 +717,6 @@ export function readManagedStagingConfig(
     takoserverEvidenceCredentialFile,
     workspaceId,
     sessionTokenFile,
-    sessionCookieFile,
-    probeActorApId,
     sourceUrl,
     sourceRef,
     sourcePath,
@@ -523,6 +725,15 @@ export function readManagedStagingConfig(
     providerConnectionId,
     timeoutMs: timeoutSeconds * 1_000,
   };
+}
+
+function rejectObsoleteManagedStagingEnv(
+  environment: Environment,
+  name: string,
+): void {
+  if (environment[name] !== undefined) {
+    throw new Error(`${name} is obsolete; use the managed browser wrapper`);
+  }
 }
 
 /** Managed Takoform must remain a single exact 4.0.0 Provider requirement. */
@@ -1002,8 +1213,10 @@ function normalizeProviderRequirement(
   };
 }
 
-async function main(): Promise<void> {
-  const config = readManagedStagingConfig(process.env);
+export async function runManagedStagingE2E(
+  config: ManagedStagingConfig,
+  sessionOperator: ManagedAppSessionOperator,
+): Promise<ManagedStagingE2EResult> {
   // Prove that the configured URL is the owner-deployed staging Worker before
   // opening either private credential file.  A DNS/route mix-up must never
   // receive a bearer token or OIDC cookie.
@@ -1057,6 +1270,28 @@ async function main(): Promise<void> {
   let mutationUncertain = false;
 
   try {
+    // Resolve the installing principal from the canonical Accounts session
+    // mirror before any InstallPlan or graph mutation.  A PAT (or any other
+    // bearer that is not an account session) returns `{ session: null }` and
+    // therefore cannot be translated into a browser identity.
+    const accountSession = await api.requestJson("/api/v1/account/session/me", {
+      expectedStatus: 200,
+    });
+    const expectedSubject = readLiveAccountsSubject(accountSession);
+    checks.push("accounts.session.me");
+    await invokeManagedAppSessionOperation(
+      "Accounts identity preflight",
+      config.timeoutMs,
+      (signal) =>
+        sessionOperator.preflightAccountsIdentity({
+          accountsOrigin: config.takosumiOrigin,
+          expectedSubject,
+          signal,
+        }),
+      () => sessionOperator.close(),
+    );
+    checks.push("accounts.identity.preflight");
+
     const recipes = await api.requestJson("/api/v1/credential-recipes", {
       expectedStatus: 200,
     });
@@ -1254,23 +1489,28 @@ async function main(): Promise<void> {
     checks.push("interface.launch_url.ui.open");
     lifecycle = "functional-probe";
 
-    // Qualify the launch host and pin its DNS answer before the OIDC cookie is
-    // handed to any product request.  The Takosumi API transport is a
-    // different origin and is never reused for the product host.
+    // Qualify the launch host and pin its DNS answer before the browser-owned
+    // OIDC flow is started.  The Takosumi API transport is a different origin
+    // and is never reused for the product host.  The browser operator receives
+    // no API bearer; it returns only the product session cookie in memory.
     const launchTransport = await createPinnedHttpTransport(launchUrl);
-    const sessionCookie = await readSecretFile(
-      config.sessionCookieFile,
-      "Yurucommu OIDC session cookie",
+    const callbackUrl = new URL("/api/auth/callback/takos", launchUrl).href;
+    const acquired = await invokeManagedAppSessionOperation(
+      "application session acquisition",
+      config.timeoutMs,
+      (signal) =>
+        sessionOperator.acquireAppSession({
+          launchUrl,
+          callbackUrl,
+          expectedSubject,
+          signal,
+        }),
+      () => sessionOperator.close(),
     );
-    if (!sessionCookie.startsWith("session=")) {
-      throw new Error(
-        "Yurucommu session cookie file must contain a session cookie from the real OIDC callback",
-      );
-    }
+    const sessionCookie = validateManagedSessionCookie(acquired);
     const probe = await runFunctionalProbe({
       launchUrl,
       sessionCookie,
-      expectedActorApId: config.probeActorApId,
       transport: launchTransport,
       requireOidc: true,
     });
@@ -1531,36 +1771,34 @@ async function main(): Promise<void> {
     throw new Error("managed staging E2E did not create a cleanup boundary");
   }
 
-  console.log(
-    JSON.stringify({
-      kind: "yurucommu.takosumi-managed-staging-e2e@v1",
-      status: "passed",
-      environment: STAGING_ENVIRONMENT,
-      provider: {
-        source: TAKOFORM_PROVIDER_SOURCE,
-        version: TAKOFORM_PROVIDER_VERSION,
-      },
-      graph: {
-        resources: CURRENT_RESOURCE_GRAPH.length,
-        kinds: [...new Set(CURRENT_RESOURCE_TYPES)].length,
-      },
-      takosumi: {
-        deployVersionId: takosumiReceipt.deployedVersionId,
-        predecessorVersionId: takosumiReceipt.predecessorVersionId,
-        deploySourceCommit: takosumiReceipt.sourceCommit,
-        planConfirmation: takosumiReceipt.planConfirmation,
-        deployReceiptDigest: takosumiReceipt.fileDigest,
-        installPlanRunId,
-        configurationPlanRunId,
-        applyRunId,
-        destroyPlanRunId,
-        destroyApplyRunId,
-      },
-      sourceSnapshot: sourceSnapshotEvidence,
-      checks: checks.map((name) => ({ name, status: "passed" })),
-      cleanupVerified: true,
-    }),
-  );
+  return {
+    kind: "yurucommu.takosumi-managed-staging-e2e@v1",
+    status: "passed",
+    environment: STAGING_ENVIRONMENT,
+    provider: {
+      source: TAKOFORM_PROVIDER_SOURCE,
+      version: TAKOFORM_PROVIDER_VERSION,
+    },
+    graph: {
+      resources: CURRENT_RESOURCE_GRAPH.length,
+      kinds: [...new Set(CURRENT_RESOURCE_TYPES)].length,
+    },
+    takosumi: {
+      deployVersionId: takosumiReceipt.deployedVersionId,
+      predecessorVersionId: takosumiReceipt.predecessorVersionId,
+      deploySourceCommit: takosumiReceipt.sourceCommit,
+      planConfirmation: takosumiReceipt.planConfirmation,
+      deployReceiptDigest: takosumiReceipt.fileDigest,
+      installPlanRunId,
+      configurationPlanRunId,
+      applyRunId,
+      destroyPlanRunId,
+      destroyApplyRunId,
+    },
+    sourceSnapshot: sourceSnapshotEvidence,
+    checks: checks.map((name) => ({ name, status: "passed" as const })),
+    cleanupVerified: true,
+  };
 }
 
 async function createInstallPlan(
@@ -5601,7 +5839,10 @@ export async function proveTakoserverEvidenceCapability(
   );
 }
 
-async function readSecretFile(path: string, label: string): Promise<string> {
+export async function readSecretFile(
+  path: string,
+  label: string,
+): Promise<string> {
   return readPrivateFile(path, label, false);
 }
 
@@ -5879,31 +6120,6 @@ function readOrigin(value: string | undefined, label: string): string {
   )
     throw new Error(`${label} must be a bare origin without credentials`);
   return url.origin;
-}
-
-function readActorApId(value: string | undefined, label: string): string {
-  const raw = boundedText(value, label, MAX_SOURCE_URL_BYTES);
-  let url: URL;
-  try {
-    url = new URL(raw);
-  } catch {
-    throw new Error(`${label} must be an absolute ActivityPub actor URL`);
-  }
-  const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
-  if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) {
-    throw new Error(`${label} must use HTTPS unless loopback`);
-  }
-  if (
-    url.username ||
-    url.password ||
-    url.search ||
-    url.hash ||
-    url.pathname === "/" ||
-    !url.pathname.startsWith("/ap/")
-  ) {
-    throw new Error(`${label} must be a credential-free /ap/ actor URL`);
-  }
-  return url.origin + url.pathname;
 }
 
 function readGitSourceUrl(value: string | undefined): string {
@@ -6225,4 +6441,8 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-if (import.meta.main) await main();
+if (import.meta.main) {
+  throw new Error(
+    "managed staging E2E is a library; invoke scripts/takosumi-managed-staging-browser.ts",
+  );
+}

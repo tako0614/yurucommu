@@ -176,6 +176,177 @@ describe("post-deploy cleanup readback", () => {
     );
   });
 
+  test("qualifies a canonical managed OIDC owner before probing posts", async () => {
+    const calls: string[] = [];
+    const origin = "https://app.example.test";
+    const actorApId = `${origin}/ap/users/e2e-probe`;
+    const result = await runFunctionalProbe({
+      launchUrl: `${origin}/`,
+      sessionCookie: "session=oidc-probe",
+      requireOidc: true,
+      transport: probeTransport(calls, undefined, {
+        origin,
+        providers: {
+          providers: [{ id: "takos" }],
+          password_enabled: false,
+        },
+        me: {
+          actor: { ap_id: actorApId, role: "owner" },
+          provider: "takos",
+          has_takos_access: true,
+        },
+        postAuthorApId: actorApId,
+      }),
+    });
+    expect(result.checks).toContain("auth.providers.oidc");
+    expect(result.checks).toContain("auth.oidc-session");
+    expect(calls).toContain("POST /api/posts");
+  });
+
+  test("requires an explicit disabled password state before managed mutations", async () => {
+    for (const password_enabled of [undefined, null, true, "false", 0]) {
+      const calls: string[] = [];
+      const origin = "https://app.example.test";
+      await expect(
+        runFunctionalProbe({
+          launchUrl: origin,
+          sessionCookie: "session=oidc-probe",
+          requireOidc: true,
+          transport: probeTransport(calls, undefined, {
+            origin,
+            providers: { providers: [{ id: "takos" }], password_enabled },
+          }),
+        }),
+      ).rejects.toThrow("password authentication to be disabled");
+      expect(calls).not.toContain("POST /api/posts");
+    }
+  });
+
+  test("rejects managed identity drift before dispatching a post", async () => {
+    const origin = "https://app.example.test";
+    const validActor = `${origin}/ap/users/e2e-probe`;
+    const cases: readonly [string, Record<string, unknown>][] = [
+      ["provider", { provider: "google", has_takos_access: true }],
+      ["access", { provider: "takos", has_takos_access: false }],
+      ["role", { provider: "takos", has_takos_access: true, role: "member" }],
+      [
+        "origin",
+        {
+          provider: "takos",
+          has_takos_access: true,
+          ap_id: "https://other.example.test/ap/users/e2e-probe",
+        },
+      ],
+      [
+        "path",
+        {
+          provider: "takos",
+          has_takos_access: true,
+          ap_id: `${origin}/ap/groups/e2e-probe`,
+        },
+      ],
+      [
+        "alias",
+        {
+          provider: "takos",
+          has_takos_access: true,
+          ap_id: `${origin}/ap/users/e2e-probe/`,
+        },
+      ],
+      [
+        "encoded-alias",
+        {
+          provider: "takos",
+          has_takos_access: true,
+          ap_id: `${origin}/ap/users/%65%32e-probe`,
+        },
+      ],
+      [
+        "query",
+        {
+          provider: "takos",
+          has_takos_access: true,
+          ap_id: `${origin}/ap/users/e2e-probe?next=/`,
+        },
+      ],
+      [
+        "fragment",
+        {
+          provider: "takos",
+          has_takos_access: true,
+          ap_id: `${origin}/ap/users/e2e-probe#fragment`,
+        },
+      ],
+      [
+        "credentials",
+        {
+          provider: "takos",
+          has_takos_access: true,
+          ap_id: `https://user:secret@app.example.test/ap/users/e2e-probe`,
+        },
+      ],
+    ];
+
+    for (const [label, override] of cases) {
+      const calls: string[] = [];
+      const meActor = {
+        ap_id: typeof override.ap_id === "string" ? override.ap_id : validActor,
+        role: typeof override.role === "string" ? override.role : "owner",
+      };
+      const me = {
+        actor: meActor,
+        provider: override.provider ?? "takos",
+        has_takos_access: override.has_takos_access ?? true,
+      };
+      const error = await runFunctionalProbe({
+        launchUrl: `${origin}/`,
+        sessionCookie: "session=oidc-probe",
+        requireOidc: true,
+        transport: probeTransport(calls, undefined, {
+          origin,
+          providers: {
+            providers: [{ id: "takos" }],
+            password_enabled: false,
+          },
+          me,
+          postAuthorApId: validActor,
+        }),
+      }).catch((value) => value);
+      if (!(error instanceof Error)) {
+        throw new Error(`${label} managed identity case did not reject`);
+      }
+      expect(error).toBeInstanceOf(Error);
+      expect(calls).not.toContain("POST /api/posts");
+    }
+  });
+
+  test("does not expose the managed OIDC session cookie on identity failure", async () => {
+    const calls: string[] = [];
+    const sessionCookie = "session=oidc-cookie-secret";
+    const error = await runFunctionalProbe({
+      launchUrl: "https://app.example.test/",
+      sessionCookie,
+      requireOidc: true,
+      transport: probeTransport(calls, undefined, {
+        origin: "https://app.example.test",
+        providers: {
+          providers: [{ id: "takos" }],
+          password_enabled: false,
+        },
+        me: {
+          actor: {
+            ap_id: "https://other.example.test/ap/users/e2e-probe",
+            role: "owner",
+          },
+          provider: "takos",
+          has_takos_access: true,
+        },
+      }),
+    }).catch((value) => value);
+    expect(String(error)).not.toContain(sessionCookie);
+    expect(calls).not.toContain("POST /api/posts");
+  });
+
   test("does not issue another cleanup mutation after a malformed DELETE", async () => {
     const calls: string[] = [];
     const transport = probeTransport(calls, (path, method) => {
@@ -374,9 +545,16 @@ function probeTransport(
     method: string,
     init: RequestInit,
   ) => Response | undefined = () => undefined,
+  options: {
+    readonly origin?: string;
+    readonly providers?: Record<string, unknown>;
+    readonly me?: Record<string, unknown>;
+    readonly postAuthorApId?: string;
+  } = {},
 ) {
   let postContent = "";
-  const origin = "http://127.0.0.1:8787";
+  const origin = options.origin ?? "http://127.0.0.1:8787";
+  const postAuthorApId = options.postAuthorApId ?? `${origin}/ap/users/probe`;
   return {
     origin,
     async request(url: URL, init: RequestInit = {}) {
@@ -395,10 +573,10 @@ function probeTransport(
         return jsonResponse({ version: "1" });
       }
       if (method === "GET" && path === "/api/auth/providers") {
-        return jsonResponse({ password_enabled: true });
+        return jsonResponse(options.providers ?? { password_enabled: true });
       }
       if (method === "GET" && path === "/api/auth/me") {
-        return jsonResponse({ actor: { ap_id: `${origin}/ap/users/probe` } });
+        return jsonResponse(options.me ?? { actor: { ap_id: postAuthorApId } });
       }
       if (method === "GET" && path === "/api/recommendations/users") {
         return jsonResponse({ users: [] });
@@ -410,7 +588,7 @@ function probeTransport(
           ap_id: `${origin}/ap/notes/post-1`,
           type: "Note",
           author: {
-            ap_id: `${origin}/ap/users/probe`,
+            ap_id: postAuthorApId,
             username: "probe",
             preferred_username: "probe",
             name: null,

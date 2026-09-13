@@ -37,7 +37,7 @@ export interface FunctionalProbeOptions {
   readonly transport?: PinnedHttpTransport;
   /** Existing session cookie obtained through the real configured provider. */
   readonly sessionCookie?: string;
-  /** Exact actor identity that owns the disposable staging probe session. */
+  /** Exact actor identity for the disposable direct-install probe session. */
   readonly expectedActorApId?: string;
   /** Password is retained only for the direct-install smoke lane. */
   readonly password?: string;
@@ -171,14 +171,18 @@ export async function runFunctionalProbe(
     if (!isRecord(me.actor) || typeof me.actor.ap_id !== "string") {
       throw new Error("authenticated actor response is invalid");
     }
-    actorApId = me.actor.ap_id;
-    if (
-      options.expectedActorApId !== undefined &&
-      actorApId !== options.expectedActorApId
-    ) {
-      throw new Error(
-        "authenticated actor did not match the exact disposable staging probe actor",
-      );
+    if (options.requireOidc) {
+      actorApId = assertManagedOidcIdentity(me, context.origin);
+    } else {
+      actorApId = me.actor.ap_id;
+      if (
+        options.expectedActorApId !== undefined &&
+        actorApId !== options.expectedActorApId
+      ) {
+        throw new Error(
+          "authenticated actor did not match the exact disposable staging probe actor",
+        );
+      }
     }
     checks.push(options.requireOidc ? "auth.oidc-session" : "auth.me");
 
@@ -1305,7 +1309,7 @@ function jsonHeaders(context: ProbeContext): Record<string, string> {
 }
 
 function assertManagedOidcProviders(value: JsonRecord): void {
-  if (value.password_enabled === true) {
+  if (value.password_enabled !== false) {
     throw new Error(
       "managed OIDC probe requires password authentication to be disabled",
     );
@@ -1320,6 +1324,85 @@ function assertManagedOidcProviders(value: JsonRecord): void {
       "managed OIDC probe did not expose only the Takosumi Accounts provider",
     );
   }
+}
+
+/**
+ * The managed lane is authorized by the app-owned session established by the
+ * Takosumi Accounts callback.  The `/me` response is the only product-owned
+ * readback of that session, so qualify it completely before dispatching any
+ * disposable post mutation.  The Accounts subject is intentionally not
+ * compared with the app actor id: Core derives that id from its own username
+ * resolution and the app origin.
+ */
+function assertManagedOidcIdentity(
+  value: JsonRecord,
+  launchOrigin: string,
+): string {
+  if (value.provider !== "takos") {
+    throw new Error(
+      "managed OIDC session did not report the Takosumi Accounts provider",
+    );
+  }
+  if (value.has_takos_access !== true) {
+    throw new Error(
+      "managed OIDC session did not report Takosumi Accounts access",
+    );
+  }
+  const actor = parseRecord(value.actor, "authenticated actor response");
+  if (actor.role !== "owner") {
+    throw new Error("managed OIDC session actor was not the app owner");
+  }
+  if (typeof actor.ap_id !== "string") {
+    throw new Error("managed OIDC session actor AP ID was invalid");
+  }
+
+  const actorApId = actor.ap_id;
+  let actorUrl: URL;
+  try {
+    actorUrl = new URL(actorApId);
+  } catch {
+    throw new Error("managed OIDC session actor AP ID was not a canonical URL");
+  }
+  if (
+    actorUrl.protocol !== "https:" ||
+    actorUrl.origin !== launchOrigin ||
+    actorUrl.username ||
+    actorUrl.password ||
+    actorUrl.search ||
+    actorUrl.hash
+  ) {
+    throw new Error(
+      "managed OIDC session actor AP ID was not a canonical HTTPS URL under the launch origin",
+    );
+  }
+
+  const actorPathPrefix = "/ap/users/";
+  if (!actorUrl.pathname.startsWith(actorPathPrefix)) {
+    throw new Error(
+      "managed OIDC session actor AP ID was not rooted at /ap/users",
+    );
+  }
+  const segment = actorUrl.pathname.slice(actorPathPrefix.length);
+  if (
+    !segment ||
+    segment === "." ||
+    segment === ".." ||
+    !/^[A-Za-z0-9._~!$&'()*+,;=:@-]+$/u.test(segment)
+  ) {
+    throw new Error(
+      "managed OIDC session actor AP ID did not contain one valid path segment",
+    );
+  }
+
+  // URL parsing normalizes dot segments, default ports, escaped aliases, and
+  // host casing.  Requiring the response to equal its serialized form keeps
+  // those aliases from passing the origin/path check above.
+  if (actorApId !== actorUrl.href) {
+    throw new Error(
+      "managed OIDC session actor AP ID was not in canonical URL form",
+    );
+  }
+  return actorApId;
 }
 
 function requireHttpUrl(value: string, label: string): URL {

@@ -330,17 +330,20 @@ The repository also carries an owner-safe staging harness for the managed
 Takoserver path. It exercises the real Git install-plan coordinator, selects
 the exact `ProviderConnection`/`CredentialRecipe` tuple for the selected module,
 reviews and applies the plan, checks the value-free 15-resource inventory and
-the resolved `launch_url`/`ui.open` launcher, then uses a session cookie minted
-by the configured Takosumi Accounts OIDC callback for the authenticated
-Yurucommu probe. Destroy is attempted after a known-safe lifecycle phase and
+the resolved `launch_url`/`ui.open` launcher, then opens that fresh app in a real
+browser. The app's normal login redirects to Takosumi Accounts and returns to
+the declared `/api/auth/callback/takos` callback. Only the session minted by
+that callback is used for the authenticated Yurucommu probe. Destroy is
+attempted after a known-safe lifecycle phase and
 the Capsule's Output and ProviderBindingSet must be absent afterwards; a
 post-dispatch lost acknowledgement refuses automatic destroy until the Run is
 reconciled.
 
 The harness is staging-only and has no production switch. It reads the
-Takosumi bearer token and the real Yurucommu OIDC session cookie from private
-files; neither value is accepted in argv, logged, or written to the evidence
-report. Before either credential file is opened, it probes the bare Takosumi
+Takosumi account-session bearer and a separately supplied Accounts browser
+cookie from private files; neither value is accepted in argv, logged, or
+written to the evidence report. It does not accept a pre-existing app cookie.
+Before either credential file is opened, it probes the bare Takosumi
 origin and requires an owner-supplied ready staging receipt to match the exact
 `x-takosumi-version-id` response header. It accepts the current
 `takosumi.platform-worker-release-evidence@v3` and historical `@v2` formats,
@@ -359,8 +362,30 @@ A managed `deploy/takoform` run requires one exact Provider
 Provider `4.0.0`; the managed harness rejects the repository root module because
 it is a different graph. The owner must also supply a separate Takoserver
 origin, Organization id, and read-only execution-evidence credential file.
-The OIDC session is pinned to the exact `/ap/` actor in
-`TAKOSUMI_STAGING_PROBE_ACTOR_AP_ID` for post-author identity only. Notes CRUD
+Before creating an InstallPlan, both the API session and the browser cookie
+must resolve to the same live subject through `/api/v1/account/session/me`.
+A PAT is not an account session and cannot be substituted. The browser cookie
+file contains one `takosumi_session=sess_...` cookie pair from a genuine
+Accounts login, scoped to the selected Takosumi origin. The API bearer is
+never injected into the browser.
+
+Use the installed Chromium/Chrome executable selected by
+`TAKOSUMI_STAGING_BROWSER_EXECUTABLE`; the pinned `playwright-core` development
+dependency does not download a browser. The wrapper uses one isolated,
+non-persistent browser context, verifies TLS, restricts navigation to the two
+selected origins, and closes the browser in `finally`. Do not enable `DEBUG`
+or `PWDEBUG`: browser diagnostics can expose authorization URLs and cookies.
+Browser/session acquisition failure after confirmed Apply follows the existing
+Destroy boundary only after browser shutdown is acknowledged. An unknown Apply
+outcome or unconfirmed browser shutdown refuses automatic cleanup.
+
+The authenticated `/api/auth/me` response must identify provider `takos`,
+Takos access, an owner actor, and a canonical `/ap/users/…` actor ID under the
+exact assigned app origin. Its observed actor ID is then used for post-author
+custody. No app actor URL can be supplied before Apply; Accounts subject and
+app actor ID are different identities. The old
+`TAKOSUMI_STAGING_SESSION_COOKIE_FILE` and
+`TAKOSUMI_STAGING_PROBE_ACTOR_AP_ID` inputs are rejected. Notes CRUD
 is disabled in this probe until an owner-published, pinned `/api/notes/me`
 contract or run-scoped actor boundary exists; no note is created or deleted.
 
@@ -371,9 +396,9 @@ TAKOSERVER_STAGING_URL=https://api.takoserver.example.test \
 TAKOSERVER_STAGING_ORGANIZATION_ID=org_staging \
 TAKOSERVER_STAGING_EVIDENCE_CREDENTIAL_FILE=/run/private/takoserver-evidence-token \
 TAKOSUMI_STAGING_WORKSPACE_ID=ws_staging \
-TAKOSUMI_STAGING_PROBE_ACTOR_AP_ID=https://app.example.test/ap/users/e2e-probe \
 TAKOSUMI_STAGING_SESSION_TOKEN_FILE=/run/private/takosumi-session \
-TAKOSUMI_STAGING_SESSION_COOKIE_FILE=/run/private/yurucommu-session \
+TAKOSUMI_STAGING_ACCOUNTS_COOKIE_FILE=/run/private/accounts-browser-cookie \
+TAKOSUMI_STAGING_BROWSER_EXECUTABLE=/usr/bin/chromium \
 TAKOSUMI_STAGING_SOURCE_URL=https://github.com/tako0614/yurucommu.git \
 TAKOSUMI_STAGING_SOURCE_REF=refs/heads/main \
 TAKOSUMI_STAGING_MODULE_PATH=deploy/takoform \
