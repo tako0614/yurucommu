@@ -2006,6 +2006,121 @@ describe("Takosumi managed staging contract", () => {
       );
       await chmod(path, 0o600);
       await expect(readTakosumiDeployReceipt(path)).rejects.toThrow("closed");
+
+      const sourceRepository = "https://github.com/tako0614/takosumi.git";
+      const sourceCommit = "a".repeat(40);
+      const recoverySourceCommit = "b".repeat(40);
+      const v3Receipt = {
+        ...receipt,
+        kind: "takosumi.platform-worker-release-evidence@v3",
+        sourceRepository,
+        sourceCommit,
+        sourceAuthoritySha256:
+          "sha256:87f14252ec5ceb6cd49ab235dd6ed0a2040600e2ff72714b10f2f57cb70a503c",
+        recoverySourceRepository: sourceRepository,
+        recoverySourceCommit,
+        recoverySourceAuthoritySha256:
+          "sha256:61dcb56b59d5ed2d62b8308a4725b3dfaa827cb5d39779b3571a932e9cf1edf0",
+      };
+      await writeFile(path, `${JSON.stringify(v3Receipt)}\n`, {
+        mode: 0o600,
+      });
+      await chmod(path, 0o600);
+      const parsedV3 = await readTakosumiDeployReceipt(path);
+      if (parsedV3.kind !== "takosumi.platform-worker-release-evidence@v3") {
+        throw new Error("v3 receipt was relabeled or not preserved");
+      }
+      expect(parsedV3.sourceRepository).toBe(sourceRepository);
+      expect(parsedV3.sourceCommit).toBe(sourceCommit);
+      expect(parsedV3.recoverySourceCommit).toBe(recoverySourceCommit);
+      const paddedFields = [
+        { field: "sourceCommit", value: ` ${sourceCommit} ` },
+        {
+          field: "sourceAuthoritySha256",
+          value: ` ${v3Receipt.sourceAuthoritySha256} `,
+        },
+        { field: "recoverySourceCommit", value: ` ${recoverySourceCommit} ` },
+        {
+          field: "recoverySourceAuthoritySha256",
+          value: ` ${v3Receipt.recoverySourceAuthoritySha256} `,
+        },
+      ] as const;
+      for (const { field, value } of paddedFields) {
+        await writeFile(
+          path,
+          `${JSON.stringify({ ...v3Receipt, [field]: value })}\n`,
+          { mode: 0o600 },
+        );
+        await chmod(path, 0o600);
+        await expect(readTakosumiDeployReceipt(path)).rejects.toThrow();
+      }
+
+      const writeReceipt = async (value: unknown) => {
+        await writeFile(path, `${JSON.stringify(value)}\n`, { mode: 0o600 });
+        await chmod(path, 0o600);
+      };
+      const expectRejected = async (value: unknown) => {
+        await writeReceipt(value);
+        await expect(readTakosumiDeployReceipt(path)).rejects.toThrow();
+      };
+
+      const v3NoRecovery = { ...v3Receipt };
+      for (const field of [
+        "recoverySourceRepository",
+        "recoverySourceCommit",
+        "recoverySourceAuthoritySha256",
+      ]) {
+        delete (v3NoRecovery as Record<string, unknown>)[field];
+      }
+      await writeReceipt(v3NoRecovery);
+      const parsedNoRecovery = await readTakosumiDeployReceipt(path);
+      if (
+        parsedNoRecovery.kind !== "takosumi.platform-worker-release-evidence@v3"
+      ) {
+        throw new Error("v3 receipt without recovery was not preserved");
+      }
+      expect(parsedNoRecovery.sourceRepository).toBe(sourceRepository);
+
+      const sshRepository = "git@github.com:tako0614/takosumi.git";
+      await writeReceipt({
+        ...v3Receipt,
+        sourceRepository: sshRepository,
+        sourceAuthoritySha256:
+          "sha256:641f62621c8ab21aaff21f6f6b6de3fc82e80d67114a0a3c9182a18f4ae69ada",
+      });
+      const parsedEquivalentSsh = await readTakosumiDeployReceipt(path);
+      if (
+        parsedEquivalentSsh.kind !==
+        "takosumi.platform-worker-release-evidence@v3"
+      ) {
+        throw new Error("equivalent SSH repository spelling was rejected");
+      }
+      expect(parsedEquivalentSsh.sourceRepository).toBe(sshRepository);
+
+      await expectRejected({ ...v3Receipt, alias: "bad" });
+      await expectRejected({
+        ...receipt,
+        kind: "takosumi.platform-worker-release-evidence@v2",
+        sourceRepository,
+        sourceAuthoritySha256: v3Receipt.sourceAuthoritySha256,
+      });
+      const partialRecovery = { ...v3Receipt };
+      delete (partialRecovery as Record<string, unknown>).recoverySourceCommit;
+      await expectRejected(partialRecovery);
+      await expectRejected({
+        ...v3Receipt,
+        sourceAuthoritySha256: `sha256:${"0".repeat(64)}`,
+      });
+      await expectRejected({
+        ...v3Receipt,
+        sourceRepository: ` ${sourceRepository} `,
+      });
+      await expectRejected({
+        ...v3Receipt,
+        recoverySourceRepository: "https://github.com/other/takosumi.git",
+        recoverySourceAuthoritySha256:
+          "sha256:d75cfcaf09985f50e34373ed53439c88eef1545c217afc60c8875c9b2bb002a1",
+      });
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

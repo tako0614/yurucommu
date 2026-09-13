@@ -136,6 +136,17 @@ const PLATFORM_READY_RECEIPT_KEYS = [
   "sourceCommit",
   "status",
 ] as const;
+const PLATFORM_READY_RECEIPT_V3_KEYS = [
+  ...PLATFORM_READY_RECEIPT_KEYS,
+  "sourceAuthoritySha256",
+  "sourceRepository",
+] as const;
+const PLATFORM_READY_RECEIPT_V3_RECOVERY_KEYS = [
+  ...PLATFORM_READY_RECEIPT_V3_KEYS,
+  "recoverySourceAuthoritySha256",
+  "recoverySourceCommit",
+  "recoverySourceRepository",
+] as const;
 /** Bound private-file ancestor inspection so a malformed path cannot force an unbounded walk. */
 const MAX_PRIVATE_PATH_ANCESTORS = 256;
 const MAX_GIT_MARKER_BYTES = 64 * 1024;
@@ -201,8 +212,7 @@ export interface ManagedStagingConfig {
   readonly timeoutMs: number;
 }
 
-export interface TakosumiDeployReceipt {
-  readonly kind: "takosumi.platform-worker-release-evidence@v2";
+interface TakosumiDeployReceiptBase {
   readonly status: "ready";
   readonly environment: "staging";
   readonly sourceCommit: string;
@@ -219,6 +229,28 @@ export interface TakosumiDeployReceipt {
   /** Digest of the private receipt file, never the receipt body itself. */
   readonly fileDigest: string;
 }
+
+type TakosumiDeployReceiptRecovery =
+  | {
+      readonly recoverySourceRepository?: never;
+      readonly recoverySourceCommit?: never;
+      readonly recoverySourceAuthoritySha256?: never;
+    }
+  | {
+      readonly recoverySourceRepository: string;
+      readonly recoverySourceCommit: string;
+      readonly recoverySourceAuthoritySha256: string;
+    };
+
+export type TakosumiDeployReceipt =
+  | (TakosumiDeployReceiptBase & {
+      readonly kind: "takosumi.platform-worker-release-evidence@v2";
+    })
+  | (TakosumiDeployReceiptBase & {
+      readonly kind: "takosumi.platform-worker-release-evidence@v3";
+      readonly sourceRepository: string;
+      readonly sourceAuthoritySha256: string;
+    } & TakosumiDeployReceiptRecovery);
 
 export interface TakosumiDeploymentProof {
   readonly receipt: TakosumiDeployReceipt;
@@ -5134,28 +5166,105 @@ export async function readTakosumiDeployReceipt(
     throw new Error("Takosumi deploy receipt must be a JSON object");
   }
   const actualKeys = Object.keys(value).sort();
-  const requiredKeys = [...PLATFORM_READY_RECEIPT_KEYS].sort();
-  const recoveryKeys = [...requiredKeys, "recoverySourceCommit"].sort();
+  const v2RequiredKeys = [...PLATFORM_READY_RECEIPT_KEYS].sort();
+  const v2RecoveryKeys = [
+    ...PLATFORM_READY_RECEIPT_KEYS,
+    "recoverySourceCommit",
+  ].sort();
+  const v3RequiredKeys = [...PLATFORM_READY_RECEIPT_V3_KEYS].sort();
+  const v3RecoveryKeys = [...PLATFORM_READY_RECEIPT_V3_RECOVERY_KEYS].sort();
+  const isV2 = value.kind === "takosumi.platform-worker-release-evidence@v2";
+  const isV3 = value.kind === "takosumi.platform-worker-release-evidence@v3";
+  const acceptedKeySets = isV2
+    ? [v2RequiredKeys, v2RecoveryKeys]
+    : isV3
+      ? [v3RequiredKeys, v3RecoveryKeys]
+      : [];
   if (
-    JSON.stringify(actualKeys) !== JSON.stringify(requiredKeys) &&
-    JSON.stringify(actualKeys) !== JSON.stringify(recoveryKeys)
+    !acceptedKeySets.some(
+      (keys) => JSON.stringify(actualKeys) === JSON.stringify(keys),
+    )
   ) {
     throw new Error(
       "Takosumi deploy receipt keys are not the closed ready-evidence set",
     );
   }
   if (
-    value.kind !== "takosumi.platform-worker-release-evidence@v2" ||
+    (!isV2 && !isV3) ||
     value.status !== "ready" ||
     value.environment !== STAGING_ENVIRONMENT
   ) {
     throw new Error("Takosumi deploy receipt must be ready staging evidence");
   }
-  const sourceCommit = requiredCommit(
-    value.sourceCommit,
-    "deploy source commit",
-  );
-  if (Object.hasOwn(value, "recoverySourceCommit")) {
+  const sourceCommit = isV3
+    ? requiredRawCommit(value.sourceCommit, "deploy source commit")
+    : requiredCommit(value.sourceCommit, "deploy source commit");
+  let sourceRepository: string | undefined;
+  let sourceAuthoritySha256: string | undefined;
+  let recoverySourceRepository: string | undefined;
+  let recoverySourceCommit: string | undefined;
+  let recoverySourceAuthoritySha256: string | undefined;
+  if (isV3) {
+    sourceRepository = requiredSourceRepository(
+      value.sourceRepository,
+      "deploy source repository",
+    );
+    sourceAuthoritySha256 = requiredRawDigest(
+      value.sourceAuthoritySha256,
+      "deploy source authority",
+    );
+    if (
+      sourceAuthoritySha256 !==
+      platformReleaseSourceAuthorityDigest(sourceRepository, sourceCommit)
+    ) {
+      throw new Error("Takosumi deploy receipt source authority was invalid");
+    }
+    const hasRecoveryRepository = Object.hasOwn(
+      value,
+      "recoverySourceRepository",
+    );
+    const hasRecoveryCommit = Object.hasOwn(value, "recoverySourceCommit");
+    const hasRecoveryAuthority = Object.hasOwn(
+      value,
+      "recoverySourceAuthoritySha256",
+    );
+    const hasRecovery =
+      hasRecoveryRepository || hasRecoveryCommit || hasRecoveryAuthority;
+    if (
+      hasRecovery &&
+      (!hasRecoveryRepository || !hasRecoveryCommit || !hasRecoveryAuthority)
+    ) {
+      throw new Error(
+        "Takosumi deploy receipt recovery source authority was incomplete",
+      );
+    }
+    if (hasRecovery) {
+      recoverySourceRepository = requiredSourceRepository(
+        value.recoverySourceRepository,
+        "deploy recovery source repository",
+      );
+      recoverySourceCommit = requiredRawCommit(
+        value.recoverySourceCommit,
+        "deploy recovery source commit",
+      );
+      recoverySourceAuthoritySha256 = requiredRawDigest(
+        value.recoverySourceAuthoritySha256,
+        "deploy recovery source authority",
+      );
+      if (
+        recoverySourceAuthoritySha256 !==
+          platformReleaseSourceAuthorityDigest(
+            recoverySourceRepository,
+            recoverySourceCommit,
+          ) ||
+        !sameGitRemote(sourceRepository, recoverySourceRepository)
+      ) {
+        throw new Error(
+          "Takosumi deploy receipt recovery source authority was invalid",
+        );
+      }
+    }
+  } else if (Object.hasOwn(value, "recoverySourceCommit")) {
     requiredCommit(value.recoverySourceCommit, "deploy recovery source commit");
   }
   const predecessorVersionId = readWorkerVersionId(
@@ -5252,9 +5361,8 @@ export async function readTakosumiDeployReceipt(
   ) {
     throw new Error("Takosumi deploy reversal did not bind the ready receipt");
   }
-  return {
-    kind: "takosumi.platform-worker-release-evidence@v2",
-    status: "ready",
+  const receiptCommon = {
+    status: "ready" as const,
     environment: STAGING_ENVIRONMENT,
     sourceCommit,
     predecessorVersionId,
@@ -5268,6 +5376,25 @@ export async function readTakosumiDeployReceipt(
       predecessorVersionId,
     },
     fileDigest: `sha256:${createHash("sha256").update(raw).digest("hex")}`,
+  } as const;
+  if (isV3) {
+    const receiptV3 = {
+      kind: "takosumi.platform-worker-release-evidence@v3" as const,
+      ...receiptCommon,
+      sourceRepository: sourceRepository!,
+      sourceAuthoritySha256: sourceAuthoritySha256!,
+    };
+    if (recoverySourceRepository === undefined) return receiptV3;
+    return {
+      ...receiptV3,
+      recoverySourceRepository,
+      recoverySourceCommit: recoverySourceCommit!,
+      recoverySourceAuthoritySha256: recoverySourceAuthoritySha256!,
+    };
+  }
+  return {
+    kind: "takosumi.platform-worker-release-evidence@v2",
+    ...receiptCommon,
   };
 }
 
@@ -5871,6 +5998,60 @@ function readWorkerVersionId(value: unknown, label: string): string {
     );
   }
   return versionId;
+}
+
+function requiredSourceRepository(value: unknown, label: string): string {
+  if (
+    typeof value !== "string" ||
+    value.trim().length === 0 ||
+    value.length > 4_096 ||
+    /[\u0000-\u001f\u007f]/u.test(value)
+  ) {
+    throw new Error(`${label} must be a bounded repository string`);
+  }
+  return value;
+}
+
+function platformReleaseSourceAuthorityDigest(
+  repository: string,
+  commit: string,
+): string {
+  const preimage = JSON.stringify({
+    kind: "takosumi.platform-release-source-authority@v1",
+    pin: {
+      kind: "takosumi.platform-release-source@v1",
+      repository,
+      commit,
+    },
+  });
+  return `sha256:${createHash("sha256").update(preimage, "utf8").digest("hex")}`;
+}
+
+function sameGitRemote(left: string, right: string): boolean {
+  const normalize = (value: string) =>
+    value
+      .trim()
+      .replace(/^git\+/u, "")
+      .replace(/\.git$/u, "")
+      .replace(/\/+$/u, "")
+      .replace(/^git@([^:]+):/u, "https://$1/")
+      .replace(/^ssh:\/\/git@/u, "https://")
+      .toLowerCase();
+  return normalize(left) === normalize(right);
+}
+
+function requiredRawCommit(value: unknown, label: string): string {
+  if (typeof value !== "string" || !COMMIT_PATTERN.test(value)) {
+    throw new Error(`${label} must be a 40-character Git commit`);
+  }
+  return value;
+}
+
+function requiredRawDigest(value: unknown, label: string): string {
+  if (typeof value !== "string" || !DIGEST_PATTERN.test(value)) {
+    throw new Error(`${label} must be a sha256 digest`);
+  }
+  return value;
 }
 
 function requiredCommit(value: unknown, label: string): string {

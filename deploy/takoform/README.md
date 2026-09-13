@@ -341,13 +341,18 @@ The harness is staging-only and has no production switch. It reads the
 Takosumi bearer token and the real Yurucommu OIDC session cookie from private
 files; neither value is accepted in argv, logged, or written to the evidence
 report. Before either credential file is opened, it probes the bare Takosumi
-origin and requires the owner-supplied
-`takosumi.platform-worker-release-evidence@v2` ready staging receipt to match
-the exact `x-takosumi-version-id` response header. The closed receipt key set
-binds source commit, deployed/predecessor Worker versions and healthy
-containers, release digests, reviewer, plan confirmation, and reversal
-identity. The expected version is derived from that receipt; there is no
-separate version selector. The receipt is read from a canonical private
+origin and requires an owner-supplied ready staging receipt to match the exact
+`x-takosumi-version-id` response header. It accepts the current
+`takosumi.platform-worker-release-evidence@v3` and historical `@v2` formats,
+each with its own closed key set. Both bind source commit,
+deployed/predecessor Worker versions and healthy containers, release digests,
+reviewer, plan confirmation, and reversal identity. For v3, the reader also
+verifies the source repository/commit authority digest and, when present, the
+complete recovery source repository/commit/digest tuple. It hashes the exact
+repository spelling; unknown fields, incomplete recovery tuples, and incorrect
+digests are rejected. These are deployment-evidence formats, not Takoform API
+or Form versions. The expected Worker version is derived from the receipt;
+there is no separate version selector. The receipt is read from a canonical private
 regular file and only its opaque digest and version ID are reported.
 A managed `deploy/takoform` run requires one exact Provider
 `registry.terraform.io/tako0614/takoform` binding and the module's pinned

@@ -1077,6 +1077,8 @@ describe("production yurucommu Worker publisher", () => {
     cleanFixture(async ({ repo, privateDir, target }) => {
       const descriptorPath = join(repo, "production-target.json");
       await writeFile(descriptorPath, `${JSON.stringify(target, null, 2)}\n`);
+      // The rejected fixture must be insecure even under an operator's umask 077.
+      await chmod(descriptorPath, 0o644);
 
       expect(() =>
         loadYurucommuWorkerTarget({
