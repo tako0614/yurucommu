@@ -8,6 +8,7 @@ const contract = JSON.parse(
   apiVersion: string;
   product: string;
   resources: Array<{ name: string; shape: string }>;
+  nativeHandlers: Array<{ name: string; resource: string }>;
   runtimeConnections: Array<{ name: string; resource: string }>;
   standardServices: Array<{
     name: string;
@@ -34,6 +35,9 @@ test("Yurucommu resource requirements are provider-neutral", () => {
   for (const connection of contract.runtimeConnections) {
     expect(resources.has(connection.resource)).toBe(true);
   }
+  for (const handler of contract.nativeHandlers) {
+    expect(resources.has(handler.resource)).toBe(true);
+  }
   // Every runtime connection now resolves to a resource the product's own graph
   // owns. Asking a Host for a standard service it is not obliged to supply is
   // what an ObjectBucket Form replaces.
@@ -44,6 +48,46 @@ test("Yurucommu resource requirements are provider-neutral", () => {
   expect(
     contract.runtimeConnections.find(({ name }) => name === "MEDIA")?.resource,
   ).toBe("media");
+});
+
+test("the product contract describes the complete portable resource graph", () => {
+  const shapes: Record<string, string> = {
+    takoform_module_worker: "ModuleWorker",
+    takoform_worker_bundle: "WorkerBundle",
+    takoform_worker_version: "WorkerVersion",
+    takoform_worker_deployment: "WorkerDeployment",
+    takoform_worker_endpoint: "WorkerEndpoint",
+    takoform_sqlite_database: "SQLiteDatabase",
+    takoform_sqlite_migration_set: "SQLiteMigrationSet",
+    takoform_sqlite_migration_application: "SQLiteMigrationApplication",
+    takoform_edge_kv_namespace: "EdgeKVNamespace",
+    takoform_edge_object_bucket: "ObjectBucket",
+    takoform_at_least_once_queue: "AtLeastOnceQueue",
+    takoform_queue_consumer: "QueueConsumer",
+    takoform_worker_cron_trigger: "WorkerCronTrigger",
+  };
+  const declared = Array.from(
+    takoform.matchAll(/^resource\s+"([^"]+)"\s+"[^"]+"\s*\{/gm),
+    ([, type]) => {
+      const shape = type === undefined ? undefined : shapes[type];
+      if (!shape) throw new Error(`unmapped portable resource type: ${type}`);
+      return shape;
+    },
+  );
+  expect(declared.length).toBeGreaterThan(0);
+  expect(contract.resources.map(({ shape }) => shape).sort()).toEqual(
+    declared.sort(),
+  );
+  const consumers = contract.resources.filter(
+    ({ shape }) => shape === "QueueConsumer",
+  );
+  expect(consumers).toHaveLength(2);
+  expect(
+    contract.nativeHandlers
+      .filter(({ name }) => name === "queue")
+      .map(({ resource }) => resource)
+      .sort(),
+  ).toEqual(consumers.map(({ name }) => name).sort());
 });
 
 test("Cloudflare direct and Takoform adapt the same runtime connections", () => {

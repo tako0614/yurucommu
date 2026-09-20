@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   access,
   chmod,
+  copyFile,
   mkdtemp,
   mkdir,
   readFile,
@@ -25,6 +26,7 @@ import {
   buildResourceReadUrl,
   buildTofuCommand,
   cleanupTakoformV1E2E,
+  collectSourceProvenance,
   copyCapsuleToWorkdir,
   CURRENT_RESOURCE_TYPES,
   extractAppliedResourceIdentities,
@@ -34,10 +36,12 @@ import {
   PROVIDER_SCHEMA_OUTPUT_MAX_BYTES,
   readProviderVersion,
   readTakoformV1E2EConfig,
+  requireReadyType,
   responseJson,
   runBoundedChild,
   installLifecycleSignalHandlers,
 } from "./takoform-v1-e2e-full.ts";
+import { prepareTakoformV1Source } from "./prepare-takoform-v1-source.ts";
 import { TAKOFORM_PROVIDER_VERSION } from "./takoform-provider-pin.ts";
 
 const provider = {
@@ -241,7 +245,7 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
     });
   });
 
-  test("extracts and requires the current 14 managed resources", () => {
+  test("extracts and requires the exact current 15 managed resources", () => {
     const kinds: Record<string, string> = {
       takoform_module_worker: "ModuleWorker",
       takoform_sqlite_database: "SQLiteDatabase",
@@ -277,14 +281,21 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
     const identities = extractAppliedResourceIdentities({
       values: { root_module: { resources } },
     });
-    expect(identities).toHaveLength(14);
+    expect(identities).toHaveLength(15);
     expect(identities[3]?.form.kind).toBe("SQLiteMigrationApplication");
     expect(identities[5]?.form.kind).toBe("ObjectBucket");
     expect(() =>
       extractAppliedResourceIdentities({
-        values: { root_module: { resources: resources.slice(0, 13) } },
+        values: { root_module: { resources: resources.slice(0, 14) } },
       }),
-    ).toThrow("current 14-resource graph");
+    ).toThrow("current 15-resource graph");
+    expect(() =>
+      extractAppliedResourceIdentities({
+        values: {
+          root_module: { resources: [...resources, resources[0]!] },
+        },
+      }),
+    ).toThrow("current 15-resource graph");
   });
 
   test("prepares migrations from a fresh source archive before tofu", async () => {
@@ -379,6 +390,118 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
       await rm(archiveRoot, { recursive: true, force: true });
     }
   });
+
+  test("packages the preparer's tracked migrations with exact provenance", async () => {
+    const fixtureRoot = await mkdtemp(
+      join(tmpdir(), "takoform-prepared-source-test-"),
+    );
+    const sourceRoot = join(fixtureRoot, "deploy", "takoform");
+    const destination = await mkdtemp(
+      join(tmpdir(), "takoform-prepared-copy-test-"),
+    );
+    const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
+    try {
+      await mkdir(join(sourceRoot, "migrations"), { recursive: true });
+      await mkdir(join(fixtureRoot, "dist"), { recursive: true });
+      for (const file of ["main.tf", "outputs.tf"]) {
+        await copyFile(
+          join(repositoryRoot, "deploy", "takoform", file),
+          join(sourceRoot, file),
+        );
+      }
+      await copyFile(
+        join(
+          repositoryRoot,
+          "deploy",
+          "takoform",
+          "migrations",
+          "schema-bundle.json",
+        ),
+        join(sourceRoot, "migrations", "schema-bundle.json"),
+      );
+      await writeFile(
+        join(fixtureRoot, "dist", "yurucommu-worker.js"),
+        "export default { fetch() { return new Response('ok') } };\n",
+      );
+
+      await prepareTakoformV1Source({ repositoryRoot: fixtureRoot });
+      const sourceMigrationsRoot = join(sourceRoot, "migrations", "sql");
+      const migrationNames = (await readdir(sourceMigrationsRoot)).sort();
+      expect(migrationNames.length).toBeGreaterThan(0);
+      const generatedMigrationsExist = await access(
+        join(sourceRoot, ".generated", "migrations"),
+      ).then(
+        () => true,
+        () => false,
+      );
+      expect(generatedMigrationsExist).toBe(false);
+
+      const environment = buildSafeChildEnvironment(process.env);
+      await copyCapsuleToWorkdir(sourceRoot, destination, {
+        repositoryRoot,
+        environment,
+        timeoutMs: 30_000,
+      });
+      const provenance = await collectSourceProvenance(
+        repositoryRoot,
+        sourceRoot,
+        environment,
+        30_000,
+      );
+
+      const migrationDigests: string[] = [];
+      expect(
+        (await readdir(join(destination, "migrations", "sql"))).sort(),
+      ).toEqual(migrationNames);
+      for (const name of migrationNames) {
+        const sourceBytes = await readFile(join(sourceMigrationsRoot, name));
+        const packagedBytes = await readFile(
+          join(destination, "migrations", "sql", name),
+        );
+        expect(packagedBytes).toEqual(sourceBytes);
+        migrationDigests.push(
+          `sha256:${createHash("sha256").update(sourceBytes).digest("hex")}`,
+        );
+      }
+      expect(provenance.migrations.map((migration) => migration.path)).toEqual(
+        migrationNames.map((name) => `migrations/sql/${name}`),
+      );
+      expect(
+        provenance.migrations.map((migration) => migration.sha256),
+      ).toEqual(migrationDigests);
+      expect(
+        await readFile(join(destination, ".generated", "yurucommu-worker.js")),
+      ).toEqual(
+        await readFile(join(sourceRoot, ".generated", "yurucommu-worker.js")),
+      );
+      const packagedGeneratedMigrationsExist = await access(
+        join(destination, ".generated", "migrations"),
+      ).then(
+        () => true,
+        () => false,
+      );
+      expect(packagedGeneratedMigrationsExist).toBe(false);
+
+      const firstMigration = migrationNames[0]!;
+      const firstMigrationPath = join(sourceMigrationsRoot, firstMigration);
+      const migrationBackup = join(fixtureRoot, "migration-backup.sql");
+      await copyFile(firstMigrationPath, migrationBackup);
+      await rm(firstMigrationPath);
+      await symlink(migrationBackup, firstMigrationPath);
+      await expect(
+        copyCapsuleToWorkdir(sourceRoot, destination, {
+          repositoryRoot,
+          environment,
+          timeoutMs: 30_000,
+        }),
+      ).rejects.toThrow(
+        `Takoform migration ${firstMigration} must be a regular file`,
+      );
+    } finally {
+      await rm(fixtureRoot, { recursive: true, force: true });
+      await rm(destination, { recursive: true, force: true });
+    }
+  }, 30_000);
 
   test("requires Ready=True status and the exact absence error", async () => {
     const ready = {
@@ -559,7 +682,7 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
     expect(result.preservedWorkdir).toBe(false);
   });
 
-  test("checks all 14 output identity keys", () => {
+  test("checks all 15 output identity keys", () => {
     const ids = Object.fromEntries(
       [
         "worker",
@@ -575,13 +698,23 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
         "delivery",
         "delivery_dlq",
         "delivery_consumer",
+        "delivery_dlq_consumer",
         "retention",
       ].map((key) => [key, `uid-${key}`]),
     );
     expect(() => assertCurrentResourceOutputIds(ids)).not.toThrow();
     expect(() =>
       assertCurrentResourceOutputIds({ ...ids, unexpected: "uid" }),
-    ).toThrow("all 14 current resources");
+    ).toThrow("all 15 current resources");
+    expect(() =>
+      assertCurrentResourceOutputIds(
+        Object.fromEntries(
+          Object.entries(ids).filter(
+            ([key]) => key !== "delivery_dlq_consumer",
+          ),
+        ),
+      ),
+    ).toThrow("all 15 current resources");
   });
 
   test("binds output UID map to the corresponding tofu state UID", () => {
@@ -606,7 +739,16 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
         "uid-worker-deployment",
       ],
       ["takoform_worker_endpoint", "worker-endpoint", "uid-worker-endpoint"],
-      ["takoform_queue_consumer", "delivery-consumer", "uid-delivery-consumer"],
+      [
+        "takoform_queue_consumer",
+        "e2e-delivery-consumer",
+        "uid-delivery-consumer",
+      ],
+      [
+        "takoform_queue_consumer",
+        "e2e-delivery-dlq-consumer",
+        "uid-delivery-dlq-consumer",
+      ],
       ["takoform_worker_cron_trigger", "retention", "uid-retention"],
     ].map(([type, name, uid], index) => ({
       address: `resource.${index}`,
@@ -636,6 +778,7 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
       delivery: "uid-delivery",
       delivery_dlq: "uid-delivery-dlq",
       delivery_consumer: "uid-delivery-consumer",
+      delivery_dlq_consumer: "uid-delivery-dlq-consumer",
       retention: "uid-retention",
     };
     expect(() =>
@@ -647,16 +790,84 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
         identities,
       ),
     ).toThrow("state UID");
+    expect(() =>
+      assertCurrentResourceOutputIds(
+        { ...outputIds, delivery_dlq_consumer: "wrong-uid" },
+        identities,
+      ),
+    ).toThrow("state UID");
   });
 
-  test("copies only tracked module inputs and generated artifacts", async () => {
+  test("requires both named queue consumers and recognizes ObjectBucket readiness", () => {
+    const ready = {
+      status: { conditions: [{ type: "Ready", status: "True" }] },
+    };
+    const deliveryConsumer = {
+      kind: "QueueConsumer",
+      metadata: { name: "yurucommu-e2e-abc-delivery-consumer" },
+      ...ready,
+    };
+    const deadLetterConsumer = {
+      kind: "QueueConsumer",
+      metadata: { name: "yurucommu-e2e-abc-delivery-dlq-consumer" },
+      ...ready,
+    };
+    const objectBucket = {
+      kind: "ObjectBucket",
+      metadata: { name: "yurucommu-e2e-abc-media" },
+      ...ready,
+    };
+
+    expect(() =>
+      requireReadyType(
+        [deliveryConsumer, deadLetterConsumer],
+        "takoform_queue_consumer",
+        "delivery queue consumer",
+        "-delivery-consumer",
+      ),
+    ).not.toThrow();
+    expect(() =>
+      requireReadyType(
+        [deliveryConsumer, deadLetterConsumer],
+        "takoform_queue_consumer",
+        "dead-letter queue consumer",
+        "-delivery-dlq-consumer",
+      ),
+    ).not.toThrow();
+    expect(() =>
+      requireReadyType(
+        [deliveryConsumer],
+        "takoform_queue_consumer",
+        "dead-letter queue consumer",
+        "-delivery-dlq-consumer",
+      ),
+    ).toThrow("Host readback did not contain one dead-letter queue consumer");
+    expect(() =>
+      requireReadyType([objectBucket], "takoform_edge_object_bucket", "MEDIA"),
+    ).not.toThrow();
+    expect(() =>
+      requireReadyType(
+        [
+          {
+            ...deadLetterConsumer,
+            status: { conditions: [{ type: "Ready", status: "False" }] },
+          },
+        ],
+        "takoform_queue_consumer",
+        "dead-letter queue consumer",
+        "-delivery-dlq-consumer",
+      ),
+    ).toThrow("did not report a Ready=True condition");
+  });
+
+  test("copies module inputs, tracked migrations, and the generated Worker", async () => {
     const sourceRoot = await mkdtemp(join(tmpdir(), "takoform-source-test-"));
     const destination = await mkdtemp(join(tmpdir(), "takoform-copy-test-"));
     try {
-      await mkdir(join(sourceRoot, ".generated", "migrations"), {
+      await mkdir(join(sourceRoot, ".generated"), { recursive: true });
+      await mkdir(join(sourceRoot, "migrations", "sql"), {
         recursive: true,
       });
-      await mkdir(join(sourceRoot, "migrations"));
       await mkdir(join(sourceRoot, "e2e"));
       await writeFile(join(sourceRoot, "main.tf"), "terraform {}\n");
       await writeFile(join(sourceRoot, "outputs.tf"), 'output "x" {}\n');
@@ -666,7 +877,7 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
         "export default {}\n",
       );
       await writeFile(
-        join(sourceRoot, ".generated", "migrations", "0001_init.sql"),
+        join(sourceRoot, "migrations", "sql", "0001_init.sql"),
         "create table test (id integer);\n",
       );
       await writeFile(join(sourceRoot, "unexpected-secret.txt"), "canary\n");
@@ -680,10 +891,16 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
       );
       expect(
         await readFile(
-          join(destination, ".generated", "migrations", "0001_init.sql"),
+          join(destination, "migrations", "sql", "0001_init.sql"),
           "utf8",
         ),
       ).toContain("create table");
+      expect(
+        await readFile(
+          join(destination, ".generated", "yurucommu-worker.js"),
+          "utf8",
+        ),
+      ).toContain("export default");
       expect(await readdir(destination)).not.toContain("README.md");
 
       await rm(join(sourceRoot, "main.tf"));

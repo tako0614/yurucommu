@@ -51,9 +51,9 @@ const SOURCE_MODULE_FILES = [
 ] as const;
 const SOURCE_COPIED_MODULE_FILES = ["main.tf", "outputs.tf"] as const;
 const SOURCE_OPTIONAL_MODULE_FILES = [".terraform.lock.hcl"] as const;
-const SOURCE_EXPECTED_UNUSED_ENTRIES = ["migrations", "e2e"] as const;
+const SOURCE_EXPECTED_UNUSED_ENTRIES = ["e2e"] as const;
 const GENERATED_WORKER_FILE = "yurucommu-worker.js";
-const GENERATED_MIGRATIONS_DIR = "migrations";
+const MIGRATIONS_SQL_DIRECTORY = "migrations/sql";
 
 /** The current Yurucommu Capsule graph. Keep this in lockstep with main.tf. */
 export const CURRENT_RESOURCE_TYPES = [
@@ -69,6 +69,7 @@ export const CURRENT_RESOURCE_TYPES = [
   "takoform_worker_version",
   "takoform_worker_deployment",
   "takoform_worker_endpoint",
+  "takoform_queue_consumer",
   "takoform_queue_consumer",
   "takoform_worker_cron_trigger",
 ] as const;
@@ -87,6 +88,7 @@ const CURRENT_RESOURCE_ID_KEYS = [
   "delivery",
   "delivery_dlq",
   "delivery_consumer",
+  "delivery_dlq_consumer",
   "retention",
 ] as const;
 
@@ -552,7 +554,7 @@ export function extractAppliedResourceIdentities(
   const actual = resources.map((resource) => resource.type).sort();
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
     throw new Error(
-      `tofu state did not contain the current 14-resource graph (got ${actual.join(",") || "none"})`,
+      `tofu state did not contain the current 15-resource graph (got ${actual.join(",") || "none"})`,
     );
   }
 
@@ -598,7 +600,7 @@ export function assertCurrentResourceOutputIds(
   const expected = [...CURRENT_RESOURCE_ID_KEYS].sort();
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
     throw new Error(
-      "takoform_resource_ids output did not contain all 14 current resources",
+      "takoform_resource_ids output did not contain all 15 current resources",
     );
   }
   for (const key of CURRENT_RESOURCE_ID_KEYS) {
@@ -641,13 +643,22 @@ function outputResourceKeyMatches(
     migration_application: "takoform_sqlite_migration_application",
     kv: "takoform_edge_kv_namespace",
     media: "takoform_edge_object_bucket",
-    delivery_consumer: "takoform_queue_consumer",
     retention: "takoform_worker_cron_trigger",
   };
   if (key === "delivery" || key === "delivery_dlq") {
     return (
       identity.type === "takoform_at_least_once_queue" &&
       identity.name.endsWith(key === "delivery" ? "-delivery" : "-delivery-dlq")
+    );
+  }
+  if (key === "delivery_consumer" || key === "delivery_dlq_consumer") {
+    const nameSuffix =
+      key === "delivery_consumer"
+        ? "-delivery-consumer"
+        : "-delivery-dlq-consumer";
+    return (
+      identity.type === "takoform_queue_consumer" &&
+      identity.name.endsWith(nameSuffix)
     );
   }
   return identity.type === exact[key];
@@ -794,14 +805,17 @@ export async function collectSourceProvenance(
       `Takoform module no longer pins Provider ${TAKOFORM_PROVIDER_VERSION} exactly`,
     );
   }
+  const generatedRoot = join(sourceRoot, ".generated");
+  await assertRegularDirectory(generatedRoot, "Takoform .generated");
   const workerPath = join(sourceRoot, ".generated", GENERATED_WORKER_FILE);
   await assertRegularFile(workerPath, "generated Yurucommu Worker");
   const workerBytes = await readFile(workerPath);
-  const migrationRoot = join(
-    sourceRoot,
-    ".generated",
-    GENERATED_MIGRATIONS_DIR,
+  await assertRegularDirectory(
+    join(sourceRoot, "migrations"),
+    "Takoform migration source root",
   );
+  const migrationRoot = join(sourceRoot, "migrations", "sql");
+  await assertRegularDirectory(migrationRoot, "Takoform migration source");
   const migrationEntries = (
     await readdir(migrationRoot, { withFileTypes: true })
   )
@@ -810,13 +824,19 @@ export async function collectSourceProvenance(
   const migrations = [];
   for (const name of migrationEntries) {
     if (!/^\d{4}_[a-z0-9_]+\.sql$/u.test(name)) {
-      throw new Error(`unexpected generated migration entry: ${name}`);
+      throw new Error(`unexpected Takoform migration entry: ${name}`);
     }
     const migrationPath = join(migrationRoot, name);
-    await assertRegularFile(migrationPath, `generated migration ${name}`);
+    await assertRegularFile(migrationPath, `Takoform migration ${name}`);
+    await assertTrackedSourcePath(
+      repositoryRoot,
+      join("deploy", "takoform", "migrations", "sql", name),
+      environment,
+      timeoutMs,
+    );
     const bytes = await readFile(migrationPath);
     migrations.push({
-      path: `${GENERATED_MIGRATIONS_DIR}/${name}`,
+      path: `${MIGRATIONS_SQL_DIRECTORY}/${name}`,
       bytes: bytes.byteLength,
       sha256: digestBytes(bytes),
     });
@@ -958,7 +978,14 @@ export async function main(): Promise<void> {
       requireReadyType(
         hostResources,
         "takoform_queue_consumer",
-        "queue consumer",
+        "delivery queue consumer",
+        "-delivery-consumer",
+      );
+      requireReadyType(
+        hostResources,
+        "takoform_queue_consumer",
+        "dead-letter queue consumer",
+        "-delivery-dlq-consumer",
       );
       requireReadyType(
         hostResources,
@@ -985,12 +1012,13 @@ export async function main(): Promise<void> {
         hostResourceReadback: {
           count: hostResources.length,
           ready: hostResources.length,
-          graph: `Provider ${TAKOFORM_PROVIDER_VERSION}/current-14-resources`,
+          graph: `Provider ${TAKOFORM_PROVIDER_VERSION}/current-15-resources`,
         },
         migrationBackedHealth: await probeRuntime(runtimeBase),
         objectBucket: "Ready=True resource evidence",
         nativeHandlers: {
-          queueConsumer: "Ready=True resource evidence",
+          queueConsumers:
+            "Ready=True delivery and dead-letter resource evidence",
           cronTrigger: "Ready=True resource evidence",
           invocationCounters: "not exposed by portable Host API v1",
         },
@@ -1018,7 +1046,7 @@ export async function main(): Promise<void> {
         }
         if (identities.length !== CURRENT_RESOURCE_TYPES.length) {
           throw new Error(
-            "cannot verify authoritative absence without all 14 applied identities",
+            "cannot verify authoritative absence without all 15 applied identities",
           );
         }
         await verifyResourceAbsence(hostDiscovery, config, identities);
@@ -1094,6 +1122,7 @@ export async function copyCapsuleToWorkdir(
   const allowedRootEntries = new Set([
     ...SOURCE_MODULE_FILES,
     ...SOURCE_EXPECTED_UNUSED_ENTRIES,
+    "migrations",
     ".generated",
   ]);
   for (const entry of entries) {
@@ -1103,6 +1132,7 @@ export async function copyCapsuleToWorkdir(
     if (entry.name === ".generated") continue;
     const entryPath = join(sourceRoot, entry.name);
     if (
+      entry.name === "migrations" ||
       (SOURCE_EXPECTED_UNUSED_ENTRIES as readonly string[]).includes(entry.name)
     ) {
       await assertRegularDirectory(entryPath, `Takoform source ${entry.name}`);
@@ -1149,10 +1179,7 @@ export async function copyCapsuleToWorkdir(
   const generatedEntries = await readdir(generatedRoot, {
     withFileTypes: true,
   });
-  const allowedGeneratedEntries = new Set([
-    GENERATED_WORKER_FILE,
-    GENERATED_MIGRATIONS_DIR,
-  ]);
+  const allowedGeneratedEntries = new Set([GENERATED_WORKER_FILE]);
   for (const entry of generatedEntries) {
     if (!allowedGeneratedEntries.has(entry.name)) {
       throw new Error(
@@ -1162,38 +1189,37 @@ export async function copyCapsuleToWorkdir(
   }
   const generatedWorker = join(generatedRoot, GENERATED_WORKER_FILE);
   await assertRegularFile(generatedWorker, "generated Yurucommu Worker");
-  await mkdir(join(workdir, ".generated", GENERATED_MIGRATIONS_DIR), {
-    recursive: true,
-  });
+  await mkdir(join(workdir, ".generated"), { recursive: true });
   await copyFile(
     generatedWorker,
     join(workdir, ".generated", GENERATED_WORKER_FILE),
   );
 
-  const migrationsRoot = join(generatedRoot, GENERATED_MIGRATIONS_DIR);
-  const migrationsMetadata = await lstat(migrationsRoot);
-  if (
-    migrationsMetadata.isSymbolicLink() ||
-    !migrationsMetadata.isDirectory()
-  ) {
-    throw new Error("generated migration source must be a regular directory");
-  }
+  const migrationsRoot = join(sourceRoot, "migrations", "sql");
+  await assertRegularDirectory(migrationsRoot, "Takoform migration source");
   const migrationEntries = await readdir(migrationsRoot, {
     withFileTypes: true,
   });
   if (migrationEntries.length === 0) {
-    throw new Error("generated migration source is empty");
+    throw new Error("Takoform migration source is empty");
   }
+  const packagedMigrationsRoot = join(workdir, "migrations", "sql");
+  await mkdir(packagedMigrationsRoot, { recursive: true });
   for (const entry of migrationEntries) {
     if (!/^\d{4}_[a-z0-9_]+\.sql$/u.test(entry.name)) {
-      throw new Error(`unexpected generated migration entry: ${entry.name}`);
+      throw new Error(`unexpected Takoform migration entry: ${entry.name}`);
     }
     const sourcePath = join(migrationsRoot, entry.name);
-    await assertRegularFile(sourcePath, `generated migration ${entry.name}`);
-    await copyFile(
-      sourcePath,
-      join(workdir, ".generated", GENERATED_MIGRATIONS_DIR, entry.name),
-    );
+    await assertRegularFile(sourcePath, `Takoform migration ${entry.name}`);
+    if (options.repositoryRoot) {
+      await assertTrackedSourcePath(
+        options.repositoryRoot,
+        join("deploy", "takoform", "migrations", "sql", entry.name),
+        options.environment ?? buildSafeChildEnvironment(process.env),
+        options.timeoutMs ?? DEFAULT_COMMAND_TIMEOUT_MS,
+      );
+    }
+    await copyFile(sourcePath, join(packagedMigrationsRoot, entry.name));
   }
 }
 
@@ -1520,13 +1546,19 @@ async function runtimeJson(
   return responseJson(response, label, 200);
 }
 
-function requireReadyType(
+export function requireReadyType(
   resources: readonly Record<string, unknown>[],
   type: string,
   label: string,
+  nameSuffix?: string,
 ): void {
   const matches = resources.filter(
-    (resource) => resource.kind === kindFromType(type),
+    (resource) =>
+      resource.kind === kindFromType(type) &&
+      (!nameSuffix ||
+        (isRecord(resource.metadata) &&
+          typeof resource.metadata.name === "string" &&
+          resource.metadata.name.endsWith(nameSuffix))),
   );
   if (matches.length !== 1)
     throw new Error(`Host readback did not contain one ${label}`);
@@ -1540,6 +1572,7 @@ function kindFromType(type: string): string {
     takoform_sqlite_migration_set: "SQLiteMigrationSet",
     takoform_sqlite_migration_application: "SQLiteMigrationApplication",
     takoform_edge_kv_namespace: "EdgeKVNamespace",
+    takoform_edge_object_bucket: "ObjectBucket",
     takoform_at_least_once_queue: "AtLeastOnceQueue",
     takoform_worker_bundle: "WorkerBundle",
     takoform_worker_version: "WorkerVersion",
