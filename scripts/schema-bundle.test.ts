@@ -84,18 +84,18 @@ describe("Takosumi relational schema bundle", () => {
     expect(bundleText).not.toContain('"sizeBytes"');
   });
 
-  test("bundles every migration shipped by the locked core 4.1.7 release", async () => {
+  test("bundles every migration shipped by the locked core 4.1.8 release", async () => {
     const provenance = await readSchemaBundleProvenance(repositoryRoot);
-    expect(provenance.lockedVersion).toBe("4.1.7");
-    expect(bundle.entries).toHaveLength(28);
+    expect(provenance.lockedVersion).toBe("4.1.8");
+    expect(bundle.entries).toHaveLength(29);
     expect(bundle.entries.at(-1)?.name).toBe(
-      "0029_delivery_endpoint_recipients.sql",
+      "0030_media_blob_deletion_jobs.sql",
     );
 
     const sourceNames = (await readdir(provenance.migrationDirectory))
       .filter((name) => name.endsWith(".sql"))
       .sort();
-    expect(sourceNames).toHaveLength(28);
+    expect(sourceNames).toHaveLength(29);
     expect(bundle.entries.map((entry) => entry.name)).toEqual(sourceNames);
   });
 
