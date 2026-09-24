@@ -17,6 +17,9 @@
 // _partials/ is exempt from Prettier (see .prettierignore): the attribute
 // level {{ifActive:...}} token is not valid HTML until rendered.
 //   {{root}}                           relative prefix to site root ("../" ...)
+//   {{pageTitle}}                      escaped page <title> text
+//   {{pageDescription}}                escaped page description text
+//   {{pageUrl}}                        canonical page URL
 //
 // Output is formatted with Prettier so generated files stay check-clean.
 // "bun scripts/build-site.mjs" rewrites site/; "--check" verifies the
@@ -36,6 +39,7 @@ import { format } from "prettier";
 const SRC = "site-src";
 const OUT = "site";
 const PARTIALS = join(SRC, "_partials");
+const SITE_ORIGIN = "https://yurucommu.com";
 const checkMode = process.argv.includes("--check");
 
 function* walk(dir) {
@@ -50,6 +54,29 @@ function* walk(dir) {
 function routeOf(relPath) {
   const p = "/" + relPath.split("\\").join("/");
   return p.endsWith("/index.html") ? p.slice(0, -"index.html".length) : p;
+}
+
+function escapeAttribute(value) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
+function pageMetadata(text, relPath, route) {
+  const title = text.match(/<title>\s*([\s\S]*?)\s*<\/title>/i)?.[1];
+  const description = text.match(
+    /<meta\b(?=[^>]*\bname=["']description["'])(?=[^>]*\bcontent=["']([^"']*)["'])[^>]*>/i,
+  )?.[1];
+  if (title === undefined || description === undefined) {
+    throw new Error(relPath + ": page metadata is required for head tokens");
+  }
+  return {
+    pageTitle: escapeAttribute(title.trim()),
+    pageDescription: escapeAttribute(description.trim()),
+    pageUrl: escapeAttribute(SITE_ORIGIN + route),
+  };
 }
 
 async function render(relPath, partials) {
@@ -78,7 +105,19 @@ async function render(relPath, partials) {
     )
     .replace(/\{\{activeSuffix(Under)?:([^}]+)\}\}/g, (_, under, p) =>
       (under ? route.startsWith(p) : route === p) ? " active" : "",
-    )
+    );
+
+  if (
+    text.includes("{{pageTitle}}") ||
+    text.includes("{{pageDescription}}") ||
+    text.includes("{{pageUrl}}")
+  ) {
+    const metadata = pageMetadata(text, relPath, route);
+    text = text
+      .replaceAll("{{pageTitle}}", metadata.pageTitle)
+      .replaceAll("{{pageDescription}}", metadata.pageDescription)
+      .replaceAll("{{pageUrl}}", metadata.pageUrl);
+  }
 
   return format(text, { parser: "html" });
 }
@@ -100,7 +139,9 @@ for (const [relPath, text] of rendered) {
   const outPath = join(OUT, relPath);
   if (checkMode) {
     if (!existsSync(outPath) || readFileSync(outPath, "utf8") !== text) {
-      failures.push("site/" + relPath + " is stale - run bun scripts/build-site.mjs");
+      failures.push(
+        "site/" + relPath + " is stale - run bun scripts/build-site.mjs",
+      );
     }
   } else {
     mkdirSync(dirname(outPath), { recursive: true });
@@ -122,4 +163,6 @@ if (failures.length > 0) {
   for (const failure of failures) console.error(failure);
   process.exit(1);
 }
-console.log((checkMode ? "checked" : "built") + " " + rendered.size + " pages -> site/");
+console.log(
+  (checkMode ? "checked" : "built") + " " + rendered.size + " pages -> site/",
+);

@@ -7,6 +7,9 @@
     />
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      document.documentElement.classList.add("js");
+    </script>
     <title>yurucommu — 自分の輪を、自分でつくる。</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta
@@ -535,11 +538,11 @@
       }
 
       /* ---- Reveal ---- */
-      .reveal {
+      .js .reveal {
         opacity: 0;
         transform: translateY(12px);
       }
-      .reveal.in {
+      .js .reveal.in {
         opacity: 1;
         transform: none;
         transition:

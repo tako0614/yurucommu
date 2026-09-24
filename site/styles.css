@@ -14,7 +14,7 @@
   --card: #121216;
   --ink: #e9e9ec;
   --dim: #8a8a92;
-  --faint: #565660;
+  --faint: #8f8f9a;
   --line: #1c1c21;
   --line-2: #26262d;
   --accent: #9aa6d6;
@@ -448,6 +448,14 @@ a {
   font-size: 1.05rem;
   font-weight: 700;
   margin-bottom: 0.4rem;
+}
+
+.docs-content h2.card-title {
+  font-size: 1.15rem;
+  margin-top: 2rem;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0;
+  border-bottom: 0;
 }
 
 .card-description {
