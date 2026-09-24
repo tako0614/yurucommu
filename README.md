@@ -302,7 +302,7 @@ Deployment API は
 [Cloudflare の Versions / Deployments](https://developers.cloudflare.com/workers/versions-and-deployments/)、
 [Version Upload API](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/versions/methods/create/)、
 [Deployments API](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/deployments/)、
-を正本とします。
+を正本 (正とする情報) とします。
 必要条件は `bun run deploy -- --contract` で副作用なしに確認できます。
 Worker surface の実行環境には `git`、`bun`、`tofu` と、上記の operator-private env が必要です。
 
