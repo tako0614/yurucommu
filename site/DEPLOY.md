@@ -7,6 +7,20 @@ The Pages project is `yurucommu-website`; its public origin is
 `https://yurucommu.com`. The site is already static, so the scoped site gate
 checks the files in `site/` and the upload publishes that directory directly.
 
+## Editing pages: site-src/ is the source
+
+The served .html files in `site/` are generated. Edit the sources in
+[`site-src/`](../site-src/) instead — shared chrome (head meta, nav header,
+docs sidebar, footer) lives in `site-src/_partials/` and pages pull it in
+with `<!-- @include name.html -->` markers. After editing, regenerate:
+
+```bash
+bun scripts/build-site.mjs
+```
+
+`bun run check:site` verifies the checked-in output matches a fresh render,
+so a commit that edits `site-src/` without rebuilding fails the gate.
+
 ## The one entrypoint
 
 Inspect the owner contract without side effects:

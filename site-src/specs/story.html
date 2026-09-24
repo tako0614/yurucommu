@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Storyの連合形式 - yurucommu</title>
+    <meta
+      name="description"
+      content="yurucommuが現在送受信するStoryのActivityPub形式"
+    />
+    <!-- @include head-social.html -->
+  </head>
+  <body>
+    <!-- Header -->
+    <!-- @include header.html -->
+
+    <div class="docs-layout">
+      <!-- Sidebar -->
+      <!-- @include sidebar-specs.html -->
+
+      <!-- Content -->
+      <main class="docs-content">
+        <span class="spec-status experimental">現行実装</span>
+        <h1>Storyの連合形式</h1>
+        <p class="lead">
+          Storyは、24時間の期限を持つ1枚の画像または動画です。
+          ActivityPubでは<code>Story</code>と<code>Note</code>の両方の型を持つ
+          オブジェクトとして送信します。
+        </p>
+
+        <div class="callout callout-info">
+          <strong>相互運用について:</strong>
+          <code>Story</code>と表示用プロパティはyurucommu独自語彙です。
+          相手が未対応の場合に同じStory画面で表示される保証はありません。
+          <code>Note</code>、<code>content</code>、<code>attachment</code>、
+          <code>endTime</code>はActivityStreamsの語彙です。
+        </div>
+
+        <h2>送信するオブジェクト</h2>
+        <pre><code>{
+  "@context": [
+    "https://www.w3.org/ns/activitystreams",
+    {
+      "story": "https://yurucommu.com/ns/story#",
+      "xsd": "http://www.w3.org/2001/XMLSchema#",
+      "Story": "story:Story",
+      "displayDuration": {
+        "@id": "story:displayDuration",
+        "@type": "xsd:duration"
+      },
+      "overlays": {
+        "@id": "story:overlays",
+        "@container": "@list"
+      },
+      "position": "story:position"
+    }
+  ],
+  "id": "https://example.com/ap/objects/story-1",
+  "type": ["Story", "Note"],
+  "attributedTo": "https://example.com/ap/users/alice",
+  "published": "2026-07-29T10:00:00.000Z",
+  "endTime": "2026-07-30T10:00:00.000Z",
+  "to": ["https://example.com/ap/users/alice/followers"],
+  "content": "今日の景色",
+  "attachment": {
+    "type": "Document",
+    "mediaType": "image/jpeg",
+    "url": "https://example.com/media/story.jpg"
+  },
+  "displayDuration": "PT5S",
+  "overlays": [
+    {
+      "type": "Note",
+      "name": "駅の近く",
+      "position": {
+        "x": 0.5,
+        "y": 0.8,
+        "width": 0.6,
+        "height": 0.1
+      }
+    }
+  ]
+}</code></pre>
+
+        <h2>プロパティ</h2>
+        <table class="docs-table">
+          <thead>
+            <tr>
+              <th>名前</th>
+              <th>現在の扱い</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>type</code></td>
+              <td><code>["Story", "Note"]</code></td>
+            </tr>
+            <tr>
+              <td><code>endTime</code></td>
+              <td>ローカル作成時は公開時刻から24時間後</td>
+            </tr>
+            <tr>
+              <td><code>attachment</code></td>
+              <td>画像または動画を1つだけ使用</td>
+            </tr>
+            <tr>
+              <td><code>content</code></td>
+              <td>任意のキャプション。ローカル作成は最大500文字</td>
+            </tr>
+            <tr>
+              <td><code>displayDuration</code></td>
+              <td>ISO 8601 duration。未指定時の表示値は<code>PT5S</code></td>
+            </tr>
+            <tr>
+              <td><code>overlays</code></td>
+              <td>最大20件。現在の作成画面はテキスト、リンク、投票に対応</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2>オーバーレイの座標</h2>
+        <p>
+          <code>position</code>の<code>x</code>、<code>y</code>、
+          <code>width</code>、<code>height</code>は、すべて
+          <code>0.0</code>から<code>1.0</code>までの正規化した数値です。
+          ピクセル数ではありません。<code>x</code>と<code>y</code>は
+          オーバーレイの中心を表します。
+        </p>
+        <pre><code>{
+  "type": "Link",
+  "name": "詳細を見る",
+  "href": "https://example.com/article",
+  "position": {
+    "x": 0.5,
+    "y": 0.72,
+    "width": 0.5,
+    "height": 0.09
+  }
+}</code></pre>
+        <ul>
+          <li><code>Question</code>は1つのStoryにつき最大1件</li>
+          <li>投票の選択肢は2件から4件</li>
+          <li><code>Link</code>には有効な絶対URLが必要</li>
+        </ul>
+
+        <h2>公開範囲</h2>
+        <p>
+          個人のStoryは本人と承認済みフォロワーだけが読み取れます。
+          コミュニティ内で作成したStoryは、そのコミュニティの承認済みメンバー向けです。
+          外部への配送先も、個人Storyは本人のfollowers、コミュニティStoryは
+          コミュニティの範囲に合わせます。
+        </p>
+
+        <h2>24時間経過と手動削除の違い</h2>
+        <table class="docs-table">
+          <thead>
+            <tr>
+              <th>きっかけ</th>
+              <th>ローカルでの結果</th>
+              <th>連合への通知</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>endTime</code>を過ぎる</td>
+              <td>
+                読み取り結果から直ちに除外。期限切れデータとメディアは
+                後続の保持期間処理で削除
+              </td>
+              <td>
+                期限切れだけを理由に<code>Delete</code>は送らない。
+                受信側は<code>endTime</code>を見て非表示にする必要がある
+              </td>
+            </tr>
+            <tr>
+              <td>投稿者が手動で削除</td>
+              <td>Story本体、関連データ、保存メディアを削除</td>
+              <td>元の公開範囲へ<code>Delete</code>を配送して削除を知らせる</td>
+            </tr>
+          </tbody>
+        </table>
+        <p>
+          したがって「24時間後に全サーバーから物理的に消える」とは保証できません。
+          相手が<code>endTime</code>を解釈しない場合や、すでに複製したデータの扱いは
+          相手側に依存します。
+        </p>
+
+        <h2>受信時の扱い</h2>
+        <p>
+          受信したStoryにも期限が必要です。欠落または不正な
+          <code>endTime</code
+          >は、受信側で公開時刻からおよそ25時間以内に収まる値へ
+          補正します。添付がないStoryは保存しません。オーバーレイは最大20件まで
+          取り込み、過大な付加情報は落として基本のメディアとキャプションを優先します。
+        </p>
+
+        <h2>機械可読な例</h2>
+        <p>
+          1行1オブジェクトの例は
+          <a href="/ns/story/examples.jsonl">Story examples.jsonl</a>
+          から確認できます。
+        </p>
+      </main>
+    </div>
+
+    <!-- Footer -->
+    <!-- @include footer.html -->
+  </body>
+</html>

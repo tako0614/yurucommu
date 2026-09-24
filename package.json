@@ -22,7 +22,7 @@
     "build": "bun run build:client",
     "build:client": "bunx vite build --config vite.config.ts",
     "build:worker": "bun scripts/build-yurucommu-worker.ts",
-    "check:site": "bunx prettier --check site",
+    "check:site": "bunx prettier --check site site-src && bun scripts/build-site.mjs --check",
     "check:core-release": "bun scripts/check-core-release.mjs",
     "generate:schema-bundle": "bun scripts/generate-schema-bundle.ts",
     "check:opentofu": "tofu fmt -check -recursive && tofu init -backend=false -input=false -lockfile=readonly && tofu validate && bun run build:worker && bun scripts/prepare-takoform-v1-source.ts && bun scripts/validate-takoform-v1.ts",
@@ -32,8 +32,8 @@
     "smoke:postdeploy": "bun scripts/post-deploy-smoke.ts",
     "smoke:release-artifact": "bun scripts/smoke-release-worker.mjs",
     "lint": "tsc --noEmit",
-    "fmt": "bunx prettier --write index.html vite.config.ts public.ts plugin.ts src site shims scripts",
-    "fmt:check": "bunx prettier --check index.html vite.config.ts public.ts plugin.ts src site shims scripts"
+    "fmt": "bunx prettier --write index.html vite.config.ts public.ts plugin.ts src site site-src shims scripts",
+    "fmt:check": "bunx prettier --check index.html vite.config.ts public.ts plugin.ts src site site-src shims scripts"
   },
   "cloudflare": {
     "bindings": {
@@ -66,6 +66,7 @@
     "esbuild": "^0.25.12",
     "miniflare": "4.20260721.0",
     "playwright-core": "1.55.1",
+    "prettier": "^3.9.9",
     "tailwindcss": "^4.1.18",
     "typescript": "^5.7.0",
     "vite": "^6.4.1",

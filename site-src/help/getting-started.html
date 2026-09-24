@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>クイックスタート - yurucommu</title>
+    <meta
+      name="description"
+      content="yurucommuをローカルで試し、運用方法を選ぶまでの手順"
+    />
+    <!-- @include head-social.html -->
+  </head>
+  <body>
+    <!-- @include header.html -->
+
+    <div class="docs-layout">
+      <!-- @include sidebar-help.html -->
+
+      <main class="docs-content">
+        <h1>クイックスタート</h1>
+        <p class="lead">
+          最初はモックデータで動かします。クラウドの設定は必要ありません。
+        </p>
+
+        <h2>前提条件</h2>
+        <ul>
+          <li>Bun 1.3以降</li>
+          <li>Git</li>
+        </ul>
+
+        <h2>ローカルで確認する</h2>
+        <p>リポジトリをクローンし、モックAPI付きの開発画面を起動します。</p>
+        <pre><code>git clone https://github.com/tako0614/yurucommu.git
+cd yurucommu
+bun install
+bun run dev:mock</code></pre>
+        <p>
+          ブラウザで <code>http://localhost:5173</code>
+          を開きます。モックのデータはメモリに保存されるため、コマンドを止めると
+          消えます。
+        </p>
+
+        <h3>ログアウト状態から試す</h3>
+        <pre><code>YURUCOMMU_MOCK_AUTH=signed-out bun run dev:mock</code></pre>
+
+        <h3>既存のAPIにつなぐ</h3>
+        <p>
+          <code>bun run dev</code> はWeb画面だけを起動します。すでに動いている
+          Yurucommu APIへ接続する場合は、接続先を指定します。
+        </p>
+        <pre><code>YURUCOMMU_DEV_PROXY_TARGET=http://localhost:8787 bun run dev</code></pre>
+
+        <h2>本番で使う場所を選ぶ</h2>
+        <p>
+          ローカルのモックは試用向けです。データを残して使うときは、次のどちらかを
+          選びます。
+        </p>
+
+        <h3>Takosumiなどの管理ホスト</h3>
+        <p>Gitからアプリの定義を読み込めるホストでは、次の内容を指定します。</p>
+        <pre><code>Git URL: https://github.com/tako0614/yurucommu.git
+ref: 安定版のタグ、または確認済みのコミット
+path: deploy/takoform</code></pre>
+        <p>
+          ホストが作成するサービスを表示したら内容を確認し、適用します。
+          Cloudflare用のルート設定はこの方法では使いません。
+        </p>
+
+        <h3>Cloudflareでセルフホスト</h3>
+        <p>
+          ルートの <code>main.tf</code> は、Worker、データベース、
+          ストレージ、キーバリューストア、キューをまとめて作るための設定です。
+          すでにCloudflare上のリソースを用意している場合は
+          <code>wrangler.jsonc</code> を使えます。
+        </p>
+        <p>
+          必要なCloudflareサービス、認証、データ移行を自分で管理します。詳しくは
+          <a href="/help/cloudflare-setup.html">Cloudflare設定</a>と
+          <a href="/help/deployment.html">デプロイガイド</a>を参照してください。
+        </p>
+
+        <h2>公開後に確認する</h2>
+        <ol>
+          <li>公開URLを開けることを確認する</li>
+          <li><code>/readyz</code> が準備完了を返すことを確認する</li>
+          <li>設定したパスワードまたはOIDCでログインする</li>
+          <li>プロフィールを設定し、テスト投稿を作成する</li>
+        </ol>
+
+        <h2>次のステップ</h2>
+        <ul>
+          <li>
+            <a href="/help/custom-domain.html">カスタムドメインを設定する</a>
+          </li>
+          <li>
+            <a href="/help/configuration.html">本番の設定を確認する</a>
+          </li>
+          <li><a href="/help/first-post.html">最初の投稿をする</a></li>
+        </ul>
+      </main>
+    </div>
+
+    <!-- @include footer.html -->
+  </body>
+</html>

@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>story — yurucommu Namespace</title>
+    <meta
+      name="description"
+      content="yurucommu Story extension namespace for ActivityPub."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="../../styles.css" />
+  </head>
+  <body>
+    <!-- @include header.html -->
+
+    <div class="docs-layout">
+      <main class="docs-content" style="margin: 0 auto">
+        <h1><code>story</code></h1>
+        <p class="lead">
+          Namespace: <code>https://yurucommu.com/ns/story#</code>
+        </p>
+
+        <h2>JSON-LD Context</h2>
+        <pre><code><a href="/ns/story/context.jsonld" style="color: var(--accent); border: none;">https://yurucommu.com/ns/story/context.jsonld</a></code></pre>
+
+        <h2>Terms</h2>
+        <table class="docs-table">
+          <thead>
+            <tr>
+              <th>Term</th>
+              <th>URI</th>
+              <th>Type</th>
+              <th>Description</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>Story</code></td>
+              <td><code>story:Story</code></td>
+              <td>Class</td>
+              <td>An ephemeral post (expires after 24h by default)</td>
+            </tr>
+            <tr>
+              <td><code>displayDuration</code></td>
+              <td><code>story:displayDuration</code></td>
+              <td><code>xsd:duration</code></td>
+              <td>How long each slide is shown (e.g. <code>PT15S</code>)</td>
+            </tr>
+            <tr>
+              <td><code>overlays</code></td>
+              <td><code>story:overlays</code></td>
+              <td><code>@list</code></td>
+              <td>
+                Ordered list of overlay objects (text, stickers, drawings)
+              </td>
+            </tr>
+            <tr>
+              <td><code>position</code></td>
+              <td><code>story:position</code></td>
+              <td>Property</td>
+              <td>
+                Normalized <code>x</code>, <code>y</code>, <code>width</code>,
+                and <code>height</code> values from 0 to 1
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        <p style="margin-top: 3rem">
+          <a href="/specs/story.html" style="color: var(--accent); border: none"
+            >Full Story specification</a
+          >
+          &nbsp;·&nbsp;
+          <a href="/ns/" style="color: var(--accent); border: none"
+            >All namespaces</a
+          >
+        </p>
+      </main>
+    </div>
+
+    <!-- @include footer-minimal.html -->
+  </body>
+</html>

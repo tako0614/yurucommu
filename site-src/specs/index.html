@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>仕様とデータ形式 - yurucommu</title>
+    <meta
+      name="description"
+      content="yurucommuの使い方、現在の連合形式、データ語彙"
+    />
+    <!-- @include head-social.html -->
+  </head>
+  <body>
+    <!-- @include header.html -->
+
+    <div class="docs-layout">
+      <!-- @include sidebar-specs.html -->
+
+      <main class="docs-content">
+        <h1>仕様とデータ形式</h1>
+        <p class="lead">
+          まず使い方を説明し、その後に現在送受信しているActivityPubの形式と、
+          yurucommuが公開しているデータ語彙を分けて説明します。
+        </p>
+
+        <div class="callout callout-info">
+          <strong>このページの読み方:</strong>
+          「現行実装」は現在のコードで確認できる挙動です。「提案」は公開中の名前や形式ですが、
+          現在の送受信データでは使っていないものです。外部ソフトウェアとの相互運用を
+          保証する意味ではありません。
+        </div>
+
+        <h2>使い方</h2>
+        <div class="card-grid">
+          <a href="/specs/single-user.html" class="card">
+            <span class="spec-status experimental">現行実装</span>
+            <h3 class="card-title">アカウント構成</h3>
+            <p class="card-description">
+              1つのインスタンスを1人のオーナーが管理し、必要に応じて
+              切り替えて使うサブアカウントを追加できます。
+            </p>
+          </a>
+          <a href="/specs/qr-exchange.html" class="card">
+            <span class="spec-status experimental">現行実装</span>
+            <h3 class="card-title">QRでアカウント交換</h3>
+            <p class="card-description">
+              自分のプロフィールURLをQRコードで見せ、相手が確認してから
+              フォローするまでの流れです。
+            </p>
+          </a>
+        </div>
+
+        <h2>現在の連合形式</h2>
+        <p>
+          次のページは標準規格を作るための文書ではなく、yurucommuの現在の
+          ActivityPub入出力を説明する実装資料です。
+        </p>
+        <div class="card-grid">
+          <a href="/specs/apc.html" class="card">
+            <span class="spec-status experimental">現行実装</span>
+            <h3 class="card-title">コミュニティ</h3>
+            <p class="card-description">
+              公開コミュニティをGroupアクターとして公開し、Followで参加を受け付け、
+              投稿をAnnounceで配信します。
+            </p>
+          </a>
+          <a href="/specs/story.html" class="card">
+            <span class="spec-status experimental">現行実装</span>
+            <h3 class="card-title">Story</h3>
+            <p class="card-description">
+              24時間の期限、1つのメディア、表示時間、オーバーレイを持つ
+              Storyオブジェクトを送受信します。
+            </p>
+          </a>
+          <a href="/specs/dmnote.html" class="card">
+            <span class="spec-status experimental">現行実装</span>
+            <h3 class="card-title">DM</h3>
+            <p class="card-description">
+              1人の宛先を<code>to</code>に指定した通常の
+              <code>Note</code>として送受信します。自動消去はしません。
+            </p>
+          </a>
+        </div>
+
+        <h2>データ語彙</h2>
+        <div class="card-grid">
+          <a href="/specs/namespace.html" class="card">
+            <span class="spec-status draft">実装済み・提案を併記</span>
+            <h3 class="card-title">JSON-LDコンテキスト</h3>
+            <p class="card-description">
+              Storyで実際に送信する語彙と、将来用に公開しているコミュニティ語彙を
+              区別して掲載します。
+            </p>
+          </a>
+        </div>
+
+        <h2>表記</h2>
+        <ul>
+          <li>
+            <span class="spec-status experimental">現行実装</span> -
+            現在のコードと入出力で確認できる挙動
+          </li>
+          <li>
+            <span class="spec-status draft">提案</span> -
+            公開中でも、現在の送受信では使っていない形式
+          </li>
+        </ul>
+
+        <h2>フィードバック</h2>
+        <p>
+          仕様に関するフィードバックは
+          <a href="https://github.com/tako0614/yurucommu/issues"
+            >GitHub Issues</a
+          >
+          でお待ちしています。
+        </p>
+      </main>
+    </div>
+
+    <!-- @include footer.html -->
+  </body>
+</html>

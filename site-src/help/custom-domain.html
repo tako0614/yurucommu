@@ -5,88 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>カスタムドメイン - yurucommu</title>
     <meta name="description" content="yurucommuに独自ドメインを設定する方法" />
-    <meta property="og:type" content="website" />
-    <meta property="og:site_name" content="yurucommu" />
-    <meta property="og:image" content="https://yurucommu.com/img/og.png" />
-    <meta property="og:image:width" content="1200" />
-    <meta property="og:image:height" content="630" />
-    <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:image" content="https://yurucommu.com/img/og.png" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap"
-      rel="stylesheet"
-    />
-    <link rel="stylesheet" href="../styles.css?v=2" />
+    <!-- @include head-social.html -->
   </head>
   <body>
-    <header class="header">
-      <div class="header-inner">
-        <a href="/" class="logo">yurucommu</a>
-        <div class="header-links">
-          <a href="/help/" class="header-link active">Docs</a>
-          <a href="/specs/" class="header-link">Specs</a>
-        </div>
-        <a href="https://github.com/tako0614/yurucommu" class="header-cta">
-          GitHub
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-          >
-            <path
-              d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"
-            />
-          </svg>
-        </a>
-      </div>
-    </header>
+    <!-- @include header.html -->
 
     <div class="docs-layout">
-      <aside class="docs-sidebar">
-        <p class="docs-sidebar-title">はじめに</p>
-        <ul class="docs-sidebar-nav">
-          <li><a href="/help/">概要</a></li>
-          <li><a href="/help/getting-started.html">クイックスタート</a></li>
-          <li><a href="/help/requirements.html">必要な環境</a></li>
-        </ul>
-
-        <div class="docs-sidebar-section">
-          <p class="docs-sidebar-title">セットアップ</p>
-          <ul class="docs-sidebar-nav">
-            <li><a href="/help/cloudflare-setup.html">Cloudflare設定</a></li>
-            <li><a href="/help/deployment.html">デプロイ</a></li>
-            <li><a href="/help/configuration.html">設定</a></li>
-            <li>
-              <a href="/help/custom-domain.html" class="active"
-                >カスタムドメイン</a
-              >
-            </li>
-          </ul>
-        </div>
-
-        <div class="docs-sidebar-section">
-          <p class="docs-sidebar-title">使い方</p>
-          <ul class="docs-sidebar-nav">
-            <li><a href="/help/first-post.html">最初の投稿</a></li>
-            <li><a href="/help/following.html">フォローする</a></li>
-            <li><a href="/help/communities.html">コミュニティ</a></li>
-          </ul>
-        </div>
-
-        <div class="docs-sidebar-section">
-          <p class="docs-sidebar-title">リファレンス</p>
-          <ul class="docs-sidebar-nav">
-            <li><a href="/help/api.html">API</a></li>
-            <li><a href="/help/database.html">データベース</a></li>
-            <li><a href="/specs/">連合の仕組み</a></li>
-          </ul>
-        </div>
-      </aside>
+      <!-- @include sidebar-help.html -->
 
       <main class="docs-content">
         <h1>カスタムドメイン</h1>
@@ -185,19 +110,6 @@
       </main>
     </div>
 
-    <footer class="footer">
-      <div class="footer-inner">
-        <div class="footer-logo">yurucommu</div>
-        <div class="footer-links">
-          <a href="/" class="footer-link">ホーム</a>
-          <a href="/help/" class="footer-link">Docs</a>
-          <a href="/specs/" class="footer-link">Specs</a>
-          <a href="https://github.com/tako0614/yurucommu" class="footer-link"
-            >GitHub</a
-          >
-        </div>
-        <p class="footer-copy">&copy; 2026 yurucommu. AGPL-3.0-only.</p>
-      </div>
-    </footer>
+    <!-- @include footer.html -->
   </body>
 </html>

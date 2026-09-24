@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DMの連合形式 - yurucommu</title>
+    <meta
+      name="description"
+      content="yurucommuが現在送受信する1対1 DMのActivityPub形式"
+    />
+    <!-- @include head-social.html -->
+  </head>
+  <body>
+    <!-- @include header.html -->
+
+    <div class="docs-layout">
+      <!-- @include sidebar-specs.html -->
+
+      <main class="docs-content">
+        <span class="spec-status experimental">現行実装</span>
+        <h1>DMの連合形式</h1>
+        <p class="lead">
+          yurucommuのDMは、宛先を1人に限定した通常の ActivityStreams
+          <code>Note</code>です。自動で消えるメッセージではありません。
+        </p>
+
+        <div class="callout callout-info">
+          <strong>以前の説明からの変更:</strong>
+          現在の実装は<code>urn:dmnote:v1</code>、
+          <code>bto</code>、<code>endTime</code>を使いません。 「DM
+          Note」という独自仕様ではなく、直接宛先を持つNoteとして説明します。
+        </div>
+
+        <h2>送信する形式</h2>
+        <p>
+          リモートアカウントへ送るときは、<code>Create</code>とその中の
+          <code>Note</code
+          >の両方で、相手のアクターIDを<code>to</code>に指定します。
+          公開コレクションやfollowersコレクションは含めません。
+        </p>
+        <pre><code>{
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "id": "https://alice.example/ap/activities/dm-1",
+  "type": "Create",
+  "actor": "https://alice.example/ap/users/alice",
+  "to": ["https://bob.example/ap/users/bob"],
+  "object": {
+    "id": "https://alice.example/ap/objects/message-1",
+    "type": "Note",
+    "attributedTo": "https://alice.example/ap/users/alice",
+    "to": ["https://bob.example/ap/users/bob"],
+    "content": "こんにちは",
+    "published": "2026-07-29T10:00:00.000Z",
+    "conversation": "https://alice.example/ap/conversations/..."
+  }
+}</code></pre>
+        <p>
+          メディアがある場合は<code>attachment</code>を追加します。
+          相手を通知に表示しやすくするため、<code>Mention</code>の
+          <code>tag</code>も付けます。
+        </p>
+
+        <h2>DMとして受信する条件</h2>
+        <p>
+          受信した<code>Note</code>は、次の条件を満たすとDMの会話へ保存されます。
+        </p>
+        <ul>
+          <li>ローカル受信者のアクターIDが<code>to</code>に含まれる</li>
+          <li>
+            <code>Public</code>が<code>to</code>にも<code>cc</code>にもない
+          </li>
+          <li>送信者のfollowersコレクションが宛先にない</li>
+          <li>送信者が受信者にブロックされていない</li>
+        </ul>
+        <p>
+          現在の会話モデルは1対1です。複数人宛てのdirect
+          <code>Note</code>をグループDMとして扱う契約はありません。
+        </p>
+
+        <h2>会話のまとめ方</h2>
+        <p>
+          送信者と受信者の組み合わせから会話IDを決めます。
+          受信データの<code>conversation</code>が同じ組み合わせから計算したIDと
+          一致する場合はそれを使い、一致しない場合はローカルで計算したIDへ正規化します。
+          これにより、外部から渡された任意の会話IDで別の会話へ混ぜることを避けます。
+        </p>
+
+        <h2>保存期間と削除</h2>
+        <table class="docs-table">
+          <thead>
+            <tr>
+              <th>操作</th>
+              <th>現在の挙動</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>何もしない</td>
+              <td>
+                メッセージは期限なしで保存。<code>endTime</code>による自動非表示や
+                自動削除は行わない
+              </td>
+            </tr>
+            <tr>
+              <td>自分のメッセージを削除</td>
+              <td>
+                ローカルのオブジェクト、通知用データ、添付メディアを削除。
+                現在はリモートへ<code>Delete</code>を配送しない
+              </td>
+            </tr>
+            <tr>
+              <td>自分のメッセージを編集</td>
+              <td>
+                ローカルの内容を更新。現在はリモートへ
+                <code>Update</code>を配送しない
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <p>
+          相手が別サーバーの場合、送信後の編集や削除で相手側のコピーが変わるとは
+          限りません。機密情報は「後から消せる」ことを前提に送らないでください。
+        </p>
+
+        <h2>連合しない会話状態</h2>
+        <p>
+          既読位置、入力中表示、会話のアーカイブ状態はローカル機能です。
+          リモートの相手について既読状態が分からない場合は、未読と決めつけず
+          「不明」として扱います。
+        </p>
+
+        <h2>外部実装での見え方</h2>
+        <p>
+          独自のDM型は使っていないため、相手が宛先限定の
+          <code>Note</code>をサポートしていれば受信できる可能性があります。
+          ただし、通知、会話のまとめ方、添付表示、返信UIまで同じになる保証はありません。
+        </p>
+      </main>
+    </div>
+
+    <!-- @include footer.html -->
+  </body>
+</html>

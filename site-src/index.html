@@ -1,0 +1,951 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta
+      name="adring-site-verification"
+      content="adring_vrf_ivTRoWL4OlK5sc_UxnzOTmi6v492e0pt"
+    />
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>yurucommu — 自分の輪を、自分でつくる。</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta
+      name="description"
+      content="yurucommu は、自分で運用できる一人用の ActivityPub SNS です。フォローした相手の投稿を時間順に読み、小さなコミュニティを作れます。"
+    />
+    <meta
+      property="og:title"
+      content="yurucommu — 自分の輪を、自分でつくる。"
+    />
+    <meta
+      property="og:description"
+      content="自分ひとりのためのセルフホスト型 ActivityPub SNS。"
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="yurucommu" />
+    <meta property="og:url" content="https://yurucommu.com/" />
+    <meta property="og:image" content="https://yurucommu.com/img/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="yurucommu — 自分の輪を、自分でつくる。"
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta
+      name="twitter:title"
+      content="yurucommu — 自分の輪を、自分でつくる。"
+    />
+    <meta
+      name="twitter:description"
+      content="自分ひとりのためのセルフホスト型 ActivityPub SNS。"
+    />
+    <meta name="twitter:image" content="https://yurucommu.com/img/og.png" />
+    <meta
+      name="twitter:image:alt"
+      content="yurucommu — 自分の輪を、自分でつくる。"
+    />
+    <link rel="canonical" href="https://yurucommu.com/" />
+    <meta name="theme-color" content="#0a0a0b" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400&family=Noto+Sans+JP:wght@400;500;700;900&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      *,
+      *::before,
+      *::after {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      :root {
+        --bg: #0a0a0b;
+        --bg-2: #111113;
+        --bg-3: #18181b;
+        --ink: #fafafa;
+        --ink-2: #e4e4e7;
+        --dim: #a1a1aa;
+        /* smallest text color — keep ≥4.5:1 on --bg (#8b8b96 ≈ 5.9:1) */
+        --faint: #8b8b96;
+        --line: #27272a;
+        --accent: #3b82f6;
+        --w: 1100px;
+        --w-n: 720px;
+        --sans: "Noto Sans JP", -apple-system, BlinkMacSystemFont, sans-serif;
+        --mono: "JetBrains Mono", ui-monospace, "SF Mono", monospace;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        font-family: var(--sans);
+        background: var(--bg);
+        color: var(--ink);
+        line-height: 1.85;
+        font-size: 16px;
+        -webkit-font-smoothing: antialiased;
+        overflow-x: hidden;
+      }
+
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+      ::selection {
+        background: var(--accent);
+        color: #fff;
+      }
+
+      .wrap {
+        width: 100%;
+        max-width: var(--w);
+        margin: 0 auto;
+        padding: 0 clamp(1.5rem, 5vw, 3rem);
+      }
+
+      .mono {
+        font-family: var(--mono);
+        font-size: 0.72rem;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--faint);
+      }
+
+      .arrow {
+        color: var(--ink);
+        border-bottom: 1px solid var(--line);
+        padding-bottom: 2px;
+        transition:
+          border-color 0.2s,
+          color 0.2s;
+      }
+      .arrow:hover {
+        border-color: var(--accent);
+      }
+      .arrow span {
+        display: inline-block;
+        transition: transform 0.2s;
+      }
+      .arrow:hover span {
+        transform: translateX(3px);
+      }
+      .arrow.unavailable {
+        color: var(--dim);
+        border-bottom-style: dashed;
+        cursor: not-allowed;
+      }
+      .arrow.unavailable:hover {
+        border-color: var(--line);
+      }
+
+      .link {
+        color: var(--dim);
+        transition: color 0.2s;
+      }
+      .link:hover {
+        color: var(--ink);
+      }
+
+      .hairline {
+        width: 100%;
+        height: 1px;
+        background: var(--line);
+      }
+
+      /* ---- Nav ---- */
+      .nav {
+        position: fixed;
+        inset: 0 0 auto 0;
+        z-index: 50;
+        background: rgba(10, 10, 11, 0.7);
+        backdrop-filter: blur(12px);
+        border-bottom: 1px solid transparent;
+        transition: border-color 0.3s;
+      }
+      .nav.scrolled {
+        border-bottom-color: var(--line);
+      }
+      .nav-in {
+        max-width: var(--w);
+        margin: 0 auto;
+        padding: 1.1rem clamp(1.5rem, 5vw, 3rem);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.55rem;
+        font-weight: 700;
+        font-size: 0.95rem;
+      }
+      .dot {
+        width: 0.5rem;
+        height: 0.5rem;
+        border-radius: 50%;
+        background: var(--accent);
+      }
+      .nav-links {
+        display: flex;
+        gap: 1.8rem;
+        font-size: 0.85rem;
+        align-items: center;
+      }
+
+      /* ---- Hero ---- */
+      .hero {
+        padding: 12rem 0 8rem;
+      }
+      .hero-label {
+        margin-bottom: 2rem;
+      }
+      .hero h1 {
+        font-size: clamp(3rem, 8vw, 5.5rem);
+        font-weight: 900;
+        line-height: 1.3;
+        letter-spacing: -0.03em;
+        max-width: 14ch;
+      }
+      .hero p {
+        color: var(--dim);
+        margin-top: 2rem;
+        font-size: clamp(1rem, 1.8vw, 1.15rem);
+        max-width: 28rem;
+        line-height: 2;
+      }
+      .hero-act {
+        margin-top: 2.5rem;
+        display: flex;
+        align-items: center;
+        gap: 2rem;
+        font-size: 0.95rem;
+      }
+
+      /* ---- Product Mockup ---- */
+      .mockup-section {
+        padding: 2rem 0 4rem;
+      }
+      .browser {
+        max-width: 960px;
+        margin: 0 auto;
+        border: 1px solid var(--line);
+        border-radius: 0.75rem;
+        overflow: hidden;
+        background: #0a0a0a;
+        box-shadow: 0 40px 80px rgba(0, 0, 0, 0.5);
+      }
+      .browser-bar {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.55rem 1rem;
+        border-bottom: 1px solid var(--line);
+        background: var(--bg-3);
+      }
+      .browser-dots {
+        display: flex;
+        gap: 0.35rem;
+      }
+      .browser-dots i {
+        width: 0.5rem;
+        height: 0.5rem;
+        border-radius: 50%;
+        background: var(--faint);
+        opacity: 0.5;
+      }
+      .browser-url {
+        flex: 1;
+        text-align: center;
+        font-family: var(--mono);
+        font-size: 0.65rem;
+        color: var(--faint);
+        letter-spacing: 0.04em;
+      }
+      .browser-body {
+        background: #262626;
+      }
+
+      .app-shot {
+        display: block;
+        width: 100%;
+        height: auto;
+      }
+
+      .mockup-caption {
+        text-align: center;
+        margin-top: 2.5rem;
+        font-family: var(--mono);
+        font-size: 0.75rem;
+        color: var(--faint);
+        letter-spacing: 0.04em;
+      }
+
+      /* ---- Statement ---- */
+      .statement {
+        padding: 10rem 0;
+        text-align: center;
+      }
+      .statement p {
+        font-size: clamp(1.8rem, 4.5vw, 3rem);
+        font-weight: 700;
+        line-height: 1.7;
+        max-width: 16ch;
+        margin: 0 auto;
+        letter-spacing: -0.01em;
+      }
+      .statement .soft {
+        color: var(--faint);
+      }
+
+      /* ---- Principles ---- */
+      .principles {
+        padding: 7rem 0;
+      }
+      .principles-head {
+        margin-bottom: 3rem;
+      }
+      .princ-row {
+        display: grid;
+        grid-template-columns: 5rem 1fr;
+        gap: 1rem;
+        padding: 2.5rem 0;
+        border-top: 1px solid var(--line);
+        align-items: start;
+      }
+      .princ-row:last-child {
+        border-bottom: 1px solid var(--line);
+      }
+      .princ-n {
+        font-family: var(--mono);
+        font-size: 0.8rem;
+        color: var(--accent);
+        padding-top: 0.4rem;
+      }
+      /* h2 (not h3): the numbered principles are the first headings after the
+         hero h1, so they must not skip a level in the document outline. */
+      .princ-row h2 {
+        font-size: 1.5rem;
+        font-weight: 700;
+        letter-spacing: -0.01em;
+        margin-bottom: 0.6rem;
+      }
+      .princ-row p {
+        color: var(--dim);
+        max-width: 36rem;
+        font-size: 0.975rem;
+      }
+
+      /* ---- Feature Panels ---- */
+      .features {
+        padding: 7rem 0;
+      }
+      .features-head {
+        margin-bottom: 4rem;
+      }
+      .feat-panel {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 4rem;
+        align-items: center;
+        margin-bottom: 6rem;
+      }
+      .feat-panel:last-child {
+        margin-bottom: 0;
+      }
+      .feat-panel.reverse .feat-text {
+        order: 2;
+      }
+      .feat-panel.reverse .feat-mock {
+        order: 1;
+      }
+      .feat-label {
+        font-family: var(--mono);
+        font-size: 0.72rem;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--faint);
+        margin-bottom: 1rem;
+      }
+      .feat-text h2 {
+        font-size: clamp(1.5rem, 3.5vw, 2.2rem);
+        font-weight: 700;
+        line-height: 1.5;
+        letter-spacing: -0.01em;
+        margin-bottom: 1rem;
+      }
+      .feat-text p {
+        color: var(--dim);
+        font-size: 0.975rem;
+        max-width: 24rem;
+      }
+
+      .feat-mock-frame {
+        border: 1px solid var(--line);
+        border-radius: 0.75rem;
+        background: var(--bg-2);
+        overflow: hidden;
+      }
+
+      .feat-shot {
+        display: block;
+        width: 100%;
+        height: auto;
+      }
+
+      /* ---- Mobile ---- */
+      .mobile-sec {
+        padding: 7rem 0;
+      }
+      .mobile-grid {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 4rem;
+        align-items: center;
+      }
+      .mobile-copy h2 {
+        font-size: clamp(1.5rem, 3.5vw, 2.2rem);
+        font-weight: 700;
+        line-height: 1.5;
+        letter-spacing: -0.01em;
+        margin: 1rem 0;
+      }
+      .mobile-copy p {
+        color: var(--dim);
+        font-size: 0.975rem;
+        max-width: 24rem;
+      }
+      .phone {
+        width: 268px;
+        max-width: 100%;
+        margin: 0 auto;
+        padding: 10px;
+        border-radius: 42px;
+        background: #000;
+        border: 1px solid var(--line);
+        box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+      }
+      .phone img {
+        display: block;
+        width: 100%;
+        height: auto;
+        border-radius: 32px;
+      }
+
+      /* ---- Deploy Steps ---- */
+      .deploy {
+        padding: 7rem 0;
+      }
+      .deploy h2 {
+        font-size: clamp(1.5rem, 3.5vw, 2.2rem);
+        font-weight: 700;
+        letter-spacing: -0.01em;
+        margin-top: 1rem;
+        margin-bottom: 3rem;
+      }
+      .step-row {
+        display: grid;
+        grid-template-columns: 5rem 8rem 1fr;
+        gap: 1rem;
+        align-items: center;
+        padding: 1.4rem 0;
+        border-top: 1px solid var(--line);
+      }
+      .step-row:last-of-type {
+        border-bottom: 1px solid var(--line);
+      }
+      .step-n {
+        font-family: var(--mono);
+        font-size: 0.8rem;
+        color: var(--accent);
+      }
+      .step-row b {
+        font-weight: 500;
+      }
+      .step-row span {
+        color: var(--faint);
+        font-size: 0.88rem;
+      }
+      .deploy-note {
+        margin-top: 2rem;
+        color: var(--faint);
+        font-size: 0.9rem;
+      }
+
+      /* ---- Federation Note ---- */
+      .federation {
+        padding: 6rem 0;
+        text-align: center;
+      }
+      .federation p {
+        font-size: clamp(1.1rem, 2.5vw, 1.5rem);
+        font-weight: 500;
+        color: var(--dim);
+        line-height: 1.9;
+        max-width: 28ch;
+        margin: 0 auto;
+      }
+
+      /* ---- CTA Close ---- */
+      .cta {
+        padding: 10rem 0;
+      }
+      .cta h2 {
+        font-size: clamp(2rem, 5.5vw, 3.5rem);
+        font-weight: 900;
+        letter-spacing: -0.02em;
+        line-height: 1.4;
+      }
+      .cta .act {
+        margin-top: 2.5rem;
+        display: flex;
+        gap: 2rem;
+        align-items: center;
+        font-size: 0.95rem;
+      }
+
+      /* ---- Footer ---- */
+      footer {
+        border-top: 1px solid var(--line);
+        padding: 2.5rem 0;
+      }
+      .foot {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1rem 2rem;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .foot-links {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1.5rem;
+        font-size: 0.85rem;
+      }
+      .foot-copy {
+        font-family: var(--mono);
+        font-size: 0.72rem;
+        color: var(--faint);
+      }
+
+      /* ---- Reveal ---- */
+      .reveal {
+        opacity: 0;
+        transform: translateY(12px);
+      }
+      .reveal.in {
+        opacity: 1;
+        transform: none;
+        transition:
+          opacity 0.7s cubic-bezier(0.2, 0.7, 0.2, 1),
+          transform 0.7s cubic-bezier(0.2, 0.7, 0.2, 1);
+      }
+
+      /* ---- Responsive ---- */
+      @media (max-width: 900px) {
+        .hero {
+          padding: 8rem 0 5rem;
+        }
+        .feat-panel,
+        .mobile-grid {
+          grid-template-columns: 1fr;
+          gap: 2.5rem;
+        }
+        .feat-panel.reverse .feat-text {
+          order: 1;
+        }
+        .feat-panel.reverse .feat-mock {
+          order: 2;
+        }
+        .statement {
+          padding: 7rem 0;
+        }
+        .step-row {
+          grid-template-columns: 3rem 1fr;
+        }
+        .step-row span {
+          grid-column: 2;
+        }
+      }
+
+      @media (max-width: 640px) {
+        .nav-links {
+          gap: 1rem;
+        }
+        .princ-row {
+          grid-template-columns: 3rem 1fr;
+        }
+        .browser {
+          border-radius: 0.5rem;
+        }
+      }
+
+      /* Very narrow screens: drop the secondary nav links so the はじめる CTA
+         never overflows (Docs / Specs stay reachable from the footer). */
+      @media (max-width: 480px) {
+        .nav-opt {
+          display: none;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .reveal {
+          opacity: 1;
+          transform: none;
+          transition: none;
+        }
+        html {
+          scroll-behavior: auto;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Nav -->
+    <nav class="nav" id="nav">
+      <div class="nav-in">
+        <a href="/" class="brand">yurucommu</a>
+        <div class="nav-links">
+          <a href="/help/" class="link nav-opt">Docs</a>
+          <a href="/specs/" class="link nav-opt">Specs</a>
+          <a href="https://github.com/tako0614/yurucommu" class="link"
+            >GitHub</a
+          >
+          <a href="#start" class="arrow">はじめる <span>→</span></a>
+        </div>
+      </div>
+    </nav>
+
+    <!-- Hero -->
+    <header class="hero">
+      <div class="wrap">
+        <span class="mono hero-label">Self-hosted ActivityPub SNS</span>
+        <h1>自分の輪を、<br />自分でつくる。</h1>
+        <p>
+          自分ひとりのための、小さな SNS
+          です。フォローした相手の投稿を時間順に読みながら、つながる相手と
+          コミュニティを自分で選べます。
+        </p>
+        <div class="hero-act">
+          <a
+            href="https://app.takosumi.com/install?git=https%3A%2F%2Fgithub.com%2Ftako0614%2Fyurucommu.git&ref=a17e4f883cb9ba79e6d0650b497d8d97453c698f&path=deploy%2Ftakoform"
+            class="arrow"
+            >Takosumi で追加 <span>→</span></a
+          >
+          <a href="/help/getting-started.html" class="link">ローカルで試す</a>
+          <a href="#start" class="link">運用方法</a>
+          <a href="https://github.com/tako0614/yurucommu" class="link"
+            >GitHub</a
+          >
+        </div>
+      </div>
+    </header>
+
+    <!-- Product Mockup -->
+    <section class="mockup-section">
+      <div class="wrap reveal">
+        <div class="browser">
+          <div class="browser-bar">
+            <div class="browser-dots"><i></i><i></i><i></i></div>
+            <div class="browser-url">yourdomain.com</div>
+          </div>
+          <div class="browser-body">
+            <img
+              class="app-shot"
+              src="./assets/shots/yurucommu-home.webp"
+              width="2560"
+              height="1600"
+              alt="yurucommuのホームタイムライン。ダークな UI に、自分のサーバーでフォローした相手の投稿・ストーリー・おすすめユーザーが並ぶ。"
+              loading="lazy"
+              decoding="async"
+            />
+          </div>
+        </div>
+        <p class="mockup-caption">
+          あなたのドメインで動く、あなただけのタイムラインです。
+        </p>
+      </div>
+    </section>
+
+    <div class="hairline"></div>
+
+    <!-- Statement -->
+    <section class="statement reveal">
+      <div class="wrap">
+        <p>
+          届く範囲は、<br />自分が広げた輪の中だけで、<span class="soft"
+            >いいです。</span
+          >
+        </p>
+      </div>
+    </section>
+
+    <div class="hairline"></div>
+
+    <!-- Principles -->
+    <section class="principles" id="why">
+      <div class="wrap">
+        <div class="principles-head">
+          <span class="mono">考え方</span>
+        </div>
+        <div class="princ-row reveal">
+          <span class="princ-n">01</span>
+          <div>
+            <h2>アルゴリズムを、手放す。</h2>
+            <p>
+              タイムラインはおすすめ順に並べ替えません。自分がフォローした相手の投稿を、時間順に表示します。
+            </p>
+          </div>
+        </div>
+        <div class="princ-row reveal">
+          <span class="princ-n">02</span>
+          <div>
+            <h2>輪は、小さくていい。</h2>
+            <p>
+              興味でつくる小さなコミュニティが、そのまま「届く範囲」になります。薄く広い繋がりより、濃くて小さな繋がりを大切にします。
+            </p>
+          </div>
+        </div>
+        <div class="princ-row reveal">
+          <span class="princ-n">03</span>
+          <div>
+            <h2>居場所は、自分のもの。</h2>
+            <p>
+              セルフホストでは、運用先やデータの置き場所を自分で選べます。
+              ActivityPubに対応する別のサーバーとも、フォローや投稿を
+              やり取りできます。
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="hairline"></div>
+
+    <!-- Features -->
+    <section class="features">
+      <div class="wrap">
+        <div class="features-head">
+          <span class="mono">できること</span>
+        </div>
+
+        <!-- Posts -->
+        <div class="feat-panel reveal">
+          <div class="feat-text">
+            <div class="feat-label">できること — 01</div>
+            <h2>時系列だけの、<br />タイムライン。</h2>
+            <p>
+              フォローした相手の投稿を、時間順に表示します。おすすめ順への
+              並べ替えを気にせず、自分のペースで読めます。
+            </p>
+          </div>
+          <div class="feat-mock">
+            <div class="feat-mock-frame">
+              <img
+                class="feat-shot"
+                src="./assets/shots/yc-feat-post.webp"
+                alt="yurucommu の投稿。フォローした人の声が、時間順に静かに流れる。"
+                loading="lazy"
+                decoding="async"
+              />
+            </div>
+          </div>
+        </div>
+
+        <!-- Stories -->
+        <div class="feat-panel reverse reveal">
+          <div class="feat-text">
+            <div class="feat-label">できること — 02</div>
+            <h2>24時間で消える、<br />気軽な近況。</h2>
+            <p>
+              キャンバスエディタで自由に描いたり書いたり貼ったりできます。24時間後には消えるので、身軽に使えます。
+            </p>
+          </div>
+          <div class="feat-mock">
+            <div class="feat-mock-frame">
+              <img
+                class="feat-shot"
+                src="./assets/shots/yc-feat-story.webp"
+                alt="yurucommu のストーリー一覧。フォローした人の 24 時間で消える近況が並ぶ。"
+                loading="lazy"
+                decoding="async"
+              />
+            </div>
+          </div>
+        </div>
+
+        <!-- Communities -->
+        <div class="feat-panel reveal">
+          <div class="feat-text">
+            <div class="feat-label">できること — 03</div>
+            <h2>自分で決める、<br />届く範囲。</h2>
+            <p>
+              興味でつくるコミュニティが、投稿の届く「輪」になります。全世界に向けて発信する必要はありません。
+            </p>
+          </div>
+          <div class="feat-mock">
+            <div class="feat-mock-frame">
+              <img
+                class="feat-shot"
+                src="./assets/shots/yc-feat-community.webp"
+                alt="yurucommu の投稿。コミュニティのバッジが付き、投稿の届く「輪」をコミュニティで選べる。"
+                loading="lazy"
+                decoding="async"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="hairline"></div>
+
+    <!-- Mobile -->
+    <section class="mobile-sec reveal">
+      <div class="wrap mobile-grid">
+        <div class="mobile-copy">
+          <span class="mono">手のひらに</span>
+          <h2>スマホでも、<br />自分の輪。</h2>
+          <p>
+            ホーム画面から開けば、タイムラインも、ストーリーも、DM
+            も使えます。あなたのサーバーが、そのままポケットの中に入ります。
+          </p>
+        </div>
+        <div class="phone">
+          <img
+            src="./assets/shots/yurucommu-mobile.webp"
+            width="780"
+            height="1688"
+            alt="yurucommu のスマホ画面。ダークなタイムラインと下部タブ（ホーム・検索・通知・メッセージ）。"
+            loading="lazy"
+            decoding="async"
+          />
+        </div>
+      </div>
+    </section>
+
+    <div class="hairline"></div>
+
+    <!-- Deploy Steps -->
+    <section class="deploy" id="start">
+      <div class="wrap">
+        <span class="mono">はじめかた</span>
+        <h2>まず、手元で試す。</h2>
+        <div class="step-row reveal">
+          <span class="step-n">01</span>
+          <b>準備</b>
+          <span>リポジトリを取得して、Bunで依存関係を入れます</span>
+        </div>
+        <div class="step-row reveal">
+          <span class="step-n">02</span>
+          <b>試す</b>
+          <span><code>bun run dev:mock</code>で画面と機能を確認します</span>
+        </div>
+        <div class="step-row reveal">
+          <span class="step-n">03</span>
+          <b>運用先を選ぶ</b>
+          <span>管理ホストか、Cloudflareでのセルフホストを選びます</span>
+        </div>
+        <p class="deploy-note">
+          管理ホストでは <code>deploy/takoform</code>、Cloudflareで
+          セルフホストする場合はルートの <code>main.tf</code> または
+          <code>wrangler.jsonc</code> を使います。詳しい手順は
+          <a href="/help/deployment.html">デプロイガイド</a>にあります。
+        </p>
+      </div>
+    </section>
+
+    <div class="hairline"></div>
+
+    <!-- Federation Note -->
+    <section class="federation reveal">
+      <div class="wrap">
+        <p>
+          ActivityPubに対応する別のサーバーと、フォローや投稿を
+          やり取りできます。<br />小さな場所から、必要な相手へつながれます。
+        </p>
+      </div>
+    </section>
+
+    <div class="hairline"></div>
+
+    <!-- CTA Close -->
+    <section class="cta">
+      <div class="wrap reveal">
+        <h2>自分の場所を、<br />自分の手で。</h2>
+        <div class="act">
+          <a
+            href="https://app.takosumi.com/install?git=https%3A%2F%2Fgithub.com%2Ftako0614%2Fyurucommu.git&ref=a17e4f883cb9ba79e6d0650b497d8d97453c698f&path=deploy%2Ftakoform"
+            class="arrow"
+            >Takosumi でインストール <span>→</span></a
+          >
+          <a href="/help/getting-started.html" class="link">ローカルで試す</a>
+          <a href="/help/deployment.html" class="link">運用方法を見る</a>
+          <a
+            href="https://github.com/tako0614/yurucommu"
+            class="link"
+            rel="noopener"
+            >GitHub</a
+          >
+        </div>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <aside
+      aria-label="広告"
+      style="
+        box-sizing: border-box;
+        width: 100%;
+        max-width: 488px;
+        min-height: 196px;
+        margin: 0 auto;
+        padding: 24px;
+      "
+    >
+      <script
+        async
+        referrerpolicy="origin"
+        src="https://ar-cdn.net/widget/v1.js"
+        data-site-id="1555da9b-6228-45b7-b575-b3a836013dd0"
+        data-variant="card"
+      ></script>
+    </aside>
+
+    <footer>
+      <div class="wrap foot">
+        <a href="/" class="brand">yurucommu</a>
+        <div class="foot-links">
+          <a href="#why" class="link">考え方</a>
+          <a href="/help/" class="link">Docs</a>
+          <a href="/specs/" class="link">Specs</a>
+          <a href="https://github.com/tako0614/yurucommu" class="link"
+            >GitHub</a
+          >
+        </div>
+        <span class="foot-copy">© 2026 · AGPL-3.0-only</span>
+      </div>
+    </footer>
+
+    <script>
+      const nav = document.getElementById("nav");
+      const onScroll = () =>
+        nav.classList.toggle("scrolled", window.scrollY > 8);
+      onScroll();
+      window.addEventListener("scroll", onScroll, { passive: true });
+
+      const io = new IntersectionObserver(
+        (es) =>
+          es.forEach((e) => e.isIntersecting && e.target.classList.add("in")),
+        { threshold: 0.12, rootMargin: "0px 0px -40px 0px" },
+      );
+      document.querySelectorAll(".reveal").forEach((el) => io.observe(el));
+    </script>
+  </body>
+</html>

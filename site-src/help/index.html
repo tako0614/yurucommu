@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ドキュメント - yurucommu</title>
+    <meta
+      name="description"
+      content="yurucommuをローカルで試す手順、運用方法、設定のドキュメント"
+    />
+    <!-- @include head-social.html -->
+  </head>
+  <body>
+    <!-- Header -->
+    <!-- @include header.html -->
+
+    <div class="docs-layout">
+      <!-- Sidebar -->
+      <!-- @include sidebar-help.html -->
+
+      <!-- Content -->
+      <main class="docs-content">
+        <h1>yurucommu ドキュメント</h1>
+        <p class="lead">まずローカルで試し、必要になったら運用先を選べます。</p>
+
+        <h2>yurucommuとは</h2>
+        <p>
+          yurucommu は、自分で運用できる一人用の SNS です。投稿、ストーリー、
+          ダイレクトメッセージ、コミュニティをひとつのアプリで使えます。
+          ActivityPub
+          に対応しているため、対応する別のサーバーともフォローや投稿を
+          やり取りできます。
+        </p>
+        <ul>
+          <li><strong>一人用</strong> - 1つの環境を1人で使う設計</li>
+          <li>
+            <strong>セルフホスト</strong> - 運用先とデータの置き場所を選べる
+          </li>
+          <li>
+            <strong>ActivityPub対応</strong> - 対応するサーバーとつながれる
+          </li>
+          <li>
+            <strong>小さな輪</strong> - フォローとコミュニティを中心に使える
+          </li>
+        </ul>
+
+        <h2>まずローカルで試す</h2>
+        <p>
+          外部サービスのアカウントやデータベースは不要です。Bun
+          を用意して次のコマンドを実行します。
+        </p>
+
+        <h3>1. リポジトリをクローン</h3>
+        <pre><code>git clone https://github.com/tako0614/yurucommu.git
+cd yurucommu
+bun install
+bun run dev:mock</code></pre>
+        <p>
+          <code>http://localhost:5173</code> を開きます。投稿、ストーリー、
+          メッセージなどを試せます。データはメモリにだけ保存され、プロセスを
+          終了すると消えます。
+        </p>
+
+        <h3>2. 運用方法を選ぶ</h3>
+        <p>ローカルで確認したあと、本番で使う場合は2つの方法から選びます。</p>
+        <ul>
+          <li>
+            <strong>Takosumiなどの管理ホスト</strong> -
+            <code>deploy/takoform</code> を読み込ませる
+          </li>
+          <li>
+            <strong>Cloudflareでセルフホスト</strong> - ルートの
+            <code>main.tf</code> または <code>wrangler.jsonc</code> を使う
+          </li>
+        </ul>
+
+        <p>
+          この2つは別の導入方法です。必要なファイルや手順を混ぜずに、
+          <a href="/help/deployment.html">デプロイガイド</a>から選んでください。
+        </p>
+
+        <h2>ドキュメント一覧</h2>
+        <div class="card-grid">
+          <a href="/help/getting-started.html" class="card">
+            <div class="card-tag">はじめに</div>
+            <h3 class="card-title">クイックスタート</h3>
+            <p class="card-description">ローカルで画面と機能を試す手順</p>
+          </a>
+          <a href="/help/cloudflare-setup.html" class="card">
+            <div class="card-tag">セットアップ</div>
+            <h3 class="card-title">Cloudflare設定</h3>
+            <p class="card-description">Cloudflareで自分で運用する場合の設定</p>
+          </a>
+          <a href="/help/configuration.html" class="card">
+            <div class="card-tag">セットアップ</div>
+            <h3 class="card-title">設定</h3>
+            <p class="card-description">公開URL、ログイン、実行環境との接続</p>
+          </a>
+          <a href="/help/api.html" class="card">
+            <div class="card-tag">リファレンス</div>
+            <h3 class="card-title">API</h3>
+            <p class="card-description">REST APIのエンドポイント一覧</p>
+          </a>
+          <a href="/specs/" class="card">
+            <div class="card-tag">仕様</div>
+            <h3 class="card-title">連合の仕組み</h3>
+            <p class="card-description">連合で使うActivityPub関連の公開仕様</p>
+          </a>
+        </div>
+      </main>
+    </div>
+
+    <!-- Footer -->
+    <!-- @include footer.html -->
+  </body>
+</html>

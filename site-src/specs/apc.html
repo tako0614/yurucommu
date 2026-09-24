@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>コミュニティの連合形式 - yurucommu</title>
+    <meta
+      name="description"
+      content="yurucommuの公開コミュニティが現在使用するActivityPub形式"
+    />
+    <!-- @include head-social.html -->
+  </head>
+  <body>
+    <!-- @include header.html -->
+
+    <div class="docs-layout">
+      <!-- @include sidebar-specs.html -->
+
+      <main class="docs-content">
+        <span class="spec-status experimental">現行実装</span>
+        <h1>コミュニティの連合形式</h1>
+        <p class="lead">
+          公開コミュニティはActivityPubの<code>Group</code>アクターとして公開されます。
+          参加と投稿配信で現在使っている形式を説明します。
+        </p>
+
+        <div class="callout callout-info">
+          <strong>相互運用について:</strong>
+          標準の<code>Group</code>、<code>Follow</code>、
+          <code>Accept</code>、<code>Reject</code>、
+          <code>Announce</code>を使いますが、特定の外部製品との
+          適合試験を完了したという意味ではありません。
+        </div>
+
+        <h2>公開されるGroupアクター</h2>
+        <p>
+          公開中で削除されていないコミュニティだけが
+          <code>/ap/groups/:name</code>で取得できます。非公開コミュニティは
+          ActivityPubのアクターとして公開されず、このURLは<code>404</code>を返します。
+          <code>@name@host</code>はWebFingerでこのアクターに解決されます。
+        </p>
+        <pre><code>{
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "id": "https://example.com/ap/groups/tech",
+  "type": "Group",
+  "preferredUsername": "tech",
+  "name": "Tech Talk",
+  "inbox": "https://example.com/ap/groups/tech/inbox",
+  "outbox": "https://example.com/ap/groups/tech/outbox",
+  "followers": "https://example.com/ap/groups/tech/followers",
+  "moderators": "https://example.com/ap/groups/tech/moderators",
+  "manuallyApprovesFollowers": false,
+  "publicKey": {
+    "id": "https://example.com/ap/groups/tech#main-key",
+    "owner": "https://example.com/ap/groups/tech",
+    "publicKeyPem": "..."
+  }
+}</code></pre>
+        <p>
+          実際の<code>@context</code>には、アクター文書で使う既知の語彙定義が
+          追加される場合があります。上の例は参加と配送に必要な部分だけを示しています。
+        </p>
+
+        <h2>参加と退出</h2>
+        <p>
+          リモートアクターはコミュニティの<code>inbox</code>へ
+          <code>Follow</code
+          >を送ります。応答はコミュニティ自身の鍵で署名されます。
+        </p>
+        <table class="docs-table">
+          <thead>
+            <tr>
+              <th>コミュニティの設定</th>
+              <th>Followを受け取ったとき</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>open</code></td>
+              <td>その場で参加を記録し、<code>Accept</code>を配送</td>
+            </tr>
+            <tr>
+              <td><code>approval</code></td>
+              <td>保留にし、管理者が承認した後に<code>Accept</code>を配送</td>
+            </tr>
+            <tr>
+              <td><code>invite</code></td>
+              <td>
+                外部からのFollowだけでは参加させず、<code>Reject</code>を配送
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <p>
+          退出は、参加時の<code>Follow</code>を対象にした
+          <code>Undo</code>で表します。公開コミュニティ以外の
+          <code>inbox</code>は連合向けに公開されません。
+        </p>
+
+        <h2>投稿の配信</h2>
+        <p>
+          コミュニティのフィードに作成した投稿は、投稿者を
+          <code>actor</code>とする<code>Create(Note)</code>として保存されます。
+          配信先はそのコミュニティのメンバーと、Groupアクターをフォローしている
+          リモートアクターです。
+        </p>
+        <p>
+          公開コミュニティからリモートへ届けるときは、Groupアクターが投稿を
+          <code>Announce</code>します。ローカルメンバーには元の
+          <code>Create</code>が渡ります。
+        </p>
+        <pre><code>{
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "id": "https://example.com/ap/activities/announce-1",
+  "type": "Announce",
+  "actor": "https://example.com/ap/groups/tech",
+  "object": "https://example.com/ap/objects/post-1",
+  "to": ["https://example.com/ap/groups/tech/followers"],
+  "cc": ["https://www.w3.org/ns/activitystreams#Public"]
+}</code></pre>
+
+        <h2>コミュニティのチャット</h2>
+        <p>
+          画面上のコミュニティチャットは、現在は主に同じインスタンス内の
+          メンバー向け機能です。コミュニティのフィード投稿と同じ
+          <code>Announce</code>配信を行うとは限りません。外部サーバーから
+          Groupの<code>inbox</code>へ任意の<code>Create</code>を送れば
+          チャットに参加できる、という契約もありません。
+        </p>
+
+        <h2>現在使っていないAPC語彙</h2>
+        <p>
+          <code>https://yurucommu.com/ns/apc#</code>には
+          <code>rooms</code>、<code>joinPolicy</code>、
+          <code>postPolicy</code>、<code>visibility</code>が公開されています。
+          ただし、現在のコミュニティGroupアクターはこれらのプロパティを出力しません。
+          これらは将来の検討用語彙であり、実装済みの連合契約として扱わないでください。
+        </p>
+
+        <h2>確認できる範囲</h2>
+        <ul>
+          <li>
+            公開コミュニティのGroupアクター、outbox、followers、moderators
+          </li>
+          <li>Follow、Accept、Reject、Undoによるリモート参加</li>
+          <li>公開コミュニティの投稿をGroupのAnnounceとして配信</li>
+          <li>非公開コミュニティのアクター情報を連合向けに公開しない</li>
+        </ul>
+      </main>
+    </div>
+
+    <!-- @include footer.html -->
+  </body>
+</html>

@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>QRでアカウント交換 - yurucommu</title>
+    <meta
+      name="description"
+      content="プロフィールURLをQRコードで共有してフォローする方法"
+    />
+    <!-- @include head-social.html -->
+  </head>
+  <body>
+    <!-- @include header.html -->
+
+    <div class="docs-layout">
+      <!-- @include sidebar-specs.html -->
+
+      <main class="docs-content">
+        <span class="spec-status experimental">現行実装</span>
+        <h1>QRでアカウント交換</h1>
+        <p class="lead">
+          自分のプロフィールURLをQRコードで見せ、相手が読み取って
+          プロフィールを確認してからフォローできます。
+        </p>
+
+        <h2>使い方</h2>
+        <ol>
+          <li>自分のプロフィールでQRボタンを開く</li>
+          <li>表示したQRコードを相手に見せるか、共有ボタンでURLを送る</li>
+          <li>相手は「スキャン」へ切り替えてカメラで読み取る</li>
+          <li>読み取ったアカウントのプロフィールを確認する</li>
+          <li>フォローボタンを押す</li>
+        </ol>
+        <p>
+          読み取っただけではフォローしません。非公開のローカルアカウントや
+          リモートアカウントへのフォローは、相手の承認待ちになる場合があります。
+        </p>
+
+        <h2>QRコードに入るURL</h2>
+        <p>
+          QRコードには秘密情報やログイン情報ではなく、次の形のプロフィールURLだけを
+          入れます。
+        </p>
+        <pre><code>https://example.com/profile/https%3A%2F%2Fexample.com%2Fap%2Fusers%2Falice#alice</code></pre>
+        <table class="docs-table">
+          <thead>
+            <tr>
+              <th>部分</th>
+              <th>用途</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>/profile/:actorId</code></td>
+              <td>
+                URLエンコードしたActivityPubアクターID。
+                同じサーバー内のプロフィール取得に使用
+              </td>
+            </tr>
+            <tr>
+              <td><code>#alice</code></td>
+              <td>
+                アカウント名。別サーバーから読み取ったとき、 QR
+                URLのhostと組み合わせてWebFinger検索に使用
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2>読み取り後の解決</h2>
+        <h3>同じサーバーのURL</h3>
+        <p>
+          <code>:actorId</code>をデコードし、ローカルのプロフィールAPIから
+          アクターを取得します。
+        </p>
+
+        <h3>別のサーバーのURL</h3>
+        <p>
+          URLのhashにある名前とhostから<code>@alice@example.com</code>を作り、
+          リモート検索でアクターを取得します。hashに名前がないURLは、
+          現在のスキャナーではリモートアカウントとして解決できません。
+        </p>
+
+        <h2>対応している範囲</h2>
+        <ul>
+          <li>
+            yurucommuが生成した<code>/profile/:actorId#username</code>形式
+          </li>
+          <li>端末カメラによる読み取り</li>
+          <li>読み取ったプロフィールのプレビュー</li>
+          <li>通常のフォロー処理への引き渡し</li>
+          <li>Web Share API、またはクリップボードへのURLコピー</li>
+        </ul>
+
+        <h2>独自のURL形式</h2>
+        <div class="callout callout-info">
+          <strong>注意:</strong>
+          QRコード自体は一般的なURLですが、URLの組み立て方と読み取り方は
+          yurucommuの現在のクライアント規約です。他のActivityPubソフトウェアが
+          このQRをアカウント交換用として解釈する保証はありません。
+        </div>
+        <p>
+          スマートフォンの標準カメラで読み取った場合は、対応していれば
+          URLをブラウザで開けます。ただし、そこからどの画面を表示するかは
+          URLの配信元とクライアント実装に依存します。
+        </p>
+
+        <h2>安全上の注意</h2>
+        <ul>
+          <li>表示された名前とサーバーを確認してからフォローする</li>
+          <li>QRを読んだだけで自動フォローしない</li>
+          <li>カメラ権限はスキャン画面を開いたときだけ求める</li>
+          <li>共有URLは公開プロフィールへの入口として扱う</li>
+        </ul>
+      </main>
+    </div>
+
+    <!-- @include footer.html -->
+  </body>
+</html>

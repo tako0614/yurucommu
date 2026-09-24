@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>アカウント構成 - yurucommu</title>
+    <meta
+      name="description"
+      content="yurucommuのオーナーとサブアカウントの構成"
+    />
+    <!-- @include head-social.html -->
+  </head>
+  <body>
+    <!-- @include header.html -->
+
+    <div class="docs-layout">
+      <!-- @include sidebar-specs.html -->
+
+      <main class="docs-content">
+        <span class="spec-status experimental">現行実装</span>
+        <h1>アカウント構成</h1>
+        <p class="lead">
+          yurucommuは、1つのインスタンスを1人のオーナーが管理する形を基本にしています。
+          ただし、ActivityPub上の人物が1人だけとは限りません。
+        </p>
+
+        <h2>オーナーとサブアカウント</h2>
+        <p>
+          最初の管理アカウントがインスタンスの<code>owner</code>になります。
+          オーナーは必要に応じて最大20個のサブアカウントを作成できます。
+          サブアカウントは<code>member</code>として保存され、元のオーナーに
+          所有関係がひも付きます。
+        </p>
+        <table class="docs-table">
+          <thead>
+            <tr>
+              <th>種類</th>
+              <th>できること</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>オーナー</td>
+              <td>
+                インスタンス設定とモデレーションを管理し、サブアカウントを作成
+              </td>
+            </tr>
+            <tr>
+              <td>サブアカウント</td>
+              <td>
+                独立したプロフィール、投稿、フォロー関係を持つ人物として利用
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2>アカウントを切り替える</h2>
+        <p>
+          アカウント一覧には、現在のルートオーナーと、そのオーナーが作成した
+          サブアカウントだけが表示されます。切り替え時は古いセッションを使い回さず、
+          新しいセッションへ更新します。
+        </p>
+        <p>
+          サブアカウントに切り替えても、オーナーのOAuthアクセストークンは
+          引き継がれません。サブアカウントは別の認証情報を持って直接ログインする
+          アカウントではなく、オーナーが管理する切り替え先です。
+        </p>
+
+        <h2>ログイン方法</h2>
+        <ul>
+          <li>
+            パスワード運用では、設定済みのパスワードでオーナーとしてログインします。
+            オーナーがまだ存在しない場合は、最初のログイン時に作成されます。
+          </li>
+          <li>
+            OIDC/OAuth運用では、オーナーにするsubjectを固定できます。
+            固定しない初回取得は明示的に許可した場合だけ使います。
+          </li>
+          <li>
+            オーナー作成後に外部subjectを新規メンバーとして自動作成する機能は
+            初期状態では閉じています。運用者が許可リストを設定した場合だけ有効です。
+          </li>
+        </ul>
+
+        <h2>ActivityPubから見たアカウント</h2>
+        <p>
+          オーナーと各サブアカウントは、それぞれ別の
+          <code>Person</code>アクターです。個別の<code>inbox</code>、
+          <code>outbox</code>、フォロー関係、公開鍵を持ちます。
+        </p>
+        <pre><code>{
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "id": "https://example.com/ap/users/alice",
+  "type": "Person",
+  "preferredUsername": "alice",
+  "inbox": "https://example.com/ap/users/alice/inbox",
+  "outbox": "https://example.com/ap/users/alice/outbox",
+  "followers": "https://example.com/ap/users/alice/followers",
+  "following": "https://example.com/ap/users/alice/following",
+  "publicKey": {
+    "id": "https://example.com/ap/users/alice#main-key",
+    "owner": "https://example.com/ap/users/alice",
+    "publicKeyPem": "..."
+  }
+}</code></pre>
+
+        <h2>WebFinger</h2>
+        <p>
+          <code>acct:alice@example.com</code>は、同じ名前のローカルアカウントが
+          存在するときだけ解決されます。存在しない名前をオーナーの別名として
+          解決することはありません。公開コミュニティの名前は、該当する
+          <code>Group</code>アクターへ解決されます。
+        </p>
+
+        <h2>「一人用」の意味</h2>
+        <p>
+          ここでいう一人用は「運用責任を持つオーナーが1人」という意味です。
+          「インスタンスにPersonアクターが1つだけ」「複数の表示名を持てない」
+          という意味ではありません。
+        </p>
+      </main>
+    </div>
+
+    <!-- @include footer.html -->
+  </body>
+</html>
