@@ -72,6 +72,7 @@ const CONTRACT = {
       requiresTools: ["git", "bun", "tofu"],
       requiresEnv: [
         "CLOUDFLARE_API_TOKEN",
+        "TAKOSUMI_CAPSULE_OUTPUTS_FILE",
         "YURUCOMMU_E2E_PASSWORD",
         "YURUCOMMU_WORKER_DEPLOY_TARGET",
       ],
@@ -82,7 +83,7 @@ const CONTRACT = {
       triggers: [],
       obligations: {
         provenance: `requires exactly --environment=production and --commit=<40-hex>; requires a clean HEAD equal to that commit and either freshly pushed main or an exact commit contained by freshly fetched origin/main; uses CLOUDFLARE_API_TOKEN only for provider authentication, reads the operator-private target/config from YURUCOMMU_WORKER_DEPLOY_TARGET as link-free 0600 regular files under 0700 directories outside every discovered Git repository, common directory, and linked worktree, and uses YURUCOMMU_E2E_PASSWORD only for the post-deploy application smoke; runs \`${OWNER_GATE}\` once; and binds the commit, ${W.bundle} sha256, and selected config digest into the uploaded Version annotation`,
-        "post-conditions": `uses one direct Cloudflare API Version upload and one direct Cloudflare API Deployment write; binds each acknowledgement to the exact Version and Deployment ids; verifies the selected Version's authoritative resources.script.etag against the uploaded ${W.bundle} bytes and compares its full non-code closure with the active predecessor; re-reads the active Deployment and exact hostname/service/environment custom-domain filters across bounded stable pages; runs \`bun run smoke:postdeploy\` through the selected public origin; then requires a final route and active Deployment readback before PUBLISHED`,
+        "post-conditions": `uses one direct Cloudflare API Version upload and one direct Cloudflare API Deployment write; binds each acknowledgement to the exact Version and Deployment ids; verifies the selected Version's authoritative resources.script.etag against the uploaded ${W.bundle} bytes and compares its full non-code closure with the active predecessor; re-reads the active Deployment and exact hostname/service/environment custom-domain filters across bounded stable pages; runs \`bun run smoke:postdeploy\` through the public launch URL read from the Capsule outputs file selected by TAKOSUMI_CAPSULE_OUTPUTS_FILE; then requires a final route and active Deployment readback before PUBLISHED`,
         reversal: `reads the pre-upload active Deployment and its exact one-Version 100 percent version set rather than Version-list order; a failed smoke never writes an automatic rollback because Cloudflare exposes no compare-and-swap across the read/write boundary, and instead reports that exact predecessor for manual reversal after an authoritative concurrency readback`,
         "failure-handling":
           "prints provider diagnostics without credentials, reports PRE_UPLOAD_FAILURE, POST_UPLOAD_INDETERMINATE, POST_DEPLOY_INDETERMINATE, or POST_CONDITION_INDETERMINATE, and never retries an upload or deployment whose acknowledgement was lost",
