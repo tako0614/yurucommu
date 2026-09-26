@@ -68,7 +68,8 @@
       :root {
         --bg: #0a0a0b;
         --bg-2: #111113;
-        --bg-3: #18181b;
+        --app: #0d0d10;
+        --app-line: #26262b;
         --ink: #fafafa;
         --ink-2: #e4e4e7;
         --dim: #a1a1aa;
@@ -76,14 +77,20 @@
         --faint: #8b8b96;
         --line: #27272a;
         --accent: #3b82f6;
+        --like: #f0567c;
+        /* avatar faces as seeded by the dev mock (Akari / Ren / You) */
+        --av-orange: #f6a04d;
+        --av-cyan: #67c9e8;
+        --av-cream: #f2f0d8;
+        --av-ink: #26211a;
         --w: 1100px;
-        --w-n: 720px;
         --sans: "Noto Sans JP", -apple-system, BlinkMacSystemFont, sans-serif;
         --mono: "JetBrains Mono", ui-monospace, "SF Mono", monospace;
       }
 
       html {
         scroll-behavior: smooth;
+        overflow-x: clip;
       }
 
       body {
@@ -93,7 +100,7 @@
         line-height: 1.85;
         font-size: 16px;
         -webkit-font-smoothing: antialiased;
-        overflow-x: hidden;
+        overflow-x: clip;
       }
 
       a {
@@ -103,6 +110,14 @@
       ::selection {
         background: var(--accent);
         color: #fff;
+      }
+
+      a:focus-visible,
+      button:focus-visible,
+      [tabindex]:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 3px;
+        border-radius: 4px;
       }
 
       .wrap {
@@ -137,14 +152,6 @@
       }
       .arrow:hover span {
         transform: translateX(3px);
-      }
-      .arrow.unavailable {
-        color: var(--dim);
-        border-bottom-style: dashed;
-        cursor: not-allowed;
-      }
-      .arrow.unavailable:hover {
-        border-color: var(--line);
       }
 
       .link {
@@ -189,12 +196,6 @@
         font-weight: 700;
         font-size: 0.95rem;
       }
-      .dot {
-        width: 0.5rem;
-        height: 0.5rem;
-        border-radius: 50%;
-        background: var(--accent);
-      }
       .nav-links {
         display: flex;
         gap: 1.8rem;
@@ -227,63 +228,45 @@
         margin-top: 2.5rem;
         display: flex;
         align-items: center;
-        gap: 2rem;
+        flex-wrap: wrap;
+        gap: 1.25rem 2rem;
         font-size: 0.95rem;
       }
 
-      /* ---- Product Mockup ---- */
-      .mockup-section {
-        padding: 2rem 0 4rem;
-      }
-      .browser {
-        max-width: 960px;
+      /* ---- Product stage: the real screenshot, no drawn chrome ---- */
+      .stage {
+        position: relative;
         margin: 0 auto;
-        border: 1px solid var(--line);
-        border-radius: 0.75rem;
-        overflow: hidden;
-        background: #0a0a0a;
-        box-shadow: 0 40px 80px rgba(0, 0, 0, 0.5);
+        padding: 2rem clamp(1.5rem, 5vw, 3rem) 4rem;
+        max-width: var(--w);
       }
-      .browser-bar {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        padding: 0.55rem 1rem;
-        border-bottom: 1px solid var(--line);
-        background: var(--bg-3);
+      .stage::before {
+        content: "";
+        position: absolute;
+        inset: 10% 12% auto;
+        height: 55%;
+        background: radial-gradient(
+          60% 100% at 50% 0,
+          rgba(59, 130, 246, 0.14),
+          transparent 70%
+        );
+        filter: blur(34px);
+        z-index: -1;
       }
-      .browser-dots {
-        display: flex;
-        gap: 0.35rem;
+      .stage figure {
+        margin: 0;
       }
-      .browser-dots i {
-        width: 0.5rem;
-        height: 0.5rem;
-        border-radius: 50%;
-        background: var(--faint);
-        opacity: 0.5;
-      }
-      .browser-url {
-        flex: 1;
-        text-align: center;
-        font-family: var(--mono);
-        font-size: 0.65rem;
-        color: var(--faint);
-        letter-spacing: 0.04em;
-      }
-      .browser-body {
-        background: #262626;
-      }
-
-      .app-shot {
+      .stage-shot {
         display: block;
         width: 100%;
         height: auto;
+        border: 1px solid var(--line);
+        border-radius: 0.9rem;
+        box-shadow: 0 40px 80px -40px rgba(0, 0, 0, 0.65);
       }
-
-      .mockup-caption {
+      .stage figcaption {
         text-align: center;
-        margin-top: 2.5rem;
+        margin-top: 2rem;
         font-family: var(--mono);
         font-size: 0.75rem;
         color: var(--faint);
@@ -311,13 +294,10 @@
       .principles {
         padding: 7rem 0;
       }
-      .principles-head {
-        margin-bottom: 3rem;
-      }
       .princ-row {
         display: grid;
-        grid-template-columns: 5rem 1fr;
-        gap: 1rem;
+        grid-template-columns: minmax(0, 17rem) minmax(0, 1fr);
+        gap: 1rem 2.5rem;
         padding: 2.5rem 0;
         border-top: 1px solid var(--line);
         align-items: start;
@@ -325,81 +305,361 @@
       .princ-row:last-child {
         border-bottom: 1px solid var(--line);
       }
-      .princ-n {
-        font-family: var(--mono);
-        font-size: 0.8rem;
-        color: var(--accent);
-        padding-top: 0.4rem;
-      }
-      /* h2 (not h3): the numbered principles are the first headings after the
-         hero h1, so they must not skip a level in the document outline. */
+      /* h2 (not h3): the principles are the first headings after the hero h1,
+         so they must not skip a level in the document outline. */
       .princ-row h2 {
         font-size: 1.5rem;
         font-weight: 700;
         letter-spacing: -0.01em;
-        margin-bottom: 0.6rem;
+        line-height: 1.5;
       }
       .princ-row p {
         color: var(--dim);
         max-width: 36rem;
         font-size: 0.975rem;
+        padding-top: 0.2rem;
       }
 
-      /* ---- Feature Panels ---- */
-      .features {
+      /* ---- Surfaces: the page walks the app's own surfaces ---- */
+      .surfaces {
         padding: 7rem 0;
       }
-      .features-head {
-        margin-bottom: 4rem;
-      }
-      .feat-panel {
+      .surf {
         display: grid;
-        grid-template-columns: 1fr 1fr;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
         gap: 4rem;
         align-items: center;
         margin-bottom: 6rem;
       }
-      .feat-panel:last-child {
+      .surf:last-child {
         margin-bottom: 0;
       }
-      .feat-panel.reverse .feat-text {
+      .surf.reverse .surf-text {
         order: 2;
       }
-      .feat-panel.reverse .feat-mock {
+      .surf.reverse .appwin {
         order: 1;
       }
-      .feat-label {
+      .surf-tag {
+        display: inline-block;
         font-family: var(--mono);
         font-size: 0.72rem;
         letter-spacing: 0.16em;
-        text-transform: uppercase;
-        color: var(--faint);
-        margin-bottom: 1rem;
+        color: var(--accent);
+        border: 1px solid var(--app-line);
+        border-radius: 999px;
+        padding: 0.3rem 0.85rem;
+        margin-bottom: 1.4rem;
       }
-      .feat-text h2 {
+      .surf-text h2 {
         font-size: clamp(1.5rem, 3.5vw, 2.2rem);
         font-weight: 700;
         line-height: 1.5;
         letter-spacing: -0.01em;
         margin-bottom: 1rem;
       }
-      .feat-text p {
+      .surf-text p {
         color: var(--dim);
         font-size: 0.975rem;
         max-width: 24rem;
       }
 
-      .feat-mock-frame {
+      /* traced UI panels — fragments of the real client, not invented chrome */
+      .appwin {
         border: 1px solid var(--line);
-        border-radius: 0.75rem;
-        background: var(--bg-2);
+        border-radius: 1rem;
+        background: var(--app);
         overflow: hidden;
+        box-shadow: 0 30px 60px -30px rgba(0, 0, 0, 0.6);
       }
 
-      .feat-shot {
+      .av {
+        border-radius: 50%;
         display: block;
+        flex: none;
+      }
+
+      /* home timeline fragment */
+      .tl {
+        position: relative;
+      }
+      .tl-head {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 1rem 1.25rem;
+        border-bottom: 1px solid var(--app-line);
+        font-weight: 700;
+        font-size: 1rem;
+      }
+      .tl-head svg {
+        width: 1rem;
+        height: 1rem;
+        color: var(--dim);
+      }
+      .post {
+        display: flex;
+        gap: 0.8rem;
+        padding: 1rem 1.25rem;
+        border-bottom: 1px solid var(--app-line);
+      }
+      .post .av {
+        width: 44px;
+        height: 44px;
+      }
+      .post-body {
+        flex: 1;
+        min-width: 0;
+      }
+      .post-meta {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        min-width: 0;
+        font-size: 0.92rem;
+      }
+      .post-meta b {
+        color: #fff;
+        flex: none;
+      }
+      .post-meta .h {
+        color: var(--faint);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        min-width: 0;
+      }
+      .post-meta .d {
+        color: var(--faint);
+        flex: none;
+      }
+      .pill {
+        margin-left: auto;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        border: 1px solid var(--app-line);
+        border-radius: 999px;
+        padding: 0.12rem 0.6rem;
+        font-size: 0.72rem;
+        line-height: 1.6;
+        color: var(--dim);
+        flex: none;
+      }
+      .pill svg {
+        width: 0.85rem;
+        height: 0.85rem;
+      }
+      .post-text {
+        margin-top: 0.15rem;
+        font-size: 0.95rem;
+        color: var(--ink-2);
+        line-height: 1.75;
+      }
+      .post-acts {
+        display: flex;
+        align-items: center;
+        gap: 1.75rem;
+        margin-top: 0.7rem;
+        color: var(--faint);
+      }
+      .post-acts span {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        font-size: 0.8rem;
+      }
+      .post-acts svg {
+        width: 1.05rem;
+        height: 1.05rem;
+      }
+      .post-acts .more {
+        margin-left: auto;
+        letter-spacing: 0.1em;
+      }
+      .act-on {
+        color: var(--like);
+      }
+      .act-on svg path {
+        fill: currentColor;
+      }
+      .act-save {
+        color: var(--accent);
+      }
+      .act-save svg path {
+        fill: currentColor;
+      }
+      .tl-end {
+        text-align: center;
+        padding: 1rem;
+        color: var(--faint);
+        font-size: 0.82rem;
+      }
+      .tl-fab {
+        position: absolute;
+        right: 1.1rem;
+        bottom: 1.1rem;
+        width: 52px;
+        height: 52px;
+        border-radius: 50%;
+        background: var(--accent);
+        color: #fff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 10px 28px rgba(59, 130, 246, 0.45);
+      }
+      .tl-fab svg {
+        width: 1.4rem;
+        height: 1.4rem;
+      }
+
+      /* story strip fragment */
+      .stry {
+        display: flex;
+        align-items: center;
+        padding: 3rem 2rem;
+      }
+      .stry-row {
+        display: flex;
+        gap: 1.9rem;
+        margin: 0 auto;
+      }
+      .stry-item {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.55rem;
+      }
+      .stry-ring {
+        position: relative;
+        display: block;
+        width: 88px;
+        height: 88px;
+        border-radius: 50%;
+        border: 3px solid var(--accent);
+        padding: 4px;
+      }
+      .stry-ring .av {
         width: 100%;
-        height: auto;
+        height: 100%;
+      }
+      .stry-mine {
+        border-color: #3d3d45;
+      }
+      .stry-plus {
+        position: absolute;
+        right: -3px;
+        bottom: -3px;
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        background: var(--accent);
+        color: #fff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: 3px solid var(--app);
+      }
+      .stry-plus svg {
+        width: 0.8rem;
+        height: 0.8rem;
+      }
+      .stry-item figcaption {
+        font-size: 0.8rem;
+        color: var(--dim);
+        line-height: 1.4;
+        text-align: center;
+      }
+
+      /* scope switcher sheet fragment */
+      .scp {
+        padding: 0.5rem;
+      }
+      .scp-head {
+        padding: 0.9rem 0.9rem 0.3rem;
+        font-family: var(--mono);
+        font-size: 0.66rem;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--faint);
+      }
+      .scp-row {
+        display: flex;
+        align-items: center;
+        gap: 0.8rem;
+        padding: 0.6rem 0.75rem;
+        border-radius: 0.8rem;
+      }
+      .scp-row:hover {
+        background: #16161a;
+      }
+      .scp-row .av,
+      .scp-row .cav {
+        width: 40px;
+        height: 40px;
+      }
+      .sc-txt {
+        flex: 1;
+        min-width: 0;
+      }
+      .scp-row b {
+        display: block;
+        font-size: 0.95rem;
+        line-height: 1.4;
+        color: #fff;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .scp-row small {
+        display: block;
+        font-size: 0.8rem;
+        color: var(--faint);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .scp-check {
+        width: 1.2rem;
+        height: 1.2rem;
+        color: var(--accent);
+        flex: none;
+      }
+      .scp-div {
+        height: 1px;
+        background: var(--app-line);
+        margin: 0.4rem 0.9rem;
+      }
+      .scp-act {
+        display: flex;
+        align-items: center;
+        gap: 0.8rem;
+        padding: 0.6rem 0.75rem;
+        border-radius: 0.8rem;
+        font-size: 0.9rem;
+        color: var(--ink-2);
+      }
+      .scp-act .ic {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: #1c1c21;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #b9b9c4;
+        flex: none;
+      }
+      .scp-act .ic svg {
+        width: 1.15rem;
+        height: 1.15rem;
+      }
+      /* community icons: stand-ins for the seeded dicebear-shapes icons */
+      .cav {
+        border-radius: 50%;
+        display: block;
+        flex: none;
       }
 
       /* ---- Mobile ---- */
@@ -408,7 +668,7 @@
       }
       .mobile-grid {
         display: grid;
-        grid-template-columns: 1fr auto;
+        grid-template-columns: minmax(0, 1fr) auto;
         gap: 4rem;
         align-items: center;
       }
@@ -417,28 +677,20 @@
         font-weight: 700;
         line-height: 1.5;
         letter-spacing: -0.01em;
-        margin: 1rem 0;
+        margin-bottom: 1rem;
       }
       .mobile-copy p {
         color: var(--dim);
         font-size: 0.975rem;
         max-width: 24rem;
       }
-      .phone {
-        width: 268px;
-        max-width: 100%;
-        margin: 0 auto;
-        padding: 10px;
-        border-radius: 42px;
-        background: #000;
-        border: 1px solid var(--line);
-        box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
-      }
-      .phone img {
+      .mobile-shot {
         display: block;
-        width: 100%;
+        width: min(280px, 100%);
         height: auto;
-        border-radius: 32px;
+        border: 1px solid var(--line);
+        border-radius: 1.4rem;
+        box-shadow: 0 30px 80px -30px rgba(0, 0, 0, 0.65);
       }
 
       /* ---- Deploy Steps ---- */
@@ -449,12 +701,11 @@
         font-size: clamp(1.5rem, 3.5vw, 2.2rem);
         font-weight: 700;
         letter-spacing: -0.01em;
-        margin-top: 1rem;
         margin-bottom: 3rem;
       }
       .step-row {
         display: grid;
-        grid-template-columns: 5rem 8rem 1fr;
+        grid-template-columns: 5rem 8rem minmax(0, 1fr);
         gap: 1rem;
         align-items: center;
         padding: 1.4rem 0;
@@ -510,6 +761,7 @@
         display: flex;
         gap: 2rem;
         align-items: center;
+        flex-wrap: wrap;
         font-size: 0.95rem;
       }
 
@@ -555,22 +807,25 @@
         .hero {
           padding: 8rem 0 5rem;
         }
-        .feat-panel,
+        .surf,
         .mobile-grid {
-          grid-template-columns: 1fr;
+          grid-template-columns: minmax(0, 1fr);
           gap: 2.5rem;
         }
-        .feat-panel.reverse .feat-text {
+        .surf.reverse .surf-text {
           order: 1;
         }
-        .feat-panel.reverse .feat-mock {
+        .surf.reverse .appwin {
           order: 2;
+        }
+        .mobile-shot {
+          margin: 0 auto;
         }
         .statement {
           padding: 7rem 0;
         }
         .step-row {
-          grid-template-columns: 3rem 1fr;
+          grid-template-columns: 3rem minmax(0, 1fr);
         }
         .step-row span {
           grid-column: 2;
@@ -582,17 +837,29 @@
           gap: 1rem;
         }
         .princ-row {
-          grid-template-columns: 3rem 1fr;
+          grid-template-columns: minmax(0, 1fr);
+          gap: 0.5rem;
         }
-        .browser {
-          border-radius: 0.5rem;
+        .stry {
+          padding: 2.25rem 1rem;
+        }
+        .stry-row {
+          gap: 1.1rem;
+        }
+        .stry-ring {
+          width: 68px;
+          height: 68px;
         }
       }
 
       /* Very narrow screens: drop the secondary nav links so the はじめる CTA
-         never overflows (Docs / Specs stay reachable from the footer). */
+         never overflows (Docs / Specs stay reachable from the footer). The
+         post handles also hide — the name + date still identify the author. */
       @media (max-width: 480px) {
         .nav-opt {
+          display: none;
+        }
+        .post-meta .h {
           display: none;
         }
       }
@@ -650,31 +917,23 @@
       </div>
     </header>
 
-    <!-- Product Mockup -->
-    <section class="mockup-section">
-      <div class="wrap reveal">
-        <div class="browser">
-          <div class="browser-bar">
-            <div class="browser-dots"><i></i><i></i><i></i></div>
-            <div class="browser-url">yourdomain.com</div>
-          </div>
-          <div class="browser-body">
-            <img
-              class="app-shot"
-              src="./assets/shots/yurucommu-home.webp"
-              width="2560"
-              height="1600"
-              alt="yurucommuのホームタイムライン。ダークな UI に、自分のサーバーでフォローした相手の投稿・ストーリー・おすすめユーザーが並ぶ。"
-              loading="lazy"
-              decoding="async"
-            />
-          </div>
-        </div>
-        <p class="mockup-caption">
+    <!-- Product screenshot: the real home timeline, no drawn chrome -->
+    <div class="stage reveal">
+      <figure>
+        <img
+          class="stage-shot"
+          src="./assets/shots/yurucommu-home.webp"
+          width="1280"
+          height="720"
+          alt="yurucommuのホームタイムライン。ダークな UI に、自分のサーバーでフォローした相手の投稿・ストーリー・おすすめユーザーが並ぶ。"
+          loading="lazy"
+          decoding="async"
+        />
+        <figcaption>
           あなたのドメインで動く、あなただけのタイムラインです。
-        </p>
-      </div>
-    </section>
+        </figcaption>
+      </figure>
+    </div>
 
     <div class="hairline"></div>
 
@@ -694,113 +953,397 @@
     <!-- Principles -->
     <section class="principles" id="why">
       <div class="wrap">
-        <div class="principles-head">
-          <span class="mono">考え方</span>
+        <div class="princ-row reveal">
+          <h2>アルゴリズムを、手放す。</h2>
+          <p>
+            タイムラインはおすすめ順に並べ替えません。自分がフォローした相手の投稿を、時間順に表示します。
+          </p>
         </div>
         <div class="princ-row reveal">
-          <span class="princ-n">01</span>
-          <div>
-            <h2>アルゴリズムを、手放す。</h2>
-            <p>
-              タイムラインはおすすめ順に並べ替えません。自分がフォローした相手の投稿を、時間順に表示します。
-            </p>
-          </div>
+          <h2>輪は、小さくていい。</h2>
+          <p>
+            興味でつくる小さなコミュニティが、そのまま「届く範囲」になります。薄く広い繋がりより、濃くて小さな繋がりを大切にします。
+          </p>
         </div>
         <div class="princ-row reveal">
-          <span class="princ-n">02</span>
-          <div>
-            <h2>輪は、小さくていい。</h2>
-            <p>
-              興味でつくる小さなコミュニティが、そのまま「届く範囲」になります。薄く広い繋がりより、濃くて小さな繋がりを大切にします。
-            </p>
-          </div>
-        </div>
-        <div class="princ-row reveal">
-          <span class="princ-n">03</span>
-          <div>
-            <h2>居場所は、自分のもの。</h2>
-            <p>
-              セルフホストでは、運用先やデータの置き場所を自分で選べます。
-              ActivityPubに対応する別のサーバーとも、フォローや投稿を
-              やり取りできます。
-            </p>
-          </div>
+          <h2>居場所は、自分のもの。</h2>
+          <p>
+            セルフホストでは、運用先やデータの置き場所を自分で選べます。
+            ActivityPubに対応する別のサーバーとも、フォローや投稿を
+            やり取りできます。
+          </p>
         </div>
       </div>
     </section>
 
     <div class="hairline"></div>
 
-    <!-- Features -->
-    <section class="features">
+    <!-- Surfaces: each panel traces a real screen of the client -->
+    <section class="surfaces">
       <div class="wrap">
-        <div class="features-head">
-          <span class="mono">できること</span>
-        </div>
-
-        <!-- Posts -->
-        <div class="feat-panel reveal">
-          <div class="feat-text">
-            <div class="feat-label">できること — 01</div>
+        <!-- Home timeline -->
+        <div class="surf reveal">
+          <div class="surf-text">
+            <span class="surf-tag">ホーム</span>
             <h2>時系列だけの、<br />タイムライン。</h2>
             <p>
               フォローした相手の投稿が、新しい順に静かに流れます。読む
               ペースも、どこまで遡るかも、あなた次第です。
             </p>
           </div>
-          <div class="feat-mock">
-            <div class="feat-mock-frame">
-              <img
-                class="feat-shot"
-                src="./assets/shots/yc-feat-post.webp"
-                alt="yurucommu の投稿。フォローした人の声が、時間順に静かに流れる。"
-                loading="lazy"
-                decoding="async"
-              />
+          <div class="appwin tl" aria-hidden="true">
+            <div class="tl-head">
+              ホーム
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="m6 9 6 6 6-6"
+                />
+              </svg>
             </div>
+            <div class="post">
+              <svg class="av" viewBox="0 0 48 48">
+                <circle cx="24" cy="24" r="24" fill="var(--av-cyan)" />
+                <path
+                  d="M17 23.4c-3.8-3-1.9-7.4 0-4.4 1.9-3 3.8 1.4 0 4.4z"
+                  fill="var(--av-ink)"
+                />
+                <path
+                  d="M31 23.4c-3.8-3-1.9-7.4 0-4.4 1.9-3 3.8 1.4 0 4.4z"
+                  fill="var(--av-ink)"
+                />
+                <path
+                  d="M15.5 30.5q8.5 8 17 0"
+                  fill="none"
+                  stroke="var(--av-ink)"
+                  stroke-width="2.4"
+                  stroke-linecap="round"
+                />
+              </svg>
+              <div class="post-body">
+                <div class="post-meta">
+                  <b>Akari</b>
+                  <span class="h">@akari@mock.yurucommu.test</span>
+                  <span class="d">· 2026/7/5</span>
+                </div>
+                <p class="post-text">
+                  海の見える街に引っ越しました。ゆるく繋がれる人、この輪の中だけで十分かも。
+                </p>
+                <div class="post-acts">
+                  <span
+                    ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="1.8"
+                        d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"
+                      /></svg
+                    >3</span
+                  >
+                  <span
+                    ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="1.8"
+                        d="m17 2 4 4-4 4M3 11v-1a4 4 0 0 1 4-4h14M7 22l-4-4 4-4m14 1v1a4 4 0 0 1-4 4H3"
+                      /></svg
+                  ></span>
+                  <span
+                    ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="1.8"
+                        d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"
+                      /></svg
+                  ></span>
+                  <span
+                    ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="1.8"
+                        d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"
+                      /></svg
+                  ></span>
+                  <span class="more">···</span>
+                </div>
+              </div>
+            </div>
+            <div class="post">
+              <svg class="av" viewBox="0 0 48 48">
+                <circle cx="24" cy="24" r="24" fill="var(--av-cream)" />
+                <path
+                  d="M17 23.4c-3.8-3-1.9-7.4 0-4.4 1.9-3 3.8 1.4 0 4.4z"
+                  fill="var(--av-ink)"
+                />
+                <path
+                  d="M31 23.4c-3.8-3-1.9-7.4 0-4.4 1.9-3 3.8 1.4 0 4.4z"
+                  fill="var(--av-ink)"
+                />
+                <path
+                  d="M15.5 30.5q8.5 8 17 0"
+                  fill="none"
+                  stroke="var(--av-ink)"
+                  stroke-width="2.4"
+                  stroke-linecap="round"
+                />
+              </svg>
+              <div class="post-body">
+                <div class="post-meta">
+                  <b>Ren</b>
+                  <span class="h">@ren@mock.yurucommu.test</span>
+                  <span class="d">· 2026/7/5</span>
+                  <span class="pill">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                      <circle cx="12" cy="12" r="9" stroke-width="1.8" />
+                      <path
+                        stroke-width="1.6"
+                        d="M3 12h18M12 3c2.7 2.6 4 5.6 4 9s-1.3 6.4-4 9c-2.7-2.6-4-5.6-4-9s1.3-6.4 4-9Z"
+                      />
+                    </svg>
+                    Kissa Builders
+                  </span>
+                </div>
+                <p class="post-text">今日の空、すごくきれいだった。</p>
+                <div class="post-acts">
+                  <span
+                    ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="1.8"
+                        d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"
+                      /></svg
+                    >6</span
+                  >
+                  <span
+                    ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="1.8"
+                        d="m17 2 4 4-4 4M3 11v-1a4 4 0 0 1 4-4h14M7 22l-4-4 4-4m14 1v1a4 4 0 0 1-4 4H3"
+                      /></svg
+                  ></span>
+                  <span class="act-on"
+                    ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="1.8"
+                        d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"
+                      /></svg
+                  ></span>
+                  <span class="act-save"
+                    ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="1.8"
+                        d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"
+                      /></svg
+                  ></span>
+                  <span class="more">···</span>
+                </div>
+              </div>
+            </div>
+            <div class="tl-end">これ以上の投稿はありません</div>
+            <span class="tl-fab">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2.4"
+                  d="M12 4v16m8-8H4"
+                />
+              </svg>
+            </span>
           </div>
         </div>
 
         <!-- Stories -->
-        <div class="feat-panel reverse reveal">
-          <div class="feat-text">
-            <div class="feat-label">できること — 02</div>
+        <div class="surf reverse reveal">
+          <div class="surf-text">
+            <span class="surf-tag">ストーリー</span>
             <h2>24時間で消える、<br />気軽な近況。</h2>
             <p>
               キャンバスエディタで自由に描いたり書いたり貼ったりできます。24時間後には消えるので、身軽に使えます。
             </p>
           </div>
-          <div class="feat-mock">
-            <div class="feat-mock-frame">
-              <img
-                class="feat-shot"
-                src="./assets/shots/yc-feat-story.webp"
-                alt="yurucommu のストーリー一覧。フォローした人の 24 時間で消える近況が並ぶ。"
-                loading="lazy"
-                decoding="async"
-              />
+          <div class="appwin stry" aria-hidden="true">
+            <div class="stry-row">
+              <figure class="stry-item">
+                <span class="stry-ring stry-mine">
+                  <svg class="av" viewBox="0 0 48 48">
+                    <circle cx="24" cy="24" r="24" fill="var(--av-orange)" />
+                    <circle cx="17" cy="20" r="2.5" fill="var(--av-ink)" />
+                    <circle cx="31" cy="20" r="2.5" fill="var(--av-ink)" />
+                    <path
+                      d="M15.5 29.5q8.5 9 17 0"
+                      fill="none"
+                      stroke="var(--av-ink)"
+                      stroke-width="2.4"
+                      stroke-linecap="round"
+                    />
+                  </svg>
+                  <span class="stry-plus">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="3"
+                        d="M12 4v16m8-8H4"
+                      />
+                    </svg>
+                  </span>
+                </span>
+                <figcaption>あなた</figcaption>
+              </figure>
+              <figure class="stry-item">
+                <span class="stry-ring">
+                  <svg class="av" viewBox="0 0 48 48">
+                    <circle cx="24" cy="24" r="24" fill="var(--av-cyan)" />
+                    <path
+                      d="M17 23.4c-3.8-3-1.9-7.4 0-4.4 1.9-3 3.8 1.4 0 4.4z"
+                      fill="var(--av-ink)"
+                    />
+                    <path
+                      d="M31 23.4c-3.8-3-1.9-7.4 0-4.4 1.9-3 3.8 1.4 0 4.4z"
+                      fill="var(--av-ink)"
+                    />
+                    <path
+                      d="M15.5 30.5q8.5 8 17 0"
+                      fill="none"
+                      stroke="var(--av-ink)"
+                      stroke-width="2.4"
+                      stroke-linecap="round"
+                    />
+                  </svg>
+                </span>
+                <figcaption>Akari</figcaption>
+              </figure>
+              <figure class="stry-item">
+                <span class="stry-ring">
+                  <svg class="av" viewBox="0 0 48 48">
+                    <circle cx="24" cy="24" r="24" fill="var(--av-cream)" />
+                    <path
+                      d="M17 23.4c-3.8-3-1.9-7.4 0-4.4 1.9-3 3.8 1.4 0 4.4z"
+                      fill="var(--av-ink)"
+                    />
+                    <path
+                      d="M31 23.4c-3.8-3-1.9-7.4 0-4.4 1.9-3 3.8 1.4 0 4.4z"
+                      fill="var(--av-ink)"
+                    />
+                    <path
+                      d="M15.5 30.5q8.5 8 17 0"
+                      fill="none"
+                      stroke="var(--av-ink)"
+                      stroke-width="2.4"
+                      stroke-linecap="round"
+                    />
+                  </svg>
+                </span>
+                <figcaption>Ren</figcaption>
+              </figure>
             </div>
           </div>
         </div>
 
-        <!-- Communities -->
-        <div class="feat-panel reveal">
-          <div class="feat-text">
-            <div class="feat-label">できること — 03</div>
+        <!-- Scope switcher -->
+        <div class="surf reveal">
+          <div class="surf-text">
+            <span class="surf-tag">表示を絞り込む</span>
             <h2>自分で決める、<br />届く範囲。</h2>
             <p>
-              興味でつくるコミュニティが、投稿の届く「輪」になります。全世界に向けて発信する必要はありません。
+              興味でつくるコミュニティが、投稿の届く「輪」になります。ホームの絞り込みで、見る景色も輪の中だけにできます。
             </p>
           </div>
-          <div class="feat-mock">
-            <div class="feat-mock-frame">
-              <img
-                class="feat-shot"
-                src="./assets/shots/yc-feat-community.webp"
-                alt="yurucommu の投稿。コミュニティのバッジが付き、投稿の届く「輪」をコミュニティで選べる。"
-                loading="lazy"
-                decoding="async"
-              />
+          <div class="appwin scp" aria-hidden="true">
+            <div class="scp-head">表示を絞り込む</div>
+            <div class="scp-row">
+              <svg class="av" viewBox="0 0 48 48">
+                <circle cx="24" cy="24" r="24" fill="var(--av-orange)" />
+                <circle cx="17" cy="20" r="2.5" fill="var(--av-ink)" />
+                <circle cx="31" cy="20" r="2.5" fill="var(--av-ink)" />
+                <path
+                  d="M15.5 29.5q8.5 9 17 0"
+                  fill="none"
+                  stroke="var(--av-ink)"
+                  stroke-width="2.4"
+                  stroke-linecap="round"
+                />
+              </svg>
+              <div class="sc-txt">
+                <b>すべて</b>
+                <small>フォローとコミュニティのすべて</small>
+              </div>
+              <svg class="scp-check" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
+              </svg>
+            </div>
+            <div class="scp-row">
+              <svg class="cav" viewBox="0 0 40 40">
+                <circle cx="20" cy="20" r="20" fill="#1e3d5c" />
+                <path
+                  d="M4 15a20 20 0 0 1 22-8l4 6-6 5H12z"
+                  fill="var(--av-cyan)"
+                  opacity="0.85"
+                />
+                <path
+                  d="M10 30a20 20 0 0 0 22 2l-4-7-9 2z"
+                  fill="var(--av-orange)"
+                  opacity="0.9"
+                />
+              </svg>
+              <div class="sc-txt">
+                <b>Kissa Builders</b>
+                <small>34 メンバー</small>
+              </div>
+            </div>
+            <div class="scp-row">
+              <svg class="cav" viewBox="0 0 40 40">
+                <circle cx="20" cy="20" r="20" fill="#2c2844" />
+                <path
+                  d="M20 6l4.5 9 9.5.8-7.2 6.4 2.2 9.3-9-5-9 5 2.2-9.3L6 15.8l9.5-.8z"
+                  fill="#8f8ad6"
+                  opacity="0.9"
+                />
+              </svg>
+              <div class="sc-txt">
+                <b>Night Ship</b>
+                <small>12 メンバー</small>
+              </div>
+            </div>
+            <div class="scp-div"></div>
+            <div class="scp-act">
+              <span class="ic">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M21 21l-6-6m2-5a7 7 0 1 1-14 0 7 7 0 0 1 14 0z"
+                  />
+                </svg>
+              </span>
+              コミュニティを探す
+            </div>
+            <div class="scp-act">
+              <span class="ic">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M12 4v16m8-8H4"
+                  />
+                </svg>
+              </span>
+              コミュニティを作成
             </div>
           </div>
         </div>
@@ -813,23 +1356,21 @@
     <section class="mobile-sec reveal">
       <div class="wrap mobile-grid">
         <div class="mobile-copy">
-          <span class="mono">手のひらに</span>
           <h2>スマホでも、<br />自分の輪。</h2>
           <p>
             ホーム画面から開けば、タイムラインも、ストーリーも、DM
             も使えます。あなたのサーバーが、そのままポケットの中に入ります。
           </p>
         </div>
-        <div class="phone">
-          <img
-            src="./assets/shots/yurucommu-mobile.webp"
-            width="780"
-            height="1688"
-            alt="yurucommu のスマホ画面。ダークなタイムラインと下部タブ（ホーム・検索・通知・メッセージ）。"
-            loading="lazy"
-            decoding="async"
-          />
-        </div>
+        <img
+          class="mobile-shot"
+          src="./assets/shots/yurucommu-mobile.webp"
+          width="780"
+          height="1688"
+          alt="yurucommu のスマホ画面。ダークなタイムラインと下部タブ（ホーム・検索・通知・メッセージ）。"
+          loading="lazy"
+          decoding="async"
+        />
       </div>
     </section>
 
@@ -838,7 +1379,6 @@
     <!-- Deploy Steps -->
     <section class="deploy" id="start">
       <div class="wrap">
-        <span class="mono">はじめかた</span>
         <h2>まず、手元で試す。</h2>
         <div class="step-row reveal">
           <span class="step-n">01</span>
