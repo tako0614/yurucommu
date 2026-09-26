@@ -10,7 +10,38 @@
       name="description"
       content="yurucommu — 自分の輪を、自分でつくる。ActivityPub でつながる、自分のためのセルフホスト型コミュニティSNS。"
     />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#0a0a0a" />
     <title>Yurucommu</title>
+    <script>
+      /* Pre-hydration language init: mirrors atoms/i18n.ts detectLanguage
+         ("language" storage, ja* browser => ja, else en) so <html lang> is
+         correct before the bundle runs. */
+      (function () {
+        try {
+          var lang = localStorage.getItem("language");
+          if (lang !== "ja" && lang !== "en") {
+            lang = (navigator.language || "").split("-")[0] === "ja"
+              ? "ja"
+              : "en";
+          }
+          document.documentElement.lang = lang;
+        } catch {
+          /* localStorage may be unavailable; the app will apply the language. */
+        }
+      })();
+    </script>
+    <style>
+      /* Pre-hydration flash guard — matches the app bg-neutral-950 /
+         text-neutral-100 canvas so there is no white flash while the bundle
+         loads. */
+      html,
+      body {
+        margin: 0;
+        background: #0a0a0a;
+        color: #f5f5f5;
+      }
+    </style>
     <link rel="icon" type="image/svg+xml" href="/icons/yurucommu.svg" />
   </head>
   <body>
