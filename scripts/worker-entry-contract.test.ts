@@ -80,15 +80,11 @@ describe("generated worker entry", () => {
     expect(fetchHandler).toContain("await backendApp.fetch(");
   });
 
-  test("preserves direct delivery and DLQ identities and synthesizes only the single-consumer Host identity", () => {
+  test("validates both declared queue identities before dispatching to the core", () => {
     expect(entrySource).toContain("withDeliveryConsumerIdentity");
     expect(entrySource).toContain("Queue invocation has no native identity");
-    expect(entrySource).toContain("The Provider is free to replace");
-    expect(entrySource).toContain("env.DELIVERY_QUEUE_NAME?.trim()");
-    expect(entrySource).toContain("env.DELIVERY_DLQ_NAME?.trim()");
-    expect(entrySource).toContain(
-      "return env; // The direct adapter already declares both distinct queue identities.",
-    );
+    expect(entrySource).toContain("Unrecognized queue identity");
+    expect(entrySource).not.toContain("__unbound_dlq__");
     expect(entrySource).toContain("await withRequiredBackgroundPublicOrigin(");
   });
 
@@ -342,8 +338,8 @@ describe("generated entry lane behavior", () => {
       DB: nativeD1(),
       KV: kv(),
       APP_URL: "https://yurucommu.example.test",
-      // Configured on both sides, so the entry keeps the direct identities and
-      // an unrecognised queue name settles instead of reaching the database.
+      // Configured on both sides, so an unrecognised queue name is rejected
+      // before it can reach the core's unknown-queue acknowledgement.
       DELIVERY_QUEUE_NAME: "configured-delivery",
       DELIVERY_DLQ_NAME: "configured-delivery-dlq",
       ...overrides,
@@ -369,22 +365,26 @@ describe("generated entry lane behavior", () => {
     };
   }
 
-  test("an undeclared lane is the raw Cloudflare bindings", async () => {
+  test("the raw Cloudflare lane also retries an unknown queue", async () => {
     const { default: worker } = await loadEntry();
     const settled: string[] = [];
-    await worker.queue(cloudflareBatch(settled), env(), {});
-    expect(settled).toEqual(["ackAll"]);
+    await expect(
+      worker.queue(cloudflareBatch(settled), env(), {}),
+    ).rejects.toThrow(/queue identity/i);
+    expect(settled).toEqual([]);
   });
 
-  test("portable takes the facade bindings and the facade batch", async () => {
+  test("portable retries a queue whose identity cannot be matched", async () => {
     const { default: worker } = await loadEntry();
     const settled: string[] = [];
-    await worker.queue(
-      facadeBatch(settled),
-      env({ YURUCOMMU_RUNTIME_LANE: "portable", DB: edgeSql() }),
-      {},
-    );
-    expect(settled).toEqual(["ackAll"]);
+    await expect(
+      worker.queue(
+        facadeBatch(settled, "tsq-physical-name"),
+        env({ YURUCOMMU_RUNTIME_LANE: "portable", DB: edgeSql() }),
+        {},
+      ),
+    ).rejects.toThrow(/queue identity/i);
+    expect(settled).toEqual([]);
   });
 
   test("refuses a lane the build does not know rather than defaulting", async () => {
@@ -482,11 +482,15 @@ describe("delivery routing in a renamed install", () => {
     batch: async () => [],
     exec: async () => ({}),
   });
+  const edgeSql = () => ({
+    execute: async () => ({ rows: [], rowsWritten: 0 }),
+    query: async () => ({ rows: [], rowsWritten: 0 }),
+    transaction: async () => [],
+  });
 
   // A body neither wire validator accepts. Both batch handlers ack such a
   // message and say which one they are in the structured log, so the same
-  // input tells the two apart; an unrecognised queue never reaches either and
-  // settles the whole batch instead.
+  // input tells the two apart; an unrecognised queue never reaches either.
   function batchOn(queue: string, settled: string[]) {
     return {
       queue,
@@ -505,13 +509,35 @@ describe("delivery routing in a renamed install", () => {
     };
   }
 
+  function portableBatchOn(queue: string, settled: string[]) {
+    return {
+      batchId: "b1",
+      queue,
+      messages: [
+        {
+          id: "m1",
+          timestampMillis: Date.parse("2026-09-01T00:00:00.000Z"),
+          attempts: 1,
+          body: {
+            encoding: "base64",
+            data: btoa(JSON.stringify({ type: "not-a-delivery-message" })),
+          },
+          acknowledge: () => settled.push("ack:m1"),
+          retry: () => settled.push("retry:m1"),
+        },
+      ],
+      acknowledgeAll: () => settled.push("ackAll"),
+      retryAll: () => settled.push("retryAll"),
+    };
+  }
+
   // The engine reports through the console, and the delivery path also logs the
   // stub database refusing its outbox sweeps. Collect the lines rather than
   // letting either kind reach the test output.
   async function routeBatch(
     queue: string,
     env: Record<string, unknown>,
-  ): Promise<{ settled: string[]; events: string[] }> {
+  ): Promise<{ settled: string[]; events: string[]; failure: unknown }> {
     const { default: worker } = await loadEntry();
     const settled: string[] = [];
     const lines: string[] = [];
@@ -521,20 +547,30 @@ describe("delivery routing in a renamed install", () => {
       error: console.error,
     };
     const collect = (...parts: unknown[]) => lines.push(parts.join(" "));
+    let failure: unknown;
     console.log = collect;
     console.warn = collect;
     console.error = collect;
     try {
-      await worker.queue(
-        batchOn(queue, settled),
-        {
-          DB: nativeD1(),
-          KV: kv(),
-          APP_URL: "https://acme.example.test",
-          ...env,
-        },
-        {},
-      );
+      try {
+        await worker.queue(
+          env.YURUCOMMU_RUNTIME_LANE === "portable"
+            ? portableBatchOn(queue, settled)
+            : batchOn(queue, settled),
+          {
+            DB:
+              env.YURUCOMMU_RUNTIME_LANE === "portable"
+                ? edgeSql()
+                : nativeD1(),
+            KV: kv(),
+            APP_URL: "https://acme.example.test",
+            ...env,
+          },
+          {},
+        );
+      } catch (error) {
+        failure = error;
+      }
     } finally {
       console.log = console_.log;
       console.warn = console_.warn;
@@ -544,7 +580,7 @@ describe("delivery routing in a renamed install", () => {
       lines.join("\n").matchAll(/"event":"([^"]+)"/g),
       (match) => match[1],
     );
-    return { settled, events };
+    return { settled, events, failure };
   }
 
   // The derivation this whole block assumes: one prefix names the Capsule, both
@@ -565,48 +601,77 @@ describe("delivery routing in a renamed install", () => {
   });
 
   test("a batch on the renamed delivery queue reaches the delivery handler", async () => {
-    const { settled, events } = await routeBatch(deliveryQueue, {
+    const { settled, events, failure } = await routeBatch(deliveryQueue, {
       DELIVERY_QUEUE_NAME: deliveryQueue,
       DELIVERY_DLQ_NAME: deliveryDlq,
     });
     expect(events).toContain("delivery.queue.invalid_message");
     expect(events).not.toContain("queue.unknown");
+    expect(failure).toBeUndefined();
     // The delivery handler settles per message; the unknown-queue path would
     // have discarded the batch whole.
     expect(settled).toEqual(["ack:m1"]);
   });
 
   test("a batch on the renamed dead-letter queue reaches the DLQ handler", async () => {
-    const { settled, events } = await routeBatch(deliveryDlq, {
+    const { settled, events, failure } = await routeBatch(deliveryDlq, {
       DELIVERY_QUEUE_NAME: deliveryQueue,
       DELIVERY_DLQ_NAME: deliveryDlq,
     });
     expect(events).toContain("delivery.dlq.invalid_message");
     expect(events).not.toContain("delivery.queue.invalid_message");
     expect(events).not.toContain("queue.unknown");
+    expect(failure).toBeUndefined();
     expect(settled).toEqual(["ack:m1"]);
   });
 
-  // The defect, stated as the thing that must stay false: with the variables
-  // absent the engine falls back to the default install's queue names, so a
-  // renamed dead-letter queue matched neither and its repair work was dropped.
-  test("the built-in fallback names would strand a renamed dead-letter queue", async () => {
-    const { settled, events } = await routeBatch(deliveryDlq, {
+  test("portable logical names route both consumers to their distinct handlers", async () => {
+    const bindings = {
+      YURUCOMMU_RUNTIME_LANE: "portable",
+      DELIVERY_QUEUE_NAME: deliveryQueue,
+      DELIVERY_DLQ_NAME: deliveryDlq,
+    };
+    const delivery = await routeBatch(deliveryQueue, bindings);
+    const dlq = await routeBatch(deliveryDlq, bindings);
+    expect(delivery.failure).toBeUndefined();
+    expect(delivery.events).toContain("delivery.queue.invalid_message");
+    expect(delivery.settled).toEqual(["ack:m1"]);
+    expect(dlq.failure).toBeUndefined();
+    expect(dlq.events).toContain("delivery.dlq.invalid_message");
+    expect(dlq.settled).toEqual(["ack:m1"]);
+  });
+
+  test("portable name mismatch retries the delivered message", async () => {
+    const result = await routeBatch("tsq-physical-name", {
+      YURUCOMMU_RUNTIME_LANE: "portable",
+      DELIVERY_QUEUE_NAME: deliveryQueue,
+      DELIVERY_DLQ_NAME: deliveryDlq,
+    });
+    expect(result.failure).toBeInstanceOf(Error);
+    expect(String(result.failure)).toContain("Unrecognized queue identity");
+    expect(result.events).not.toContain("queue.unknown");
+    expect(result.settled).toEqual([]);
+  });
+
+  // A name mismatch must be retried; the core's unknown-queue path would
+  // acknowledge and discard the batch, including dead-letter repair work.
+  test("a mismatched dead-letter identity is retried rather than drained", async () => {
+    const { settled, events, failure } = await routeBatch(deliveryDlq, {
       DELIVERY_QUEUE_NAME: "yurucommu-delivery",
       DELIVERY_DLQ_NAME: "yurucommu-delivery-dlq",
     });
-    expect(events).toContain("queue.unknown");
-    expect(settled).toEqual(["ackAll"]);
+    expect(failure).toBeInstanceOf(Error);
+    expect(String(failure)).toContain("Unrecognized queue identity");
+    expect(events).not.toContain("queue.unknown");
+    expect(settled).toEqual([]);
   });
 
-  // A Host that projects no variables at all is still served: the entry reads
-  // the authenticated invocation identity off the wrapped batch, so the single
-  // consumer it can be is the delivery one.
-  test("an invocation with no declared identities still reaches the delivery handler", async () => {
-    const { settled, events } = await routeBatch(deliveryQueue, {});
-    expect(events).toContain("delivery.queue.invalid_message");
+  test("missing identities cannot silently treat the DLQ as delivery", async () => {
+    const { settled, events, failure } = await routeBatch(deliveryDlq, {});
+    expect(failure).toBeInstanceOf(Error);
+    expect(String(failure)).toContain("must both be declared");
     expect(events).not.toContain("queue.unknown");
-    expect(settled).toEqual(["ack:m1"]);
+    expect(settled).toEqual([]);
   });
 });
 
@@ -867,14 +932,21 @@ describe("public origin per lane", () => {
     );
     resetObservedPublicOrigin();
 
-    // An unrecognised queue name settles the batch instead of reaching the
-    // database, so reaching this point at all is the assertion: the origin
-    // resolved without an `APP_URL` and without a request.
-    await worker.queue(
-      facadeBatch("some-other-queue"),
-      { DB: edgeSql(), KV: kv, YURUCOMMU_RUNTIME_LANE: "portable" },
-      {},
-    );
+    // The identity guard rejects this batch only after the background origin
+    // was resolved without an APP_URL or request on this invocation.
+    await expect(
+      worker.queue(
+        facadeBatch("some-other-queue"),
+        {
+          DB: edgeSql(),
+          KV: kv,
+          YURUCOMMU_RUNTIME_LANE: "portable",
+          DELIVERY_QUEUE_NAME: "yurucommu-delivery",
+          DELIVERY_DLQ_NAME: "yurucommu-delivery-dlq",
+        },
+        {},
+      ),
+    ).rejects.toThrow(/queue identity/i);
     expect(kv.read(CANONICAL_ORIGIN_KV_KEY)).toBe(
       "https://pinned.example.test",
     );
