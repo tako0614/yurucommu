@@ -29,6 +29,7 @@
     "e2e:takoform-v1": "bun scripts/takoform-v1-e2e.ts",
     "e2e:takoform-v1:full": "bun scripts/takoform-v1-e2e-full.ts",
     "e2e:takosumi:managed-staging": "bun scripts/takosumi-managed-staging-browser.ts",
+    "takosumi:release": "bun scripts/takosumi-release.ts",
     "smoke:postdeploy": "bun scripts/post-deploy-smoke.ts",
     "smoke:release-artifact": "bun scripts/smoke-release-worker.mjs",
     "lint": "tsc --noEmit",
