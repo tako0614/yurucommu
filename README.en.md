@@ -1,6 +1,6 @@
 # Yurucommu
 
-Japanese: [README.md](README.md)
+日本語: [README.md](README.md)
 
 Yurucommu is a self-hostable social network for feeds, stories, profiles,
 communities, and direct messages. It supports ActivityPub, the standard that
