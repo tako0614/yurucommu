@@ -908,573 +908,615 @@
     </nav>
 
     <!-- Hero -->
-    <header class="hero">
-      <div class="wrap">
-        <span class="mono hero-label">Self-hosted ActivityPub SNS</span>
-        <h1>自分の輪を、<br />自分でつくる。</h1>
-        <p>
-          自分ひとりのための、小さな SNS
-          です。フォローした相手の投稿を時間順に読みながら、つながる相手と
-          コミュニティを自分で選べます。
-        </p>
-        <div class="hero-act">
-          <a
-            href="https://app.takosumi.com/install?git=https%3A%2F%2Fgithub.com%2Ftako0614%2Fyurucommu.git&ref=a17e4f883cb9ba79e6d0650b497d8d97453c698f&path=deploy%2Ftakoform"
-            class="arrow"
-            >Takosumi で追加 <span>→</span></a
-          >
-          <a href="/help/getting-started.html" class="link">ローカルで試す</a>
-          <a href="#start" class="link">運用方法</a>
-          <a href="https://github.com/tako0614/yurucommu" class="link"
-            >GitHub</a
-          >
-        </div>
-      </div>
-    </header>
-
-    <!-- Product screenshot: the real home timeline, no drawn chrome -->
-    <div class="stage reveal">
-      <figure>
-        <img
-          class="stage-shot"
-          src="./assets/shots/yurucommu-home.webp"
-          width="1280"
-          height="720"
-          alt="yurucommuのホームタイムライン。ダークな UI に、自分のサーバーでフォローした相手の投稿・ストーリー・おすすめユーザーが並ぶ。"
-          loading="lazy"
-          decoding="async"
-        />
-        <figcaption>
-          あなたのドメインで動く、あなただけのタイムラインです。
-        </figcaption>
-      </figure>
-    </div>
-
-    <div class="hairline"></div>
-
-    <!-- Statement -->
-    <section class="statement reveal">
-      <div class="wrap">
-        <p>
-          届く範囲は、<br />自分が広げた輪の中だけで、<span class="soft"
-            >いいです。</span
-          >
-        </p>
-      </div>
-    </section>
-
-    <div class="hairline"></div>
-
-    <!-- Principles -->
-    <section class="principles" id="why">
-      <div class="wrap">
-        <div class="princ-row reveal">
-          <h2>アルゴリズムを、手放す。</h2>
+    <main>
+      <header class="hero">
+        <div class="wrap">
+          <span class="mono hero-label">Self-hosted ActivityPub SNS</span>
+          <h1>自分の輪を、<br />自分でつくる。</h1>
           <p>
-            タイムラインはおすすめ順に並べ替えません。自分がフォローした相手の投稿を、時間順に表示します。
+            自分ひとりのための、小さな SNS
+            です。フォローした相手の投稿を時間順に読みながら、つながる相手と
+            コミュニティを自分で選べます。
+          </p>
+          <div class="hero-act">
+            <a
+              href="https://app.takosumi.com/install?git=https%3A%2F%2Fgithub.com%2Ftako0614%2Fyurucommu.git&ref=a17e4f883cb9ba79e6d0650b497d8d97453c698f&path=deploy%2Ftakoform"
+              class="arrow"
+              >Takosumi で追加 <span>→</span></a
+            >
+            <a href="/help/getting-started.html" class="link">ローカルで試す</a>
+            <a href="#start" class="link">運用方法</a>
+            <a href="https://github.com/tako0614/yurucommu" class="link"
+              >GitHub</a
+            >
+          </div>
+        </div>
+      </header>
+
+      <!-- Product screenshot: the real home timeline, no drawn chrome -->
+      <div class="stage reveal">
+        <figure>
+          <img
+            class="stage-shot"
+            src="./assets/shots/yurucommu-home.webp"
+            width="1280"
+            height="720"
+            alt="yurucommuのホームタイムライン。ダークな UI に、自分のサーバーでフォローした相手の投稿・ストーリー・おすすめユーザーが並ぶ。"
+            loading="lazy"
+            decoding="async"
+          />
+          <figcaption>
+            あなたのドメインで動く、あなただけのタイムラインです。
+          </figcaption>
+        </figure>
+      </div>
+
+      <div class="hairline"></div>
+
+      <!-- Statement -->
+      <section class="statement reveal">
+        <div class="wrap">
+          <p>
+            届く範囲は、<br />自分が広げた輪の中だけで、<span class="soft"
+              >いいです。</span
+            >
           </p>
         </div>
-        <div class="princ-row reveal">
-          <h2>輪は、小さくていい。</h2>
-          <p>
-            興味でつくる小さなコミュニティが、そのまま「届く範囲」になります。薄く広い繋がりより、濃くて小さな繋がりを大切にします。
-          </p>
-        </div>
-        <div class="princ-row reveal">
-          <h2>居場所は、自分のもの。</h2>
-          <p>
-            セルフホストでは、運用先やデータの置き場所を自分で選べます。
-            ActivityPubに対応する別のサーバーとも、フォローや投稿を
-            やり取りできます。
-          </p>
-        </div>
-      </div>
-    </section>
+      </section>
 
-    <div class="hairline"></div>
+      <div class="hairline"></div>
 
-    <!-- Surfaces: each panel traces a real screen of the client -->
-    <section class="surfaces">
-      <div class="wrap">
-        <!-- Home timeline -->
-        <div class="surf reveal">
-          <div class="surf-text">
-            <span class="surf-tag">ホーム</span>
-            <h2>時系列だけの、<br />タイムライン。</h2>
+      <!-- Principles -->
+      <section class="principles" id="why">
+        <div class="wrap">
+          <div class="princ-row reveal">
+            <h2>アルゴリズムを、手放す。</h2>
             <p>
-              フォローした相手の投稿が、新しい順に静かに流れます。読む
-              ペースも、どこまで遡るかも、あなた次第です。
+              タイムラインはおすすめ順に並べ替えません。自分がフォローした相手の投稿を、時間順に表示します。
             </p>
           </div>
-          <div class="appwin tl" aria-hidden="true">
-            <div class="tl-head">
-              ホーム
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="m6 9 6 6 6-6"
-                />
-              </svg>
-            </div>
-            <div class="post">
-              <svg class="av" viewBox="0 0 48 48">
-                <circle cx="24" cy="24" r="24" fill="var(--av-cyan)" />
-                <path
-                  d="M17 23.4c-3.8-3-1.9-7.4 0-4.4 1.9-3 3.8 1.4 0 4.4z"
-                  fill="var(--av-ink)"
-                />
-                <path
-                  d="M31 23.4c-3.8-3-1.9-7.4 0-4.4 1.9-3 3.8 1.4 0 4.4z"
-                  fill="var(--av-ink)"
-                />
-                <path
-                  d="M15.5 30.5q8.5 8 17 0"
-                  fill="none"
-                  stroke="var(--av-ink)"
-                  stroke-width="2.4"
-                  stroke-linecap="round"
-                />
-              </svg>
-              <div class="post-body">
-                <div class="post-meta">
-                  <b>Akari</b>
-                  <span class="h">@akari@mock.yurucommu.test</span>
-                  <span class="d">· 2026/7/5</span>
-                </div>
-                <p class="post-text">
-                  海の見える街に引っ越しました。ゆるく繋がれる人、この輪の中だけで十分かも。
-                </p>
-                <div class="post-acts">
-                  <span
-                    ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="1.8"
-                        d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"
-                      /></svg
-                    >3</span
-                  >
-                  <span
-                    ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="1.8"
-                        d="m17 2 4 4-4 4M3 11v-1a4 4 0 0 1 4-4h14M7 22l-4-4 4-4m14 1v1a4 4 0 0 1-4 4H3"
-                      /></svg
-                  ></span>
-                  <span
-                    ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="1.8"
-                        d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"
-                      /></svg
-                  ></span>
-                  <span
-                    ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="1.8"
-                        d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"
-                      /></svg
-                  ></span>
-                  <span class="more">···</span>
-                </div>
-              </div>
-            </div>
-            <div class="post">
-              <svg class="av" viewBox="0 0 48 48">
-                <circle cx="24" cy="24" r="24" fill="var(--av-cream)" />
-                <path
-                  d="M17 23.4c-3.8-3-1.9-7.4 0-4.4 1.9-3 3.8 1.4 0 4.4z"
-                  fill="var(--av-ink)"
-                />
-                <path
-                  d="M31 23.4c-3.8-3-1.9-7.4 0-4.4 1.9-3 3.8 1.4 0 4.4z"
-                  fill="var(--av-ink)"
-                />
-                <path
-                  d="M15.5 30.5q8.5 8 17 0"
-                  fill="none"
-                  stroke="var(--av-ink)"
-                  stroke-width="2.4"
-                  stroke-linecap="round"
-                />
-              </svg>
-              <div class="post-body">
-                <div class="post-meta">
-                  <b>Ren</b>
-                  <span class="h">@ren@mock.yurucommu.test</span>
-                  <span class="d">· 2026/7/5</span>
-                  <span class="pill">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                      <circle cx="12" cy="12" r="9" stroke-width="1.8" />
-                      <path
-                        stroke-width="1.6"
-                        d="M3 12h18M12 3c2.7 2.6 4 5.6 4 9s-1.3 6.4-4 9c-2.7-2.6-4-5.6-4-9s1.3-6.4 4-9Z"
-                      />
-                    </svg>
-                    Kissa Builders
-                  </span>
-                </div>
-                <p class="post-text">今日の空、すごくきれいだった。</p>
-                <div class="post-acts">
-                  <span
-                    ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="1.8"
-                        d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"
-                      /></svg
-                    >6</span
-                  >
-                  <span
-                    ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="1.8"
-                        d="m17 2 4 4-4 4M3 11v-1a4 4 0 0 1 4-4h14M7 22l-4-4 4-4m14 1v1a4 4 0 0 1-4 4H3"
-                      /></svg
-                  ></span>
-                  <span class="act-on"
-                    ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="1.8"
-                        d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"
-                      /></svg
-                  ></span>
-                  <span class="act-save"
-                    ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="1.8"
-                        d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"
-                      /></svg
-                  ></span>
-                  <span class="more">···</span>
-                </div>
-              </div>
-            </div>
-            <div class="tl-end">これ以上の投稿はありません</div>
-            <span class="tl-fab">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2.4"
-                  d="M12 4v16m8-8H4"
-                />
-              </svg>
-            </span>
-          </div>
-        </div>
-
-        <!-- Stories -->
-        <div class="surf reverse reveal">
-          <div class="surf-text">
-            <span class="surf-tag">ストーリー</span>
-            <h2>24時間で消える、<br />気軽な近況。</h2>
+          <div class="princ-row reveal">
+            <h2>輪は、小さくていい。</h2>
             <p>
-              キャンバスエディタで自由に描いたり書いたり貼ったりできます。24時間後には消えるので、身軽に使えます。
+              興味でつくる小さなコミュニティが、そのまま「届く範囲」になります。薄く広い繋がりより、濃くて小さな繋がりを大切にします。
             </p>
           </div>
-          <div class="appwin stry" aria-hidden="true">
-            <div class="stry-row">
-              <figure class="stry-item">
-                <span class="stry-ring stry-mine">
-                  <svg class="av" viewBox="0 0 48 48">
-                    <circle cx="24" cy="24" r="24" fill="var(--av-orange)" />
-                    <circle cx="17" cy="20" r="2.5" fill="var(--av-ink)" />
-                    <circle cx="31" cy="20" r="2.5" fill="var(--av-ink)" />
-                    <path
-                      d="M15.5 29.5q8.5 9 17 0"
-                      fill="none"
-                      stroke="var(--av-ink)"
-                      stroke-width="2.4"
-                      stroke-linecap="round"
-                    />
-                  </svg>
-                  <span class="stry-plus">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="3"
-                        d="M12 4v16m8-8H4"
-                      />
-                    </svg>
-                  </span>
-                </span>
-                <figcaption>あなた</figcaption>
-              </figure>
-              <figure class="stry-item">
-                <span class="stry-ring">
-                  <svg class="av" viewBox="0 0 48 48">
-                    <circle cx="24" cy="24" r="24" fill="var(--av-cyan)" />
-                    <path
-                      d="M17 23.4c-3.8-3-1.9-7.4 0-4.4 1.9-3 3.8 1.4 0 4.4z"
-                      fill="var(--av-ink)"
-                    />
-                    <path
-                      d="M31 23.4c-3.8-3-1.9-7.4 0-4.4 1.9-3 3.8 1.4 0 4.4z"
-                      fill="var(--av-ink)"
-                    />
-                    <path
-                      d="M15.5 30.5q8.5 8 17 0"
-                      fill="none"
-                      stroke="var(--av-ink)"
-                      stroke-width="2.4"
-                      stroke-linecap="round"
-                    />
-                  </svg>
-                </span>
-                <figcaption>Akari</figcaption>
-              </figure>
-              <figure class="stry-item">
-                <span class="stry-ring">
-                  <svg class="av" viewBox="0 0 48 48">
-                    <circle cx="24" cy="24" r="24" fill="var(--av-cream)" />
-                    <path
-                      d="M17 23.4c-3.8-3-1.9-7.4 0-4.4 1.9-3 3.8 1.4 0 4.4z"
-                      fill="var(--av-ink)"
-                    />
-                    <path
-                      d="M31 23.4c-3.8-3-1.9-7.4 0-4.4 1.9-3 3.8 1.4 0 4.4z"
-                      fill="var(--av-ink)"
-                    />
-                    <path
-                      d="M15.5 30.5q8.5 8 17 0"
-                      fill="none"
-                      stroke="var(--av-ink)"
-                      stroke-width="2.4"
-                      stroke-linecap="round"
-                    />
-                  </svg>
-                </span>
-                <figcaption>Ren</figcaption>
-              </figure>
-            </div>
-          </div>
-        </div>
-
-        <!-- Scope switcher -->
-        <div class="surf reveal">
-          <div class="surf-text">
-            <span class="surf-tag">表示を絞り込む</span>
-            <h2>自分で決める、<br />届く範囲。</h2>
+          <div class="princ-row reveal">
+            <h2>居場所は、自分のもの。</h2>
             <p>
-              興味でつくるコミュニティが、投稿の届く「輪」になります。ホームの絞り込みで、見る景色も輪の中だけにできます。
+              セルフホストでは、運用先やデータの置き場所を自分で選べます。
+              ActivityPubに対応する別のサーバーとも、フォローや投稿を
+              やり取りできます。
             </p>
           </div>
-          <div class="appwin scp" aria-hidden="true">
-            <div class="scp-head">表示を絞り込む</div>
-            <div class="scp-row">
-              <svg class="av" viewBox="0 0 48 48">
-                <circle cx="24" cy="24" r="24" fill="var(--av-orange)" />
-                <circle cx="17" cy="20" r="2.5" fill="var(--av-ink)" />
-                <circle cx="31" cy="20" r="2.5" fill="var(--av-ink)" />
-                <path
-                  d="M15.5 29.5q8.5 9 17 0"
-                  fill="none"
-                  stroke="var(--av-ink)"
-                  stroke-width="2.4"
-                  stroke-linecap="round"
-                />
-              </svg>
-              <div class="sc-txt">
-                <b>すべて</b>
-                <small>フォローとコミュニティのすべて</small>
-              </div>
-              <svg class="scp-check" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
-              </svg>
+        </div>
+      </section>
+
+      <div class="hairline"></div>
+
+      <!-- Surfaces: each panel traces a real screen of the client -->
+      <section class="surfaces">
+        <div class="wrap">
+          <!-- Home timeline -->
+          <div class="surf reveal">
+            <div class="surf-text">
+              <span class="surf-tag">ホーム</span>
+              <h2>時系列だけの、<br />タイムライン。</h2>
+              <p>
+                フォローした相手の投稿が、新しい順に静かに流れます。読む
+                ペースも、どこまで遡るかも、あなた次第です。
+              </p>
             </div>
-            <div class="scp-row">
-              <svg class="cav" viewBox="0 0 40 40">
-                <circle cx="20" cy="20" r="20" fill="#1e3d5c" />
-                <path
-                  d="M4 15a20 20 0 0 1 22-8l4 6-6 5H12z"
-                  fill="var(--av-cyan)"
-                  opacity="0.85"
-                />
-                <path
-                  d="M10 30a20 20 0 0 0 22 2l-4-7-9 2z"
-                  fill="var(--av-orange)"
-                  opacity="0.9"
-                />
-              </svg>
-              <div class="sc-txt">
-                <b>Kissa Builders</b>
-                <small>34 メンバー</small>
-              </div>
-            </div>
-            <div class="scp-row">
-              <svg class="cav" viewBox="0 0 40 40">
-                <circle cx="20" cy="20" r="20" fill="#2c2844" />
-                <path
-                  d="M20 6l4.5 9 9.5.8-7.2 6.4 2.2 9.3-9-5-9 5 2.2-9.3L6 15.8l9.5-.8z"
-                  fill="#8f8ad6"
-                  opacity="0.9"
-                />
-              </svg>
-              <div class="sc-txt">
-                <b>Night Ship</b>
-                <small>12 メンバー</small>
-              </div>
-            </div>
-            <div class="scp-div"></div>
-            <div class="scp-act">
-              <span class="ic">
+            <div class="appwin tl" aria-hidden="true">
+              <div class="tl-head">
+                ホーム
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
                   <path
                     stroke-linecap="round"
                     stroke-linejoin="round"
                     stroke-width="2"
-                    d="M21 21l-6-6m2-5a7 7 0 1 1-14 0 7 7 0 0 1 14 0z"
+                    d="m6 9 6 6 6-6"
                   />
                 </svg>
-              </span>
-              コミュニティを探す
-            </div>
-            <div class="scp-act">
-              <span class="ic">
+              </div>
+              <div class="post">
+                <svg class="av" viewBox="0 0 48 48">
+                  <circle cx="24" cy="24" r="24" fill="var(--av-cyan)" />
+                  <path
+                    d="M17 23.4c-3.8-3-1.9-7.4 0-4.4 1.9-3 3.8 1.4 0 4.4z"
+                    fill="var(--av-ink)"
+                  />
+                  <path
+                    d="M31 23.4c-3.8-3-1.9-7.4 0-4.4 1.9-3 3.8 1.4 0 4.4z"
+                    fill="var(--av-ink)"
+                  />
+                  <path
+                    d="M15.5 30.5q8.5 8 17 0"
+                    fill="none"
+                    stroke="var(--av-ink)"
+                    stroke-width="2.4"
+                    stroke-linecap="round"
+                  />
+                </svg>
+                <div class="post-body">
+                  <div class="post-meta">
+                    <b>Akari</b>
+                    <span class="h">@akari@mock.yurucommu.test</span>
+                    <span class="d">· 2026/7/5</span>
+                  </div>
+                  <p class="post-text">
+                    海の見える街に引っ越しました。ゆるく繋がれる人、この輪の中だけで十分かも。
+                  </p>
+                  <div class="post-acts">
+                    <span
+                      ><svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="1.8"
+                          d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"
+                        /></svg
+                      >3</span
+                    >
+                    <span
+                      ><svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="1.8"
+                          d="m17 2 4 4-4 4M3 11v-1a4 4 0 0 1 4-4h14M7 22l-4-4 4-4m14 1v1a4 4 0 0 1-4 4H3"
+                        /></svg
+                    ></span>
+                    <span
+                      ><svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="1.8"
+                          d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"
+                        /></svg
+                    ></span>
+                    <span
+                      ><svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="1.8"
+                          d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"
+                        /></svg
+                    ></span>
+                    <span class="more">···</span>
+                  </div>
+                </div>
+              </div>
+              <div class="post">
+                <svg class="av" viewBox="0 0 48 48">
+                  <circle cx="24" cy="24" r="24" fill="var(--av-cream)" />
+                  <path
+                    d="M17 23.4c-3.8-3-1.9-7.4 0-4.4 1.9-3 3.8 1.4 0 4.4z"
+                    fill="var(--av-ink)"
+                  />
+                  <path
+                    d="M31 23.4c-3.8-3-1.9-7.4 0-4.4 1.9-3 3.8 1.4 0 4.4z"
+                    fill="var(--av-ink)"
+                  />
+                  <path
+                    d="M15.5 30.5q8.5 8 17 0"
+                    fill="none"
+                    stroke="var(--av-ink)"
+                    stroke-width="2.4"
+                    stroke-linecap="round"
+                  />
+                </svg>
+                <div class="post-body">
+                  <div class="post-meta">
+                    <b>Ren</b>
+                    <span class="h">@ren@mock.yurucommu.test</span>
+                    <span class="d">· 2026/7/5</span>
+                    <span class="pill">
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                      >
+                        <circle cx="12" cy="12" r="9" stroke-width="1.8" />
+                        <path
+                          stroke-width="1.6"
+                          d="M3 12h18M12 3c2.7 2.6 4 5.6 4 9s-1.3 6.4-4 9c-2.7-2.6-4-5.6-4-9s1.3-6.4 4-9Z"
+                        />
+                      </svg>
+                      Kissa Builders
+                    </span>
+                  </div>
+                  <p class="post-text">今日の空、すごくきれいだった。</p>
+                  <div class="post-acts">
+                    <span
+                      ><svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="1.8"
+                          d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"
+                        /></svg
+                      >6</span
+                    >
+                    <span
+                      ><svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="1.8"
+                          d="m17 2 4 4-4 4M3 11v-1a4 4 0 0 1 4-4h14M7 22l-4-4 4-4m14 1v1a4 4 0 0 1-4 4H3"
+                        /></svg
+                    ></span>
+                    <span class="act-on"
+                      ><svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="1.8"
+                          d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"
+                        /></svg
+                    ></span>
+                    <span class="act-save"
+                      ><svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="1.8"
+                          d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"
+                        /></svg
+                    ></span>
+                    <span class="more">···</span>
+                  </div>
+                </div>
+              </div>
+              <div class="tl-end">これ以上の投稿はありません</div>
+              <span class="tl-fab">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
                   <path
                     stroke-linecap="round"
                     stroke-linejoin="round"
-                    stroke-width="2"
+                    stroke-width="2.4"
                     d="M12 4v16m8-8H4"
                   />
                 </svg>
               </span>
-              コミュニティを作成
+            </div>
+          </div>
+
+          <!-- Stories -->
+          <div class="surf reverse reveal">
+            <div class="surf-text">
+              <span class="surf-tag">ストーリー</span>
+              <h2>24時間で消える、<br />気軽な近況。</h2>
+              <p>
+                キャンバスエディタで自由に描いたり書いたり貼ったりできます。24時間後には消えるので、身軽に使えます。
+              </p>
+            </div>
+            <div class="appwin stry" aria-hidden="true">
+              <div class="stry-row">
+                <figure class="stry-item">
+                  <span class="stry-ring stry-mine">
+                    <svg class="av" viewBox="0 0 48 48">
+                      <circle cx="24" cy="24" r="24" fill="var(--av-orange)" />
+                      <circle cx="17" cy="20" r="2.5" fill="var(--av-ink)" />
+                      <circle cx="31" cy="20" r="2.5" fill="var(--av-ink)" />
+                      <path
+                        d="M15.5 29.5q8.5 9 17 0"
+                        fill="none"
+                        stroke="var(--av-ink)"
+                        stroke-width="2.4"
+                        stroke-linecap="round"
+                      />
+                    </svg>
+                    <span class="stry-plus">
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="3"
+                          d="M12 4v16m8-8H4"
+                        />
+                      </svg>
+                    </span>
+                  </span>
+                  <figcaption>あなた</figcaption>
+                </figure>
+                <figure class="stry-item">
+                  <span class="stry-ring">
+                    <svg class="av" viewBox="0 0 48 48">
+                      <circle cx="24" cy="24" r="24" fill="var(--av-cyan)" />
+                      <path
+                        d="M17 23.4c-3.8-3-1.9-7.4 0-4.4 1.9-3 3.8 1.4 0 4.4z"
+                        fill="var(--av-ink)"
+                      />
+                      <path
+                        d="M31 23.4c-3.8-3-1.9-7.4 0-4.4 1.9-3 3.8 1.4 0 4.4z"
+                        fill="var(--av-ink)"
+                      />
+                      <path
+                        d="M15.5 30.5q8.5 8 17 0"
+                        fill="none"
+                        stroke="var(--av-ink)"
+                        stroke-width="2.4"
+                        stroke-linecap="round"
+                      />
+                    </svg>
+                  </span>
+                  <figcaption>Akari</figcaption>
+                </figure>
+                <figure class="stry-item">
+                  <span class="stry-ring">
+                    <svg class="av" viewBox="0 0 48 48">
+                      <circle cx="24" cy="24" r="24" fill="var(--av-cream)" />
+                      <path
+                        d="M17 23.4c-3.8-3-1.9-7.4 0-4.4 1.9-3 3.8 1.4 0 4.4z"
+                        fill="var(--av-ink)"
+                      />
+                      <path
+                        d="M31 23.4c-3.8-3-1.9-7.4 0-4.4 1.9-3 3.8 1.4 0 4.4z"
+                        fill="var(--av-ink)"
+                      />
+                      <path
+                        d="M15.5 30.5q8.5 8 17 0"
+                        fill="none"
+                        stroke="var(--av-ink)"
+                        stroke-width="2.4"
+                        stroke-linecap="round"
+                      />
+                    </svg>
+                  </span>
+                  <figcaption>Ren</figcaption>
+                </figure>
+              </div>
+            </div>
+          </div>
+
+          <!-- Scope switcher -->
+          <div class="surf reveal">
+            <div class="surf-text">
+              <span class="surf-tag">表示を絞り込む</span>
+              <h2>自分で決める、<br />届く範囲。</h2>
+              <p>
+                興味でつくるコミュニティが、投稿の届く「輪」になります。ホームの絞り込みで、見る景色も輪の中だけにできます。
+              </p>
+            </div>
+            <div class="appwin scp" aria-hidden="true">
+              <div class="scp-head">表示を絞り込む</div>
+              <div class="scp-row">
+                <svg class="av" viewBox="0 0 48 48">
+                  <circle cx="24" cy="24" r="24" fill="var(--av-orange)" />
+                  <circle cx="17" cy="20" r="2.5" fill="var(--av-ink)" />
+                  <circle cx="31" cy="20" r="2.5" fill="var(--av-ink)" />
+                  <path
+                    d="M15.5 29.5q8.5 9 17 0"
+                    fill="none"
+                    stroke="var(--av-ink)"
+                    stroke-width="2.4"
+                    stroke-linecap="round"
+                  />
+                </svg>
+                <div class="sc-txt">
+                  <b>すべて</b>
+                  <small>フォローとコミュニティのすべて</small>
+                </div>
+                <svg class="scp-check" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
+                </svg>
+              </div>
+              <div class="scp-row">
+                <svg class="cav" viewBox="0 0 40 40">
+                  <circle cx="20" cy="20" r="20" fill="#1e3d5c" />
+                  <path
+                    d="M4 15a20 20 0 0 1 22-8l4 6-6 5H12z"
+                    fill="var(--av-cyan)"
+                    opacity="0.85"
+                  />
+                  <path
+                    d="M10 30a20 20 0 0 0 22 2l-4-7-9 2z"
+                    fill="var(--av-orange)"
+                    opacity="0.9"
+                  />
+                </svg>
+                <div class="sc-txt">
+                  <b>Kissa Builders</b>
+                  <small>34 メンバー</small>
+                </div>
+              </div>
+              <div class="scp-row">
+                <svg class="cav" viewBox="0 0 40 40">
+                  <circle cx="20" cy="20" r="20" fill="#2c2844" />
+                  <path
+                    d="M20 6l4.5 9 9.5.8-7.2 6.4 2.2 9.3-9-5-9 5 2.2-9.3L6 15.8l9.5-.8z"
+                    fill="#8f8ad6"
+                    opacity="0.9"
+                  />
+                </svg>
+                <div class="sc-txt">
+                  <b>Night Ship</b>
+                  <small>12 メンバー</small>
+                </div>
+              </div>
+              <div class="scp-div"></div>
+              <div class="scp-act">
+                <span class="ic">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M21 21l-6-6m2-5a7 7 0 1 1-14 0 7 7 0 0 1 14 0z"
+                    />
+                  </svg>
+                </span>
+                コミュニティを探す
+              </div>
+              <div class="scp-act">
+                <span class="ic">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M12 4v16m8-8H4"
+                    />
+                  </svg>
+                </span>
+                コミュニティを作成
+              </div>
             </div>
           </div>
         </div>
-      </div>
-    </section>
+      </section>
 
-    <div class="hairline"></div>
+      <div class="hairline"></div>
 
-    <!-- Mobile -->
-    <section class="mobile-sec reveal">
-      <div class="wrap mobile-grid">
-        <div class="mobile-copy">
-          <h2>スマホでも、<br />自分の輪。</h2>
-          <p>
-            ホーム画面から開けば、タイムラインも、ストーリーも、DM
-            も使えます。あなたのサーバーが、そのままポケットの中に入ります。
+      <!-- Mobile -->
+      <section class="mobile-sec reveal">
+        <div class="wrap mobile-grid">
+          <div class="mobile-copy">
+            <h2>スマホでも、<br />自分の輪。</h2>
+            <p>
+              ホーム画面から開けば、タイムラインも、ストーリーも、DM
+              も使えます。あなたのサーバーが、そのままポケットの中に入ります。
+            </p>
+          </div>
+          <img
+            class="mobile-shot"
+            src="./assets/shots/yurucommu-mobile.webp"
+            width="780"
+            height="1688"
+            alt="yurucommu のスマホ画面。ダークなタイムラインと下部タブ（ホーム・検索・通知・メッセージ）。"
+            loading="lazy"
+            decoding="async"
+          />
+        </div>
+      </section>
+
+      <div class="hairline"></div>
+
+      <!-- Deploy Steps -->
+      <section class="deploy" id="start">
+        <div class="wrap">
+          <h2>まず、手元で試す。</h2>
+          <div class="step-row reveal">
+            <span class="step-n">01</span>
+            <b>準備</b>
+            <span>リポジトリを取得して、Bunで依存関係を入れます</span>
+          </div>
+          <div class="step-row reveal">
+            <span class="step-n">02</span>
+            <b>試す</b>
+            <span><code>bun run dev:mock</code>で画面と機能を確認します</span>
+          </div>
+          <div class="step-row reveal">
+            <span class="step-n">03</span>
+            <b>運用先を選ぶ</b>
+            <span>管理ホストか、Cloudflareでのセルフホストを選びます</span>
+          </div>
+          <p class="deploy-note">
+            管理ホストでは <code>deploy/takoform</code>、Cloudflareで
+            セルフホストする場合はルートの <code>main.tf</code> または
+            <code>wrangler.jsonc</code> を使います。詳しい手順は
+            <a href="/help/deployment.html">デプロイガイド</a>にあります。
           </p>
         </div>
-        <img
-          class="mobile-shot"
-          src="./assets/shots/yurucommu-mobile.webp"
-          width="780"
-          height="1688"
-          alt="yurucommu のスマホ画面。ダークなタイムラインと下部タブ（ホーム・検索・通知・メッセージ）。"
-          loading="lazy"
-          decoding="async"
-        />
-      </div>
-    </section>
+      </section>
 
-    <div class="hairline"></div>
+      <div class="hairline"></div>
 
-    <!-- Deploy Steps -->
-    <section class="deploy" id="start">
-      <div class="wrap">
-        <h2>まず、手元で試す。</h2>
-        <div class="step-row reveal">
-          <span class="step-n">01</span>
-          <b>準備</b>
-          <span>リポジトリを取得して、Bunで依存関係を入れます</span>
+      <!-- Federation Note -->
+      <section class="federation reveal">
+        <div class="wrap">
+          <p>
+            ActivityPubに対応する別のサーバーと、フォローや投稿を
+            やり取りできます。<br />小さな場所から、必要な相手へつながれます。
+          </p>
         </div>
-        <div class="step-row reveal">
-          <span class="step-n">02</span>
-          <b>試す</b>
-          <span><code>bun run dev:mock</code>で画面と機能を確認します</span>
+      </section>
+
+      <div class="hairline"></div>
+
+      <!-- CTA Close -->
+      <section class="cta">
+        <div class="wrap reveal">
+          <h2>自分の場所を、<br />自分の手で。</h2>
+          <div class="act">
+            <a
+              href="https://app.takosumi.com/install?git=https%3A%2F%2Fgithub.com%2Ftako0614%2Fyurucommu.git&ref=a17e4f883cb9ba79e6d0650b497d8d97453c698f&path=deploy%2Ftakoform"
+              class="arrow"
+              >Takosumi でインストール <span>→</span></a
+            >
+            <a href="/help/getting-started.html" class="link">ローカルで試す</a>
+            <a href="/help/deployment.html" class="link">運用方法を見る</a>
+            <a
+              href="https://github.com/tako0614/yurucommu"
+              class="link"
+              rel="noopener"
+              >GitHub</a
+            >
+          </div>
         </div>
-        <div class="step-row reveal">
-          <span class="step-n">03</span>
-          <b>運用先を選ぶ</b>
-          <span>管理ホストか、Cloudflareでのセルフホストを選びます</span>
-        </div>
-        <p class="deploy-note">
-          管理ホストでは <code>deploy/takoform</code>、Cloudflareで
-          セルフホストする場合はルートの <code>main.tf</code> または
-          <code>wrangler.jsonc</code> を使います。詳しい手順は
-          <a href="/help/deployment.html">デプロイガイド</a>にあります。
-        </p>
-      </div>
-    </section>
+      </section>
 
-    <div class="hairline"></div>
-
-    <!-- Federation Note -->
-    <section class="federation reveal">
-      <div class="wrap">
-        <p>
-          ActivityPubに対応する別のサーバーと、フォローや投稿を
-          やり取りできます。<br />小さな場所から、必要な相手へつながれます。
-        </p>
-      </div>
-    </section>
-
-    <div class="hairline"></div>
-
-    <!-- CTA Close -->
-    <section class="cta">
-      <div class="wrap reveal">
-        <h2>自分の場所を、<br />自分の手で。</h2>
-        <div class="act">
-          <a
-            href="https://app.takosumi.com/install?git=https%3A%2F%2Fgithub.com%2Ftako0614%2Fyurucommu.git&ref=a17e4f883cb9ba79e6d0650b497d8d97453c698f&path=deploy%2Ftakoform"
-            class="arrow"
-            >Takosumi でインストール <span>→</span></a
-          >
-          <a href="/help/getting-started.html" class="link">ローカルで試す</a>
-          <a href="/help/deployment.html" class="link">運用方法を見る</a>
-          <a
-            href="https://github.com/tako0614/yurucommu"
-            class="link"
-            rel="noopener"
-            >GitHub</a
-          >
-        </div>
-      </div>
-    </section>
-
-    <!-- Footer -->
-    <aside
-      aria-label="広告"
-      style="
-        box-sizing: border-box;
-        width: 100%;
-        max-width: 488px;
-        min-height: 196px;
-        margin: 0 auto;
-        padding: 24px;
-      "
-    >
-      <script
-        async
-        referrerpolicy="origin"
-        src="https://ar-cdn.net/widget/v1.js"
-        data-site-id="1555da9b-6228-45b7-b575-b3a836013dd0"
-        data-variant="card"
-      ></script>
-    </aside>
+      <!-- Footer -->
+      <aside
+        aria-label="広告"
+        style="
+          box-sizing: border-box;
+          width: 100%;
+          max-width: 488px;
+          min-height: 196px;
+          margin: 0 auto;
+          padding: 24px;
+        "
+      >
+        <script
+          async
+          referrerpolicy="origin"
+          src="https://ar-cdn.net/widget/v1.js"
+          data-site-id="1555da9b-6228-45b7-b575-b3a836013dd0"
+          data-variant="card"
+        ></script>
+      </aside>
+    </main>
 
     <footer>
       <div class="wrap foot">
