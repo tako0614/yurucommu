@@ -69,6 +69,7 @@ function pageMetadata(text, relPath, route) {
   const description = text.match(
     /<meta\b(?=[^>]*\bname=["']description["'])(?=[^>]*\bcontent=["']([^"']*)["'])[^>]*>/i,
   )?.[1];
+  const lang = text.match(/<html\b[^>]*\blang=["']([^"']+)["']/i)?.[1];
   if (title === undefined || description === undefined) {
     throw new Error(relPath + ": page metadata is required for head tokens");
   }
@@ -76,6 +77,7 @@ function pageMetadata(text, relPath, route) {
     pageTitle: escapeAttribute(title.trim()),
     pageDescription: escapeAttribute(description.trim()),
     pageUrl: escapeAttribute(SITE_ORIGIN + route),
+    ogLocale: lang === "en" ? "en_US" : "ja_JP",
   };
 }
 
@@ -110,13 +112,15 @@ async function render(relPath, partials) {
   if (
     text.includes("{{pageTitle}}") ||
     text.includes("{{pageDescription}}") ||
-    text.includes("{{pageUrl}}")
+    text.includes("{{pageUrl}}") ||
+    text.includes("{{ogLocale}}")
   ) {
     const metadata = pageMetadata(text, relPath, route);
     text = text
       .replaceAll("{{pageTitle}}", metadata.pageTitle)
       .replaceAll("{{pageDescription}}", metadata.pageDescription)
-      .replaceAll("{{pageUrl}}", metadata.pageUrl);
+      .replaceAll("{{pageUrl}}", metadata.pageUrl)
+      .replaceAll("{{ogLocale}}", metadata.ogLocale);
   }
 
   return format(text, { parser: "html" });
