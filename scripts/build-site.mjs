@@ -149,6 +149,33 @@ for (const [relPath, text] of rendered) {
   }
 }
 
+// Every generated route lands in sitemap.xml except 404, which must stay
+// crawl-invisible. The map is rebuilt with the pages so it cannot keep
+// advertising removed URLs.
+const sitemap =
+  '<?xml version="1.0" encoding="UTF-8"?>\n' +
+  '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' +
+  [...rendered.keys()]
+    .filter((relPath) => relPath !== "404.html")
+    .sort()
+    .map(
+      (relPath) =>
+        "  <url><loc>" + SITE_ORIGIN + routeOf(relPath) + "</loc></url>\n",
+    )
+    .join("") +
+  "</urlset>\n";
+const sitemapPath = join(OUT, "sitemap.xml");
+if (checkMode) {
+  if (
+    !existsSync(sitemapPath) ||
+    readFileSync(sitemapPath, "utf8") !== sitemap
+  ) {
+    failures.push("site/sitemap.xml is stale - run bun scripts/build-site.mjs");
+  }
+} else {
+  writeFileSync(sitemapPath, sitemap);
+}
+
 // A served page with no source is either an asset (img/) or a leftover.
 if (checkMode) {
   for (const file of walk(OUT)) {
