@@ -123,6 +123,21 @@
         border-radius: 4px;
       }
 
+      .skip {
+        position: absolute;
+        left: -9999px;
+        top: 0;
+        z-index: 1000;
+        padding: 0.5rem 0.9rem;
+        background: var(--accent);
+        color: #fff;
+        text-decoration: none;
+        border-radius: 0 0 8px 0;
+      }
+      .skip:focus {
+        left: 0;
+      }
+
       .wrap {
         width: 100%;
         max-width: var(--w);
@@ -894,6 +909,7 @@
   </head>
   <body>
     <!-- Nav -->
+    <a class="skip" href="#main">Skip to content</a>
     <nav class="nav" id="nav">
       <div class="nav-in">
         <a href="/" class="brand">yurucommu</a>
@@ -909,7 +925,7 @@
     </nav>
 
     <!-- Hero -->
-    <main>
+    <main id="main">
     <header class="hero">
       <div class="wrap">
         <span class="mono hero-label">Self-hosted ActivityPub SNS</span>

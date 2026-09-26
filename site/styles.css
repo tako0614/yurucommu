@@ -533,3 +533,18 @@ a {
     font-size: 1.85rem;
   }
 }
+
+.skip {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 1000;
+  padding: 0.5rem 0.9rem;
+  background: var(--accent);
+  color: #fff;
+  text-decoration: none;
+  border-radius: 0 0 8px 0;
+}
+.skip:focus {
+  left: 0;
+}
