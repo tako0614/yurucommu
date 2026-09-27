@@ -21,9 +21,8 @@
         try {
           var lang = localStorage.getItem("language");
           if (lang !== "ja" && lang !== "en") {
-            lang = (navigator.language || "").split("-")[0] === "ja"
-              ? "ja"
-              : "en";
+            lang =
+              (navigator.language || "").split("-")[0] === "ja" ? "ja" : "en";
           }
           document.documentElement.lang = lang;
         } catch {
