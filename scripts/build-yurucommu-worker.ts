@@ -15,6 +15,14 @@ const tempEntryFile = new URL(
   import.meta.url,
 );
 const outputFile = new URL("../dist/yurucommu-worker.js", import.meta.url);
+const dispatcherCandidateEntryFile = new URL(
+  "../actor-candidate/yurucommu-call-dispatcher.ts",
+  import.meta.url,
+);
+const dispatcherCandidateOutputFile = new URL(
+  "../dist/yurucommu-call-dispatcher.js",
+  import.meta.url,
+);
 
 export type WorkerEntryProfile = "default" | "actor-candidate";
 
@@ -69,6 +77,16 @@ function bytesToBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
+export function shouldEmbedClientAsset(relativePath: string): boolean {
+  return (
+    relativePath !== "yurucommu-worker.js" &&
+    relativePath !== "yurucommu-entry.generated.ts" &&
+    // A previous explicit D-candidate build may share dist/ with client assets.
+    // It must never be served as a public static asset by the normal Worker.
+    relativePath !== "yurucommu-call-dispatcher.js"
+  );
+}
+
 async function collectAssets(
   dir: URL,
   assets: Record<string, StaticAsset>,
@@ -89,11 +107,7 @@ async function collectAssets(
       );
       continue;
     }
-    if (
-      !entry.isFile() ||
-      relativePath === "yurucommu-worker.js" ||
-      relativePath === "yurucommu-entry.generated.ts"
-    ) {
+    if (!entry.isFile() || !shouldEmbedClientAsset(relativePath)) {
       continue;
     }
     const bytes = await readFile(url);
@@ -127,7 +141,7 @@ export function createEntrySource(
       : "";
   const actorExports =
     profile === "actor-candidate"
-      ? `\n// Explicit unpublished Actor candidate profile. This does not generate the\n// private dispatcher Worker D: createCallDispatcherForCalls needs Core's\n// Drizzle Database, while the Actor host contract supplies edge.sql. Product\n// D binding/service composition remains unresolved. CallSignalingActor refuses\n// to start until its private CALL_DISPATCHER service is configured.\nexport {\n  CallSignalingActor,\n  RealtimeStreamActor,\n} from "@takosjp/yurucommu-core/server";\n`
+      ? `\n// Explicit unpublished Actor candidate profile. A separate source-only\n// dispatcher bundle can be built from this product's actor-candidate entry.\n// No Actor namespace, private service, APP_URL, or Host installation is\n// configured here. CallSignalingActor refuses to start until its private\n// CALL_DISPATCHER service is configured.\nexport {\n  CallSignalingActor,\n  RealtimeStreamActor,\n} from "@takosjp/yurucommu-core/server";\n`
       : "";
   return `import {
   createYurucommuBackendApp,
@@ -354,12 +368,37 @@ export async function main(): Promise<void> {
       conditions: ["workerd", "worker", "browser"],
       external: ["cloudflare:*", "node:*"],
     });
+    if (profile === "actor-candidate") {
+      await buildCallDispatcherCandidate();
+    }
   } finally {
     stop();
     await rm(tempEntryFile).catch(() => undefined);
   }
 }
 
+/** Bundles only the private D source candidate; never mutates Host topology. */
+export async function buildCallDispatcherCandidate(): Promise<void> {
+  await build({
+    entryPoints: [dispatcherCandidateEntryFile.pathname],
+    outfile: dispatcherCandidateOutputFile.pathname,
+    bundle: true,
+    format: "esm",
+    platform: "browser",
+    target: "es2022",
+    conditions: ["workerd", "worker", "browser"],
+    external: ["cloudflare:*", "node:*"],
+  });
+}
+
 if (import.meta.main) {
-  await main();
+  try {
+    if (process.argv.includes("--dispatcher-candidate-only")) {
+      await buildCallDispatcherCandidate();
+    } else {
+      await main();
+    }
+  } finally {
+    stop();
+  }
 }

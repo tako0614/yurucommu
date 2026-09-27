@@ -4,7 +4,7 @@
  * It does not change the default product Worker or install topology.
  */
 import {
-  createCallDispatcherForCalls,
+  createCallDispatcherForCallsByInvocation,
   createEdgeSqlDatabase,
   isEdgeSqlBinding,
   resolveRuntimeLane,
@@ -63,36 +63,35 @@ function requireBindings(
   return value as PrivateCallDispatcherBindings;
 }
 
-export function createPrivateCallDispatcherService(
-  rawBindings: Readonly<Record<string, unknown>>,
-) {
-  const bindings = requireBindings(rawBindings);
-  const dispatcher = createCallDispatcherForCalls({
-    db: createEdgeSqlDatabase(bindings.DB),
-    env: bindings as EnvVars,
-    actorFor: (localActorApId) =>
-      bindings.CALL_SIGNALING.get(
-        bindings.CALL_SIGNALING.idFromName(localActorApId),
-      ),
-  });
+export function createPrivateCallDispatcherService() {
+  const dispatcher = createCallDispatcherForCallsByInvocation();
   return {
-    fetch(request: Request, context: WorkerContext): Promise<Response> {
+    fetch(
+      request: Request,
+      rawBindings: Readonly<Record<string, unknown>>,
+      context: WorkerContext,
+    ): Promise<Response> {
       // Actor admission is the only caller. Core's synchronous /_send path is
       // deliberately not an additional service ingress on this Worker.
       if (new URL(request.url).pathname !== "/_dispatch") {
         return Promise.resolve(new Response("not found", { status: 404 }));
       }
-      return dispatcher.fetch(request, context);
+      const bindings = requireBindings(rawBindings);
+      return dispatcher.fetch(request, context, {
+        db: createEdgeSqlDatabase(bindings.DB),
+        env: bindings as EnvVars,
+        actorFor: (localActorApId) =>
+          bindings.CALL_SIGNALING.get(
+            bindings.CALL_SIGNALING.idFromName(localActorApId),
+          ),
+      });
     },
   };
 }
 
-// A single dispatcher per Worker isolate keeps Core's job/byte admission
-// shared across requests while waitUntil producers are running. Reject an env
-// replacement instead of silently constructing an independent second limit.
-let activeBindings: Readonly<Record<string, unknown>> | undefined;
-let activeService:
-  ReturnType<typeof createPrivateCallDispatcherService> | undefined;
+// One dispatcher admission budget per Worker isolate, but each accepted job
+// captures only its own invocation's SQL and Actor binding handles.
+const service = createPrivateCallDispatcherService();
 
 export default {
   fetch(
@@ -100,15 +99,6 @@ export default {
     env: Readonly<Record<string, unknown>>,
     context: WorkerContext,
   ): Promise<Response> {
-    if (activeBindings && activeBindings !== env) {
-      throw new Error(
-        "call dispatcher bindings changed within one Worker isolate",
-      );
-    }
-    if (!activeService) {
-      activeService = createPrivateCallDispatcherService(env);
-      activeBindings = env;
-    }
-    return activeService.fetch(request, context);
+    return service.fetch(request, env, context);
   },
 };

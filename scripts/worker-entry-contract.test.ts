@@ -47,16 +47,10 @@ describe("generated worker entry", () => {
     expect(candidateSource).toContain(
       '  CallSignalingActor,\n  RealtimeStreamActor,\n} from "@takosjp/yurucommu-core/server";',
     );
-    expect(candidateSource).toContain("does not generate the");
-    expect(candidateSource).toContain(
-      "private CALL_DISPATCHER service is configured",
-    );
-    expect(candidateSource).toContain(
-      "createCallDispatcherForCalls needs Core's",
-    );
-    expect(candidateSource).toContain(
-      "D binding/service composition remains unresolved",
-    );
+    expect(candidateSource).toContain("separate source-only");
+    expect(candidateSource).toContain("CALL_DISPATCHER service is configured");
+    expect(candidateSource).not.toContain("needs Core's");
+    expect(candidateSource).not.toContain("Drizzle Database");
     expect(candidateSource).not.toContain("createCallDispatcherForCalls({");
   });
 

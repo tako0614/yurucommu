@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import dispatcherEntry, {
   createPrivateCallDispatcherService,
 } from "./yurucommu-call-dispatcher.ts";
+import { createEntrySource } from "../scripts/build-yurucommu-worker.ts";
 
 const actor = "https://local.example/ap/users/alice";
 const effectId = "00000000-0000-4000-8000-000000000001";
@@ -65,22 +66,21 @@ function request(path: string, body: unknown) {
 
 test("private candidate requires the declared portable SQL, origin, and Actor binding", () => {
   const { env } = bindings();
-  expect(() => createPrivateCallDispatcherService(env)).not.toThrow();
+  const service = createPrivateCallDispatcherService();
+  const call = (input: Readonly<Record<string, unknown>>) =>
+    service.fetch(request("/_dispatch", {}), input, context());
+  expect(() => call(env)).not.toThrow();
   expect(() =>
-    createPrivateCallDispatcherService({
+    call({
       ...env,
       YURUCOMMU_RUNTIME_LANE: "cloudflare",
     }),
   ).toThrow();
-  expect(() => createPrivateCallDispatcherService({ ...env, DB: {} })).toThrow(
-    "edge.sql DB binding",
+  expect(() => call({ ...env, DB: {} })).toThrow("edge.sql DB binding");
+  expect(() => call({ ...env, APP_URL: "" })).toThrow("APP_URL");
+  expect(() => call({ ...env, CALL_SIGNALING: {} })).toThrow(
+    "CALL_SIGNALING Actor binding",
   );
-  expect(() =>
-    createPrivateCallDispatcherService({ ...env, APP_URL: "" }),
-  ).toThrow("APP_URL");
-  expect(() =>
-    createPrivateCallDispatcherService({ ...env, CALL_SIGNALING: {} }),
-  ).toThrow("CALL_SIGNALING Actor binding");
 });
 
 test("private entry forwards only Actor admission and maps callback by local AP ID", async () => {
@@ -127,14 +127,32 @@ test("private entry forwards only Actor admission and maps callback by local AP 
   const callbackBody = await callbacks[0]!.text();
   expect(callbackBody).toContain('"outcome":"failed"');
   expect(callbackBody).not.toContain("SECRET-SDP");
+
+  // A fresh env object must not open an independent admission budget or be
+  // rejected merely because its object identity changed between invocations.
+  const freshEnv = { ...env };
+  const second = await dispatcherEntry.fetch(
+    request("/_dispatch", {
+      ...job,
+      effect: {
+        ...job.effect,
+        effectId: "00000000-0000-4000-8000-000000000003",
+      },
+    }),
+    freshEnv,
+    ctx,
+  );
+  expect(second.status).toBe(202);
+  await Promise.all(ctx.tasks);
+  expect(actorNames).toEqual([actor, actor]);
 });
 
 test("candidate does not create a public dispatcher route or alter the default entry", async () => {
-  const [moduleSource, entrySource] = await Promise.all([
-    readFile(new URL("../deploy/takoform/main.tf", import.meta.url), "utf8"),
-    readFile(new URL("./build-yurucommu-worker.ts", import.meta.url), "utf8"),
-  ]);
+  const moduleSource = await readFile(
+    new URL("../deploy/takoform/main.tf", import.meta.url),
+    "utf8",
+  );
   expect(moduleSource).not.toContain("CALL_DISPATCHER");
   expect(moduleSource).not.toContain("call-dispatcher");
-  expect(entrySource).not.toContain("yurucommu-call-dispatcher.ts");
+  expect(createEntrySource({})).not.toContain("yurucommu-call-dispatcher.ts");
 });
