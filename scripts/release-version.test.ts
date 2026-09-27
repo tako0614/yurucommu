@@ -586,10 +586,14 @@ describe("release surface status", () => {
       "release:site:plan",
       "deploy:cloudflare",
       "db:migrate:cloudflare",
-      "takosumi:release",
     ]) {
       expect(packageJson.scripts[script]).toBeUndefined();
     }
+    // InstallConfig lifecycle hook: the Takosumi capsule runner invokes this
+    // script inside the installed app (e.g. --destroy on uninstall).
+    expect(packageJson.scripts["takosumi:release"]).toBe(
+      "bun scripts/takosumi-release.ts",
+    );
     expect(packageJson.scripts.deploy).toBe("bun scripts/deploy.mjs");
     expect(packageJson.scripts.test).toContain(
       "scripts/release-worker-smoke.test.ts",
