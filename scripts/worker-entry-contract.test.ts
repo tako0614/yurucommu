@@ -9,7 +9,10 @@ import {
   wrapRuntimeMessageBatch,
 } from "@takosjp/yurucommu-core/server";
 
-import { createEntrySource } from "./build-yurucommu-worker.ts";
+import {
+  createEntrySource,
+  resolveWorkerEntryProfile,
+} from "./build-yurucommu-worker.ts";
 
 const entrySource = createEntrySource({});
 
@@ -28,6 +31,46 @@ const takoformModuleSource = await readFile(
 );
 
 describe("generated worker entry", () => {
+  test("keeps the default entry on the published non-Actor contract", () => {
+    expect(entrySource).toContain('from "@takosjp/yurucommu-core/server";');
+    expect(entrySource).not.toContain("RealtimeStreamActor");
+    expect(entrySource).not.toContain("CallSignalingActor");
+    expect(entrySource).not.toContain('Pick<Env, "REALTIME_STREAM"');
+  });
+
+  test("Actor exports and namespace bindings require the explicit candidate profile", () => {
+    const candidateSource = createEntrySource({}, "actor-candidate");
+
+    expect(candidateSource).toContain(
+      'Pick<Env, "REALTIME_STREAM" | "CALL_SIGNALING">',
+    );
+    expect(candidateSource).toContain(
+      '  CallSignalingActor,\n  RealtimeStreamActor,\n} from "@takosjp/yurucommu-core/server";',
+    );
+    expect(candidateSource).toContain("does not generate the");
+    expect(candidateSource).toContain(
+      "private CALL_DISPATCHER service is configured",
+    );
+    expect(candidateSource).toContain(
+      "createCallDispatcherForCalls needs Core's",
+    );
+    expect(candidateSource).toContain(
+      "D binding/service composition remains unresolved",
+    );
+    expect(candidateSource).not.toContain("createCallDispatcherForCalls({");
+  });
+
+  test("accepts only known worker entry profile selections", () => {
+    expect(resolveWorkerEntryProfile(undefined)).toBe("default");
+    expect(resolveWorkerEntryProfile("default")).toBe("default");
+    expect(resolveWorkerEntryProfile("actor-candidate")).toBe(
+      "actor-candidate",
+    );
+    expect(() => resolveWorkerEntryProfile("actor" as never)).toThrow(
+      "Unsupported YURUCOMM_WORKER_ENTRY_PROFILE: actor",
+    );
+  });
+
   // The cron trigger fires whatever the deployed module exports. This entry
   // builds its own default object rather than re-exporting the core one, so a
   // missing scheduled() here means the retention sweep never runs anywhere.

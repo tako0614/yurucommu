@@ -16,6 +16,18 @@ const tempEntryFile = new URL(
 );
 const outputFile = new URL("../dist/yurucommu-worker.js", import.meta.url);
 
+export type WorkerEntryProfile = "default" | "actor-candidate";
+
+export function resolveWorkerEntryProfile(
+  value = process.env.YURUCOMM_WORKER_ENTRY_PROFILE,
+): WorkerEntryProfile {
+  if (value === undefined || value === "default") return "default";
+  if (value === "actor-candidate") return value;
+  throw new Error(
+    `Unsupported YURUCOMM_WORKER_ENTRY_PROFILE: ${value}. Expected default or actor-candidate.`,
+  );
+}
+
 // Wire identity is never spelled out here. It is baked into the deployed
 // Worker, so a literal in this file is the one copy nobody can compare against
 // the clients that read it. See src/product-identity.ts.
@@ -105,7 +117,18 @@ async function run(command: string[]): Promise<void> {
   }
 }
 
-export function createEntrySource(assets: Record<string, StaticAsset>): string {
+export function createEntrySource(
+  assets: Record<string, StaticAsset>,
+  profile: WorkerEntryProfile = "default",
+): string {
+  const actorBindingTypes =
+    profile === "actor-candidate"
+      ? ' & Pick<Env, "REALTIME_STREAM" | "CALL_SIGNALING">'
+      : "";
+  const actorExports =
+    profile === "actor-candidate"
+      ? `\n// Explicit unpublished Actor candidate profile. This does not generate the\n// private dispatcher Worker D: createCallDispatcherForCalls needs Core's\n// Drizzle Database, while the Actor host contract supplies edge.sql. Product\n// D binding/service composition remains unresolved. CallSignalingActor refuses\n// to start until its private CALL_DISPATCHER service is configured.\nexport {\n  CallSignalingActor,\n  RealtimeStreamActor,\n} from "@takosjp/yurucommu-core/server";\n`
+      : "";
   return `import {
   createYurucommuBackendApp,
   handleYurucommuQueueBatch,
@@ -135,7 +158,7 @@ import type {
 } from "@cloudflare/workers-types";
 
 type RuntimeEnv = YurucommuRuntimeEnv;
-type WorkerBindings = YurucommuWorkerBindings;
+type WorkerBindings = YurucommuWorkerBindings${actorBindingTypes};
 type DeliveryMessage = DeliveryQueueMessageV1 | DeliveryDlqMessageV1;
 // Whichever shape the lane's host hands the queue handler: Cloudflare's
 // MessageBatch (ack/ackAll) or the edge.queue facade batch (acknowledgeAll).
@@ -311,14 +334,15 @@ export default {
     await runRetention(runtimeEnv);
   },
 };
-`;
+${actorExports}`;
 }
 
 export async function main(): Promise<void> {
+  const profile = resolveWorkerEntryProfile();
   await run(["bun", "run", "build:client"]);
   const assets: Record<string, StaticAsset> = {};
   await collectAssets(distDir, assets);
-  await writeFile(tempEntryFile, createEntrySource(assets));
+  await writeFile(tempEntryFile, createEntrySource(assets, profile));
   try {
     await build({
       entryPoints: [tempEntryFile.pathname],
