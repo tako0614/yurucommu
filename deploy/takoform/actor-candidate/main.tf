@@ -20,24 +20,94 @@ variable "project_name" {
   }
 }
 
+# RTC stays opt-in. These values are non-secret configuration only; TURN and
+# SFU credentials are requested by name through required_sensitive_vars below.
+variable "rtc_ice_servers" {
+  description = "Optional JSON ICE server array; do not put credentials in this value."
+  type        = string
+  default     = null
+}
+
+variable "rtc_turn_uris" {
+  description = "Optional comma-separated TURN/TURNS URIs. Selecting TURN requests its secret separately."
+  type        = string
+  default     = null
+}
+
+variable "rtc_turn_ttl" {
+  description = "Optional TURN ephemeral credential lifetime in seconds."
+  type        = string
+  default     = null
+}
+
+variable "rtc_sfu_adapter" {
+  description = "Optional SFU adapter selector; unset or p2p keeps group calls on the default P2P path."
+  type        = string
+  default     = null
+}
+
+variable "rtc_sfu_url" {
+  description = "Optional WHIP/WHEP SFU endpoint."
+  type        = string
+  default     = null
+}
+
+variable "rtc_sfu_app_id" {
+  description = "Optional SFU application identifier, reserved for adapters that consume it."
+  type        = string
+  default     = null
+}
+
 locals {
-  prefix                 = var.project_name
-  product_worker_name    = local.prefix
-  dispatcher_worker_name = "${local.prefix}-call-dispatcher"
-  product_bundle_path    = "${path.module}/.generated/yurucommu-worker.js"
-  dispatcher_bundle_path = "${path.module}/.generated/yurucommu-call-dispatcher.js"
-  migration_root         = "${path.module}/../migrations/sql"
-  migration_files        = fileset(local.migration_root, "*.sql")
-  delivery_queue_name    = "${local.prefix}-delivery"
-  delivery_dlq_name      = "${local.prefix}-delivery-dlq"
+  prefix                     = var.project_name
+  product_worker_name        = local.prefix
+  dispatcher_worker_name     = "${local.prefix}-call-dispatcher"
+  product_bundle_path        = "${path.module}/.generated/yurucommu-worker.js"
+  dispatcher_bundle_path     = "${path.module}/.generated/yurucommu-call-dispatcher.js"
+  migration_root             = "${path.module}/../migrations/sql"
+  migration_files            = fileset(local.migration_root, "*.sql")
+  delivery_queue_name        = "${local.prefix}-delivery"
+  delivery_dlq_name          = "${local.prefix}-delivery-dlq"
+  rtc_ice_servers_configured = var.rtc_ice_servers == null ? false : trimspace(var.rtc_ice_servers) != ""
+  rtc_turn_uris_configured   = var.rtc_turn_uris == null ? false : trimspace(var.rtc_turn_uris) != ""
+  rtc_turn_ttl_configured    = var.rtc_turn_ttl == null ? false : trimspace(var.rtc_turn_ttl) != ""
+  rtc_sfu_adapter_configured = var.rtc_sfu_adapter == null ? false : trimspace(var.rtc_sfu_adapter) != ""
+  rtc_sfu_url_configured     = var.rtc_sfu_url == null ? false : trimspace(var.rtc_sfu_url) != ""
+  rtc_sfu_app_id_configured  = var.rtc_sfu_app_id == null ? false : trimspace(var.rtc_sfu_app_id) != ""
+  rtc_sfu_selected = local.rtc_sfu_adapter_configured ? (
+    lower(trimspace(var.rtc_sfu_adapter)) != "p2p" && local.rtc_sfu_url_configured
+  ) : false
   product_plain_values = {
     YURUCOMMU_RUNTIME_LANE = "portable"
     DELIVERY_QUEUE_NAME    = local.delivery_queue_name
     DELIVERY_DLQ_NAME      = local.delivery_dlq_name
   }
-  dispatcher_plain_values = {
+  dispatcher_plain_values = merge({
     YURUCOMMU_RUNTIME_LANE = "portable"
-  }
+    },
+    local.rtc_ice_servers_configured ? {
+      YURUCOMMU_RTC_ICE_SERVERS = var.rtc_ice_servers
+    } : {},
+    local.rtc_turn_uris_configured ? {
+      YURUCOMMU_RTC_TURN_URIS = var.rtc_turn_uris
+    } : {},
+    local.rtc_turn_ttl_configured ? {
+      YURUCOMMU_RTC_TURN_TTL = var.rtc_turn_ttl
+    } : {},
+    local.rtc_sfu_adapter_configured ? {
+      YURUCOMMU_RTC_SFU_ADAPTER = var.rtc_sfu_adapter
+    } : {},
+    local.rtc_sfu_url_configured ? {
+      YURUCOMMU_RTC_SFU_URL = var.rtc_sfu_url
+    } : {},
+    local.rtc_sfu_app_id_configured ? {
+      YURUCOMMU_RTC_SFU_APP_ID = var.rtc_sfu_app_id
+  } : {})
+  dispatcher_sensitive_names = concat(
+    local.rtc_turn_uris_configured ? ["YURUCOMMU_RTC_TURN_SECRET"] : [],
+    local.rtc_sfu_selected ? ["YURUCOMMU_RTC_SFU_TOKEN"] : [],
+    local.rtc_sfu_selected && local.rtc_sfu_app_id_configured ? ["YURUCOMMU_RTC_SFU_APP_SECRET"] : [],
+  )
 }
 
 # C: the public product Worker. Its Actor classes are served by the active C
@@ -129,11 +199,12 @@ resource "takoform_worker_bundle" "dispatcher" {
 }
 
 resource "takoform_worker_version" "dispatcher" {
-  revision_owner = takoform_module_worker.dispatcher.name
-  worker         = takoform_module_worker.dispatcher.name
-  bundle         = takoform_worker_bundle.dispatcher.name
-  handlers       = ["fetch"]
-  vars_json      = jsonencode(local.dispatcher_plain_values)
+  revision_owner          = takoform_module_worker.dispatcher.name
+  worker                  = takoform_module_worker.dispatcher.name
+  bundle                  = takoform_worker_bundle.dispatcher.name
+  handlers                = ["fetch"]
+  vars_json               = jsonencode(local.dispatcher_plain_values)
+  required_sensitive_vars = local.dispatcher_sensitive_names
 
   sqlite_bindings = [
     {

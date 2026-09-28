@@ -186,3 +186,62 @@ test("private dispatcher shares the product database used by Core RTC", async ()
   expect(outputs).not.toContain("dispatcher_database");
   expect(outputs).not.toContain("dispatcher_migration_");
 });
+
+test("optional RTC configuration is projected only to the private dispatcher", async () => {
+  const source = await readFile(candidateMain, "utf8");
+  const dispatcherVersion = source
+    .split('resource "takoform_worker_version" "dispatcher"')[1]
+    ?.split('resource "takoform_worker_deployment" "dispatcher"')[0];
+  const productVersion = source
+    .split('resource "takoform_worker_version" "product"')[1]
+    ?.split('resource "takoform_worker_deployment" "product"')[0];
+  expect(dispatcherVersion).toBeDefined();
+  expect(productVersion).toBeDefined();
+
+  for (const name of [
+    "YURUCOMMU_RTC_ICE_SERVERS",
+    "YURUCOMMU_RTC_TURN_URIS",
+    "YURUCOMMU_RTC_TURN_TTL",
+    "YURUCOMMU_RTC_SFU_ADAPTER",
+    "YURUCOMMU_RTC_SFU_URL",
+    "YURUCOMMU_RTC_SFU_APP_ID",
+  ]) {
+    const variableName = `rtc_${name
+      .slice("YURUCOMMU_RTC_".length)
+      .toLowerCase()}`;
+    expect(source).toContain(`variable "${variableName}"`);
+    expect(source).toContain(`variable "${variableName}" {`);
+    expect(source).toMatch(
+      new RegExp(
+        `variable "${variableName}" \\{[\\s\\S]*?default\\s+=\\s+null`,
+        "u",
+      ),
+    );
+    expect(source).toContain(`${name} = var.rtc_`);
+  }
+
+  expect(dispatcherVersion).toMatch(
+    /vars_json\s+=\s+jsonencode\(local\.dispatcher_plain_values\)/u,
+  );
+  expect(source).toContain('"YURUCOMMU_RTC_TURN_SECRET"');
+  expect(source).toContain('"YURUCOMMU_RTC_SFU_TOKEN"');
+  expect(source).toContain('"YURUCOMMU_RTC_SFU_APP_SECRET"');
+  expect(source).toContain("local.dispatcher_sensitive_names");
+  expect(dispatcherVersion).toMatch(
+    /required_sensitive_vars\s+=\s+local\.dispatcher_sensitive_names/u,
+  );
+  expect(source).toMatch(
+    /local\.rtc_turn_uris_configured\s+\?\s+\["YURUCOMMU_RTC_TURN_SECRET"\]\s+:\s+\[\]/u,
+  );
+  expect(source).toMatch(
+    /local\.rtc_sfu_selected\s+\?\s+\["YURUCOMMU_RTC_SFU_TOKEN"\]\s+:\s+\[\]/u,
+  );
+  expect(source).toMatch(
+    /local\.rtc_sfu_selected\s+&&\s+local\.rtc_sfu_app_id_configured\s+\?\s+\["YURUCOMMU_RTC_SFU_APP_SECRET"\]\s+:\s+\[\]/u,
+  );
+  expect(dispatcherVersion).not.toContain("YURUCOMMU_RTC_ICE_SERVERS");
+  expect(productVersion).not.toContain("YURUCOMMU_RTC_");
+  expect(source).not.toContain("rtc_turn_secret = var.");
+  expect(source).not.toContain("rtc_sfu_token = var.");
+  expect(source).not.toContain("rtc_sfu_app_secret = var.");
+});

@@ -18,6 +18,9 @@ The candidate composes:
   with no endpoint. Core's call-signaling Actor reads local signing keys and
   peer records and persists call sessions through that database, so a separate
   empty dispatcher database would make RTC signaling fail;
+- optional RTC configuration projected only to D. All public settings default
+  to unset, so TURN and SFU remain optional and add no RTC-specific required
+  inputs to the default candidate;
 - C's private `CALL_DISPATCHER` service binding to D, plus C's bindings to N1
   and N2. D has no service binding back to C.
 
@@ -78,3 +81,21 @@ default module, source options, catalog, or release manifest without those
 separate owner decisions and evidence. No `APP_URL` or guessed endpoint is
 declared; only the product Worker receives the ordinary Host-allocated
 endpoint.
+
+## Optional RTC configuration
+
+The candidate's `rtc_ice_servers`, `rtc_turn_uris`, `rtc_turn_ttl`,
+`rtc_sfu_adapter`, `rtc_sfu_url`, and `rtc_sfu_app_id` variables are optional
+non-secret settings for the private dispatcher. Unset values are omitted from
+its `vars_json`; they do not alter the public product Worker or Host/Form
+schemas. The default remains Core's STUN-only / P2P behavior.
+
+Never put TURN credentials in `rtc_ice_servers` or any ordinary Terraform
+variable. When `rtc_turn_uris` selects TURN, the WorkerVersion declares only
+the name `YURUCOMMU_RTC_TURN_SECRET` as a required sensitive input. Selecting
+an SFU adapter and URL conditionally declares `YURUCOMMU_RTC_SFU_TOKEN`; adding
+`rtc_sfu_app_id` to that selected SFU configuration conditionally declares
+`YURUCOMMU_RTC_SFU_APP_SECRET` for a future adapter that uses it. The candidate stores no secret literal in HCL,
+Terraform variables, or `vars_json`; supply those values through Takoform's
+separate sensitive-input path. The SFU app ID/secret pair is currently only
+passed through for adapter compatibility and Core 4.1.9 does not consume it.
