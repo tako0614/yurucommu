@@ -12,7 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { basename, isAbsolute, join, posix, resolve } from "node:path";
 
-export const ACTOR_CANDIDATE_CORE_VERSION = "4.1.9";
+export const ACTOR_CANDIDATE_CORE_VERSION = "4.1.11";
 export const ACTOR_CANDIDATE_CORE_TARBALL_ENV =
   "YURUCOMMU_CORE_CANDIDATE_TARBALL";
 export const ACTOR_CANDIDATE_CORE_SHA256_ENV =

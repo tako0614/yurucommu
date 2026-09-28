@@ -41,14 +41,16 @@ paths/types before extraction, then bundles both C and D against only that
 staged package:
 
 ```bash
-YURUCOMMU_CORE_CANDIDATE_TARBALL=/absolute/path/to/takosjp-yurucommu-core-4.1.9.tgz \
-YURUCOMMU_CORE_CANDIDATE_SHA256=sha256:<64-lowercase-hex-digest> \
+YURUCOMMU_CORE_CANDIDATE_TARBALL=/absolute/path/to/takosjp-yurucommu-core-4.1.11.tgz \
+YURUCOMMU_CORE_CANDIDATE_SHA256=sha256:52a0bad44879a7a376379fd289ebe79697bf13c823962dfb4b302a867f568a56 \
 bun run build:actor-opentofu-candidate
 ```
 
-The expected packed Core version is 4.1.9. The package tarball SHA and the two
-generated bundle SHAs are printed after a successful build. No ambient source
-checkout or default 4.1.8 dependency can silently replace this input.
+The expected packed Core version is 4.1.11. Its npm SHA-512 integrity is
+`sha512-s6lwT7LC8MeMwAbMR3p5tKai13oI1IVgWgWS+2CjcJbINLIu4PXcRMTxT563I5IYqXGx1cUcF307PNeEVUOfEQ==`, and the SHA-256 above was computed from that exact published
+tarball. The package tarball SHA and the two generated bundle SHAs are printed
+after a successful build. No ambient source checkout or lockfile-installed
+dependency can silently replace this input.
 
 The candidate module uses `${path.module}/.generated` for both bundles and
 `${path.module}/../migrations/sql` for the checked-in migration set. C owns the
@@ -103,4 +105,4 @@ that selected SFU configuration conditionally declares
 stores no secret literal in HCL, Terraform variables, or `vars_json`; supply
 those values through Takoform's separate sensitive-input path. The SFU app
 ID/secret pair is currently passed through only for adapter compatibility and
-Core 4.1.9 does not consume it.
+Core 4.1.11 does not consume it.

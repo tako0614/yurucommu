@@ -39,13 +39,13 @@ async function createCoreArchive(
     join(packageRoot, "package.json"),
     JSON.stringify({
       name: "@takosjp/yurucommu-core",
-      version: options.version ?? "4.1.9",
+      version: options.version ?? "4.1.11",
       exports: { "./server": "./src/backend/public.ts" },
     }),
   );
   await writeFile(
     join(packageRoot, "src/backend/public.ts"),
-    'export const bundledCore = "packed-core-4.1.9";\n',
+    'export const bundledCore = "packed-core-4.1.11";\n',
   );
   if (options.symlink) {
     await Bun.spawnSync([
@@ -106,7 +106,7 @@ test("rejects a wrong archive digest and package version", async () => {
       tarballPath: wrongVersionArchive,
       sha256: wrongVersionDigest,
     }),
-  ).rejects.toThrow("must be @takosjp/yurucommu-core 4.1.9");
+  ).rejects.toThrow("must be @takosjp/yurucommu-core 4.1.11");
   expect(digest).toMatch(/^[a-f0-9]{64}$/u);
 });
 
@@ -129,7 +129,7 @@ test("rejects traversal paths before extraction", async () => {
     join(packageRoot, "package.json"),
     JSON.stringify({
       name: "@takosjp/yurucommu-core",
-      version: "4.1.9",
+      version: "4.1.11",
     }),
   );
   const archive = join(root, "traversal.tgz");
