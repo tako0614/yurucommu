@@ -221,7 +221,6 @@ resource "takoform_worker_version" "product" {
     "TAKOSUMI_ACCOUNTS_ISSUER_URL",
     "TAKOSUMI_ACCOUNTS_CLIENT_ID",
     "TAKOSUMI_ACCOUNTS_OWNER_SUB",
-    "TAKOSUMI_ACCOUNTS_REDIRECT_URI",
   ]
 
   kv_bindings = [
