@@ -11,3 +11,4 @@ dist/
 .wrangler/
 .terraform/
 deploy/takoform/.generated/
+deploy/takoform/actor-candidate/.generated/

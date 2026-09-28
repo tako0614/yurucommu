@@ -1,6 +1,12 @@
 import { build, stop } from "esbuild";
-import { readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 
+import {
+  actorCandidateCorePlugin,
+  readActorCandidateCoreInput,
+  stageActorCandidateCore,
+} from "./actor-candidate-core.ts";
 import { PRODUCT_WIRE_IDENTITY } from "../src/product-identity.ts";
 
 type StaticAsset = {
@@ -21,6 +27,14 @@ const dispatcherCandidateEntryFile = new URL(
 );
 const dispatcherCandidateOutputFile = new URL(
   "../dist/yurucommu-call-dispatcher.js",
+  import.meta.url,
+);
+const actorCandidateProductOutputFile = new URL(
+  "../deploy/takoform/actor-candidate/.generated/yurucommu-worker.js",
+  import.meta.url,
+);
+const actorCandidateDispatcherOutputFile = new URL(
+  "../deploy/takoform/actor-candidate/.generated/yurucommu-call-dispatcher.js",
   import.meta.url,
 );
 
@@ -377,23 +391,85 @@ export async function main(): Promise<void> {
   }
 }
 
-/** Bundles only the private D source candidate; never mutates Host topology. */
-export async function buildCallDispatcherCandidate(): Promise<void> {
+/**
+ * Builds C and private D into the isolated source-only OpenTofu candidate.
+ * The ordinary `dist/yurucommu-worker.js` and released module are untouched.
+ */
+export async function buildTakoformActorCandidate(): Promise<void> {
+  const packedCore = await stageActorCandidateCore(
+    readActorCandidateCoreInput(),
+  );
+  try {
+    await run(["bun", "run", "build:client"]);
+    const assets: Record<string, StaticAsset> = {};
+    await collectAssets(distDir, assets);
+    await writeFile(
+      tempEntryFile,
+      createEntrySource(assets, "actor-candidate"),
+    );
+    await mkdir(new URL("./", actorCandidateProductOutputFile), {
+      recursive: true,
+    });
+    await build({
+      entryPoints: [tempEntryFile.pathname],
+      outfile: actorCandidateProductOutputFile.pathname,
+      bundle: true,
+      format: "esm",
+      platform: "browser",
+      target: "es2022",
+      conditions: ["workerd", "worker", "browser"],
+      external: ["cloudflare:*", "node:*"],
+      nodePaths: [new URL("../node_modules", import.meta.url).pathname],
+      plugins: [actorCandidateCorePlugin(packedCore.root)],
+    });
+    await buildCallDispatcherCandidate(
+      actorCandidateDispatcherOutputFile,
+      packedCore.root,
+    );
+    const productBytes = await readFile(actorCandidateProductOutputFile);
+    const dispatcherBytes = await readFile(actorCandidateDispatcherOutputFile);
+    const digest = (bytes: Uint8Array) =>
+      createHash("sha256").update(bytes).digest("hex");
+    process.stdout.write(
+      `Actor candidate build: Core ${packedCore.version} sha256:${packedCore.sha256}; ` +
+        `product sha256:${digest(productBytes)}; dispatcher sha256:${digest(dispatcherBytes)}\n`,
+    );
+  } finally {
+    stop();
+    await rm(tempEntryFile).catch(() => undefined);
+    await packedCore.dispose();
+  }
+}
+
+/** Bundles only private D; never mutates Host topology. */
+export async function buildCallDispatcherCandidate(
+  outputFile = dispatcherCandidateOutputFile,
+  packedCoreRoot?: string,
+): Promise<void> {
+  await mkdir(new URL("./", outputFile), { recursive: true });
   await build({
     entryPoints: [dispatcherCandidateEntryFile.pathname],
-    outfile: dispatcherCandidateOutputFile.pathname,
+    outfile: outputFile.pathname,
     bundle: true,
     format: "esm",
     platform: "browser",
     target: "es2022",
     conditions: ["workerd", "worker", "browser"],
     external: ["cloudflare:*", "node:*"],
+    ...(packedCoreRoot
+      ? { nodePaths: [new URL("../node_modules", import.meta.url).pathname] }
+      : {}),
+    ...(packedCoreRoot
+      ? { plugins: [actorCandidateCorePlugin(packedCoreRoot)] }
+      : {}),
   });
 }
 
 if (import.meta.main) {
   try {
-    if (process.argv.includes("--dispatcher-candidate-only")) {
+    if (process.argv.includes("--actor-opentofu-candidate-only")) {
+      await buildTakoformActorCandidate();
+    } else if (process.argv.includes("--dispatcher-candidate-only")) {
       await buildCallDispatcherCandidate();
     } else {
       await main();
