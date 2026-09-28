@@ -103,6 +103,14 @@
         color: #fff;
       }
 
+      /* ---- yurucommu design language: the ゆ mark, made structural.
+           The product mark is a dark tile carrying one white hiragana ゆ
+           — the character IS the brand. The site carries that identity:
+           soft tile-radius corners everywhere (22% like the mark), the ゆ
+           glyph as the section marker and hero anchor, the product's own
+           blue as the action color, and a closing field in the glyph's
+           white. ---- */
+
       a:focus-visible,
       button:focus-visible,
       [tabindex]:focus-visible {
@@ -147,8 +155,8 @@
         color: #fff;
         font-weight: 600;
         font-size: 0.9rem;
-        padding: 0.55em 1.1em;
-        border-radius: 0.4rem;
+        padding: 0.65em 1.25em;
+        border-radius: 0.65rem;
         transition: filter 0.15s;
       }
       .btn:hover {
@@ -192,6 +200,12 @@
         font-weight: 700;
         font-size: 0.95rem;
       }
+      .brand img {
+        width: 22px;
+        height: 22px;
+        border-radius: 22%;
+        display: block;
+      }
       .nav-links {
         display: flex;
         gap: 1.8rem;
@@ -201,22 +215,35 @@
 
       /* ---- Page head ---- */
       .head {
-        padding: 9rem 0 4rem;
+        padding: 8rem 0 4rem;
+        overflow: hidden;
+      }
+      .head-brand {
+        display: flex;
+        align-items: center;
+        gap: 1.25rem;
+      }
+      .head-mark {
+        width: 104px;
+        height: 104px;
+        flex: none;
+        border-radius: 22%;
+        border: 1px solid var(--line);
       }
       .head h1 {
-        font-size: clamp(2rem, 4vw, 2.6rem);
+        font-size: clamp(3rem, 7vw, 5.2rem);
         font-weight: 800;
-        line-height: 1.1;
-        letter-spacing: -0.02em;
+        line-height: 1;
+        letter-spacing: -0.035em;
       }
       .head .desc {
-        margin-top: 1.5rem;
-        font-size: 1rem;
-        max-width: 38rem;
-        line-height: 2;
+        margin-top: 2rem;
+        font-size: 1.13rem;
+        max-width: 40rem;
+        line-height: 1.9;
       }
       .head .facts {
-        margin-top: 1rem;
+        margin-top: 1.25rem;
         font-family: var(--mono);
         font-size: 0.72rem;
         color: var(--faint);
@@ -231,26 +258,23 @@
         font-size: 0.95rem;
       }
 
-      /* ---- Sections ---- */
-      .sec {
-        padding: 5rem 0;
-        border-top: 1px solid var(--line);
-      }
-      .sec h2 {
-        font-size: 1.4rem;
-        font-weight: 700;
-        letter-spacing: -0.01em;
-        margin-bottom: 1rem;
-      }
-
       /* ---- Steps: a heading, one sentence, then the real UI ---- */
       .step {
         margin-top: 3rem;
       }
       .step h3 {
-        font-size: 1.05rem;
-        font-weight: 700;
+        font-size: 1.15rem;
+        font-weight: 800;
         margin-bottom: 0.5rem;
+      }
+      .step h3::before {
+        content: "";
+        display: inline-block;
+        width: 9px;
+        height: 9px;
+        margin-right: 0.6rem;
+        border-radius: 3px;
+        background: var(--accent);
       }
       .step p {
         color: var(--dim);
@@ -264,7 +288,7 @@
         width: 100%;
         height: auto;
         border: 1px solid var(--line);
-        border-radius: 0.4rem;
+        border-radius: 0.75rem;
         margin-top: 1.25rem;
       }
       .shot-tall {
@@ -278,14 +302,24 @@
       /* ---- Plain fact list ---- */
       .fact-list {
         margin: 1rem 0 0;
-        padding-left: 1.4em;
+        padding: 0;
+        list-style: none;
       }
       .fact-list li {
+        position: relative;
+        padding-left: 1.4rem;
         margin: 0.6rem 0;
         color: var(--dim);
       }
-      .fact-list li::marker {
-        color: var(--faint);
+      .fact-list li::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 0.62em;
+        width: 8px;
+        height: 8px;
+        border-radius: 3px;
+        background: var(--accent);
       }
 
       /* ---- Install ---- */
@@ -308,7 +342,7 @@
         font-size: 0.8rem;
         background: var(--bg-2);
         border: 1px solid var(--line);
-        border-radius: 0.4rem;
+        border-radius: 0.65rem;
         padding: 1rem 1.25rem;
         overflow-x: auto;
         color: var(--ink-2);
@@ -321,8 +355,11 @@
       }
 
       /* ---- Footer ---- */
+      /* The page closes on the glyph's own field — the white ゆ inverted:
+         dark type on a light band, with the dark tile floating in it. */
       footer {
-        border-top: 1px solid var(--line);
+        background: #f5f5f4;
+        color: #0a0a0b;
         padding: 2.5rem 0;
       }
       .foot {
@@ -338,16 +375,73 @@
         gap: 1.5rem;
         font-size: 0.85rem;
       }
+      footer .link {
+        color: #3f3f46;
+      }
+      footer .link:hover {
+        color: #0a0a0b;
+      }
+      footer .brand {
+        color: #0a0a0b;
+      }
       .foot-copy {
         font-family: var(--mono);
         font-size: 0.72rem;
-        color: var(--faint);
+        color: #71717a;
+      }
+
+      /* The product itself is the hero: the real timeline starts at the
+         text column's left edge and runs off the right viewport edge. */
+      .head-shot {
+        margin-top: 3.5rem;
+        padding-left: max(
+          clamp(1.5rem, 5vw, 3rem),
+          calc((100vw - var(--w)) / 2 + clamp(1.5rem, 5vw, 3rem))
+        );
+      }
+      .head-shot .shot {
+        margin-top: 0;
+        max-height: 76vh;
+        object-fit: cover;
+        object-position: top left;
+        border-radius: 0.75rem 0 0 0.75rem;
+        border-right: none;
+      }
+
+      /* ---- Sections ---- */
+      .sec {
+        padding: 5rem 0;
+        border-top: 1px solid var(--line);
+      }
+      .sec h2 {
+        font-size: clamp(1.6rem, 2.8vw, 2.2rem);
+        font-weight: 800;
+        letter-spacing: -0.02em;
+        margin-bottom: 1rem;
+      }
+      /* Section marker — the mark's glyph, floating: the dark tile blends
+         into the page so only the white ゆ shows. */
+      .sec h2::before {
+        content: "";
+        display: inline-block;
+        width: 20px;
+        height: 20px;
+        margin-right: 0.85rem;
+        background: url("/favicon.svg") no-repeat center / contain;
+        vertical-align: -2px;
       }
 
       /* ---- Responsive ---- */
       @media (max-width: 900px) {
         .head {
           padding: 8rem 0 4rem;
+        }
+        .head-mark {
+          width: 72px;
+          height: 72px;
+        }
+        .head-shot .shot {
+          max-height: 60vh;
         }
       }
 
@@ -391,7 +485,7 @@
     <a class="skip" href="#main">Skip to content</a>
     <nav class="nav" id="nav">
       <div class="nav-in">
-        <a href="/" class="brand">yurucommu</a>
+        <a href="/" class="brand"><img src="/favicon.svg" alt="" />yurucommu</a>
         <div class="nav-links">
           <a href="/help/" class="link nav-opt">Docs</a>
           <a href="/specs/" class="link nav-opt">Specs</a>
@@ -407,7 +501,10 @@
     <main id="main">
       <header class="head">
         <div class="wrap">
-          <h1>yurucommu</h1>
+          <div class="head-brand">
+            <img class="head-mark" src="/favicon.svg" alt="" />
+            <h1>yurucommu</h1>
+          </div>
           <p class="desc">
             自分ひとりのための self-hosted ActivityPub SNS。
             フォローした相手の投稿を時間順に読み、つながる相手と
@@ -429,6 +526,8 @@
               >GitHub</a
             >
           </div>
+        </div>
+        <div class="head-shot">
           <img
             class="shot"
             src="./assets/shots/yurucommu-home.webp"
@@ -582,7 +681,7 @@ $ bun run dev:mock</pre>
 
     <footer>
       <div class="wrap foot">
-        <a href="/" class="brand">yurucommu</a>
+        <a href="/" class="brand"><img src="/favicon.svg" alt="" />yurucommu</a>
         <div class="foot-links">
           <a href="#ideas" class="link">考え方</a>
           <a href="/help/" class="link">Docs</a>
