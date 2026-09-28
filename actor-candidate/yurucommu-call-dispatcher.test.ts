@@ -15,7 +15,6 @@ function bindings() {
   const callbacks: Request[] = [];
   const env = {
     YURUCOMMU_RUNTIME_LANE: "portable",
-    APP_URL: "https://local.example",
     DB: {
       async execute(): Promise<never> {
         // A failed signing-key read makes the peer send fail without network I/O.
@@ -64,7 +63,7 @@ function request(path: string, body: unknown) {
   });
 }
 
-test("private candidate requires the declared portable SQL, origin, and Actor binding", () => {
+test("private candidate requires portable SQL and Actor bindings without a guessed origin", () => {
   const { env } = bindings();
   const service = createPrivateCallDispatcherService();
   const call = (input: Readonly<Record<string, unknown>>) =>
@@ -77,7 +76,6 @@ test("private candidate requires the declared portable SQL, origin, and Actor bi
     }),
   ).toThrow();
   expect(() => call({ ...env, DB: {} })).toThrow("edge.sql DB binding");
-  expect(() => call({ ...env, APP_URL: "" })).toThrow("APP_URL");
   expect(() => call({ ...env, CALL_SIGNALING: {} })).toThrow(
     "CALL_SIGNALING Actor binding",
   );

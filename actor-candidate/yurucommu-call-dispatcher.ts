@@ -12,6 +12,19 @@ import {
   type EnvVars,
 } from "@takosjp/yurucommu-core/server";
 
+type CallDispatcherEnv = Pick<
+  EnvVars,
+  | "YURUCOMMU_RTC_ICE_SERVERS"
+  | "YURUCOMMU_RTC_TURN_URIS"
+  | "YURUCOMMU_RTC_TURN_SECRET"
+  | "YURUCOMMU_RTC_TURN_TTL"
+  | "YURUCOMMU_RTC_SFU_ADAPTER"
+  | "YURUCOMMU_RTC_SFU_URL"
+  | "YURUCOMMU_RTC_SFU_TOKEN"
+  | "YURUCOMMU_RTC_SFU_APP_ID"
+  | "YURUCOMMU_RTC_SFU_APP_SECRET"
+>;
+
 interface ActorStub {
   fetch(request: Request): Promise<Response>;
 }
@@ -26,7 +39,6 @@ export interface PrivateCallDispatcherBindings extends Readonly<
 > {
   readonly YURUCOMMU_RUNTIME_LANE: "portable";
   readonly DB: EdgeSqlBinding;
-  readonly APP_URL: string;
   readonly CALL_SIGNALING: ActorNamespace;
 }
 
@@ -52,9 +64,6 @@ function requireBindings(
   if (!isEdgeSqlBinding(value.DB)) {
     throw new Error("call dispatcher requires edge.sql DB binding");
   }
-  if (typeof value.APP_URL !== "string" || !value.APP_URL) {
-    throw new Error("call dispatcher requires APP_URL");
-  }
   if (!isActorNamespace(value.CALL_SIGNALING)) {
     throw new Error(
       "call dispatcher requires private CALL_SIGNALING Actor binding",
@@ -79,7 +88,7 @@ export function createPrivateCallDispatcherService() {
       const bindings = requireBindings(rawBindings);
       return dispatcher.fetch(request, context, {
         db: createEdgeSqlDatabase(bindings.DB),
-        env: bindings as EnvVars,
+        env: bindings as CallDispatcherEnv,
         actorFor: (localActorApId) =>
           bindings.CALL_SIGNALING.get(
             bindings.CALL_SIGNALING.idFromName(localActorApId),

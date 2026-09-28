@@ -29,7 +29,7 @@ test("private dispatcher candidate is separately buildable but absent from defau
   expect(dispatcher).toContain("createCallDispatcherForCallsByInvocation");
   expect(dispatcher).toContain('pathname !== "/_dispatch"');
   expect(dispatcher).toContain("requires edge.sql DB binding");
-  expect(dispatcher).toContain("requires APP_URL");
+  expect(dispatcher).not.toContain("requires APP_URL");
   expect(dispatcher).toContain("CALL_SIGNALING.idFromName(localActorApId)");
   expect(moduleSource).not.toContain("CALL_DISPATCHER");
   expect(moduleSource).not.toContain("call-dispatcher");
