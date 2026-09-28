@@ -141,23 +141,19 @@
         color: var(--faint);
       }
 
-      .arrow {
-        color: var(--ink);
-        border-bottom: 1px solid var(--line);
-        padding-bottom: 2px;
-        transition:
-          border-color 0.2s,
-          color 0.2s;
-      }
-      .arrow:hover {
-        border-color: var(--accent);
-      }
-      .arrow span {
+      .btn {
         display: inline-block;
-        transition: transform 0.2s;
+        background: var(--accent);
+        color: #fff;
+        font-weight: 600;
+        font-size: 0.9rem;
+        padding: 0.55em 1.1em;
+        border-radius: 0.4rem;
+        transition: filter 0.15s;
       }
-      .arrow:hover span {
-        transform: translateX(3px);
+      .btn:hover {
+        filter: brightness(1.15);
+        color: #fff;
       }
 
       .link {
@@ -166,12 +162,6 @@
       }
       .link:hover {
         color: var(--ink);
-      }
-
-      .hairline {
-        width: 100%;
-        height: 1px;
-        background: var(--line);
       }
 
       /* ---- Nav ---- */
@@ -209,24 +199,30 @@
         align-items: center;
       }
 
-      /* ---- Hero ---- */
-      .hero {
-        padding: 9rem 0 5rem;
+      /* ---- Page head ---- */
+      .head {
+        padding: 9rem 0 4rem;
       }
-      .hero h1 {
-        font-size: clamp(1.9rem, 4vw, 2.6rem);
+      .head h1 {
+        font-size: clamp(2rem, 4vw, 2.6rem);
         font-weight: 800;
-        line-height: 1.25;
+        line-height: 1.1;
         letter-spacing: -0.02em;
       }
-      .hero p {
-        color: var(--dim);
+      .head .desc {
         margin-top: 1.5rem;
         font-size: 1rem;
-        max-width: 34rem;
+        max-width: 38rem;
         line-height: 2;
       }
-      .hero-act {
+      .head .facts {
+        margin-top: 1rem;
+        font-family: var(--mono);
+        font-size: 0.72rem;
+        color: var(--faint);
+        letter-spacing: 0.02em;
+      }
+      .head-act {
         margin-top: 2rem;
         display: flex;
         align-items: center;
@@ -235,202 +231,93 @@
         font-size: 0.95rem;
       }
 
-      /* ---- Product stage: the real screenshot, no drawn chrome ---- */
-      .stage {
-        margin: 0 auto;
-        padding: 1rem clamp(1.5rem, 5vw, 3rem) 4rem;
-        max-width: var(--w);
-      }
-      .stage figure {
-        margin: 0;
-      }
-      .stage-shot {
-        display: block;
-        width: 100%;
-        height: auto;
-        border: 1px solid var(--line);
-        border-radius: 0.4rem;
-      }
-      .stage figcaption {
-        margin-top: 0.75rem;
-        font-size: 0.78rem;
-        color: var(--faint);
-      }
-
-      /* ---- Principles ---- */
-      .principles {
-        padding: 7rem 0;
-      }
-      .princ-row {
-        display: grid;
-        grid-template-columns: minmax(0, 17rem) minmax(0, 1fr);
-        gap: 1rem 2.5rem;
-        padding: 2.5rem 0;
+      /* ---- Sections ---- */
+      .sec {
+        padding: 5rem 0;
         border-top: 1px solid var(--line);
-        align-items: start;
       }
-      .princ-row:last-child {
-        border-bottom: 1px solid var(--line);
-      }
-      /* h2 (not h3): the principles are the first headings after the hero h1,
-         so they must not skip a level in the document outline. */
-      .princ-row h2 {
-        font-size: 1.5rem;
-        font-weight: 700;
-        letter-spacing: -0.01em;
-        line-height: 1.5;
-      }
-      .princ-row p {
-        color: var(--dim);
-        max-width: 36rem;
-        font-size: 0.975rem;
-        padding-top: 0.2rem;
-      }
-
-      /* ---- Surfaces: the page walks the app's own surfaces ---- */
-      .surfaces {
-        padding: 7rem 0;
-      }
-      .surf {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
-        gap: 4rem;
-        align-items: center;
-        margin-bottom: 6rem;
-      }
-      .surf:last-child {
-        margin-bottom: 0;
-      }
-      .surf-tag {
-        display: block;
-        font-family: var(--mono);
-        font-size: 0.72rem;
-        letter-spacing: 0.08em;
-        color: var(--faint);
-        margin-bottom: 0.9rem;
-      }
-      .surf-text h2 {
+      .sec h2 {
         font-size: 1.4rem;
         font-weight: 700;
-        line-height: 1.5;
         letter-spacing: -0.01em;
         margin-bottom: 1rem;
       }
-      .surf-text p {
+
+      /* ---- Steps: a heading, one sentence, then the real UI ---- */
+      .step {
+        margin-top: 3rem;
+      }
+      .step h3 {
+        font-size: 1.05rem;
+        font-weight: 700;
+        margin-bottom: 0.5rem;
+      }
+      .step p {
         color: var(--dim);
-        font-size: 0.975rem;
-        max-width: 24rem;
+        font-size: 0.95rem;
+        max-width: 36rem;
       }
 
-      /* traced UI panels — fragments of the real client, not invented chrome */
-      .appwin {
-        border: 1px solid var(--line);
-        border-radius: 0.4rem;
-        overflow: hidden;
-      }
-
-      .appwin.shot img {
+      /* Real screenshots — full width, no frame chrome, no caption. */
+      .shot {
         display: block;
         width: 100%;
         height: auto;
-      }
-
-      /* ---- Mobile ---- */
-      .mobile-sec {
-        padding: 7rem 0;
-      }
-      .mobile-grid {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) auto;
-        gap: 4rem;
-        align-items: center;
-      }
-      .mobile-copy h2 {
-        font-size: 1.4rem;
-        font-weight: 700;
-        line-height: 1.5;
-        letter-spacing: -0.01em;
-        margin-bottom: 1rem;
-      }
-      .mobile-copy p {
-        color: var(--dim);
-        font-size: 0.975rem;
-        max-width: 24rem;
-      }
-      .mobile-shot {
-        display: block;
-        width: min(280px, 100%);
-        height: auto;
         border: 1px solid var(--line);
+        border-radius: 0.4rem;
+        margin-top: 1.25rem;
+      }
+      .shot-tall {
+        max-width: 520px;
+      }
+      .shot-mobile {
+        max-width: 320px;
         border-radius: 0.6rem;
       }
 
-      /* ---- Deploy Steps ---- */
-      .deploy {
-        padding: 7rem 0;
+      /* ---- Plain fact list ---- */
+      .fact-list {
+        margin: 1rem 0 0;
+        padding-left: 1.4em;
       }
-      .deploy h2 {
-        font-size: 1.4rem;
+      .fact-list li {
+        margin: 0.6rem 0;
+        color: var(--dim);
+      }
+      .fact-list li::marker {
+        color: var(--faint);
+      }
+
+      /* ---- Install ---- */
+      .install-item {
+        margin-top: 2.5rem;
+      }
+      .install-item h3 {
+        font-size: 1.05rem;
         font-weight: 700;
-        letter-spacing: -0.01em;
-        margin-bottom: 3rem;
+        margin-bottom: 0.5rem;
       }
-      .step-row {
-        display: grid;
-        grid-template-columns: 5rem 8rem minmax(0, 1fr);
-        gap: 1rem;
-        align-items: center;
-        padding: 1.4rem 0;
-        border-top: 1px solid var(--line);
+      .install-item p {
+        color: var(--dim);
+        font-size: 0.95rem;
+        max-width: 36rem;
+        margin-bottom: 0.75rem;
       }
-      .step-row:last-of-type {
-        border-bottom: 1px solid var(--line);
-      }
-      .step-n {
+      .code {
         font-family: var(--mono);
         font-size: 0.8rem;
+        background: var(--bg-2);
+        border: 1px solid var(--line);
+        border-radius: 0.4rem;
+        padding: 1rem 1.25rem;
+        overflow-x: auto;
+        color: var(--ink-2);
+        line-height: 1.8;
+        margin: 0.75rem 0;
+        white-space: pre;
+      }
+      .code .p {
         color: var(--faint);
-      }
-      .step-row b {
-        font-weight: 500;
-      }
-      .step-row span {
-        color: var(--faint);
-        font-size: 0.88rem;
-      }
-      .deploy-note {
-        margin-top: 2rem;
-        color: var(--faint);
-        font-size: 0.9rem;
-      }
-
-      /* ---- Federation Note ---- */
-      .federation {
-        padding: 5rem 0;
-      }
-      .federation p {
-        font-size: 1rem;
-        color: var(--dim);
-        line-height: 1.9;
-        max-width: 34rem;
-      }
-
-      /* ---- CTA Close ---- */
-      .cta {
-        padding: 6rem 0;
-      }
-      .cta h2 {
-        font-size: 1.4rem;
-        font-weight: 700;
-        letter-spacing: -0.01em;
-      }
-      .cta .act {
-        margin-top: 2.5rem;
-        display: flex;
-        gap: 2rem;
-        align-items: center;
-        flex-wrap: wrap;
-        font-size: 0.95rem;
       }
 
       /* ---- Footer ---- */
@@ -459,32 +346,14 @@
 
       /* ---- Responsive ---- */
       @media (max-width: 900px) {
-        .hero {
-          padding: 8rem 0 5rem;
-        }
-        .surf,
-        .mobile-grid {
-          grid-template-columns: minmax(0, 1fr);
-          gap: 2.5rem;
-        }
-        .mobile-shot {
-          margin: 0 auto;
-        }
-        .step-row {
-          grid-template-columns: 3rem minmax(0, 1fr);
-        }
-        .step-row span {
-          grid-column: 2;
+        .head {
+          padding: 8rem 0 4rem;
         }
       }
 
       @media (max-width: 640px) {
         .nav-links {
           gap: 1rem;
-        }
-        .princ-row {
-          grid-template-columns: minmax(0, 1fr);
-          gap: 0.5rem;
         }
       }
 
@@ -498,11 +367,6 @@
       }
 
       @media (prefers-reduced-motion: reduce) {
-        .reveal {
-          opacity: 1;
-          transform: none;
-          transition: none;
-        }
         html {
           scroll-behavior: auto;
         }
@@ -534,232 +398,162 @@
           <a href="https://github.com/tako0614/yurucommu" class="link"
             >GitHub</a
           >
-          <a href="#start" class="arrow">はじめる <span>→</span></a>
+          <a href="#start" class="btn">はじめる</a>
         </div>
       </div>
     </nav>
 
-    <!-- Hero -->
+    <!-- Page head -->
     <main id="main">
-      <header class="hero">
+      <header class="head">
         <div class="wrap">
-          <h1>Self-hosted ActivityPub SNS.</h1>
-          <p>
-            自分ひとりのための、小さな SNS
-            です。フォローした相手の投稿を時間順に読みながら、つながる相手と
-            コミュニティを自分で選べます。
+          <h1>yurucommu</h1>
+          <p class="desc">
+            自分ひとりのための self-hosted ActivityPub SNS。
+            フォローした相手の投稿を時間順に読み、つながる相手と
+            コミュニティを自分で選べる。
           </p>
-          <div class="hero-act">
+          <p class="facts">
+            AGPL-3.0-only · github.com/tako0614/yurucommu · ActivityPub ·
+            Cloudflare Workers / Takoform
+          </p>
+          <div class="head-act">
             <a
               href="https://app.takosumi.com/install?git=https%3A%2F%2Fgithub.com%2Ftako0614%2Fyurucommu.git&ref=a17e4f883cb9ba79e6d0650b497d8d97453c698f&path=deploy%2Ftakoform"
-              class="arrow"
-              >Takosumi で追加 <span>→</span></a
+              class="btn"
+              >Takosumi で入れる</a
             >
             <a href="/help/getting-started.html" class="link">ローカルで試す</a>
-            <a href="#start" class="link">運用方法</a>
+            <a href="/help/" class="link">Docs</a>
             <a href="https://github.com/tako0614/yurucommu" class="link"
               >GitHub</a
             >
           </div>
-        </div>
-      </header>
-
-      <!-- Product screenshot: the real home timeline, no drawn chrome -->
-      <div class="stage reveal">
-        <figure>
           <img
-            class="stage-shot"
+            class="shot"
             src="./assets/shots/yurucommu-home.webp"
             width="1280"
             height="720"
             alt="yurucommuのホームタイムライン。ダークな UI に、自分のサーバーでフォローした相手の投稿・ストーリー・おすすめユーザーが並ぶ。"
             decoding="async"
           />
-          <figcaption>ホームタイムラインの実画面</figcaption>
-        </figure>
-      </div>
+        </div>
+      </header>
 
-      <div class="hairline"></div>
-
-      <!-- Principles -->
-      <section class="principles" id="why">
+      <!-- How it thinks -->
+      <section class="sec" id="ideas">
         <div class="wrap">
-          <div class="princ-row reveal">
-            <h2>アルゴリズムなし</h2>
-            <p>
-              タイムラインはおすすめ順に並べ替えません。自分がフォローした相手の投稿を、時間順に表示します。
-            </p>
-          </div>
-          <div class="princ-row reveal">
-            <h2>小さなコミュニティ</h2>
-            <p>
-              興味でつくる小さなコミュニティが、そのまま「届く範囲」になります。薄く広い繋がりより、濃くて小さな繋がりを大切にします。
-            </p>
-          </div>
-          <div class="princ-row reveal">
-            <h2>自分のサーバー</h2>
-            <p>
-              セルフホストでは、運用先やデータの置き場所を自分で選べます。
-              ActivityPubに対応する別のサーバーとも、フォローや投稿を
-              やり取りできます。
-            </p>
-          </div>
+          <h2>考え方</h2>
+          <ul class="fact-list">
+            <li>
+              タイムラインは投稿時間順のみ — アルゴリズムによる並べ替えはない
+            </li>
+            <li>興味でつくるコミュニティが、そのまま投稿の届く範囲になる</li>
+            <li>データは自分のサーバーに置く — 運用先と置き場所を自分で選ぶ</li>
+            <li>
+              ActivityPub 対応の別サーバーとも、フォローや投稿をやり取りできる
+            </li>
+          </ul>
         </div>
       </section>
 
-      <div class="hairline"></div>
-
-      <!-- Surfaces: each panel traces a real screen of the client -->
-      <section class="surfaces">
+      <!-- Screens: the app's own surfaces, real captures -->
+      <section class="sec" id="screens">
         <div class="wrap">
-          <!-- Home timeline -->
-          <div class="surf reveal">
-            <div class="surf-text">
-              <span class="surf-tag">ホーム</span>
-              <h2>時系列のタイムライン</h2>
-              <p>
-                フォローした相手の投稿が、新しい順に静かに流れます。読む
-                ペースも、どこまで遡るかも、あなた次第です。
-              </p>
-            </div>
-            <div class="appwin shot">
-              <img
-                src="./assets/shots/surface-home.webp"
-                width="1500"
-                height="1050"
-                alt="yurucommu のホームタイムラインの実画面。すべて / フォロー中のタブ、ストーリーリング、フォロー相手の投稿が時系列で並ぶ。"
-                decoding="async"
-              />
-            </div>
-          </div>
-
-          <!-- Stories -->
-          <div class="surf reveal">
-            <div class="surf-text">
-              <span class="surf-tag">ストーリー</span>
-              <h2>24時間で消えるストーリー</h2>
-              <p>
-                キャンバスエディタで自由に描いたり書いたり貼ったりできます。24時間後には消えるので、身軽に使えます。
-              </p>
-            </div>
-            <div class="appwin shot">
-              <img
-                src="./assets/shots/surface-story.webp"
-                width="1000"
-                height="1760"
-                alt="yurucommu のストーリー表示の実画面。写真つきの近況と返信バーが開いている。"
-                decoding="async"
-              />
-            </div>
-          </div>
-
-          <!-- Scope switcher -->
-          <div class="surf reveal">
-            <div class="surf-text">
-              <span class="surf-tag">表示を絞り込む</span>
-              <h2>届く範囲を選ぶ</h2>
-              <p>
-                興味でつくるコミュニティが、投稿の届く「輪」になります。ホームの絞り込みで、見る景色も輪の中だけにできます。
-              </p>
-            </div>
-            <div class="appwin shot">
-              <img
-                src="./assets/shots/surface-scope.webp"
-                width="1150"
-                height="1050"
-                alt="yurucommu の表示を絞り込むメニューの実画面。すべて / コミュニティ単位の選択肢が並ぶ。"
-                decoding="async"
-              />
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <div class="hairline"></div>
-
-      <!-- Mobile -->
-      <section class="mobile-sec reveal">
-        <div class="wrap mobile-grid">
-          <div class="mobile-copy">
-            <h2>スマホでも使える</h2>
+          <h2>画面</h2>
+          <div class="step">
+            <h3>ホーム</h3>
             <p>
-              ホーム画面から開けば、タイムラインも、ストーリーも、DM
-              も使えます。あなたのサーバーが、そのままポケットの中に入ります。
+              フォローした相手の投稿が新しい順に流れる。どこまで遡るかは自分次第。
             </p>
+            <img
+              class="shot"
+              src="./assets/shots/surface-home.webp"
+              width="1500"
+              height="1050"
+              alt="yurucommu のホームタイムラインの実画面。すべて / フォロー中のタブ、ストーリーリング、フォロー相手の投稿が時系列で並ぶ。"
+              decoding="async"
+            />
           </div>
-          <img
-            class="mobile-shot"
-            src="./assets/shots/yurucommu-mobile.webp"
-            width="390"
-            height="844"
-            alt="yurucommu のスマホ画面。ダークなタイムラインと下部タブ（ホーム・検索・通知・メッセージ）。"
-            decoding="async"
-          />
+          <div class="step">
+            <h3>ストーリー</h3>
+            <p>
+              キャンバスエディタで自由に描いて貼れる。投稿は 24 時間で消える。
+            </p>
+            <img
+              class="shot shot-tall"
+              src="./assets/shots/surface-story.webp"
+              width="1000"
+              height="1760"
+              alt="yurucommu のストーリー表示の実画面。写真つきの近況と返信バーが開いている。"
+              decoding="async"
+            />
+          </div>
+          <div class="step">
+            <h3>表示の絞り込み</h3>
+            <p>コミュニティ単位で、見る景色を輪の中だけに絞り込める。</p>
+            <img
+              class="shot"
+              src="./assets/shots/surface-scope.webp"
+              width="1150"
+              height="1050"
+              alt="yurucommu の表示を絞り込むメニューの実画面。すべて / コミュニティ単位の選択肢が並ぶ。"
+              decoding="async"
+            />
+          </div>
+          <div class="step">
+            <h3>モバイル</h3>
+            <p>ホーム画面から開けば、タイムライン・ストーリー・DM が使える。</p>
+            <img
+              class="shot shot-mobile"
+              src="./assets/shots/yurucommu-mobile.webp"
+              width="390"
+              height="844"
+              alt="yurucommu のスマホ画面。ダークなタイムラインと下部タブ（ホーム・検索・通知・メッセージ）。"
+              decoding="async"
+            />
+          </div>
         </div>
       </section>
 
-      <div class="hairline"></div>
-
-      <!-- Deploy Steps -->
-      <section class="deploy" id="start">
+      <!-- Install -->
+      <section class="sec" id="start">
         <div class="wrap">
-          <h2>手元で試す</h2>
-          <div class="step-row reveal">
-            <span class="step-n">01</span>
-            <b>準備</b>
-            <span>リポジトリを取得して、Bunで依存関係を入れます</span>
-          </div>
-          <div class="step-row reveal">
-            <span class="step-n">02</span>
-            <b>試す</b>
-            <span><code>bun run dev:mock</code>で画面と機能を確認します</span>
-          </div>
-          <div class="step-row reveal">
-            <span class="step-n">03</span>
-            <b>運用先を選ぶ</b>
-            <span>管理ホストか、Cloudflareでのセルフホストを選びます</span>
-          </div>
-          <p class="deploy-note">
-            管理ホストでは <code>deploy/takoform</code>、Cloudflareで
-            セルフホストする場合はルートの <code>main.tf</code> または
-            <code>wrangler.jsonc</code> を使います。詳しい手順は
-            <a href="/help/deployment.html">デプロイガイド</a>にあります。
-          </p>
-        </div>
-      </section>
-
-      <div class="hairline"></div>
-
-      <!-- Federation Note -->
-      <section class="federation reveal">
-        <div class="wrap">
-          <p>
-            ActivityPub
-            に対応する別のサーバーとも、フォローや投稿をやり取りできます。
-          </p>
-        </div>
-      </section>
-
-      <div class="hairline"></div>
-
-      <!-- CTA Close -->
-      <section class="cta">
-        <div class="wrap reveal">
           <h2>導入</h2>
-          <div class="act">
+          <div class="install-item">
+            <h3>Takosumi で入れる</h3>
+            <p>
+              導入画面に、入れる app
+              と入れる先が表示される。内容を確認してそのまま導入できる。
+            </p>
             <a
               href="https://app.takosumi.com/install?git=https%3A%2F%2Fgithub.com%2Ftako0614%2Fyurucommu.git&ref=a17e4f883cb9ba79e6d0650b497d8d97453c698f&path=deploy%2Ftakoform"
-              class="arrow"
-              >Takosumi でインストール <span>→</span></a
+              class="btn"
+              >install 画面を開く</a
             >
-            <a href="/help/getting-started.html" class="link">ローカルで試す</a>
-            <a href="/help/deployment.html" class="link">運用方法を見る</a>
-            <a
-              href="https://github.com/tako0614/yurucommu"
-              class="link"
-              rel="noopener"
-              >GitHub</a
+          </div>
+          <div class="install-item">
+            <h3>ローカルで試す</h3>
+            <p>
+              リポジトリを取って依存を入れ、dev mock で画面と機能を確認する。
+            </p>
+            <pre class="code">
+$ git clone https://github.com/tako0614/yurucommu.git
+$ cd yurucommu
+$ bun install
+$ bun run dev:mock</pre>
+            <a href="/help/getting-started.html" class="link"
+              >はじめかたを見る</a
             >
+          </div>
+          <div class="install-item">
+            <h3>自分のサーバーに建てる</h3>
+            <p>
+              管理ホストでは <code>deploy/takoform</code>、Cloudflare
+              でセルフホストする場合はルートの <code>main.tf</code> または
+              <code>wrangler.jsonc</code> を使う。
+            </p>
+            <a href="/help/deployment.html" class="link">デプロイガイド</a>
           </div>
         </div>
       </section>
@@ -790,7 +584,7 @@
       <div class="wrap foot">
         <a href="/" class="brand">yurucommu</a>
         <div class="foot-links">
-          <a href="#why" class="link">考え方</a>
+          <a href="#ideas" class="link">考え方</a>
           <a href="/help/" class="link">Docs</a>
           <a href="/specs/" class="link">Specs</a>
           <a href="https://github.com/tako0614/yurucommu" class="link"
