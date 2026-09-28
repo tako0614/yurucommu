@@ -106,6 +106,7 @@ type JsonValue =
 
 const origin =
   process.env.YURUCOMMU_MOCK_ORIGIN ?? "https://mock.yurucommu.test";
+const originHost = new URL(origin).host;
 const mockImageUrl =
   process.env.YURUCOMMU_MOCK_IMAGE_URL ??
   "https://images.unsplash.com/photo-1517245386807-bb43f82c33c4?auto=format&fit=crop&w=1200&q=80";
@@ -120,7 +121,7 @@ function actor(
 ): Actor {
   return {
     ap_id: `${origin}/ap/users/${preferredUsername}`,
-    username: `${preferredUsername}@mock.yurucommu.test`,
+    username: `${preferredUsername}@${originHost}`,
     preferred_username: preferredUsername,
     name,
     summary,
@@ -147,21 +148,21 @@ function postAuthor(actorData: Actor): PostAuthor {
   };
 }
 
-const me = actor("you", "You", "UI development mock account.", {
+const me = actor("you", "You", "海の見える街でゆるく。", {
   follower_count: 240,
   following_count: 178,
   post_count: 42,
   is_following: true,
 });
-const akari = actor("akari", "Akari", "Talks about small community tools.", {
+const akari = actor("akari", "Akari", "小さな集まりを企画しています。", {
   is_followed_by: true,
   is_following: true,
 });
-const ren = actor("ren", "Ren", "Design and product notes.", {
+const ren = actor("ren", "Ren", "写真と設計メモ。", {
   is_followed_by: true,
   is_following: true,
 });
-const mio = actor("mio", "Mio", "Federated social UI experiments.", {
+const mio = actor("mio", "Mio", "活動報告をゆるく。", {
   is_followed_by: false,
   is_following: false,
 });
@@ -174,7 +175,7 @@ const communities: CommunityDetail[] = [
     name: "kissa-builders",
     display_name: "Kissa Builders",
     preferred_username: "kissa-builders",
-    summary: "A small room for product, UI, and community ideas.",
+    summary: "喫茶スペースづくりの相談と記録。",
     icon_url: "https://api.dicebear.com/9.x/shapes/svg?seed=kissa-builders",
     visibility: "public",
     join_policy: "open",
@@ -192,7 +193,7 @@ const communities: CommunityDetail[] = [
     name: "night-ship",
     display_name: "Night Ship",
     preferred_username: "night-ship",
-    summary: "Loose evening updates and story checks.",
+    summary: "夜型メンバーのゆるい近況スレ。",
     icon_url: "https://api.dicebear.com/9.x/shapes/svg?seed=night-ship",
     visibility: "private",
     join_policy: "approval",
@@ -213,7 +214,7 @@ let posts: Post[] = [
     type: "Note",
     author: postAuthor(akari),
     content:
-      "Mock server is online. Timeline, stories, DMs, and communities are all local data.",
+      "自分のサーバーに、自分の輪だけ。知らない誰かも、アルゴリズムもいない。",
     summary: null,
     attachments: [],
     in_reply_to: null,
@@ -233,14 +234,14 @@ let posts: Post[] = [
     type: "Note",
     author: postAuthor(ren),
     content:
-      "Yurumeet should feel like a talk-first client on the same yurucommu server.",
+      "会場の写真を共有しておきます。窓側の壁面、ここにメニューを貼りましょう。",
     summary: null,
     attachments: [
       {
         url: mockImageUrl,
         r2_key: "mock/ui-reference.jpg",
         content_type: "image/jpeg",
-        name: "Mock UI reference",
+        name: "会場の写真",
       },
     ],
     in_reply_to: null,
@@ -363,13 +364,13 @@ let userMessages: Record<string, Message[]> = {
     {
       id: "dm-1",
       sender: postAuthor(akari),
-      content: "Mock auth is the same as yurucommu.",
+      content: "写真、さっき送っておいたよ〜 見た？",
       created_at: "2026-07-05T05:00:00.000Z",
     },
     {
       id: "dm-2",
       sender: postAuthor(me),
-      content: "Good. I want to debug the client UI without a backend.",
+      content: "見た！めっちゃいいね、ありがとう",
       created_at: "2026-07-05T05:02:00.000Z",
     },
   ],
@@ -377,7 +378,7 @@ let userMessages: Record<string, Message[]> = {
     {
       id: "dm-3",
       sender: postAuthor(ren),
-      content: "The talk tab is using the same DM endpoints.",
+      content: "夜の写真データ、あとでこっちにも送ります。",
       created_at: "2026-07-05T04:30:00.000Z",
     },
   ],
@@ -388,13 +389,13 @@ let communityMessages: Record<string, Message[]> = {
     {
       id: "cm-1",
       sender: postAuthor(ren),
-      content: "The mock community chat is ready for UI work.",
+      content: "週末のメニュー、これで行きましょう",
       created_at: "2026-07-05T05:40:00.000Z",
     },
     {
       id: "cm-2",
       sender: postAuthor(akari),
-      content: "Stories and VOOM-like feed data are mocked too.",
+      content: "会場の写真、あとでまとめて追加します",
       created_at: "2026-07-05T05:42:00.000Z",
     },
   ],
@@ -402,7 +403,7 @@ let communityMessages: Record<string, Message[]> = {
     {
       id: "cm-3",
       sender: postAuthor(mio),
-      content: "Private room data keeps the sidebars populated.",
+      content: "今夜21時から通話しよう🌙",
       created_at: "2026-07-05T04:35:00.000Z",
     },
   ],
@@ -411,7 +412,7 @@ let communityMessages: Record<string, Message[]> = {
 let notes: ActorNote[] = [
   {
     actor: postAuthor(me),
-    content: "UIを詰めてる",
+    content: "引っ越しの片付け中",
     created_at: "2026-07-05T05:50:00.000Z",
     updated_at: "2026-07-05T05:50:00.000Z",
     expires_at: "2026-07-06T05:50:00.000Z",
@@ -419,7 +420,7 @@ let notes: ActorNote[] = [
   },
   {
     actor: postAuthor(akari),
-    content: "story bar見直し中",
+    content: "あとで写真送る",
     created_at: "2026-07-05T05:35:00.000Z",
     updated_at: "2026-07-05T05:35:00.000Z",
     expires_at: "2026-07-06T05:35:00.000Z",
@@ -427,7 +428,7 @@ let notes: ActorNote[] = [
   },
   {
     actor: postAuthor(ren),
-    content: "talk-first案ある",
+    content: "夜勤あけ",
     created_at: "2026-07-05T04:55:00.000Z",
     updated_at: "2026-07-05T04:55:00.000Z",
     expires_at: "2026-07-06T04:55:00.000Z",
@@ -545,7 +546,7 @@ function communityContact(
   return {
     type: "community",
     ap_id: community.ap_id,
-    username: `${community.name}@mock.yurucommu.test`,
+    username: `${community.name}@${originHost}`,
     preferred_username: community.preferred_username,
     name: community.display_name,
     icon_url: community.icon_url,
@@ -624,7 +625,7 @@ function storiesResponse(): JsonValue {
               width: 1080,
               height: 1920,
             },
-            caption: "Mock story for UI layout checks.",
+            caption: "会場の下見に来た。",
             displayDuration: "PT6S",
             overlays: [],
             published: "2026-07-05T05:05:00.000Z",
@@ -651,7 +652,7 @@ function storiesResponse(): JsonValue {
               width: 1080,
               height: 1920,
             },
-            caption: "Talk-first client, same server.",
+            caption: "夜の店内、いい雰囲気。",
             displayDuration: "PT6S",
             overlays: [],
             published: "2026-07-05T04:15:00.000Z",
@@ -926,7 +927,7 @@ async function handleDm(
         {
           id: "request-1",
           sender: postAuthor(mio),
-          content: "Can I send you a mock UI note?",
+          content: "はじめまして。喫茶ポップアップの件で連絡しました。",
           created_at: "2026-07-05T02:30:00.000Z",
         },
       ],
