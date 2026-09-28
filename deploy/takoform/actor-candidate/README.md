@@ -14,8 +14,10 @@ The candidate composes:
 - C, the Yurucommu product Worker, its existing database/migrations, KV, media,
   queues, endpoint, consumers, and retention trigger;
 - N1/N2, `CallSignalingActor` and `RealtimeStreamActor` namespaces owned by C;
-- D, a private call-dispatcher Worker with its own database/migrations, bound
-  to N1 and with no endpoint;
+- D, a private call-dispatcher Worker bound to N1 and to C's product database,
+  with no endpoint. Core's call-signaling Actor reads local signing keys and
+  peer records and persists call sessions through that database, so a separate
+  empty dispatcher database would make RTC signaling fail;
 - C's private `CALL_DISPATCHER` service binding to D, plus C's bindings to N1
   and N2. D has no service binding back to C.
 
@@ -46,9 +48,11 @@ generated bundle SHAs are printed after a successful build. No ambient source
 checkout or default 4.1.8 dependency can silently replace this input.
 
 The candidate module uses `${path.module}/.generated` for both bundles and
-`${path.module}/../migrations/sql` for the checked-in migration set. Keep the
-candidate directory under `deploy/takoform/actor-candidate`; moving it changes
-that layout. Build output is ignored and must not be committed.
+`${path.module}/../migrations/sql` for the checked-in migration set. C owns the
+database and applies that migration set once; D's `DB` binding references the
+same SQLiteDatabase resource. Keep the candidate directory under
+`deploy/takoform/actor-candidate`; moving it changes that layout. Build output
+is ignored and must not be committed.
 
 Use an executable built from exact Provider source commit
 `cc712958e3c3a3011627fa0d39e679b7048c88cc` (candidate mapping selected for

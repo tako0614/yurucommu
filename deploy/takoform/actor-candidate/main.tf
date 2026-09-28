@@ -111,31 +111,6 @@ resource "takoform_module_worker" "dispatcher" {
   name = local.dispatcher_worker_name
 }
 
-resource "takoform_sqlite_database" "dispatcher" {
-  name = "${local.prefix}-call-dispatcher-db"
-}
-
-resource "takoform_sqlite_migration_set" "dispatcher" {
-  revision_owner = local.dispatcher_worker_name
-  files = [
-    for relative_path in sort(local.migration_files) : {
-      path         = relative_path
-      media_type   = "application/sql"
-      content_file = "${local.migration_root}/${relative_path}"
-    }
-  ]
-
-  lifecycle {
-    create_before_destroy = true
-  }
-}
-
-resource "takoform_sqlite_migration_application" "dispatcher" {
-  name          = "${local.prefix}-call-dispatcher-schema"
-  database      = takoform_sqlite_database.dispatcher.name
-  migration_set = takoform_sqlite_migration_set.dispatcher.name
-}
-
 resource "takoform_worker_bundle" "dispatcher" {
   revision_owner = takoform_module_worker.dispatcher.name
   main_module    = "yurucommu-call-dispatcher.js"
@@ -163,7 +138,7 @@ resource "takoform_worker_version" "dispatcher" {
   sqlite_bindings = [
     {
       name        = "DB"
-      target_name = takoform_sqlite_database.dispatcher.name
+      target_name = takoform_sqlite_database.product.name
     },
   ]
 
@@ -174,7 +149,7 @@ resource "takoform_worker_version" "dispatcher" {
     },
   ]
 
-  depends_on = [takoform_sqlite_migration_application.dispatcher]
+  depends_on = [takoform_sqlite_migration_application.product]
 
   lifecycle {
     create_before_destroy = true

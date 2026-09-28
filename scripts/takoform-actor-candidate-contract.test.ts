@@ -7,6 +7,10 @@ const candidateMain = new URL(
   "../deploy/takoform/actor-candidate/main.tf",
   import.meta.url,
 );
+const candidateOutputs = new URL(
+  "../deploy/takoform/actor-candidate/outputs.tf",
+  import.meta.url,
+);
 const defaultMain = new URL("../deploy/takoform/main.tf", import.meta.url);
 const candidateBuild = new URL(
   "../scripts/build-yurucommu-worker.ts",
@@ -130,4 +134,55 @@ test("candidate required secrets match the locked Core's actual env consumers", 
 
   expect(requiredSensitiveNames(candidate)).toEqual(actualCandidates);
   expect(coreConsumers.has("TAKOSUMI_ACCOUNTS_REDIRECT_URI")).toBe(false);
+});
+
+test("private dispatcher shares the product database used by Core RTC", async () => {
+  const [candidate, outputs] = await Promise.all([
+    readFile(candidateMain, "utf8"),
+    readFile(candidateOutputs, "utf8"),
+  ]);
+  const coreEntry = Bun.resolveSync(
+    "@takosjp/yurucommu-core/server",
+    import.meta.dir,
+  );
+  const coreRoot = dirname(dirname(dirname(coreEntry)));
+  const [actorSource, hubPortSource] = await Promise.all([
+    readFile(
+      join(coreRoot, "src/backend/runtime/call-signaling-do.ts"),
+      "utf8",
+    ),
+    readFile(join(coreRoot, "src/backend/runtime/call-hub-port.ts"), "utf8"),
+  ]);
+
+  // The real Core path creates its DB handle from the Actor's DB environment
+  // binding, then uses that handle for the actor signer, peer delivery, and
+  // persisted call session. D must therefore expose C's initialized product
+  // database under its DB binding.
+  expect(actorSource).toContain("const db = getDb(this.env.DB)");
+  expect(actorSource).toContain("createCallHubPort({");
+  expect(actorSource).toContain("      db,");
+  expect(hubPortSource).toContain("deps.db.query.actors.findFirst");
+  expect(hubPortSource).toContain("sendCallSignal(deps.db,");
+  expect(hubPortSource).toContain("upsertCallSession(deps.db,");
+
+  const dispatcherVersion = candidate
+    .split('resource "takoform_worker_version" "dispatcher"')[1]
+    ?.split('resource "takoform_worker_deployment" "dispatcher"')[0];
+  expect(dispatcherVersion).toContain(
+    "target_name = takoform_sqlite_database.product.name",
+  );
+  expect(dispatcherVersion).toContain(
+    "takoform_sqlite_migration_application.product",
+  );
+  expect(candidate).not.toContain(
+    'resource "takoform_sqlite_database" "dispatcher"',
+  );
+  expect(candidate).not.toContain(
+    'resource "takoform_sqlite_migration_set" "dispatcher"',
+  );
+  expect(candidate).not.toContain(
+    'resource "takoform_sqlite_migration_application" "dispatcher"',
+  );
+  expect(outputs).not.toContain("dispatcher_database");
+  expect(outputs).not.toContain("dispatcher_migration_");
 });
