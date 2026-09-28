@@ -9,90 +9,50 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@500;700;900&family=JetBrains+Mono:wght@500&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@500;700;800&family=JetBrains+Mono:wght@500&display=swap"
       rel="stylesheet"
     />
     <style>
-      :root {
-        --bg: #0a0a0b;
-        --ink: #fafafa;
-        --dim: #a1a1aa;
-        --accent: #3b82f6;
-      }
-      * {
-        margin: 0;
-        padding: 0;
-        box-sizing: border-box;
-      }
-      html,
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1200px; height: 630px; }
       body {
-        width: 1200px;
-        height: 630px;
-      }
-      body {
-        background: var(--bg);
-        color: var(--ink);
+        background: #0a0a0b;
+        color: #fafafa;
         font-family: "Noto Sans JP", sans-serif;
-        position: relative;
-        overflow: hidden;
       }
-      .frame {
-        position: absolute;
-        inset: 0;
-        padding: 76px 84px;
-        display: flex;
-        flex-direction: column;
-        justify-content: space-between;
+      .frame { position: absolute; inset: 0; }
+      .mark {
+        position: absolute; left: 96px; top: 200px;
+        width: 180px; height: 180px; border-radius: 40px;
+        background: #141416;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 108px; font-weight: 800; color: #fafafa;
       }
-      .eyebrow {
-        font-family: "JetBrains Mono", monospace;
-        font-weight: 500;
-        font-size: 24px;
-        letter-spacing: 0.32em;
-        color: var(--dim);
-        text-transform: uppercase;
+      .name {
+        position: absolute; left: 324px; top: 236px;
+        font-size: 104px; font-weight: 800; letter-spacing: -0.03em;
       }
-      .title {
-        font-weight: 900;
-        font-size: 108px;
-        line-height: 1.04;
-        letter-spacing: -0.01em;
-        margin-top: auto;
-        margin-bottom: 28px;
+      .desc {
+        position: absolute; left: 330px; top: 356px;
+        font-size: 40px; font-weight: 500; color: #a1a1aa;
       }
-      .row {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
+      .spec {
+        position: absolute; left: 330px; top: 436px;
+        font-family: "JetBrains Mono", monospace; font-size: 24px; color: #6b6b6b;
       }
-      .brand {
-        display: inline-flex;
-        align-items: center;
-        gap: 16px;
-        font-weight: 700;
-        font-size: 38px;
-      }
-      .brand .dot {
-        width: 18px;
-        height: 18px;
-        border-radius: 50%;
-        background: var(--accent);
-      }
-      .sub {
-        font-weight: 500;
-        font-size: 28px;
-        color: var(--dim);
+      .foot {
+        position: absolute; left: 96px; top: 566px;
+        font-family: "JetBrains Mono", monospace; font-size: 26px; color: #6b6b6b;
       }
     </style>
   </head>
   <body>
     <div class="frame">
-      <div class="eyebrow">Self-hosted ActivityPub SNS</div>
-      <div class="title">自分の輪を、<br />自分でつくる。</div>
-      <div class="row">
-        <div class="brand">yurucommu</div>
-        <div class="sub">自分ひとりのための、小さな SNS</div>
-      </div>
+      <div class="mark">ゆ</div>
+      <div class="name">yurucommu</div>
+      <div class="desc">Self-hosted ActivityPub SNS.</div>
+      <div class="spec">feed&nbsp;&nbsp;story&nbsp;&nbsp;community&nbsp;&nbsp;DM&nbsp;&nbsp;ActivityPub federation</div>
+      <div class="foot">AGPL-3.0 · open source · yurucommu.com</div>
     </div>
   </body>
 </html>
