@@ -20,12 +20,12 @@ variable "project_name" {
   }
 }
 
-# RTC stays opt-in. These values are non-secret configuration only; TURN and
-# SFU credentials are requested by name through required_sensitive_vars below.
-variable "rtc_ice_servers" {
-  description = "Optional JSON ICE server array; do not put credentials in this value."
-  type        = string
-  default     = null
+# This payload can contain ICE usernames and credentials as well as public URLs.
+# Select it here; its value is supplied only through the sensitive-input path.
+variable "rtc_ice_servers_enabled" {
+  description = "Whether the private dispatcher should require the optional ICE server JSON sensitive input."
+  type        = bool
+  default     = false
 }
 
 variable "rtc_turn_uris" {
@@ -68,7 +68,6 @@ locals {
   migration_files            = fileset(local.migration_root, "*.sql")
   delivery_queue_name        = "${local.prefix}-delivery"
   delivery_dlq_name          = "${local.prefix}-delivery-dlq"
-  rtc_ice_servers_configured = var.rtc_ice_servers == null ? false : trimspace(var.rtc_ice_servers) != ""
   rtc_turn_uris_configured   = var.rtc_turn_uris == null ? false : trimspace(var.rtc_turn_uris) != ""
   rtc_turn_ttl_configured    = var.rtc_turn_ttl == null ? false : trimspace(var.rtc_turn_ttl) != ""
   rtc_sfu_adapter_configured = var.rtc_sfu_adapter == null ? false : trimspace(var.rtc_sfu_adapter) != ""
@@ -85,9 +84,6 @@ locals {
   dispatcher_plain_values = merge({
     YURUCOMMU_RUNTIME_LANE = "portable"
     },
-    local.rtc_ice_servers_configured ? {
-      YURUCOMMU_RTC_ICE_SERVERS = var.rtc_ice_servers
-    } : {},
     local.rtc_turn_uris_configured ? {
       YURUCOMMU_RTC_TURN_URIS = var.rtc_turn_uris
     } : {},
@@ -104,6 +100,7 @@ locals {
       YURUCOMMU_RTC_SFU_APP_ID = var.rtc_sfu_app_id
   } : {})
   dispatcher_sensitive_names = concat(
+    var.rtc_ice_servers_enabled ? ["YURUCOMMU_RTC_ICE_SERVERS"] : [],
     local.rtc_turn_uris_configured ? ["YURUCOMMU_RTC_TURN_SECRET"] : [],
     local.rtc_sfu_selected ? ["YURUCOMMU_RTC_SFU_TOKEN"] : [],
     local.rtc_sfu_selected && local.rtc_sfu_app_id_configured ? ["YURUCOMMU_RTC_SFU_APP_SECRET"] : [],

@@ -199,7 +199,6 @@ test("optional RTC configuration is projected only to the private dispatcher", a
   expect(productVersion).toBeDefined();
 
   for (const name of [
-    "YURUCOMMU_RTC_ICE_SERVERS",
     "YURUCOMMU_RTC_TURN_URIS",
     "YURUCOMMU_RTC_TURN_TTL",
     "YURUCOMMU_RTC_SFU_ADAPTER",
@@ -219,16 +218,24 @@ test("optional RTC configuration is projected only to the private dispatcher", a
     );
     expect(source).toContain(`${name} = var.rtc_`);
   }
+  expect(source).toContain('variable "rtc_ice_servers_enabled"');
+  expect(source).toMatch(
+    /variable "rtc_ice_servers_enabled" \{[\s\S]*?type\s+=\s+bool[\s\S]*?default\s+=\s+false/u,
+  );
 
   expect(dispatcherVersion).toMatch(
     /vars_json\s+=\s+jsonencode\(local\.dispatcher_plain_values\)/u,
   );
   expect(source).toContain('"YURUCOMMU_RTC_TURN_SECRET"');
+  expect(source).toContain('"YURUCOMMU_RTC_ICE_SERVERS"');
   expect(source).toContain('"YURUCOMMU_RTC_SFU_TOKEN"');
   expect(source).toContain('"YURUCOMMU_RTC_SFU_APP_SECRET"');
   expect(source).toContain("local.dispatcher_sensitive_names");
   expect(dispatcherVersion).toMatch(
     /required_sensitive_vars\s+=\s+local\.dispatcher_sensitive_names/u,
+  );
+  expect(source).toMatch(
+    /var\.rtc_ice_servers_enabled\s+\?\s+\["YURUCOMMU_RTC_ICE_SERVERS"\]\s+:\s+\[\]/u,
   );
   expect(source).toMatch(
     /local\.rtc_turn_uris_configured\s+\?\s+\["YURUCOMMU_RTC_TURN_SECRET"\]\s+:\s+\[\]/u,
@@ -240,6 +247,10 @@ test("optional RTC configuration is projected only to the private dispatcher", a
     /local\.rtc_sfu_selected\s+&&\s+local\.rtc_sfu_app_id_configured\s+\?\s+\["YURUCOMMU_RTC_SFU_APP_SECRET"\]\s+:\s+\[\]/u,
   );
   expect(dispatcherVersion).not.toContain("YURUCOMMU_RTC_ICE_SERVERS");
+  expect(source).not.toContain(
+    "YURUCOMMU_RTC_ICE_SERVERS = var.rtc_ice_servers",
+  );
+  expect(source).not.toContain('variable "rtc_ice_servers"');
   expect(productVersion).not.toContain("YURUCOMMU_RTC_");
   expect(source).not.toContain("rtc_turn_secret = var.");
   expect(source).not.toContain("rtc_sfu_token = var.");
