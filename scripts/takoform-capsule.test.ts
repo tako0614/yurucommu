@@ -1,13 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import { readdir, readFile } from "node:fs/promises";
 
-import { TAKOFORM_PROVIDER_PIN } from "./takoform-provider-pin.ts";
+import {
+  TAKOFORM_PROVIDER_PIN,
+  TAKOFORM_PROVIDER_VERSION,
+} from "./takoform-provider-pin.ts";
 
 const moduleUrl = new URL("../deploy/takoform/", import.meta.url);
 const [main, outputs] = await Promise.all([
   readFile(new URL("main.tf", moduleUrl), "utf8"),
   readFile(new URL("outputs.tf", moduleUrl), "utf8"),
 ]);
+const readme = await readFile(new URL("README.md", moduleUrl), "utf8");
 const packageManifest = JSON.parse(
   await readFile(new URL("../package.json", import.meta.url), "utf8"),
 ) as { scripts?: Record<string, string> };
@@ -22,7 +26,7 @@ const dataSourceTypes = Array.from(
 );
 
 describe("portable Takoform v1 Capsule", () => {
-  test("validates the Provider 3 module in the portable repository gate", () => {
+  test("validates the portable module in the repository gate", () => {
     expect(packageManifest.scripts?.["check:opentofu"]).toContain(
       "bun scripts/validate-takoform-v1.ts",
     );
@@ -63,6 +67,19 @@ describe("portable Takoform v1 Capsule", () => {
     // Exact, never a range: a Provider that added a resource kind must be
     // adopted deliberately, not picked up by a `tofu init` on some other day.
     expect(providerBlock).toMatch(/version\s*=\s*"= \d+\.\d+\.\d+"\s*$/m);
+  });
+
+  test("uses published Provider 4.1 with static-token and token-file auth support", () => {
+    expect(TAKOFORM_PROVIDER_VERSION).toBe("4.1.0");
+    expect(readme).toContain("published Provider `4.1.0` release");
+    expect(readme).toContain("`token`");
+    expect(readme).toContain("`TAKOFORM_TOKEN`");
+    expect(readme).toContain("`token_file`");
+    expect(readme).toContain("`TAKOFORM_TOKEN_FILE`");
+    expect(readme).toContain("Configure one mode, not both");
+    expect(readme).not.toContain("renewable bearer-token");
+    expect(readme).not.toContain("Registry `4.1.0` is not published");
+    expect(main).not.toMatch(/TAKOFORM_TOKEN(?:_FILE)?/);
   });
 
   test("ships migration inputs in the repository instead of depending on source-build output", async () => {
