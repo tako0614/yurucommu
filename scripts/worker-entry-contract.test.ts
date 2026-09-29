@@ -54,13 +54,13 @@ describe("generated worker entry", () => {
     expect(candidateSource).not.toContain("createCallDispatcherForCalls({");
   });
 
-  test("accepts only known worker entry profile selections", () => {
+  test("normal build rejects ambient Actor profile", () => {
     expect(resolveWorkerEntryProfile(undefined)).toBe("default");
     expect(resolveWorkerEntryProfile("default")).toBe("default");
-    expect(resolveWorkerEntryProfile("actor-candidate")).toBe(
-      "actor-candidate",
+    expect(() => resolveWorkerEntryProfile("actor-candidate")).toThrow(
+      "use bun run build:actor-opentofu-candidate",
     );
-    expect(() => resolveWorkerEntryProfile("actor" as never)).toThrow(
+    expect(() => resolveWorkerEntryProfile("actor")).toThrow(
       "Unsupported YURUCOMM_WORKER_ENTRY_PROFILE: actor",
     );
   });

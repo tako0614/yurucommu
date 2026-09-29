@@ -42,11 +42,15 @@ export type WorkerEntryProfile = "default" | "actor-candidate";
 
 export function resolveWorkerEntryProfile(
   value = process.env.YURUCOMM_WORKER_ENTRY_PROFILE,
-): WorkerEntryProfile {
+): "default" {
   if (value === undefined || value === "default") return "default";
-  if (value === "actor-candidate") return value;
+  if (value === "actor-candidate") {
+    throw new Error(
+      "The normal Worker build cannot use the Actor candidate profile; use bun run build:actor-opentofu-candidate.",
+    );
+  }
   throw new Error(
-    `Unsupported YURUCOMM_WORKER_ENTRY_PROFILE: ${value}. Expected default or actor-candidate.`,
+    `Unsupported YURUCOMM_WORKER_ENTRY_PROFILE: ${value}. Expected default.`,
   );
 }
 
@@ -366,11 +370,11 @@ ${actorExports}`;
 }
 
 export async function main(): Promise<void> {
-  const profile = resolveWorkerEntryProfile();
+  resolveWorkerEntryProfile();
   await run(["bun", "run", "build:client"]);
   const assets: Record<string, StaticAsset> = {};
   await collectAssets(distDir, assets);
-  await writeFile(tempEntryFile, createEntrySource(assets, profile));
+  await writeFile(tempEntryFile, createEntrySource(assets));
   try {
     await build({
       entryPoints: [tempEntryFile.pathname],
@@ -382,9 +386,6 @@ export async function main(): Promise<void> {
       conditions: ["workerd", "worker", "browser"],
       external: ["cloudflare:*", "node:*"],
     });
-    if (profile === "actor-candidate") {
-      await buildCallDispatcherCandidate();
-    }
   } finally {
     stop();
     await rm(tempEntryFile).catch(() => undefined);
