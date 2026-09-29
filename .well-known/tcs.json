@@ -1,10 +1,10 @@
 {
   "schemaVersion": "tcs.repo/v1",
   "id": "yurucommu",
-  "modulePath": ".",
+  "modulePath": "deploy/takoform",
   "kind": "worker",
   "surface": "service",
-  "provider": "cloudflare",
+  "provider": "takoform",
   "category": "social",
   "suggestedName": "yurucommu",
   "name": {
