@@ -5,7 +5,7 @@ an executable root module in the tracked Git source. Its `main.tf.template`
 and `outputs.tf.template` deliberately do not match OpenTofu source suffixes,
 so Takosumi's tracked-file scan does not offer this candidate in the ordinary
 module chooser. It is not the default Yurucommu Capsule or a Store source
-option, and does not claim that released Takoform Provider 4.0.0 supports Actor
+option, and does not claim that the released Takoform Provider supports Actor
 resources. Validate it only with the exact local Provider candidate bytes and
 digest described below. The `required_providers` uses the local-only
 `0.0.0-dev` experimental pin. No registry release is expected to satisfy it,
