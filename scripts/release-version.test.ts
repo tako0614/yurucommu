@@ -618,7 +618,10 @@ describe("release surface status", () => {
   });
 
   test("routes both website CTAs through the Git repository install entrypoint", () => {
-    const releaseCommit = "a17e4f883cb9ba79e6d0650b497d8d97453c698f";
+    // The CTAs pin the commit of the current published release (v2.2.0-rc.3).
+    // No release step rewrites this pin, so it has to move with the release
+    // identity whenever one is cut; a stale pin ships a stale install.
+    const releaseCommit = "9451aa340562ac6a3b65d4e7c9846ba04ba0b26b";
     const repositoryHref = `https://app.takosumi.com/install?git=https%3A%2F%2Fgithub.com%2Ftako0614%2Fyurucommu.git&ref=${releaseCommit}&path=deploy%2Ftakoform`;
     const installHrefs = [
       ...siteSource.matchAll(
