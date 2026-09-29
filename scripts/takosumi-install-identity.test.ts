@@ -170,21 +170,62 @@ describe("install identity", () => {
     "refuses a release.lock.json commit that is not the released tag commit",
     async () => {
       const facts = await collectFacts();
-      const pinned =
-        facts.repository.releaseLock.releases[facts.repository.tag]!;
+      const pinnedCommit = "0".repeat(40);
+      const publishedCommit = "1".repeat(40);
       const releaseLock = {
         ...facts.repository.releaseLock,
         releases: {
           ...facts.repository.releaseLock.releases,
-          [facts.repository.tag]: { ...pinned, commit: "0".repeat(40) },
+          [facts.repository.tag]: {
+            artifact: {
+              filename: "yurucommu-worker.js",
+              url:
+                `https://github.com/tako0614/yurucommu/releases/download/` +
+                `${facts.repository.tag}/yurucommu-worker.js`,
+              sha256: facts.repository.bundleSha256,
+            },
+            manifest: {
+              url:
+                `https://github.com/tako0614/yurucommu/releases/download/` +
+                `${facts.repository.tag}/takosumi-artifact.json`,
+              sha256: `sha256:${"0".repeat(64)}`,
+            },
+            commit: pinnedCommit,
+            seededFrom: "test fixture",
+          },
         },
       };
       const failures = evaluateInstallIdentity({
         ...facts,
         repository: { ...facts.repository, releaseLock },
+        remote: { ...facts.remote, tagCommit: publishedCommit },
       });
       expect(failures.join("\n")).toContain(
-        `tag ${facts.repository.tag} resolves to`,
+        `tag ${facts.repository.tag} resolves to ${publishedCommit} but release.lock.json pins ${pinnedCommit}`,
+      );
+    },
+    NETWORK_TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "requires the release.lock.json pin as soon as the declared tag is published",
+    async () => {
+      const facts = await collectFacts();
+      const releaseLock = { releases: {} };
+      const unpublished = evaluateInstallIdentity({
+        ...facts,
+        repository: { ...facts.repository, releaseLock },
+        remote: { ...facts.remote, tagCommit: null },
+      });
+      expect(unpublished).toEqual([]);
+      const publishedCommit = "2".repeat(40);
+      const published = evaluateInstallIdentity({
+        ...facts,
+        repository: { ...facts.repository, releaseLock },
+        remote: { ...facts.remote, tagCommit: publishedCommit },
+      });
+      expect(published.join("\n")).toContain(
+        `tag ${facts.repository.tag} is published at ${publishedCommit} but release.lock.json carries no pin`,
       );
     },
     NETWORK_TEST_TIMEOUT_MS,
@@ -262,10 +303,18 @@ describe("release identity", () => {
     expect(link.url.searchParams.get("path")).toBe("deploy/takoform");
     expect(repository.tcs.modulePath).toBe("deploy/takoform");
     expect(repository.tcs.provider).toBe("takoform");
-    const pinnedCommit =
-      repository.releaseLock.releases[repository.tag]?.commit ?? "";
     const siteRef = link.url.searchParams.get("ref") ?? "";
-    expect(pinnedCommit).not.toBe("");
-    expect(pinnedCommit).toBe(siteRef);
+    const declaredCommit =
+      repository.releaseLock.releases[repository.tag]?.commit;
+    if (declaredCommit !== undefined) {
+      expect(siteRef).toBe(declaredCommit);
+      return;
+    }
+    // Between cutting a release and moving the pin, the website still hands
+    // out the newest release the ledger already carries a readback for.
+    const readbacks = Object.values(repository.releaseLock.releases)
+      .map((entry) => entry.commit)
+      .filter((commit) => /^[0-9a-f]{40}$/u.test(commit));
+    expect(readbacks).toContain(siteRef);
   });
 });

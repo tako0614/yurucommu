@@ -423,9 +423,17 @@ export function evaluateInstallIdentity(
     );
   }
   if (release === undefined) {
-    failures.push(
-      `release identity: release.lock.json carries no ${repository.tag} pin, so the declared tag cannot select an append-only artifact`,
-    );
+    // The ledger pins published releases. Before the declared tag exists there
+    // is no published revision to read back, and the release surface pins the
+    // bytes it publishes itself (\`requireReleaseIdentity\` in
+    // \`scripts/deploy.mjs\` compares \`main.tf\` to the freshly built artifact).
+    // The pin is mandatory the moment the tag exists, so a published release can
+    // never leave the ledger without its commit readback.
+    if (remote.tagCommit !== null) {
+      failures.push(
+        `release identity: tag ${repository.tag} is published at ${remote.tagCommit} but release.lock.json carries no pin`,
+      );
+    }
   } else {
     if (release.artifact.sha256 !== repository.bundleSha256) {
       failures.push(

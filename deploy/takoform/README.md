@@ -81,6 +81,14 @@ previous revision, which is valid only while it is the newest published
 release: the guard refuses a pin that is two releases behind, names a different
 app version, or resolves to a module pin the Host cannot plan.
 
+[`release.lock.json`](../../release.lock.json) is the append-only artifact
+ledger. An entry pins a *published* release: its tag commit, the
+`yurucommu-worker.js` digest, and the `takosumi-artifact.json` digest, all read
+back from the immutable GitHub Release. A release is therefore published before
+it is pinned, and the pin lands in the same change that moves the install ref.
+The guard requires the entry as soon as the declared tag exists, so a published
+release cannot stay pinned only by `main.tf`.
+
 One recorded gap: the published `v2.2.0-rc.3` revision was cut before
 `.well-known/tcs.json` was corrected, so that revision's own copy still says
 `modulePath: "."` with `provider: "cloudflare"`. The install link passes

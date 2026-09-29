@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.2.0 - 2026-09-29
+
+- Publish the stable release the website installs. The source-built Worker ships
+  the \`deploy/takoform\` module that pins Takoform Provider \`4.1.0\` with
+  Yurucommu core/API \`4.1.11\`, so a fresh install plans against the Forms a
+  current Takoserver declares instead of the superseded publisher set.
+- Declare one install identity and check it: \`.well-known/tcs.json\` installs
+  \`deploy/takoform\`, the website hands installers this release's commit, and
+  \`bun run check\` fails when the website pin, the module pin, or the release pin
+  disagree (\`scripts/takosumi-install-identity.test.ts\`).
+- Existing installations retain their selected release. This release adds no
+  in-place upgrade, no state migration, and no existing-media adoption.
+
 ## 2.2.0-rc.3 - 2026-09-06
 
 - Prepare the next fresh-install conformance candidate with Takoform Provider
