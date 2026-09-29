@@ -75,6 +75,15 @@ Takosumi は同じ Git revision の OpenTofu tree を読み、実在する root 
 source-options 文書はありません。必要な場合だけ ref、module path、サービス名を
 調整します。
 
+このリポジトリが宣言するインストール先は、[`.well-known/tcs.json`](.well-known/tcs.json)
+の `modulePath` とサイトの install link が指す `deploy/takoform` です。ルートの
+`main.tf` は Cloudflare へ直接置くための別 adapter で、Takoserver の install 先では
+ありません。`deploy/takoform` は Takoform Provider `4.1.0` を固定するので、ホストは
+その release が宣言する FormRef を宣言している必要があります。記録は
+[`deploy/takoform/host-support-profile.json`](deploy/takoform/host-support-profile.json)
+にあり、`bun run check` が module の pin、release identity、サイトの install ref を
+その記録と突き合わせます。
+
 一覧画面に Yurucommu が表示される Takosumi ホストでも、同じ Git URL と tree scanへ
 進みます。一覧は見つけやすくする入口であり、別の配布物や module authority では
 ありません。

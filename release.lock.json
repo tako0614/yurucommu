@@ -131,6 +131,19 @@
       },
       "commit": "a17e4f883cb9ba79e6d0650b497d8d97453c698f",
       "seededFrom": "owner deploy exact immutable GitHub Release/tag/downloaded asset and checksum readback on 2026-08-29"
+    },
+    "v2.2.0-rc.3": {
+      "artifact": {
+        "filename": "yurucommu-worker.js",
+        "url": "https://github.com/tako0614/yurucommu/releases/download/v2.2.0-rc.3/yurucommu-worker.js",
+        "sha256": "sha256:67aebddf7f4435353184deeb13855bdebe5a0f39a4393af400b7acc9b7c66257"
+      },
+      "manifest": {
+        "url": "https://github.com/tako0614/yurucommu/releases/download/v2.2.0-rc.3/takosumi-artifact.json",
+        "sha256": "sha256:e4c57f3b58af20ca4fe88d3d805388653bfd229f70acb94505550487c0881b68"
+      },
+      "commit": "9451aa340562ac6a3b65d4e7c9846ba04ba0b26b",
+      "seededFrom": "read-only download of the published immutable v2.2.0-rc.3 Release assets on 2026-09-29; reconciled against the released tag commit, the takosumi-artifact.json kind/app/ref/releaseTag/source commit, main.tf worker_bundle_sha256, and both downloaded digests"
     }
   }
 }

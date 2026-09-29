@@ -618,17 +618,17 @@ describe("release surface status", () => {
   });
 
   test("routes both website CTAs through the Git repository install entrypoint", () => {
-    // The CTAs pin the commit of the current published release (v2.2.0-rc.3).
-    // No release step rewrites this pin, so it has to move with the release
-    // identity whenever one is cut; a stale pin ships a stale install.
-    const releaseCommit = "9451aa340562ac6a3b65d4e7c9846ba04ba0b26b";
-    const repositoryHref = `https://app.takosumi.com/install?git=https%3A%2F%2Fgithub.com%2Ftako0614%2Fyurucommu.git&ref=${releaseCommit}&path=deploy%2Ftakoform`;
+    // The CTAs hand Takosumi one exact commit. `scripts/takosumi-install-identity.test.ts`
+    // owns the agreement between that commit, the release identity, and the
+    // Host support profile; this test owns the link shape and the retired
+    // wording, so a literal can never be compared to itself again.
     const installHrefs = [
       ...siteSource.matchAll(
         /href="([^"]*app\.takosumi\.com\/install[^"]*)"/gu,
       ),
     ].map((match) => match[1]);
-    expect(installHrefs).toEqual([repositoryHref, repositoryHref]);
+    expect(installHrefs).toHaveLength(2);
+    expect(new Set(installHrefs).size).toBe(1);
     for (const href of installHrefs) {
       const parsed = new URL(href.replaceAll("&amp;", "&"));
       expect(parsed.searchParams.get("git")).toBe(
@@ -636,7 +636,6 @@ describe("release surface status", () => {
       );
       expect(parsed.searchParams.has("kind")).toBe(false);
       expect(parsed.searchParams.get("path")).toBe("deploy/takoform");
-      expect(parsed.searchParams.get("ref")).toBe(releaseCommit);
       expect(parsed.searchParams.get("ref")).toMatch(/^[0-9a-f]{40}$/u);
     }
     expect(siteSource).not.toContain("path=.");
