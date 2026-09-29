@@ -35,6 +35,59 @@ initializes the pinned Provider fresh from the public Registry in an isolated
 temporary directory each run. A local Provider build can be validated instead
 through `TAKOFORM_PROVIDER_BINARY` / `TAKOFORM_PROVIDER_SHA256` (below).
 
+## Host support profile
+
+The Provider pin alone does not decide whether this module can plan. The Host
+declares which FormRefs it implements, and the pinned Provider release emits
+exactly the FormRefs of one publisher set. A release that pins a superseded set
+can never plan, however current it is itself: Provider `3.0.0` emits 31
+FormRefs out of its own candidate corpus, and a Host on the current set refuses
+`WorkerVersion@0.2.0` with `takoform.provider/host-does-not-support-form` and
+`retryable: false`.
+
+[`host-support-profile.json`](host-support-profile.json) records the Host
+declaration this module is installed into. It is a derived projection, not a
+second authority: Takoserver generates
+`src/generated/takoform-stable-v1-catalog.ts` and serves the same set at
+`/apis/forms.takoform.com/v1/support/forms`, and the record carries the exact
+Takoserver commit, the source digest, the publisher set id/tag/repository
+commit, every declared Form and Binding, and - per released Provider version -
+whether that release carries the same publisher set.
+
+```bash
+bun scripts/takoform-host-support-profile.ts --print   # read the published sources
+bun scripts/takoform-host-support-profile.ts --write   # refresh the record
+bun scripts/takoform-host-support-profile.ts --check   # refuse a stale record
+```
+
+`bun run check` re-derives the record from those recorded revisions and fails
+when it drifts, when this module pins a release that does not carry the Host's
+publisher set, when the module uses a Form the Host never declares, or when the
+website install pin hands out a revision whose `deploy/takoform` module
+disagrees (`scripts/takosumi-install-identity.test.ts`,
+`scripts/takoform-host-support-profile.ts`).
+
+## Install identity
+
+The repository declares one install destination for managed Takoserver hosts:
+this module. `.well-known/tcs.json` names it (`modulePath` `deploy/takoform`,
+`provider` `takoform`), `.well-known/takosumi.json` declares its inputs,
+source build, and interface, and the website install link passes the same
+`path` with the commit of the release `main.tf` `worker_release_tag` names.
+
+Nothing rewrites that install ref automatically, so cutting a release ends by
+moving it to that release's commit. Until that happens the site hands out the
+previous revision, which is valid only while it is the newest published
+release: the guard refuses a pin that is two releases behind, names a different
+app version, or resolves to a module pin the Host cannot plan.
+
+One recorded gap: the published `v2.2.0-rc.3` revision was cut before
+`.well-known/tcs.json` was corrected, so that revision's own copy still says
+`modulePath: "."` with `provider: "cloudflare"`. The install link passes
+`path=deploy/takoform` explicitly, so an install from the site still resolves
+this module; the correction reaches installers when the next release is cut and
+the pin moves to it.
+
 ## Runtime lane
 
 The Worker bundle runs on two binding shapes, and `runtime_lane` declares which

@@ -515,10 +515,14 @@
             Cloudflare Workers / Takoform
           </p>
           <div class="head-act">
-            <!-- Install CTA pin: the commit of the current published release,
-                 v2.2.0-rc.3. Bump it together with the release identity
-                 (main.tf worker_release_tag and .well-known/takosumi.json);
-                 no release step rewrites it. -->
+            <!-- Install CTA pin: the commit of the release this repository
+                 declares in main.tf worker_release_tag, currently
+                 v2.2.0-rc.3. No release step rewrites it, so cutting a
+                 release ends by bumping this pin to that release's commit.
+                 scripts/takosumi-install-identity.test.ts fails when the pin
+                 drifts from the release identity, ships a different module,
+                 or resolves to a revision whose deploy/takoform module pins
+                 a Takoform Provider Release the Host does not declare. -->
             <a
               href="https://app.takosumi.com/install?git=https%3A%2F%2Fgithub.com%2Ftako0614%2Fyurucommu.git&ref=9451aa340562ac6a3b65d4e7c9846ba04ba0b26b&path=deploy%2Ftakoform"
               class="btn"

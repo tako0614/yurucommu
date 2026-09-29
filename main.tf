@@ -220,6 +220,14 @@ variable "worker_bundle_path" {
   default     = "dist/yurucommu-worker.js"
 }
 
+# The three variables below, `package.json`'s version, the append-only
+# `release.lock.json` pin, the `CHANGELOG.md` section, and the website install
+# CTA ref are one release identity. `bun run check` compares them to each other
+# and to the published release in
+# `scripts/takosumi-install-identity.test.ts`, and the release entrypoint
+# re-reads the same pins before it publishes (scripts/deploy.mjs
+# `requireReleaseIdentity`). No release step rewrites the CTA ref, so moving it
+# is part of cutting a release, not of merging one.
 variable "worker_release_tag" {
   description = "Immutable GitHub release identity for the Worker artifact. With no explicit worker_bundle_url it selects the append-only release.lock.json entry; with an explicit URL the URL must select this exact tag. Set both empty to use worker_bundle_path."
   type        = string

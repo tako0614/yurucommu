@@ -1,0 +1,291 @@
+{
+  "format": "yurucommu.takoform-host-support-profile@v1",
+  "host": {
+    "product": "Takoserver",
+    "repository": "https://github.com/tako0614/takoserver.git",
+    "commit": "6beb1d1d619ebec2b5be1c129a7a53b7a1d9311f",
+    "sourcePath": "src/generated/takoform-stable-v1-catalog.ts",
+    "sourceSha256": "sha256:85fec32b0793b95699969656b6dcd9c227dfaa47731e8bb1adbecdeb21f2d71b",
+    "supportRoutePath": "/apis/forms.takoform.com/v1/support/forms",
+    "refusalCode": "takoform.provider/host-does-not-support-form",
+    "publisherSet": {
+      "repository": "https://github.com/tako0614/takoform-forms.git",
+      "repositoryCommit": "3231633605b737ce5279d7fc020b4780568e7091",
+      "setId": "e7f8a39311dd011b8467e97e7f300cabb9a6b06c",
+      "setTag": "forms/sets/e7f8a39311dd011b8467e97e7f300cabb9a6b06c",
+      "publicationStatus": "published",
+      "verificationReceiptDigest": "sha256:41c5d640813cf8f4aaaaa0e2c6ea7323100c2f7054fe4f02a2127837551d3055",
+      "formCount": 17,
+      "interfaceCount": 8,
+      "bindingCount": 7
+    },
+    "declaredForms": [
+      {
+        "resourceType": "takoform_module_worker",
+        "apiVersion": "edge.forms.takoform.com",
+        "kind": "ModuleWorker",
+        "definitionVersion": "0.1.0",
+        "schemaDigest": "sha256:049df2fb1eda53e4ccb0d646022a3ded8bc17c44eb433fa2e5ac0861efe42ac7"
+      },
+      {
+        "resourceType": "takoform_worker_bundle",
+        "apiVersion": "edge.forms.takoform.com",
+        "kind": "WorkerBundle",
+        "definitionVersion": "0.1.0",
+        "schemaDigest": "sha256:cb21984a579ae2706bddada8b44a22c0f8390994550c10d7c65df82edfa1141b"
+      },
+      {
+        "resourceType": "takoform_static_asset_bundle",
+        "apiVersion": "edge.forms.takoform.com",
+        "kind": "StaticAssetBundle",
+        "definitionVersion": "0.1.0",
+        "schemaDigest": "sha256:83142a3f824cf1fa2793fb73f4c32203ae07fb70db789d056aebe4c0ebe9334f"
+      },
+      {
+        "resourceType": "takoform_worker_version",
+        "apiVersion": "edge.forms.takoform.com",
+        "kind": "WorkerVersion",
+        "definitionVersion": "0.3.0",
+        "schemaDigest": "sha256:65870343bfab512fe5e7ae6faea8b3dbc48f9c9de0d4d9349dcbfd819f06d365"
+      },
+      {
+        "resourceType": "takoform_worker_deployment",
+        "apiVersion": "edge.forms.takoform.com",
+        "kind": "WorkerDeployment",
+        "definitionVersion": "0.2.0",
+        "schemaDigest": "sha256:3d5174bf2c3f351cf1468607689019e9eaa503a353eceb3095cf3d31bad62081"
+      },
+      {
+        "resourceType": "takoform_worker_custom_domain",
+        "apiVersion": "edge.forms.takoform.com",
+        "kind": "WorkerCustomDomain",
+        "definitionVersion": "0.1.0",
+        "schemaDigest": "sha256:1e4ae27dd53dfb8db977e3627e0b14f0d5e284703e9c435f48af31bd8e474110"
+      },
+      {
+        "resourceType": "takoform_worker_endpoint",
+        "apiVersion": "edge.forms.takoform.com",
+        "kind": "WorkerEndpoint",
+        "definitionVersion": "0.1.0",
+        "schemaDigest": "sha256:732f60aba45ce360d5ebbc6ac2e55fe4d59b65d353f4628e93960d71fbc2870f"
+      },
+      {
+        "resourceType": "takoform_worker_cron_trigger",
+        "apiVersion": "edge.forms.takoform.com",
+        "kind": "WorkerCronTrigger",
+        "definitionVersion": "0.1.0",
+        "schemaDigest": "sha256:5faa838c794b3326d0377d641db6247d4320b6ce39b1b0bb660d4deec18fe5ed"
+      },
+      {
+        "resourceType": "takoform_edge_kv_namespace",
+        "apiVersion": "edge.forms.takoform.com",
+        "kind": "EdgeKVNamespace",
+        "definitionVersion": "0.1.0",
+        "schemaDigest": "sha256:1a3f5d50bde53b4f743334dba3b0d0d28c1516727ca76d266beb61c5ee210022"
+      },
+      {
+        "resourceType": "takoform_edge_object_bucket",
+        "apiVersion": "edge.forms.takoform.com",
+        "kind": "ObjectBucket",
+        "definitionVersion": "0.1.0",
+        "schemaDigest": "sha256:154e2dcf100b1278f3badb7f7f2f25bba8c6bcf387c75fb6b9abc5ede1cbd557"
+      },
+      {
+        "resourceType": "takoform_sqlite_database",
+        "apiVersion": "edge.forms.takoform.com",
+        "kind": "SQLiteDatabase",
+        "definitionVersion": "0.1.0",
+        "schemaDigest": "sha256:c72eeb66ef96c4679b5c724fa1219d71c89bb7eeb9e543d73d868ec41bddddfe"
+      },
+      {
+        "resourceType": "takoform_sqlite_migration_set",
+        "apiVersion": "edge.forms.takoform.com",
+        "kind": "SQLiteMigrationSet",
+        "definitionVersion": "0.1.0",
+        "schemaDigest": "sha256:05a4aa2ebd8fbf659f05ae378288d9c9657cc7478e1437f013732199bfcce7b9"
+      },
+      {
+        "resourceType": "takoform_sqlite_migration_application",
+        "apiVersion": "edge.forms.takoform.com",
+        "kind": "SQLiteMigrationApplication",
+        "definitionVersion": "0.1.0",
+        "schemaDigest": "sha256:f3b42ede7bad664e494a04ea6f0fd167082988688fe96f4ec1fbb80db13a8e01"
+      },
+      {
+        "resourceType": "takoform_at_least_once_queue",
+        "apiVersion": "edge.forms.takoform.com",
+        "kind": "AtLeastOnceQueue",
+        "definitionVersion": "0.1.0",
+        "schemaDigest": "sha256:0355b4d3073bc2707fccb6edd8c90350892059ecf08abfec00a00d950c9eaa0e"
+      },
+      {
+        "resourceType": "takoform_queue_consumer",
+        "apiVersion": "edge.forms.takoform.com",
+        "kind": "QueueConsumer",
+        "definitionVersion": "0.1.0",
+        "schemaDigest": "sha256:fffd4cc133eb03aa7fd57af9316a68fb9813544e78e0e55111df1341d8b8f453"
+      },
+      {
+        "resourceType": "takoform_durable_workflow",
+        "apiVersion": "edge.forms.takoform.com",
+        "kind": "DurableWorkflow",
+        "definitionVersion": "0.1.0",
+        "schemaDigest": "sha256:eed7a1b971e3261df6bc4bafcdfa2fd67e7928f4ec66737d0134df383e7dfc0a"
+      },
+      {
+        "resourceType": "takoform_actor_namespace",
+        "apiVersion": "edge.forms.takoform.com",
+        "kind": "ActorNamespace",
+        "definitionVersion": "0.1.0",
+        "schemaDigest": "sha256:3669f3bebf7b4c6169d5a3cdf7e7ca4e8d1851516702a437be6ef69c2b9b98d7"
+      }
+    ],
+    "declaredBindings": [
+      {
+        "apiVersion": "bindings.takoform.com/v1alpha2",
+        "name": "module-worker.actor",
+        "version": "1.0.0",
+        "schemaDigest": "sha256:51f447536158b393b0afb61850d69567db8de91e3a82fa9b9ebc5ab6f87f2c5d"
+      },
+      {
+        "apiVersion": "bindings.takoform.com/v1alpha2",
+        "name": "module-worker.edge-kv",
+        "version": "1.0.0",
+        "schemaDigest": "sha256:ca7ea8945f6f0f51949a152bee2a340e5926709f2238bb0cfc8b4d84cb006471"
+      },
+      {
+        "apiVersion": "bindings.takoform.com/v1alpha2",
+        "name": "module-worker.object-bucket",
+        "version": "1.1.0",
+        "schemaDigest": "sha256:ff8661459b73a8d229e0915c698afad2aa297b5db90fe5e1693d346a7ae3adfb"
+      },
+      {
+        "apiVersion": "bindings.takoform.com/v1alpha2",
+        "name": "module-worker.queue-producer",
+        "version": "1.0.0",
+        "schemaDigest": "sha256:141f7413ff4dced8e379d9726100f66b584e76135156fb5a74a54e7b83edba1d"
+      },
+      {
+        "apiVersion": "bindings.takoform.com/v1alpha2",
+        "name": "module-worker.service",
+        "version": "1.0.0",
+        "schemaDigest": "sha256:79c3a23e506ffc4607ea2921e3dbe76c7d44b20c76e6181e65c611239b9c51aa"
+      },
+      {
+        "apiVersion": "bindings.takoform.com/v1alpha2",
+        "name": "module-worker.sqlite",
+        "version": "1.0.0",
+        "schemaDigest": "sha256:e5793c9601ceb2fce80938282a5c7eb1e249026bd7bde70083c0e93746eae4dc"
+      },
+      {
+        "apiVersion": "bindings.takoform.com/v1alpha2",
+        "name": "module-worker.workflow",
+        "version": "1.0.0",
+        "schemaDigest": "sha256:208349ee6f07981bde09e4b9ee2020b86a76887540965657ed07590bc2ad5a0e"
+      }
+    ]
+  },
+  "providerLedger": {
+    "repository": "https://github.com/tako0614/terraform-provider-takoform.git",
+    "commit": "3ac207309eef7e5f6ffd6525a75828e17f499fc9",
+    "path": "release/provider-form-identities.json"
+  },
+  "providerReleases": [
+    {
+      "version": "4.1.0",
+      "tag": "v4.1.0",
+      "tagCommit": "1da2b298923d409ac8d8e7fb63ddaf65c1317d64",
+      "address": "registry.terraform.io/tako0614/takoform",
+      "portableApiVersion": "forms.takoform.com/v1",
+      "publicationStatus": "candidate-only",
+      "formPublisherCommit": "3231633605b737ce5279d7fc020b4780568e7091",
+      "formSetTag": "forms/sets/e7f8a39311dd011b8467e97e7f300cabb9a6b06c",
+      "emittedFormCount": 17,
+      "supported": true
+    },
+    {
+      "version": "4.0.1",
+      "tag": "v4.0.1",
+      "tagCommit": "dc6364ee3a8dbc2db153545388d46b4b980904e0",
+      "address": "registry.terraform.io/tako0614/takoform",
+      "portableApiVersion": "forms.takoform.com/v1",
+      "publicationStatus": "candidate-only",
+      "formPublisherCommit": "3231633605b737ce5279d7fc020b4780568e7091",
+      "formSetTag": "forms/sets/e7f8a39311dd011b8467e97e7f300cabb9a6b06c",
+      "emittedFormCount": 17,
+      "supported": true
+    },
+    {
+      "version": "4.0.0",
+      "tag": "v4.0.0",
+      "tagCommit": "5440fa77af712520b4edbf0f888eacc098f418b3",
+      "address": "registry.terraform.io/tako0614/takoform",
+      "portableApiVersion": "forms.takoform.com/v1",
+      "publicationStatus": "candidate-only",
+      "formPublisherCommit": "3231633605b737ce5279d7fc020b4780568e7091",
+      "formSetTag": "forms/sets/e7f8a39311dd011b8467e97e7f300cabb9a6b06c",
+      "emittedFormCount": 17,
+      "supported": true
+    },
+    {
+      "version": "3.0.0",
+      "tag": "v3.0.0",
+      "tagCommit": "a225cfa7c84aa551981cc8ad56c9a281fa6e051a",
+      "address": "registry.terraform.io/tako0614/takoform",
+      "portableApiVersion": "forms.takoform.com/v1",
+      "publicationStatus": "candidate-only",
+      "formPublisherCommit": null,
+      "formSetTag": null,
+      "emittedFormCount": 31,
+      "supported": false,
+      "unsupportedFormRefs": [
+        "container.forms.takoform.com ContainerCustomDomain@0.1.0",
+        "container.forms.takoform.com ContainerEndpoint@0.1.0",
+        "container.forms.takoform.com ContainerRevision@0.1.0",
+        "container.forms.takoform.com ContainerTraffic@0.1.0",
+        "vector.forms.takoform.com VectorIndex@0.1.0",
+        "function.forms.takoform.com Function@0.1.0",
+        "function.forms.takoform.com FunctionDeployment@0.1.0",
+        "function.forms.takoform.com FunctionEndpoint@0.1.0",
+        "function.forms.takoform.com FunctionVersion@0.1.0",
+        "schedule.forms.takoform.com Schedule@0.1.0",
+        "queue.forms.takoform.com PullQueue@0.1.0",
+        "container.forms.takoform.com ContainerService@0.1.0",
+        "table.forms.takoform.com Table@0.1.0",
+        "topic.forms.takoform.com Topic@0.1.0",
+        "topic.forms.takoform.com TopicSubscription@0.1.0",
+        "edge.forms.takoform.com WorkerDeployment@0.1.0",
+        "edge.forms.takoform.com WorkerVersion@0.2.0"
+      ]
+    },
+    {
+      "version": "2.1.1",
+      "tag": "v2.1.1",
+      "tagCommit": "9810570d542434efcf177543de9d463bbfda0d09",
+      "address": "registry.terraform.io/tako0614/takoform",
+      "portableApiVersion": "forms.takoform.com/v1beta1",
+      "publicationStatus": "candidate-only",
+      "formPublisherCommit": null,
+      "formSetTag": null,
+      "emittedFormCount": 15,
+      "supported": false,
+      "unsupportedFormRefs": [
+        "edge.forms.takoform.com/v1beta1 ModuleWorker@0.1.0",
+        "edge.forms.takoform.com/v1beta1 WorkerBundle@0.1.0",
+        "edge.forms.takoform.com/v1beta1 StaticAssetBundle@0.1.0",
+        "edge.forms.takoform.com/v1beta1 WorkerVersion@0.1.0",
+        "edge.forms.takoform.com/v1beta1 WorkerDeployment@0.1.0",
+        "edge.forms.takoform.com/v1beta1 WorkerCustomDomain@0.1.0",
+        "edge.forms.takoform.com/v1beta1 WorkerEndpoint@0.1.0",
+        "edge.forms.takoform.com/v1beta1 WorkerCronTrigger@0.1.0",
+        "edge.forms.takoform.com/v1beta1 EdgeKVNamespace@0.1.0",
+        "edge.forms.takoform.com/v1beta1 ObjectBucket@0.1.0",
+        "edge.forms.takoform.com/v1beta1 SQLiteDatabase@0.1.0",
+        "edge.forms.takoform.com/v1beta1 SQLiteMigrationSet@0.1.0",
+        "edge.forms.takoform.com/v1beta1 SQLiteMigrationApplication@0.1.0",
+        "edge.forms.takoform.com/v1beta1 AtLeastOnceQueue@0.1.0",
+        "edge.forms.takoform.com/v1beta1 QueueConsumer@0.1.0"
+      ]
+    }
+  ]
+}

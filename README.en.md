@@ -72,6 +72,16 @@ candidates, the root and `deploy/takoform`, so the install screen asks which
 one to run. There is no separate source-options document. Adjust the ref,
 module path, or service name only when needed.
 
+The install destination this repository declares is `deploy/takoform`, named by
+[`.well-known/tcs.json`](.well-known/tcs.json) `modulePath` and by the site
+install link. The root `main.tf` is the separate direct-Cloudflare adapter, not
+a Takoserver install target. `deploy/takoform` pins Takoform Provider `4.1.0`,
+so the Host has to declare the FormRefs that release emits; the recorded Host
+declaration is
+[`deploy/takoform/host-support-profile.json`](deploy/takoform/host-support-profile.json),
+and `bun run check` compares that record, the module pin, the release identity,
+and the site install ref against each other.
+
 If a Takosumi host lists Yurucommu in its browse screen, that entry enters the
 same Git URL and tree scan. The list is a discovery shortcut, not a different
 distribution or module authority.
