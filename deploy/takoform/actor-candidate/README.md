@@ -1,13 +1,16 @@
 # Source-only Actor/OpenTofu candidate
 
-This directory is an unpublished, opt-in candidate module. It is not the
-default Yurucommu Capsule, Store source option, or a claim that released
-Takoform Provider 4.0.0 supports Actor resources. Validate it only with the
-exact local Provider candidate bytes and digest described below. The
-`required_providers` uses the local-only `0.0.0-dev` experimental pin. No
-registry release is expected to satisfy it, and the qualification script also
-requires the exact local executable and digest before it creates a development
-override.
+This directory contains unpublished, opt-in Actor/OpenTofu templates, not
+an executable root module in the tracked Git source. Its `main.tf.template`
+and `outputs.tf.template` deliberately do not match OpenTofu source suffixes,
+so Takosumi's tracked-file scan does not offer this candidate in the ordinary
+module chooser. It is not the default Yurucommu Capsule or a Store source
+option, and does not claim that released Takoform Provider 4.0.0 supports Actor
+resources. Validate it only with the exact local Provider candidate bytes and
+digest described below. The `required_providers` uses the local-only
+`0.0.0-dev` experimental pin. No registry release is expected to satisfy it,
+and the qualification script also requires the exact local executable and
+digest before it creates a development override.
 
 The candidate composes:
 
@@ -64,11 +67,14 @@ Use an executable built from exact Provider source commit
 Forms source commit `43b31a73e9255974b2bd06f0907d8cb5be17c3da`). Supply both its
 absolute path and SHA-256 to the candidate validator. It rejects missing or
 mismatched local-provider authority and installs a temporary OpenTofu
-development override. It does not run `tofu init`, so it never resolves the
-published Provider pin. Its loopback fixture serves v1 discovery and refuses
-all mutation/read routes; support-profile reads return undecided warnings.
-The full graph plan therefore checks Provider schema, HCL references, and
-computed dependency wiring only—not Host capability, Actor readiness, or
+development override. The validator copies the two templates byte-for-byte
+as `main.tf` and `outputs.tf` into a fresh temporary module, alongside the
+generated bundles and sibling migrations; the repository test checks both
+templates with `tofu fmt -`. It does not run `tofu init`, so it never resolves
+the published Provider pin. Its loopback fixture serves v1 discovery and
+refuses all mutation/read routes; support-profile reads return undecided
+warnings. The local development plan checks Provider schema, HCL references,
+and computed dependency wiring only—not Host capability, Actor readiness, or
 runtime behavior:
 
 ```bash

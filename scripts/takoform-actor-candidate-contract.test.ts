@@ -1,16 +1,15 @@
+import { spawnSync } from "node:child_process";
 import { readFile, readdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import { expect, test } from "bun:test";
 
-const candidateMain = new URL(
-  "../deploy/takoform/actor-candidate/main.tf",
+const candidateDirectory = new URL(
+  "../deploy/takoform/actor-candidate/",
   import.meta.url,
 );
-const candidateOutputs = new URL(
-  "../deploy/takoform/actor-candidate/outputs.tf",
-  import.meta.url,
-);
+const candidateMain = new URL("main.tf.template", candidateDirectory);
+const candidateOutputs = new URL("outputs.tf.template", candidateDirectory);
 const defaultMain = new URL("../deploy/takoform/main.tf", import.meta.url);
 const candidateBuild = new URL(
   "../scripts/build-yurucommu-worker.ts",
@@ -59,6 +58,25 @@ function requiredSensitiveNames(source: string): string[] {
     throw new Error("product Worker required_sensitive_vars is missing");
   return [...block.matchAll(/"([A-Z][A-Z0-9_]*)"/gu)].map((match) => match[1]);
 }
+
+test("candidate HCL stays scanner-invisible and formatted", async () => {
+  const files = await readdir(candidateDirectory);
+  expect(
+    files.filter((name) => /\.(?:tf|tofu)(?:\.json)?$/u.test(name)),
+  ).toEqual([]);
+
+  for (const template of [candidateMain, candidateOutputs]) {
+    const source = await readFile(template, "utf8");
+    const formatted = spawnSync("tofu", ["fmt", "-"], {
+      input: source,
+      encoding: "utf8",
+      timeout: 10_000,
+    });
+    expect(formatted.error).toBeUndefined();
+    expect(formatted.status).toBe(0);
+    expect(formatted.stdout).toBe(source);
+  }
+});
 
 test("Actor topology remains an explicit private candidate", async () => {
   const source = await readFile(candidateMain, "utf8");

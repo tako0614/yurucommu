@@ -94,8 +94,14 @@ export async function validateTakoformActorCandidate(
   try {
     await mkdir(moduleDir, { recursive: true });
     await Promise.all([
-      cp(new URL("main.tf", candidateSource), join(moduleDir, "main.tf")),
-      cp(new URL("outputs.tf", candidateSource), join(moduleDir, "outputs.tf")),
+      cp(
+        new URL("main.tf.template", candidateSource),
+        join(moduleDir, "main.tf"),
+      ),
+      cp(
+        new URL("outputs.tf.template", candidateSource),
+        join(moduleDir, "outputs.tf"),
+      ),
       cp(
         new URL(".generated/", candidateSource),
         join(moduleDir, ".generated"),
