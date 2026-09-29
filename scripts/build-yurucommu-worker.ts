@@ -1,6 +1,12 @@
 import { build, stop } from "esbuild";
-import { readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 
+import {
+  actorCandidateCorePlugin,
+  readActorCandidateCoreInput,
+  stageActorCandidateCore,
+} from "./actor-candidate-core.ts";
 import { PRODUCT_WIRE_IDENTITY } from "../src/product-identity.ts";
 
 type StaticAsset = {
@@ -15,6 +21,38 @@ const tempEntryFile = new URL(
   import.meta.url,
 );
 const outputFile = new URL("../dist/yurucommu-worker.js", import.meta.url);
+const dispatcherCandidateEntryFile = new URL(
+  "../actor-candidate/yurucommu-call-dispatcher.ts",
+  import.meta.url,
+);
+const dispatcherCandidateOutputFile = new URL(
+  "../dist/yurucommu-call-dispatcher.js",
+  import.meta.url,
+);
+const actorCandidateProductOutputFile = new URL(
+  "../deploy/takoform/actor-candidate/.generated/yurucommu-worker.js",
+  import.meta.url,
+);
+const actorCandidateDispatcherOutputFile = new URL(
+  "../deploy/takoform/actor-candidate/.generated/yurucommu-call-dispatcher.js",
+  import.meta.url,
+);
+
+export type WorkerEntryProfile = "default" | "actor-candidate";
+
+export function resolveWorkerEntryProfile(
+  value = process.env.YURUCOMM_WORKER_ENTRY_PROFILE,
+): "default" {
+  if (value === undefined || value === "default") return "default";
+  if (value === "actor-candidate") {
+    throw new Error(
+      "The normal Worker build cannot use the Actor candidate profile; use bun run build:actor-opentofu-candidate.",
+    );
+  }
+  throw new Error(
+    `Unsupported YURUCOMM_WORKER_ENTRY_PROFILE: ${value}. Expected default.`,
+  );
+}
 
 // Wire identity is never spelled out here. It is baked into the deployed
 // Worker, so a literal in this file is the one copy nobody can compare against
@@ -57,6 +95,16 @@ function bytesToBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
+export function shouldEmbedClientAsset(relativePath: string): boolean {
+  return (
+    relativePath !== "yurucommu-worker.js" &&
+    relativePath !== "yurucommu-entry.generated.ts" &&
+    // A previous explicit D-candidate build may share dist/ with client assets.
+    // It must never be served as a public static asset by the normal Worker.
+    relativePath !== "yurucommu-call-dispatcher.js"
+  );
+}
+
 async function collectAssets(
   dir: URL,
   assets: Record<string, StaticAsset>,
@@ -77,11 +125,7 @@ async function collectAssets(
       );
       continue;
     }
-    if (
-      !entry.isFile() ||
-      relativePath === "yurucommu-worker.js" ||
-      relativePath === "yurucommu-entry.generated.ts"
-    ) {
+    if (!entry.isFile() || !shouldEmbedClientAsset(relativePath)) {
       continue;
     }
     const bytes = await readFile(url);
@@ -105,7 +149,18 @@ async function run(command: string[]): Promise<void> {
   }
 }
 
-export function createEntrySource(assets: Record<string, StaticAsset>): string {
+export function createEntrySource(
+  assets: Record<string, StaticAsset>,
+  profile: WorkerEntryProfile = "default",
+): string {
+  const actorBindingTypes =
+    profile === "actor-candidate"
+      ? ' & Pick<Env, "REALTIME_STREAM" | "CALL_SIGNALING">'
+      : "";
+  const actorExports =
+    profile === "actor-candidate"
+      ? `\n// Explicit unpublished Actor candidate profile. A separate source-only\n// dispatcher bundle can be built from this product's actor-candidate entry.\n// No Actor namespace, private service, APP_URL, or Host installation is\n// configured here. CallSignalingActor refuses to start until its private\n// CALL_DISPATCHER service is configured.\nexport {\n  CallSignalingActor,\n  RealtimeStreamActor,\n} from "@takosjp/yurucommu-core/server";\n`
+      : "";
   return `import {
   createYurucommuBackendApp,
   handleYurucommuQueueBatch,
@@ -135,7 +190,7 @@ import type {
 } from "@cloudflare/workers-types";
 
 type RuntimeEnv = YurucommuRuntimeEnv;
-type WorkerBindings = YurucommuWorkerBindings;
+type WorkerBindings = YurucommuWorkerBindings${actorBindingTypes};
 type DeliveryMessage = DeliveryQueueMessageV1 | DeliveryDlqMessageV1;
 // Whichever shape the lane's host hands the queue handler: Cloudflare's
 // MessageBatch (ack/ackAll) or the edge.queue facade batch (acknowledgeAll).
@@ -210,37 +265,29 @@ async function runRetention(runtimeEnv: RuntimeEnv): Promise<void> {
 
 // Takes the ALREADY WRAPPED batch, not the raw event. Both lanes carry a queue
 // name — Cloudflare's \`MessageBatch.queue\` and the facade's
-// \`EdgeQueueBatch.queue\` — and \`wrapRuntimeMessageBatch\` copies it straight
-// through, so reading it here is one lane-independent read of exactly the value
-// \`handleYurucommuQueueBatch\` will compare its own configured names against.
+// \`EdgeQueueBatch.queue\`. The core acknowledges an unknown queue as a
+// foreign invocation. That is unsafe for this Worker's two declared consumers:
+// a Host/name projection mismatch would otherwise silently drain delivery or
+// dead-letter messages. Validate the exact identity before entering the core.
 function withDeliveryConsumerIdentity(
   batch: IQueueBatch<DeliveryMessage>,
   env: RuntimeEnv,
 ): RuntimeEnv {
-  const configuredDelivery = env.DELIVERY_QUEUE_NAME?.trim() ?? "";
-  const configuredDlq = env.DELIVERY_DLQ_NAME?.trim() ?? "";
-  if ((configuredDelivery.length > 0) !== (configuredDlq.length > 0)) {
-    throw new Error("Direct queue identities must declare delivery and DLQ together");
-  }
-  if (configuredDelivery && configuredDlq) {
-    return env; // The direct adapter already declares both distinct queue identities.
-  }
-
-  const queueName = batch.queue.trim();
-  if (!queueName) {
+  if (!batch.queue.trim()) {
     throw new Error("Queue invocation has no native identity");
   }
-  // The Takoform graph attaches exactly one QueueConsumer to this Worker, and
-  // that relation targets the delivery queue. The Provider is free to replace
-  // the logical Resource name with a collision-safe native name, so the app
-  // uses the authenticated invocation identity there. The direct Cloudflare
-  // adapter returns above with its separately configured delivery and DLQ
-  // identities intact because it attaches consumers for both queues.
-  return {
-    ...env,
-    DELIVERY_QUEUE_NAME: queueName,
-    DELIVERY_DLQ_NAME: "__unbound_dlq__:" + queueName,
-  };
+  const configuredDelivery = env.DELIVERY_QUEUE_NAME;
+  const configuredDlq = env.DELIVERY_DLQ_NAME;
+  if (!configuredDelivery?.trim() || !configuredDlq?.trim()) {
+    throw new Error("Delivery and DLQ queue identities must both be declared");
+  }
+  if (configuredDelivery === configuredDlq) {
+    throw new Error("Delivery and DLQ queue identities must be distinct");
+  }
+  if (batch.queue !== configuredDelivery && batch.queue !== configuredDlq) {
+    throw new Error("Unrecognized queue identity: " + batch.queue);
+  }
+  return env;
 }
 
 function applyProductBrowserMediaPolicy(response: Response): Response {
@@ -319,10 +366,11 @@ export default {
     await runRetention(runtimeEnv);
   },
 };
-`;
+${actorExports}`;
 }
 
 export async function main(): Promise<void> {
+  resolveWorkerEntryProfile();
   await run(["bun", "run", "build:client"]);
   const assets: Record<string, StaticAsset> = {};
   await collectAssets(distDir, assets);
@@ -344,6 +392,90 @@ export async function main(): Promise<void> {
   }
 }
 
+/**
+ * Builds C and private D into the isolated source-only OpenTofu candidate.
+ * The ordinary `dist/yurucommu-worker.js` and released module are untouched.
+ */
+export async function buildTakoformActorCandidate(): Promise<void> {
+  const packedCore = await stageActorCandidateCore(
+    readActorCandidateCoreInput(),
+  );
+  try {
+    await run(["bun", "run", "build:client"]);
+    const assets: Record<string, StaticAsset> = {};
+    await collectAssets(distDir, assets);
+    await writeFile(
+      tempEntryFile,
+      createEntrySource(assets, "actor-candidate"),
+    );
+    await mkdir(new URL("./", actorCandidateProductOutputFile), {
+      recursive: true,
+    });
+    await build({
+      entryPoints: [tempEntryFile.pathname],
+      outfile: actorCandidateProductOutputFile.pathname,
+      bundle: true,
+      format: "esm",
+      platform: "browser",
+      target: "es2022",
+      conditions: ["workerd", "worker", "browser"],
+      external: ["cloudflare:*", "node:*"],
+      nodePaths: [new URL("../node_modules", import.meta.url).pathname],
+      plugins: [actorCandidateCorePlugin(packedCore.root)],
+    });
+    await buildCallDispatcherCandidate(
+      actorCandidateDispatcherOutputFile,
+      packedCore.root,
+    );
+    const productBytes = await readFile(actorCandidateProductOutputFile);
+    const dispatcherBytes = await readFile(actorCandidateDispatcherOutputFile);
+    const digest = (bytes: Uint8Array) =>
+      createHash("sha256").update(bytes).digest("hex");
+    process.stdout.write(
+      `Actor candidate build: Core ${packedCore.version} sha256:${packedCore.sha256}; ` +
+        `product sha256:${digest(productBytes)}; dispatcher sha256:${digest(dispatcherBytes)}\n`,
+    );
+  } finally {
+    stop();
+    await rm(tempEntryFile).catch(() => undefined);
+    await packedCore.dispose();
+  }
+}
+
+/** Bundles only private D; never mutates Host topology. */
+export async function buildCallDispatcherCandidate(
+  outputFile = dispatcherCandidateOutputFile,
+  packedCoreRoot?: string,
+): Promise<void> {
+  await mkdir(new URL("./", outputFile), { recursive: true });
+  await build({
+    entryPoints: [dispatcherCandidateEntryFile.pathname],
+    outfile: outputFile.pathname,
+    bundle: true,
+    format: "esm",
+    platform: "browser",
+    target: "es2022",
+    conditions: ["workerd", "worker", "browser"],
+    external: ["cloudflare:*", "node:*"],
+    ...(packedCoreRoot
+      ? { nodePaths: [new URL("../node_modules", import.meta.url).pathname] }
+      : {}),
+    ...(packedCoreRoot
+      ? { plugins: [actorCandidateCorePlugin(packedCoreRoot)] }
+      : {}),
+  });
+}
+
 if (import.meta.main) {
-  await main();
+  try {
+    if (process.argv.includes("--actor-opentofu-candidate-only")) {
+      await buildTakoformActorCandidate();
+    } else if (process.argv.includes("--dispatcher-candidate-only")) {
+      await buildCallDispatcherCandidate();
+    } else {
+      await main();
+    }
+  } finally {
+    stop();
+  }
 }

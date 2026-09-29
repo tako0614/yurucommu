@@ -580,7 +580,7 @@ describe("release surface status", () => {
     expect(release?.obligations["no-overwrite"]).toContain("isImmutable:true");
   });
 
-  test("does not expose legacy release or deployment aliases", () => {
+  test("keeps the Capsule lifecycle release action separate from legacy aliases", () => {
     for (const script of [
       "release:plan",
       "release:site:plan",
@@ -595,6 +595,14 @@ describe("release surface status", () => {
       "bun scripts/takosumi-release.ts",
     );
     expect(packageJson.scripts.deploy).toBe("bun scripts/deploy.mjs");
+    // Takosumi invokes this owner command from InstallConfig lifecycle actions;
+    // it is not an alternate public deploy or immutable-release entrypoint.
+    expect(packageJson.scripts["takosumi:release"]).toBe(
+      "bun scripts/takosumi-release.ts",
+    );
+    expect(packageJson.scripts.test).toContain(
+      "scripts/takosumi-release.test.ts",
+    );
     expect(packageJson.scripts.test).toContain(
       "scripts/release-worker-smoke.test.ts",
     );

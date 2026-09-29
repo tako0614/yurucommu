@@ -736,7 +736,7 @@ function rejectObsoleteManagedStagingEnv(
   }
 }
 
-/** Managed Takoform must remain a single exact 4.0.0 Provider requirement. */
+/** Managed Takoform must match the shared exact Provider pin. */
 export function deriveManagedProviderBindings(
   requirements: readonly ProviderRequirement[],
   connectionId: string,

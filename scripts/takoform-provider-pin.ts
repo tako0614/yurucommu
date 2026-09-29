@@ -6,10 +6,11 @@
  * has to be found again in every gate that checks it.
  *
  * `MEDIA` is a portable `ObjectBucket` bound through `bucket_bindings`, and
- * neither exists before Provider `4.0.0`. Nothing else in the module is
- * specific to this release. See deploy/takoform/README.md.
+ * neither exists before Provider `4.0.0`. Provider `4.1.0` adds an optional
+ * token-file authentication mode; the module's Forms and resource graph stay
+ * unchanged. See deploy/takoform/README.md.
  */
-export const TAKOFORM_PROVIDER_VERSION = "4.0.0";
+export const TAKOFORM_PROVIDER_VERSION = "4.1.0";
 
 /** The exact `required_providers` line the module must carry. */
 export const TAKOFORM_PROVIDER_PIN = `version = "= ${TAKOFORM_PROVIDER_VERSION}"`;

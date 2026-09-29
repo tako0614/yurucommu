@@ -12,23 +12,28 @@ does not use the older compatibility resources or Host materialization output.
 
 `MEDIA` is a portable `ObjectBucket` Form (`takoform_edge_object_bucket`) bound
 through `bucket_bindings`, and neither exists before the publisher-set Provider
-`4.0.0` contract. `main.tf` therefore pins that published release exactly:
+`4.0.0` contract. `main.tf` pins the published Provider `4.1.0` release
+exactly:
 
 ```hcl
-      version = "= 4.0.0"
+      version = "= 4.1.0"
 ```
 
-Nothing else in this configuration is specific to that release. The same pin is
-declared once more as `TAKOFORM_PROVIDER_VERSION` in
+Provider `4.1.0` supports either static-token authentication (`token` /
+`TAKOFORM_TOKEN`) or token-file authentication (`token_file` /
+`TAKOFORM_TOKEN_FILE`). Configure one mode, not both. This module neither
+stores nor outputs either credential; its Forms and resource graph do not
+depend on the authentication mode. The same exact pin is declared once more as
+`TAKOFORM_PROVIDER_VERSION` in
 [`../../scripts/takoform-provider-pin.ts`](../../scripts/takoform-provider-pin.ts),
-so moving it stays a two-line change rather than a literal every gate has to
-find again.
+so the exact pin stays a two-line contract rather than a literal every gate
+has to find again.
 
 The root direct-Cloudflare module keeps its own checked-in
 `.terraform.lock.hcl`; this module has none, because `validate-takoform-v1.ts`
-initializes the pinned Provider fresh in an isolated temporary directory each
-run. An unpublished local candidate can be validated instead through
-`TAKOFORM_PROVIDER_BINARY` / `TAKOFORM_PROVIDER_SHA256` (below).
+initializes the pinned Provider fresh from the public Registry in an isolated
+temporary directory each run. A local Provider build can be validated instead
+through `TAKOFORM_PROVIDER_BINARY` / `TAKOFORM_PROVIDER_SHA256` (below).
 
 ## Runtime lane
 
@@ -210,15 +215,15 @@ consumes an application URL.
 
 ## Provider validation
 
-The portable repository gate initializes the exact Provider `4.0.0` release
-from its public registry source in an isolated temporary directory, then
-validates the prepared module:
+The portable repository gate initializes the exact published Provider
+`4.1.0` release from its public registry source in an isolated temporary
+directory, then validates the prepared module:
 
 ```bash
 bun scripts/validate-takoform-v1.ts
 ```
 
-To validate an unpublished local Provider candidate instead, provide both
+To validate a local Provider build instead, provide both
 the exact executable and its digest as explicit authority:
 
 ```bash
@@ -254,7 +259,7 @@ the selected source directory.
 
 The current graph has a checked-in lifecycle runner for a caller-supplied
 stable Host. It copies this module after rebuilding the Worker and preparing
-the digest-verified source bundle, applies every one of the 15 Provider 4.0.0
+the digest-verified source bundle, applies every one of the 15 Provider 4.1.0
 resources, reads the exact Host representations back, probes the assigned
 Yurucommu runtime, destroys the graph, and verifies that every exact resource
 reference is absent.
@@ -359,7 +364,7 @@ there is no separate version selector. The receipt is read from a canonical priv
 regular file and only its opaque digest and version ID are reported.
 A managed `deploy/takoform` run requires one exact Provider
 `registry.terraform.io/tako0614/takoform` binding and the module's pinned
-Provider `4.0.0`; the managed harness rejects the repository root module because
+Provider `4.1.0`; the managed harness rejects the repository root module because
 it is a different graph. The owner must also supply a separate Takoserver
 origin, Organization id, and read-only execution-evidence credential file.
 Before creating an InstallPlan, both the API session and the browser cookie

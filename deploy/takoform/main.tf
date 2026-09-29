@@ -4,7 +4,7 @@ terraform {
   required_providers {
     takoform = {
       source  = "registry.terraform.io/tako0614/takoform"
-      version = "= 4.0.0"
+      version = "= 4.1.0"
     }
   }
 }

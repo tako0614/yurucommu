@@ -12,6 +12,8 @@ import {
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
+import { TAKOFORM_PROVIDER_VERSION } from "./takoform-provider-pin.ts";
+
 import {
   assertManagedLauncher,
   assertManagedLauncherAbsent,
@@ -682,7 +684,7 @@ describe("Takosumi managed staging contract", () => {
           {
             provider: TAKOFORM_PROVIDER_SOURCE,
             moduleLocalName: "takoform",
-            version: "4.0.0",
+            version: TAKOFORM_PROVIDER_VERSION,
           },
         ],
         "conn_takoform",
@@ -1398,7 +1400,7 @@ describe("Takosumi managed staging contract", () => {
     const exact = {
       provider: TAKOFORM_PROVIDER_SOURCE,
       moduleLocalName: "takoform",
-      version: "4.0.0",
+      version: TAKOFORM_PROVIDER_VERSION,
     };
     expect(() =>
       assertInstallPlanProviderPin({ providerRequirements: [exact] }),
@@ -1417,13 +1419,13 @@ describe("Takosumi managed staging contract", () => {
       expect(() =>
         assertInstallPlanProviderPin({
           providerRequirements: [invalid],
-          providerVersion: "4.0.0",
+          providerVersion: TAKOFORM_PROVIDER_VERSION,
         }),
       ).toThrow();
       expect(() =>
         assertRunProviderPin({
           requiredProviderRequirements: [invalid],
-          providerVersion: "4.0.0",
+          providerVersion: TAKOFORM_PROVIDER_VERSION,
         }),
       ).toThrow();
     }
@@ -1822,7 +1824,10 @@ describe("Takosumi managed staging contract", () => {
           {
             path: "deploy/takoform",
             providerPackages: [
-              { source: TAKOFORM_PROVIDER_SOURCE, version: "4.0.0" },
+              {
+                source: TAKOFORM_PROVIDER_SOURCE,
+                version: TAKOFORM_PROVIDER_VERSION,
+              },
             ],
             rootProviderRequirements: [
               { source: TAKOFORM_PROVIDER_SOURCE, moduleLocalName: "takoform" },
