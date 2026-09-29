@@ -111,7 +111,7 @@ test("candidate build output is isolated from the released module", async () => 
     readFile(candidateBuild, "utf8"),
   ]);
   expect(candidate).toContain("source-only Actor candidate");
-  expect(released).toMatch(/version\s+=\s+"= 4\.0\.0"/u);
+  expect(released).toMatch(/version\s+=\s+"= 4\.1\.0"/u);
   expect(released).not.toContain("takoform_actor_namespace");
   expect(builder).toContain("buildTakoformActorCandidate");
   expect(builder).toContain("actorCandidateProductOutputFile");
@@ -162,7 +162,7 @@ test("private dispatcher shares the product database used by Core RTC", async ()
   expect(actorSource).toContain("createCallHubPort({");
   expect(actorSource).toContain("      db,");
   expect(hubPortSource).toContain("deps.db.query.actors.findFirst");
-  expect(hubPortSource).toContain("sendCallSignal(deps.db,");
+  expect(hubPortSource).toMatch(/sendCallSignal\(\s*deps\.db,/u);
   expect(hubPortSource).toContain("upsertCallSession(deps.db,");
 
   const dispatcherVersion = candidate
