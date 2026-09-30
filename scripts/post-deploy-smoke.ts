@@ -267,7 +267,9 @@ export async function runFunctionalProbe(
 
 export async function main(): Promise<void> {
   const outputsPath = requiredEnv("TAKOSUMI_CAPSULE_OUTPUTS_FILE");
-  const password = requiredEnv("YURUCOMMU_E2E_PASSWORD");
+  // Passwords are opaque credentials; path/identifier normalization changes them.
+  const password = process.env.YURUCOMMU_E2E_PASSWORD;
+  if (!password) throw new Error("YURUCOMMU_E2E_PASSWORD is required");
   const outputs = parseRecord(
     JSON.parse(await readFile(outputsPath, "utf8")),
     "Capsule outputs",
