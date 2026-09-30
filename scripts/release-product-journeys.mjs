@@ -1,4 +1,8 @@
 import { createHash } from "node:crypto";
+import {
+  loginProductSession,
+  logoutProductSession,
+} from "./release-auth-journey.mjs";
 
 // Disposable native artifact qualification only. These values are test session
 // credentials, not a login provider or production account configuration.
@@ -9,6 +13,20 @@ const PNG = Buffer.from(
 
 function requireEffect(condition, message) {
   if (!condition) throw new Error(message);
+}
+
+async function requirePrivateDenialBody(response, readJson, label) {
+  const denied = await readJson(response, label);
+  requireEffect(
+    denied !== null &&
+      Object.keys(denied).length === 1 &&
+      [
+        "Authentication required",
+        "Not authorized",
+        "Not authorized to access this media",
+      ].includes(denied.error),
+    `${label} included non-error content`,
+  );
 }
 
 function uploadBody(bytes = PNG) {
@@ -22,7 +40,7 @@ function uploadBody(bytes = PNG) {
 
 export async function qualifyProductJourneys(
   worker,
-  { origin, sessionSalt, readJson },
+  { origin, password, sessionSalt, readJson },
 ) {
   const db = await worker.getD1Database("DB");
   const media = await worker.getR2Bucket("MEDIA");
@@ -43,8 +61,8 @@ export async function qualifyProductJourneys(
       db
         .prepare(
           `INSERT INTO actors (ap_id, preferred_username, inbox, outbox,
-          followers_url, following_url, public_key_pem, private_key_pem)
-          VALUES (?, ?, ?, ?, ?, ?, 'fixture', 'fixture')`,
+          followers_url, following_url, public_key_pem, private_key_pem, role)
+          VALUES (?, ?, ?, ?, ?, ?, 'fixture', 'fixture', ?)`,
         )
         .bind(
           actor,
@@ -53,6 +71,7 @@ export async function qualifyProductJourneys(
           `${actor}/outbox`,
           `${actor}/followers`,
           `${actor}/following`,
+          role === "sender" ? "owner" : "member",
         ),
       db
         .prepare(
@@ -62,6 +81,16 @@ export async function qualifyProductJourneys(
         .bind(stored, actor, stored),
     ]);
   }
+
+  const authSession = await loginProductSession(worker, {
+    origin,
+    password,
+    sessionSalt,
+    readJson,
+    actorApId: actors.sender,
+    oldSession: sessions.sender,
+  });
+  sessions.sender = authSession.sessionId;
 
   const headers = (role) => ({
     origin,
@@ -188,7 +217,7 @@ export async function qualifyProductJourneys(
         denied.headers.get("cache-control") === "no-store",
       "media-readback exposed unattached private media to another viewer",
     );
-    await readJson(denied, "private-media-refusal");
+    await requirePrivateDenialBody(denied, readJson, "private-media-refusal");
   }
 
   const counts = () =>
@@ -249,7 +278,48 @@ export async function qualifyProductJourneys(
     "unauthenticated-api-refusal left durable write effects",
   );
 
+  await logoutProductSession(worker, { origin, readJson }, authSession);
+  const revokedDm = await worker.dispatchFetch(origin + recipientPath, {
+    method: "POST",
+    headers: { ...headers("sender"), "content-type": "application/json" },
+    body: JSON.stringify({ content: "revoked-session-write" }),
+  });
+  requireEffect(
+    revokedDm.status === 401,
+    "logout-revocation accepted a DM write",
+  );
+  await readJson(revokedDm, "logout-revocation");
+  const revokedUpload = await worker.dispatchFetch(
+    origin + "/api/media/upload",
+    {
+      method: "POST",
+      headers: headers("sender"),
+      body: uploadBody(),
+    },
+  );
+  requireEffect(
+    revokedUpload.status === 401,
+    "logout-revocation accepted a media write",
+  );
+  await readJson(revokedUpload, "logout-revocation");
+  const revokedRead = await worker.dispatchFetch(origin + upload.url, {
+    headers: headers("sender"),
+  });
+  requireEffect(
+    revokedRead.status === 403 &&
+      revokedRead.headers.get("cache-control") === "no-store",
+    "logout-revocation exposed private media",
+  );
+  await requirePrivateDenialBody(revokedRead, readJson, "logout-revocation");
+  requireEffect(
+    JSON.stringify(await counts()) === before &&
+      JSON.stringify(await keys()) === beforeKeys,
+    "logout-revocation left durable write effects",
+  );
   return [
+    "password-login",
+    "session-rotation",
+    "invalid-password-refusal",
     "authenticated-dm",
     "dm-isolation",
     "media-upload",
@@ -257,5 +327,6 @@ export async function qualifyProductJourneys(
     "private-media-read-refusal",
     "invalid-media-refusal",
     "unauthenticated-api-refusal",
+    "logout-revocation",
   ];
 }
