@@ -210,6 +210,13 @@ export async function qualifyProductJourneys(
     headers: { origin, "content-type": "application/json" },
     body: JSON.stringify({ content: "unauthenticated-write" }),
   });
+  requireEffect(
+    unauthenticatedDm.status === 401,
+    "unauthenticated-api-refusal accepted a DM write",
+  );
+  // Consume each response before dispatching the next request. Holding several
+  // unread workerd bodies fails reader cleanup under the pinned CI Bun 1.3.14.
+  await readJson(unauthenticatedDm, "write-refusal");
   const unauthenticatedMedia = await worker.dispatchFetch(
     `${origin}/api/media/upload`,
     {
@@ -218,6 +225,11 @@ export async function qualifyProductJourneys(
       body: uploadBody(),
     },
   );
+  requireEffect(
+    unauthenticatedMedia.status === 401,
+    "unauthenticated-api-refusal accepted a media write",
+  );
+  await readJson(unauthenticatedMedia, "write-refusal");
   const invalidMedia = await worker.dispatchFetch(
     `${origin}/api/media/upload`,
     {
@@ -227,18 +239,10 @@ export async function qualifyProductJourneys(
     },
   );
   requireEffect(
-    unauthenticatedDm.status === 401 &&
-      unauthenticatedMedia.status === 401 &&
-      invalidMedia.status === 400,
-    `unauthenticated-api-refusal failed: DM ${unauthenticatedDm.status}, media ${unauthenticatedMedia.status}, invalid PNG ${invalidMedia.status}`,
+    invalidMedia.status === 400,
+    "invalid-media-refusal accepted non-PNG bytes",
   );
-  for (const denied of [
-    unauthenticatedDm,
-    unauthenticatedMedia,
-    invalidMedia,
-  ]) {
-    await readJson(denied, "write-refusal");
-  }
+  await readJson(invalidMedia, "write-refusal");
   requireEffect(
     JSON.stringify(await counts()) === before &&
       JSON.stringify(await keys()) === beforeKeys,
