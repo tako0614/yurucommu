@@ -93,10 +93,24 @@ variable "session_hash_salt" {
 }
 
 variable "auth_password_hash" {
-  description = "Bootstrap password hash/token injected as AUTH_PASSWORD_HASH. Required for a managed Worker unless Takosumi Accounts OIDC is configured."
+  description = "Sensitive canonical PBKDF2 hash or unambiguous bootstrap token for AUTH_PASSWORD_HASH. Nonblank HCL string values are preserved; padded PBKDF2-shaped values are rejected. Required for a managed Worker unless Takosumi Accounts OIDC is configured."
   type        = string
   default     = ""
   sensitive   = true
+
+  # Core classifies exactly one colon between nonempty even-length hex parts
+  # as PBKDF2. Padding must never silently turn that hash into a bearer secret.
+  # Include both HCL and ECMAScript boundary whitespace (NEL and FEFF differ).
+  validation {
+    condition = !can(regex(
+      "^[\\p{Zs}\\t\\n\\r\\x{000B}\\x{000C}\\x{0085}\\x{FEFF}\\x{2028}\\x{2029}]*([0-9a-fA-F]{2})+:([0-9a-fA-F]{2})+[\\p{Zs}\\t\\n\\r\\x{000B}\\x{000C}\\x{0085}\\x{FEFF}\\x{2028}\\x{2029}]*$",
+      var.auth_password_hash,
+      )) || can(regex(
+      "^([0-9a-fA-F]{2})+:([0-9a-fA-F]{2})+$",
+      var.auth_password_hash,
+    ))
+    error_message = "auth_password_hash must not contain boundary whitespace around a PBKDF2-shaped value; supply its canonical hash explicitly to preserve password verification."
+  }
 }
 
 variable "takosumi_accounts_issuer_url" {
@@ -360,7 +374,13 @@ locals {
   workers_dev_url               = trimspace(var.cloudflare_workers_subdomain) != "" ? "https://${local.worker_name}.${trimspace(var.cloudflare_workers_subdomain)}.workers.dev" : null
   launch_url                    = trimspace(var.app_url) != "" ? trimspace(var.app_url) : local.workers_dev_url
   provided_encryption_key       = trimspace(var.encryption_key)
-  provided_auth_password_hash   = trimspace(var.auth_password_hash)
+  # Preserve the established HCL blank policy and omit values Core disables
+  # through ECMAScript String.trim(), including FEFF-only inputs.
+  auth_password_is_blank = trimspace(var.auth_password_hash) == "" || can(regex(
+    "^[\\p{Zs}\\t\\n\\r\\x{000B}\\x{000C}\\x{FEFF}\\x{2028}\\x{2029}]*$",
+    var.auth_password_hash,
+  ))
+  provided_auth_password_hash   = local.auth_password_is_blank ? "" : var.auth_password_hash
   provided_session_hash_salt    = var.session_hash_salt
   has_takosumi_accounts_oidc    = trimspace(var.takosumi_accounts_issuer_url) != "" && trimspace(var.takosumi_accounts_client_id) != ""
   effective_encryption_key      = local.provided_encryption_key != "" ? local.provided_encryption_key : random_id.encryption_key.hex

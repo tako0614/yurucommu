@@ -146,6 +146,23 @@ Pass them through sensitive OpenTofu inputs or Cloudflare Secrets. Review the
 database, storage, queues, Worker, and public URL in `tofu plan` before
 applying.
 
+
+The sensitive root `main.tf` input `auth_password_hash` projects a canonical
+PBKDF2 hash or unambiguous bootstrap token into the `AUTH_PASSWORD_HASH` Secret.
+Nonblank values retain the string OpenTofu receives. Values considered blank
+by HCL or Core are omitted and require complete OIDC configuration. PBKDF2-shaped
+values with boundary whitespace are rejected during plan: supply the canonical
+hash explicitly so it cannot silently become a bootstrap credential.
+
+The previous adapter removed boundary whitespace. Applying this change with a
+padded existing bootstrap input changes the credential. To retain the deployed
+credential, explicitly provide the value the previous adapter projected, without
+exposing it in logs or public configuration. OpenTofu strings undergo NFC
+normalization, so this path cannot guarantee original byte preservation for
+arbitrary Unicode tokens. Generate new bootstrap tokens securely using ASCII;
+if this string path changes an existing value, use the credential owner's
+procedure rather than an implicit rotation.
+
 [`wrangler.jsonc`](wrangler.jsonc) is the direct Worker configuration for
 resources that already exist. You must supply real IDs or names for D1, R2, KV,
 and the two Queues, together with the authentication Secrets.
