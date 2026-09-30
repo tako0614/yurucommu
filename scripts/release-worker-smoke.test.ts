@@ -78,10 +78,57 @@ describe("release Worker smoke", () => {
         "queue-dlq",
         "scheduled-retention",
         "scheduled-retention-idempotence",
+        "authenticated-dm",
+        "dm-isolation",
+        "media-upload",
+        "media-readback",
+        "private-media-read-refusal",
+        "invalid-media-refusal",
+        "unauthenticated-api-refusal",
       ],
       status: "PASSED",
     });
   }, 30_000);
+
+  const fetchAnchor = "    // No origin handling here.";
+  for (const [name, injected, error] of [
+    [
+      "DM success without durable recipient records",
+      `    if (request.method === "POST" && new URL(request.url).pathname.startsWith("/api/dm/user/")) {
+      const origin = new URL(request.url).origin;
+      return Response.json({ message: { id: origin + "/ap/objects/no-write", content: "release-smoke-dm" }, conversation_id: origin + "/ap/conversations/no-write" }, { status: 201 });
+    }\n`,
+      "authenticated-dm did not persist",
+    ],
+    [
+      "media success without a stored upload",
+      `    if (request.method === "POST" && new URL(request.url).pathname === "/api/media/upload") {
+      return Response.json({ id: "abcdef", url: "/media/abcdef.png", r2_key: "uploads/abcdef.png", content_type: "image/png" });
+    }\n`,
+      "media-upload did not persist",
+    ],
+    [
+      "DM read by an unrelated session",
+      `    if (request.method === "GET" && new URL(request.url).pathname.startsWith("/api/dm/user/") && request.headers.get("cookie") === "session=release-smoke-session-unrelated-ecf49f83") {
+      const headers = new Headers(request.headers);
+      headers.set("cookie", "session=release-smoke-session-recipient-a108328f");
+      request = new Request(request, { headers });
+    }\n`,
+      "DM isolation exposed a message to an unrelated actor",
+    ],
+  ] as const) {
+    test(`rejects ${name}`, async () => {
+      const result = runSmoke(
+        await buildGeneratedFixture((source) => {
+          expect(source).toContain(fetchAnchor);
+          return source.replace(fetchAnchor, injected + fetchAnchor);
+        }),
+      );
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stdout.toString()).toBe("");
+      expect(result.stderr.toString()).toContain(error);
+    }, 30_000);
+  }
 
   for (const [name, transform, error] of [
     [
