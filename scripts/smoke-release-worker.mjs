@@ -6,11 +6,195 @@ import { basename, dirname, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { Miniflare } from "miniflare";
-import { unstable_readConfig } from "wrangler";
+import { unstable_readConfig, unstable_splitSqlQuery } from "wrangler";
 
 const MAX_RESPONSE_BYTES = 1024 * 1024;
 const APP_ORIGIN = "https://release-smoke.yurucommu.invalid";
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const DELIVERY_QUEUE = "yurucommu-delivery";
+const DELIVERY_DLQ = "yurucommu-delivery-dlq";
+
+async function qualifyBackgroundEvents(worker) {
+  const schemaBytes = readFileSync(
+    resolve(repo, "deploy/takoform/migrations/schema-bundle.json"),
+  );
+  const schema = JSON.parse(schemaBytes);
+  if (
+    schema.apiVersion !== "takosumi.resource-migrations/v1" ||
+    schema.engine !== "sqlite" ||
+    !Array.isArray(schema.entries) ||
+    schema.entries.length === 0
+  ) {
+    throw new Error("release smoke requires the product migration bundle");
+  }
+  const db = await worker.getD1Database("DB");
+  for (const entry of schema.entries) {
+    if (
+      typeof entry.sql !== "string" ||
+      entry.sha256 !== `sha256:${sha256(entry.sql)}`
+    ) {
+      throw new Error(`migration digest mismatch: ${entry.name}`);
+    }
+    // Each product-owned migration is one atomic native D1 batch, including
+    // the bundled foreign-key-safe table-rebuild override.
+    await db.batch(
+      unstable_splitSqlQuery(entry.sql).map((sql) => db.prepare(sql)),
+    );
+  }
+
+  const author = `${APP_ORIGIN}/ap/users/smoke`;
+  await db
+    .prepare(
+      `INSERT INTO actors (ap_id, preferred_username, inbox, outbox,
+        followers_url, following_url, public_key_pem, private_key_pem, post_count)
+       VALUES (?, 'smoke', ?, ?, ?, ?, 'fixture', 'fixture', 2)`,
+    )
+    .bind(
+      author,
+      `${author}/inbox`,
+      `${author}/outbox`,
+      `${author}/followers`,
+      `${author}/following`,
+    )
+    .run();
+
+  const native = await worker.getWorker();
+  for (const [label, queue, expectedStatus, autoDlqAttempt] of [
+    ["queue-fanout", DELIVERY_QUEUE, "completed", 0],
+    ["queue-dlq", DELIVERY_DLQ, "failed", 3],
+  ]) {
+    const activity = `${APP_ORIGIN}/ap/activities/${label}`;
+    const id = sha256(`fanout|followers|${activity}|${author}|`);
+    await db.batch([
+      db
+        .prepare(
+          "INSERT INTO activities (ap_id, type, actor_ap_id, raw_json) VALUES (?, 'Create', ?, '{}')",
+        )
+        .bind(activity, author),
+      db
+        .prepare(
+          "INSERT INTO delivery_fanouts (id, activity_ap_id, kind, target_ap_id, status) VALUES (?, ?, 'followers', ?, 'published')",
+        )
+        .bind(id, activity, author),
+    ]);
+    const result = await native.queue(queue, [
+      {
+        id: label,
+        timestamp: new Date(),
+        attempts: 1,
+        body: {
+          version: 1,
+          type: "fanout_followers",
+          activityId: activity,
+          followeeApId: author,
+          scheduledAt: new Date().toISOString(),
+          autoDlqAttempt,
+        },
+      },
+    ]);
+    if (
+      result.outcome !== "ok" ||
+      result.retryBatch?.retry ||
+      result.retryMessages.length !== 0 ||
+      !result.explicitAcks.includes(label)
+    ) {
+      throw new Error(
+        `${label} was not explicitly acknowledged: ${JSON.stringify(result)}`,
+      );
+    }
+    const row = await db
+      .prepare(
+        "SELECT status, last_error, completed_at FROM delivery_fanouts WHERE id = ?",
+      )
+      .bind(id)
+      .first();
+    if (
+      row?.status !== expectedStatus ||
+      !row.completed_at ||
+      (label === "queue-dlq" && !row.last_error)
+    ) {
+      throw new Error(
+        `${label} did not persist its ${expectedStatus} outbox result`,
+      );
+    }
+  }
+
+  const media = await worker.getR2Bucket("MEDIA");
+  const fixtures = [
+    { name: "expired", end: "2000-01-01T00:00:00.000Z" },
+    { name: "active", end: "2999-01-01T00:00:00.000Z" },
+  ];
+  for (const { name, end } of fixtures) {
+    const key = `uploads/release-smoke-${name}.webp`;
+    await media.put(key, `release-smoke-${name}`);
+    await db.batch([
+      db
+        .prepare(
+          "INSERT INTO objects (ap_id, type, attributed_to, attachments_json, end_time) VALUES (?, 'Story', ?, ?, ?)",
+        )
+        .bind(
+          `${APP_ORIGIN}/ap/objects/${name}`,
+          author,
+          JSON.stringify([{ r2_key: key }]),
+          end,
+        ),
+      db
+        .prepare(
+          "INSERT INTO media_uploads (id, r2_key, uploader_ap_id, content_type, size) VALUES (?, ?, ?, 'image/webp', ?)",
+        )
+        .bind(name, key, author, `release-smoke-${name}`.length),
+    ]);
+  }
+
+  // Repeat the exact native event to catch a missing await, a no-op export,
+  // incorrect MEDIA adaptation, or double-decrementing the author's counter.
+  for (let pass = 0; pass < 2; pass++) {
+    const result = await native.scheduled({
+      cron: "0 * * * *",
+      scheduledTime: new Date(),
+    });
+    if (result.outcome !== "ok") {
+      throw new Error(`scheduled retention failed: ${JSON.stringify(result)}`);
+    }
+    for (const { name } of fixtures) {
+      const expected = name === "active";
+      const object = await db
+        .prepare("SELECT ap_id FROM objects WHERE ap_id = ?")
+        .bind(`${APP_ORIGIN}/ap/objects/${name}`)
+        .first();
+      const upload = await db
+        .prepare("SELECT id FROM media_uploads WHERE id = ?")
+        .bind(name)
+        .first();
+      const blob = await media.get(`uploads/release-smoke-${name}.webp`);
+      if (
+        Boolean(object) !== expected ||
+        Boolean(upload) !== expected ||
+        Boolean(blob) !== expected
+      ) {
+        throw new Error(
+          `scheduled retention did not preserve the expected ${name} story/media state`,
+        );
+      }
+      if (blob && (await blob.text()) !== `release-smoke-${name}`) {
+        throw new Error("scheduled retention changed the active media bytes");
+      }
+    }
+    const actor = await db
+      .prepare("SELECT post_count FROM actors WHERE ap_id = ?")
+      .bind(author)
+      .first();
+    if (actor?.post_count !== 1) {
+      throw new Error(
+        "scheduled retention did not decrement the story count exactly once",
+      );
+    }
+  }
+  return {
+    schemaSha256: `sha256:${sha256(schemaBytes)}`,
+    migrationCount: schema.entries.length,
+  };
+}
 
 function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
@@ -73,18 +257,26 @@ async function smokeNativeWorker(artifactPath, artifactDigest) {
     bindings: {
       APP_URL: APP_ORIGIN,
       AUTH_PASSWORD_HASH: "release-smoke-only",
-      DELIVERY_QUEUE_NAME: "yurucommu-delivery",
-      DELIVERY_DLQ_NAME: "yurucommu-delivery-dlq",
+      DELIVERY_QUEUE_NAME: DELIVERY_QUEUE,
+      DELIVERY_DLQ_NAME: DELIVERY_DLQ,
       ENCRYPTION_KEY: "00".repeat(32),
     },
     d1Databases: ["DB"],
     kvNamespaces: ["KV"],
     r2Buckets: ["MEDIA"],
     queueProducers: ["DELIVERY_QUEUE", "DELIVERY_DLQ"],
+    // Application diagnostics go to stderr; stdout is one evidence document.
+    handleRuntimeStdio(stdout, stderr) {
+      stdout.pipe(process.stderr, { end: false });
+      stderr.pipe(process.stderr, { end: false });
+    },
   });
 
   try {
     await worker.ready;
+    // HTTP middleware can enqueue durable outbox work. Prepare and exercise
+    // the product schema before any request reaches those background tasks.
+    const background = await qualifyBackgroundEvents(worker);
 
     const readyResponse = await worker.dispatchFetch(`${APP_ORIGIN}/readyz`, {
       headers: { accept: "application/json" },
@@ -141,7 +333,16 @@ async function smokeNativeWorker(artifactPath, artifactDigest) {
       compatibilityDate: sourceConfig.compatibility_date,
       compatibilityFlags: sourceConfig.compatibility_flags,
       substrate: "runtime-native-bindings",
-      checks: ["readyz", "discovery", "embedded-ui"],
+      ...background,
+      checks: [
+        "readyz",
+        "discovery",
+        "embedded-ui",
+        "queue-fanout",
+        "queue-dlq",
+        "scheduled-retention",
+        "scheduled-retention-idempotence",
+      ],
       status: "PASSED",
     };
   } finally {
