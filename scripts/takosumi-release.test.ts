@@ -133,6 +133,23 @@ test("migrations-only release can detect when dependency materialization is requ
   expect(hasCoreMigrationsDir({})).toBe(true);
 });
 
+test("release salt is an exact secret and never a plaintext config value", () => {
+  const salt = "  test-only-release-salt-with-intentional-spaces  ";
+  const config = releaseConfigFromOutputs(
+    {
+      worker_name: { value: "test-worker", sensitive: false },
+      launch_url: { value: "https://salt.example.test", sensitive: false },
+      cloudflare_d1_database_name: { value: "test-db", sensitive: false },
+      cloudflare_d1_database_id: { value: "test-db-id", sensitive: false },
+      cloudflare_kv_namespace_id: { value: "test-kv-id", sensitive: false },
+    },
+    { YURUCOMMU_SESSION_HASH_SALT: salt },
+  );
+  expect(config.secrets.YURUCOMMU_SESSION_HASH_SALT).toBe(salt);
+  expect(config.vars.YURUCOMMU_SESSION_HASH_SALT).toBeUndefined();
+  expect(buildWranglerToml(config)).not.toContain(salt);
+});
+
 test("generated release config keeps migrations, retention, and queue failure handling", () => {
   const source = buildWranglerToml({
     workerName: "yurucommu-test",
@@ -196,7 +213,7 @@ test("legacy D1 migration reconciliation refuses gaps or unknown files", () => {
   ).toThrow("not an exact prefix");
 });
 
-test("full release fails closed when encryption or authentication is absent", () => {
+test("full release refuses missing session salt, encryption or authentication", () => {
   const base: YurucommuReleaseConfig = {
     workerName: "yurucommu-test",
     appUrl: "https://yurucommu.example.test",
@@ -208,6 +225,7 @@ test("full release fails closed when encryption or authentication is absent", ()
   };
   expect(missingReleaseReadinessInputs(base)).toEqual([
     "ENCRYPTION_KEY",
+    "YURUCOMMU_SESSION_HASH_SALT",
     "AUTH_METHOD",
   ]);
   expect(
@@ -217,7 +235,24 @@ test("full release fails closed when encryption or authentication is absent", ()
         TAKOSUMI_ACCOUNTS_ISSUER_URL: "https://accounts.example.test",
         TAKOSUMI_ACCOUNTS_CLIENT_ID: "client-id",
       },
-      secrets: { ENCRYPTION_KEY: "a".repeat(64) },
+      secrets: {
+        ENCRYPTION_KEY: "a".repeat(64),
+        YURUCOMMU_SESSION_HASH_SALT: "test-only-session-salt",
+      },
     }),
   ).toEqual([]);
+  for (const value of [undefined, "", " \n\t "]) {
+    expect(
+      missingReleaseReadinessInputs({
+        ...base,
+        secrets: {
+          ENCRYPTION_KEY: "a".repeat(64),
+          AUTH_PASSWORD_HASH: "test-only-password",
+          ...(value === undefined
+            ? {}
+            : { YURUCOMMU_SESSION_HASH_SALT: value }),
+        },
+      }),
+    ).toEqual(["YURUCOMMU_SESSION_HASH_SALT"]);
+  }
 });

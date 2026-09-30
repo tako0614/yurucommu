@@ -1,5 +1,14 @@
 # Yurucommu on Takoform v1
 
+The WorkerVersion also requires `YURUCOMMU_SESSION_HASH_SALT` on its sensitive
+runtime connection. The v2.4 manifest declares a separate 32-byte hex generated
+secret binding; it never stores a secret value in repository metadata. This is
+the fresh-install source contract. Adding a generated-secret slot changes the
+Takosumi runtime profile: its current materializer may regenerate the existing
+ENCRYPTION_KEY too. Before updating an existing Capsule, establish secret custody
+and preserve its encryption key/session salt or use a reviewed migration and
+recovery plan. Source tests do not qualify that platform update or authorize Apply.
+
 This directory is Yurucommu's portable OpenTofu adapter for the stable
 `forms.takoform.com/v1` Host lane. The product-owned logical contract lives in
 [`../product-resources.json`](../product-resources.json); the root OpenTofu
@@ -341,7 +350,7 @@ path before resource readback. `TAKOFORM_TOKEN` is supplied only to the
 Provider child for mutations; `TAKOFORM_EVIDENCE_TOKEN` is supplied only to
 direct Host discovery/readback/absence evidence. Keep them as separate
 credentials. The tokens are never synthesized or printed by the runner. For
-this full E2E the five `required_sensitive_vars` values are fresh synthetic
+this full E2E the six `required_sensitive_vars` values are fresh synthetic
 test inputs generated in memory for each run; they
 are supplied only to the exact Provider 4 instance during Apply. The runner
 passes an empty ephemeral map for Plan/Destroy and the exact map for Apply

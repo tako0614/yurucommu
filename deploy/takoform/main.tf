@@ -158,6 +158,7 @@ resource "takoform_worker_version" "worker" {
   vars_json      = jsonencode(local.worker_plain_values)
   required_sensitive_vars = [
     "ENCRYPTION_KEY",
+    "YURUCOMMU_SESSION_HASH_SALT",
     "TAKOSUMI_ACCOUNTS_ISSUER_URL",
     "TAKOSUMI_ACCOUNTS_CLIENT_ID",
     "TAKOSUMI_ACCOUNTS_OWNER_SUB",

@@ -779,6 +779,9 @@ export function missingReleaseReadinessInputs(
       Boolean(config.vars.OIDC_CLIENT_ID));
   const missing: string[] = [];
   if (!config.secrets.ENCRYPTION_KEY) missing.push("ENCRYPTION_KEY");
+  if (!config.secrets.YURUCOMMU_SESSION_HASH_SALT?.trim()) {
+    missing.push("YURUCOMMU_SESSION_HASH_SALT");
+  }
   if (!hasAuth) missing.push("AUTH_METHOD");
   return missing;
 }
@@ -787,7 +790,7 @@ function assertReleaseReadinessConfig(config: YurucommuReleaseConfig): void {
   const missing = missingReleaseReadinessInputs(config);
   if (missing.length !== 0) {
     throw new Error(
-      `Refusing to deploy a Worker that cannot become ready; provide operator inputs: ${missing.join(", ")}`,
+      `Refusing to deploy without required production inputs: ${missing.join(", ")}`,
     );
   }
 }

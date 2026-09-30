@@ -73,6 +73,7 @@ export const RUNTIME_INPUT_NAMES = [
   "TAKOSUMI_ACCOUNTS_ISSUER_URL",
   "TAKOSUMI_ACCOUNTS_OWNER_SUB",
   "TAKOSUMI_ACCOUNTS_REDIRECT_URI",
+  "YURUCOMMU_SESSION_HASH_SALT",
 ] as const;
 const RUNTIME_INPUT_NONCE_BYTES = 16;
 const RUNTIME_INPUT_OPEN_TIMEOUT_MS = 30_000;
@@ -453,6 +454,7 @@ export function createRuntimeInputMaterial(
     nonce,
     values: {
       ENCRYPTION_KEY: randomBytes(32).toString("hex"),
+      YURUCOMMU_SESSION_HASH_SALT: randomBytes(32).toString("hex"),
       TAKOSUMI_ACCOUNTS_ISSUER_URL: `https://accounts.invalid/yurucommu-e2e/${slug}`,
       TAKOSUMI_ACCOUNTS_CLIENT_ID: `yurucommu-e2e-${slug}`,
       TAKOSUMI_ACCOUNTS_OWNER_SUB: `takos:e2e:${slug}`,
@@ -463,7 +465,7 @@ export function createRuntimeInputMaterial(
 
 /**
  * Build the second, normal-OIDC runtime-input set from the exact assigned
- * WorkerEndpoint output. The immutable encryption key is intentionally carried
+ * WorkerEndpoint output. The encryption key and session salt are carried
  * forward; only the Provider nonce and OIDC settings change for the update.
  */
 export function createNormalOidcRuntimeInputMaterial(
@@ -471,12 +473,18 @@ export function createNormalOidcRuntimeInputMaterial(
   issuerUrl: string,
   launchUrl: string,
   encryptionKey: string,
+  sessionHashSalt: string,
 ): TakoformRuntimeInputMaterial {
   if (!/^[a-z][a-z0-9-]{1,50}[a-z0-9]$/u.test(runId)) {
     throw new Error("normal OIDC run id is not a safe lifecycle identifier");
   }
   if (!/^[a-f0-9]{64}$/u.test(encryptionKey)) {
     throw new Error("normal OIDC update requires the original encryption key");
+  }
+  if (!/^[a-f0-9]{64}$/u.test(sessionHashSalt)) {
+    throw new Error(
+      "normal OIDC update requires the original test session salt",
+    );
   }
   const issuer = absoluteHttpUrl(issuerUrl, "OIDC issuer URL");
   if (issuer.protocol !== "https:") {
@@ -499,6 +507,7 @@ export function createNormalOidcRuntimeInputMaterial(
     nonce: randomBytes(RUNTIME_INPUT_NONCE_BYTES).toString("base64url"),
     values: {
       ENCRYPTION_KEY: encryptionKey,
+      YURUCOMMU_SESSION_HASH_SALT: sessionHashSalt,
       TAKOSUMI_ACCOUNTS_CLIENT_ID: clientId,
       TAKOSUMI_ACCOUNTS_ISSUER_URL: issuer.origin,
       TAKOSUMI_ACCOUNTS_OWNER_SUB: ownerSub,
@@ -1587,13 +1596,14 @@ export async function main(): Promise<void> {
         // The first Apply intentionally used the value-free fake issuer. The
         // handoff is published only after its exact assigned HTTPS output is
         // known; the disposable harness registers that callback, then the
-        // second plan/apply rotates the immutable Provider nonce. ENCRYPTION_KEY
-        // remains identical across both WorkerVersion inputs.
+        // second plan/apply rotates the immutable Provider nonce. Encryption key
+        // and session salt remain identical across both WorkerVersion inputs.
         const normalInputs = createNormalOidcRuntimeInputMaterial(
           projectName,
           normalOidcIssuer,
           launchUrl,
           runtimeInputs.values.ENCRYPTION_KEY,
+          runtimeInputs.values.YURUCOMMU_SESSION_HASH_SALT,
         );
         tofuRedactionValues.push(
           normalInputs.nonce,
