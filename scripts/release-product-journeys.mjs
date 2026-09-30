@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { qualifyPostAttachments } from "./release-post-journey.mjs";
 import {
   loginProductSession,
   logoutProductSession,
@@ -220,6 +221,15 @@ export async function qualifyProductJourneys(
     await requirePrivateDenialBody(denied, readJson, "private-media-refusal");
   }
 
+  const postChecks = await qualifyPostAttachments(worker, {
+    origin,
+    ownerApId: actors.sender,
+    ownerSession: sessions.sender,
+    unrelatedSession: sessions.unrelated,
+    png: PNG,
+    readJson,
+  });
+
   const counts = () =>
     db
       .prepare(
@@ -227,7 +237,8 @@ export async function qualifyProductJourneys(
       (SELECT COUNT(*) FROM object_recipients) AS recipients,
       (SELECT COUNT(*) FROM activities) AS activities,
       (SELECT COUNT(*) FROM inbox) AS inbox,
-      (SELECT COUNT(*) FROM media_uploads) AS uploads`,
+      (SELECT COUNT(*) FROM media_uploads) AS uploads,
+      (SELECT COUNT(*) FROM delivery_fanouts) AS fanouts`,
       )
       .first();
   const keys = async () =>
@@ -289,6 +300,16 @@ export async function qualifyProductJourneys(
     "logout-revocation accepted a DM write",
   );
   await readJson(revokedDm, "logout-revocation");
+  const revokedPost = await worker.dispatchFetch(origin + "/api/posts", {
+    method: "POST",
+    headers: { ...headers("sender"), "content-type": "application/json" },
+    body: JSON.stringify({ content: "revoked-post-write", attachments: [] }),
+  });
+  requireEffect(
+    revokedPost.status === 401,
+    "logout-revocation accepted a post write",
+  );
+  await readJson(revokedPost, "logout-revocation");
   const revokedUpload = await worker.dispatchFetch(
     origin + "/api/media/upload",
     {
@@ -327,6 +348,7 @@ export async function qualifyProductJourneys(
     "private-media-read-refusal",
     "invalid-media-refusal",
     "unauthenticated-api-refusal",
+    ...postChecks,
     "logout-revocation",
   ];
 }
