@@ -20,6 +20,13 @@ This repository contains the web app and server, a mock API for local
 development, a provider-neutral [resource contract](deploy/product-resources.json),
 deployment adapters, and the `yurucommu.com` website.
 
+Yurucommu is software each person deploys for their own use, with one human owner
+per instance. Subaccounts are that owner's profiles for different purposes;
+they do not register additional owners. Communication peers and community
+participants are distinct from the instance owner. See the
+[single-owner model](docs/product/single-owner.md) for authentication, data
+boundaries, first setup and outstanding verification requirements.
+
 ## Quick local start
 
 Install [Bun](https://bun.sh/), then run:
