@@ -18,8 +18,8 @@ import {
   maxImageFileSize,
   maxVideoFileSize,
   switchAccount,
-  uploadMedia,
 } from "../lib/api.ts";
+import { uploadProductMedia } from "../lib/media-upload.ts";
 import { fetchFollowingTimeline } from "../lib/api/posts.ts";
 import type { UploadedMedia } from "../components/timeline/types.ts";
 import { ApiError } from "../lib/api/fetch.ts";
@@ -553,7 +553,7 @@ export const uploadMediaAtom = atom(null, async (get, set, file: File) => {
   set(uploadingAtom, true);
   set(uploadErrorAtom, null);
   try {
-    const result = await uploadMedia(file);
+    const result = await uploadProductMedia(file);
     const preview = URL.createObjectURL(file);
     set(uploadedMediaAtom, (prev) => [
       ...prev,

@@ -232,6 +232,18 @@ bun run check
 Worker だけを確認したい場合は `bun run build:worker` を使います。生成される
 `dist/yurucommu-worker.js` は Git に追加しません。
 
+追加のブラウザ検証は、完全チェックで生成した Worker とインストール済み Chrome を使います。
+
+```bash
+bun run smoke:release-browser -- dist/yurucommu-worker.js
+```
+
+Chrome の場所は `BROWSER_SMOKE_CHROME` で指定できます。自動取得や検証の省略はしません。
+CI でも `check` の後に必須実行します。使い捨てのローカル HTTP と native bindings 上で、
+空 DB から1人の所有者として実画面でログインし、投稿・画像添付・生成ストーリー・
+プロフィール画像を DB/R2/HTTP の保存内容と照合します。公開環境への自己導入、
+OIDC・同時初回claim・外部通信・更新復旧の証拠は別途必要です。
+
 動作中のサーバーは `GET /healthz` で確認できます。設定不足でも HTTP 200 と
 `status: "degraded"` を返すことがあるため、`status` と `missingBindings` の両方を
 確認してください。`GET /readyz` は、データベース、KV、公開 URL、暗号化キー、

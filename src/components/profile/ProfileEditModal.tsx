@@ -1,7 +1,8 @@
 import { createSignal, Index, Show } from "solid-js";
 import { CloseIcon } from "./ProfileIcons.tsx";
 import { UserAvatar } from "../UserAvatar.tsx";
-import { FileValidationError, uploadMedia } from "../../lib/api/media.ts";
+import { FileValidationError } from "../../lib/api/media.ts";
+import { uploadProductMedia } from "../../lib/media-upload.ts";
 import { useDialog } from "../../lib/useDialog.ts";
 import type { Translate } from "../../lib/i18n.tsx";
 
@@ -95,7 +96,7 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
     setBusy(true);
     setUploadError(null);
     try {
-      const result = await uploadMedia(file);
+      const result = await uploadProductMedia(file);
       apply(result.url);
     } catch (err) {
       // Surface the failure (e.g. >20MB image, wrong type, network) — it was

@@ -1,7 +1,8 @@
 import { createSignal } from "solid-js";
 import type { StoryCanvas, TextLayer } from "../../../lib/story-canvas.ts";
 import type { StoryOverlay } from "../../../types/index.ts";
-import { createStory, uploadMedia } from "../../../lib/api.ts";
+import { createStory } from "../../../lib/api.ts";
+import { uploadProductMedia } from "../../../lib/media-upload.ts";
 import { useI18n } from "../../../lib/i18n.tsx";
 import {
   exportCanvasWithVideo,
@@ -120,7 +121,7 @@ export function useStoryPost(opts: UseStoryPostOptions) {
       setProgress(70);
       const filename = opts.videoFile ? "story.mp4" : "story.jpg";
       const file = new File([blob], filename, { type: contentType });
-      const result = await uploadMedia(file);
+      const result = await uploadProductMedia(file);
 
       // Create story
       setProgress(90);

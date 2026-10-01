@@ -243,6 +243,19 @@ It checks formatting, types, OpenTofu, tests, and the Worker build. Use
 `bun run build:worker` to check only the Worker. Do not commit the generated
 `dist/yurucommu-worker.js`.
 
+The additional browser check uses the Worker from the complete gate and installed Chrome:
+
+```bash
+bun run smoke:release-browser -- dist/yurucommu-worker.js
+```
+
+Set `BROWSER_SMOKE_CHROME` to select the executable. No browser is downloaded and
+the check is never skipped. CI requires it after `check`. Disposable local HTTP
+and native bindings qualify actual UI login from an empty DB as one owner,
+posts, image attachments, generated Stories and profile images against DB/R2/HTTP
+readback. Public self-deployment, OIDC, concurrent first claim, external
+communication and update/recovery need separate evidence.
+
 Check a running server with `GET /healthz`. A partially configured runtime can
 still return HTTP 200 with `status: "degraded"`, so inspect both `status` and
 `missingBindings`. `GET /readyz` returns 503 when the database, KV, public URL,
