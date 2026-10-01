@@ -109,6 +109,11 @@ export function SearchPage() {
   const [followInFlight, setFollowInFlight] = createSignal<Set<string>>(
     new Set(),
   );
+  // Follow requests awaiting remote approval are not accepted follows. Keep
+  // their local display state by actor id across searches in this page.
+  const [followPending, setFollowPending] = createSignal<Set<string>>(
+    new Set(),
+  );
   const [likeInFlight, setLikeInFlight] = createSignal<Set<string>>(new Set());
   const clearError = () => setError(null);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -607,20 +612,35 @@ export function SearchPage() {
   const handleFollow = async (targetActor: Actor, e: MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (followInFlight().has(targetActor.ap_id)) return;
+    if (
+      followInFlight().has(targetActor.ap_id) ||
+      followPending().has(targetActor.ap_id)
+    ) {
+      return;
+    }
     setFollowInFlight((s) => new Set(s).add(targetActor.ap_id));
     try {
       const { status } = await follow(targetActor.ap_id);
       // A private/remote account's follow may land as a pending request awaiting
       // approval — don't misrepresent it as followed or drop it from results.
       if (status === "pending") {
+        setFollowPending((prev) => new Set(prev).add(targetActor.ap_id));
         pushToast(setToasts, t("profile.followRequested"), { kind: "success" });
         return;
       }
+      setFollowPending((prev) => {
+        const next = new Set(prev);
+        next.delete(targetActor.ap_id);
+        return next;
+      });
       // Keep the row in the results — it flips to the "following" pill via
       // isFollowing(). Removing it would make the person the user just searched
       // for vanish, losing the path to their profile.
-      setFollowing((prev) => [...prev, targetActor]);
+      setFollowing((prev) =>
+        prev.some((actor) => actor.ap_id === targetActor.ap_id)
+          ? prev
+          : [...prev, targetActor],
+      );
     } catch (e) {
       console.error("Failed to follow:", e);
       setError(t("common.error"));
@@ -635,6 +655,7 @@ export function SearchPage() {
 
   const isFollowing = (actorApId: string) =>
     following().some((f) => f.ap_id === actorApId);
+  const isFollowPending = (actorApId: string) => followPending().has(actorApId);
 
   const label = (community: CommunityDetail) =>
     community.display_name || community.name;
@@ -1115,18 +1136,29 @@ export function SearchPage() {
                         <Show
                           when={
                             user.ap_id !== actor.ap_id &&
-                            !isFollowing(user.ap_id)
+                            (!isFollowing(user.ap_id) ||
+                              isFollowPending(user.ap_id))
                           }
                         >
                           <button
                             onClick={(e) => handleFollow(user, e)}
-                            disabled={followInFlight().has(user.ap_id)}
+                            disabled={
+                              followInFlight().has(user.ap_id) ||
+                              isFollowPending(user.ap_id)
+                            }
                             class="px-4 py-1.5 bg-white text-black font-medium rounded-full hover:bg-neutral-200 transition-colors text-sm shrink-0 disabled:opacity-50"
                           >
-                            {t("profile.follow")}
+                            {isFollowPending(user.ap_id)
+                              ? t("profile.followRequested")
+                              : t("profile.follow")}
                           </button>
                         </Show>
-                        <Show when={isFollowing(user.ap_id)}>
+                        <Show
+                          when={
+                            isFollowing(user.ap_id) &&
+                            !isFollowPending(user.ap_id)
+                          }
+                        >
                           <span class="px-4 py-1.5 border border-neutral-700 text-neutral-400 font-medium rounded-full text-sm shrink-0">
                             {t("profile.following")}
                           </span>

@@ -10,6 +10,7 @@ import { chromium } from "playwright-core";
 import { Miniflare } from "miniflare";
 import { unstable_readConfig, unstable_splitSqlQuery } from "wrangler";
 import { qualifyBrowserFeed } from "./release-browser-feed.mjs";
+import { qualifySearchFollowing } from "./release-browser-follow.mjs";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const PASSWORD = " release-browser-owner ";
@@ -418,6 +419,33 @@ async function runBrowserSmoke(artifactPath, artifactDigest) {
       "browser feed qualification returned no metadata",
     );
 
+    const feedActors = (
+      await db
+        .prepare(
+          "SELECT ap_id, role, owner_actor_ap_id, deleted_at FROM actors ORDER BY ap_id",
+        )
+        .all()
+    ).results;
+    const feedSessionCounts = await dbCounts(db);
+    requireEffect(
+      feedActors.length === 1 &&
+        feedActors[0]?.ap_id === actorApId &&
+        feedActors[0]?.role === "owner" &&
+        feedActors[0]?.owner_actor_ap_id === null &&
+        feedActors[0]?.deleted_at === null &&
+        feedSessionCounts.actors === 1 &&
+        feedSessionCounts.sessions === 1,
+      "feed qualification changed the final scope beyond the single live owner",
+    );
+    checks.push("feed-scope-single-live-owner-no-member-seed");
+
+    const followMetadata = await qualifySearchFollowing({
+      page,
+      db,
+      origin,
+      actorApId,
+      checks,
+    });
     const finalActors = (
       await db
         .prepare(
@@ -425,18 +453,34 @@ async function runBrowserSmoke(artifactPath, artifactDigest) {
         )
         .all()
     ).results;
+    const personaIds = new Set([
+      followMetadata?.privateActorApId,
+      followMetadata?.publicActorApId,
+    ]);
     const finalSessionCounts = await dbCounts(db);
+    const finalIdentity = await ownerIdentity(page, origin);
     requireEffect(
-      finalActors.length === 1 &&
-        finalActors[0]?.ap_id === actorApId &&
-        finalActors[0]?.role === "owner" &&
-        finalActors[0]?.owner_actor_ap_id === null &&
-        finalActors[0]?.deleted_at === null &&
-        finalSessionCounts.actors === 1 &&
-        finalSessionCounts.sessions === 1,
-      "feed qualification changed the final scope beyond the single live owner",
+      personaIds.size === 2 &&
+        !personaIds.has(undefined) &&
+        !personaIds.has(actorApId) &&
+        finalActors.length === 3 &&
+        finalActors.every(
+          (actor) =>
+            actor.deleted_at === null &&
+            (actor.ap_id === actorApId
+              ? actor.role === "owner" && actor.owner_actor_ap_id === null
+              : personaIds.has(actor.ap_id) &&
+                actor.role === "member" &&
+                actor.owner_actor_ap_id === actorApId),
+        ) &&
+        finalSessionCounts.actors === 3 &&
+        finalSessionCounts.sessions === 1 &&
+        finalIdentity.status === 200 &&
+        finalIdentity.apId === actorApId &&
+        finalIdentity.role === "owner",
+      "search qualification changed the single owner or linked persona boundary",
     );
-    checks.push("final-scope-single-live-owner-no-member-seed");
+    checks.push("final-scope-one-owner-two-own-personas-one-session");
     requireEffect(
       pageErrors.length === 0,
       "browser raised a page runtime error",
@@ -457,9 +501,10 @@ async function runBrowserSmoke(artifactPath, artifactDigest) {
       schemaSha256,
       migrationCount,
       scope:
-        "one self-created root owner; no seeded actors/sessions or external member; no public TLS/deploy/federation qualification",
+        "one self-created root owner and two API-created own personas; no actor/session seed or external participant; no public TLS/deploy/federation qualification",
       checks,
       feed: feedMetadata,
+      follow: followMetadata,
       status: "PASSED",
     };
   } catch (error) {
