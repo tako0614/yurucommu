@@ -511,9 +511,12 @@ async function runBrowserSmoke(artifactPath, artifactDigest) {
     const alertCount = await page.getByRole("alert").count();
     const errorIsInLoginForm = await error.evaluate((node) => {
       const input = document.querySelector('input[type="password"]');
+      const form = input?.closest("form");
       return (
         node.getAttribute("role") === "alert" &&
-        node.parentElement === input?.closest("form")?.parentElement
+        // The shared alert sits directly in the login container, outside the
+        // inner auth-method group that contains the actual password form.
+        node.parentElement === form?.parentElement?.parentElement
       );
     });
     requireEffect(

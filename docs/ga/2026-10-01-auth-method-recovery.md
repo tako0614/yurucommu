@@ -49,3 +49,12 @@ issuer attempt did not reach callback and is excluded from loop evidence.
 Independent review requires real HTTP server receipt counters and app-bound
 callback cookie/state correlation, with bounded excess-request refusal. The
 issuer never receives the app's host-only nonce cookie by design.
+
+Final bounded old-control at20:39 UTC: actual server receives3 authorize requests,
+serves2 valid error callbacks and refuses1 excess request; Chrome callback2
+and extra-attempt2 prove repetition. New local full check at20:45 succeeds
+488/0/2838; its first browser attempt exits1 on the obsolete immediate-parent
+layout guard after OIDC checks. That partial run has no success manifest and is
+excluded from whole-browser qualification. Update the guard to the exact local
+shared login container, then requalify final frozen source. Old CI still executing
+full check is not treated as passed or explained by this verifier correction.
