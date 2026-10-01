@@ -561,6 +561,8 @@ const translations = {
     "auth.loggingIn": "ログイン中...",
     "auth.login": "ログイン",
     "auth.checkFailed": "認証の確認に失敗しました",
+    "auth.methodsLoadFailed":
+      "ログイン方法を読み込めませんでした。再試行してください。",
     "auth.oauthLoginFailed":
       "外部アカウントでのログインに失敗しました。もう一度お試しください。",
     "auth.logoutFailed": "ログアウトに失敗しました",
@@ -1271,6 +1273,7 @@ const translations = {
     "auth.loggingIn": "Signing in...",
     "auth.login": "Sign in",
     "auth.checkFailed": "Failed to verify authentication",
+    "auth.methodsLoadFailed": "Could not load sign-in methods. Please retry.",
     "auth.oauthLoginFailed":
       "External account sign-in failed. Please try again.",
     "auth.logoutFailed": "Failed to log out",
