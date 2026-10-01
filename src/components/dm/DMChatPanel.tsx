@@ -15,6 +15,7 @@ import {
   sendUserDMTyping,
 } from "../../lib/api.ts";
 import { ApiError } from "../../lib/api/fetch.ts";
+import { classifyMessageDeliveryFailure } from "../../lib/message-delivery.ts";
 import { formatTime } from "../../lib/datetime.ts";
 import { useI18n } from "../../lib/i18n.tsx";
 import { ConfirmSheet } from "../ConfirmSheet.tsx";
@@ -393,12 +394,14 @@ export function DMChatPanel(props: DMChatPanelProps) {
       // conversation-specific error must not surface under the new thread.
       if (stillOnConversation()) {
         setErrorMessage(
-          e instanceof ApiError && e.status === 403
-            ? e.message
-            : t("common.error"),
+          classifyMessageDeliveryFailure(e) === "unconfirmed"
+            ? t("dm.sendUnconfirmed")
+            : e instanceof ApiError && e.status === 403
+              ? e.message
+              : t("dm.sendRejected"),
         );
-        // Restore the failed draft so it isn't lost — but never clobber text
-        // the user typed while the send was in flight.
+        // Retain rejected/unconfirmed drafts without overwriting text typed
+        // during the request. An unconfirmed send may already be in history.
         setInput((cur) => (cur.trim() === "" ? text : cur));
       }
     } finally {
@@ -620,15 +623,18 @@ export function DMChatPanel(props: DMChatPanelProps) {
         <Show when={props.contact.type === "user" && isTyping()}>
           <div class="text-xs text-neutral-500 mt-2">{t("dm.typing")}</div>
         </Show>
-        <Show when={errorMessage()}>
-          <div class="mt-4 text-center text-red-400 text-sm">
-            {errorMessage()}
-          </div>
-        </Show>
         <div ref={messagesEndRef!} />
       </div>
 
       <form onSubmit={handleSend} class="p-4 border-t border-neutral-900">
+        <Show when={errorMessage()}>
+          <div
+            role="alert"
+            class="mb-3 text-center text-red-400 text-sm break-words"
+          >
+            {errorMessage()}
+          </div>
+        </Show>
         <div class="flex gap-2">
           <input
             type="text"

@@ -256,6 +256,9 @@ posts, image attachments, generated Stories and profile images against DB/R2/HTT
 readback. It also checks pending/accepted Follow state in Search against the DB,
 using personas belonging to the same owner. Pending display survives searches in
 that mounted page; restoring it after reopening needs a shared API state contract.
+DM checks distinguish a transport failure before delivery, a lost response after
+commit and a server rejection against UI/DB effects. An unconfirmed result warns
+that re-sending may duplicate the message.
 Public self-deployment, OIDC, concurrent first claim, external
 communication and update/recovery need separate evidence.
 

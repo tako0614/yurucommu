@@ -49,14 +49,20 @@ export function BottomNav() {
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => openComposer(true)}
-        aria-label={t("posts.post")}
-        class="md:hidden fixed right-4 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-50 grid h-14 w-14 place-items-center rounded-full bg-accent text-white shadow-2xl shadow-black/40 transition-transform active:scale-95"
+      <Show
+        when={
+          location.pathname !== "/dm" && !location.pathname.startsWith("/dm/")
+        }
       >
-        <CreateNavIcon active={false} />
-      </button>
+        <button
+          type="button"
+          onClick={() => openComposer(true)}
+          aria-label={t("posts.post")}
+          class="md:hidden fixed right-4 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-50 grid h-14 w-14 place-items-center rounded-full bg-accent text-white shadow-2xl shadow-black/40 transition-transform active:scale-95"
+        >
+          <CreateNavIcon active={false} />
+        </button>
+      </Show>
       <nav class="md:hidden fixed bottom-0 left-0 right-0 h-[calc(3.5rem+env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] bg-neutral-900 border-t border-neutral-900 flex items-center justify-around z-50">
         <For each={MOBILE_NAV_ITEMS}>
           {(item) => {

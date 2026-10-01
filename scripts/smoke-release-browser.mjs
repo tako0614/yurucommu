@@ -11,6 +11,7 @@ import { Miniflare } from "miniflare";
 import { unstable_readConfig, unstable_splitSqlQuery } from "wrangler";
 import { qualifyBrowserFeed } from "./release-browser-feed.mjs";
 import { qualifySearchFollowing } from "./release-browser-follow.mjs";
+import { qualifyBrowserDM } from "./release-browser-dm.mjs";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const PASSWORD = " release-browser-owner ";
@@ -446,6 +447,14 @@ async function runBrowserSmoke(artifactPath, artifactDigest) {
       actorApId,
       checks,
     });
+    const dmMetadata = await qualifyBrowserDM({
+      page,
+      db,
+      origin,
+      actorApId,
+      recipientApId: followMetadata.publicActorApId,
+      checks,
+    });
     const finalActors = (
       await db
         .prepare(
@@ -478,7 +487,7 @@ async function runBrowserSmoke(artifactPath, artifactDigest) {
         finalIdentity.status === 200 &&
         finalIdentity.apId === actorApId &&
         finalIdentity.role === "owner",
-      "search qualification changed the single owner or linked persona boundary",
+      "browser qualification changed the single owner or linked persona boundary",
     );
     checks.push("final-scope-one-owner-two-own-personas-one-session");
     requireEffect(
@@ -505,6 +514,7 @@ async function runBrowserSmoke(artifactPath, artifactDigest) {
       checks,
       feed: feedMetadata,
       follow: followMetadata,
+      dm: dmMetadata,
       status: "PASSED",
     };
   } catch (error) {
