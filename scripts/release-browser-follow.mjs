@@ -100,7 +100,13 @@ async function assertOwnerAndPersonaStore(
   return { actors, root, privateActor, publicActor };
 }
 
-async function setPersonaPrivacy(page, rootApId, personaApId, isPrivate) {
+async function setPersonaPrivacy(
+  page,
+  rootApId,
+  personaApId,
+  isPrivate,
+  allowAuthRecovery,
+) {
   const result = await page.evaluate(
     async ({ rootApId, personaApId, isPrivate }) => {
       const request = async (path, method, body) => {
@@ -121,7 +127,11 @@ async function setPersonaPrivacy(page, rootApId, personaApId, isPrivate) {
             `non-JSON response from ${path} (${response.status})`,
           );
         }
-        return { status: response.status, body: json };
+        return {
+          status: response.status,
+          body: json,
+          retryAfter: response.headers.get("retry-after"),
+        };
       };
       const expectSuccess = (result, path) => {
         if (
@@ -146,18 +156,47 @@ async function setPersonaPrivacy(page, rootApId, personaApId, isPrivate) {
         ap_id: rootApId,
       });
       expectSuccess(returned, "/api/auth/switch back to owner");
-      const me = await request("/api/auth/me", "GET");
-      if (me.status !== 200 || me.body.actor?.ap_id !== rootApId) {
-        throw new Error("browser session did not return to root owner");
-      }
-      return true;
+      return request("/api/auth/me", "GET");
     },
     { rootApId, personaApId, isPrivate },
   );
+  let me = result;
+  const authVerification = { initialStatus: me.status, retried: false };
+  if (me.status === 429) {
+    requireEffect(
+      allowAuthRecovery,
+      "auth quota blocked a second owner verification after recovery",
+    );
+    requireEffect(
+      /^\d+$/.test(me.retryAfter ?? "") &&
+        Number(me.retryAfter) >= 1 &&
+        Number(me.retryAfter) <= 60,
+      "owner verification returned an invalid or excessive Retry-After",
+    );
+    // This fixture performs many real auth requests in one minute. Preserve the
+    // original refusal and respect its window before one read-only verification.
+    authVerification.retryAfterSeconds = Number(me.retryAfter);
+    process.stderr.write(
+      `browser-search-follow owner verification HTTP 429; waiting ${me.retryAfter}s before one declared GET retry\n`,
+    );
+    await page.waitForTimeout(Number(me.retryAfter) * 1000);
+    await page.waitForTimeout(150);
+    me = await page.evaluate(async () => {
+      const response = await fetch("/api/auth/me", {
+        credentials: "same-origin",
+      });
+      return { status: response.status, body: await response.json() };
+    });
+    authVerification.retried = true;
+    authVerification.retryStatus = me.status;
+  }
   requireEffect(
-    result === true,
-    "persona privacy API sequence was not acknowledged",
+    me.status === 200 &&
+      me.body.actor?.ap_id === rootApId &&
+      me.body.actor?.role === "owner",
+    `browser session did not return to root owner: ${JSON.stringify({ status: me.status, actorApId: me.body.actor?.ap_id ?? null, expectedRootApId: rootApId })}`,
   );
+  return authVerification;
 }
 
 export async function qualifySearchFollowing({
@@ -182,6 +221,7 @@ export async function qualifySearchFollowing({
     checks.push(name);
   };
   const followRequests = new Map();
+  const privacyAuthVerifications = [];
   const onRequest = (request) => {
     if (request.method() !== "POST") return;
     let path;
@@ -330,7 +370,9 @@ export async function qualifySearchFollowing({
     );
     mark("browser-search-follow-url-query-loads-owner-personas");
 
-    await setPersonaPrivacy(page, actorApId, created.privateApId, true);
+    privacyAuthVerifications.push(
+      await setPersonaPrivacy(page, actorApId, created.privateApId, true, true),
+    );
     await assertOwnerAndPersonaStore(
       db,
       actorApId,
@@ -406,7 +448,15 @@ export async function qualifySearchFollowing({
       "pending follow button remained actionable",
     );
 
-    await setPersonaPrivacy(page, actorApId, created.privateApId, false);
+    privacyAuthVerifications.push(
+      await setPersonaPrivacy(
+        page,
+        actorApId,
+        created.privateApId,
+        false,
+        !privacyAuthVerifications.some((verification) => verification.retried),
+      ),
+    );
     await assertOwnerAndPersonaStore(
       db,
       actorApId,
@@ -539,6 +589,7 @@ export async function qualifySearchFollowing({
         pending: followRequests.get(created.privateApId),
         accepted: followRequests.get(created.publicApId),
       },
+      privacyAuthVerifications,
       pendingReloadHydration:
         "unqualified; published Core/API exposes no pending-follow hydration field",
       checkCount: passed.length,
