@@ -39,7 +39,7 @@ const OLD_DEPLOYMENT = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const NEW_DEPLOYMENT = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const CONCURRENT_DEPLOYMENT = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const BUNDLE = "export default { fetch() { return new Response('ok') } };\n";
-const BUNDLE_ETAG = createHash("sha256").update(BUNDLE).digest("hex");
+const BUNDLE_ETAG = "opaque-worker-etag-not-a-script-hash";
 
 const VERSION_CLOSURE = {
   bindings: {
@@ -59,8 +59,28 @@ const VERSION_CLOSURE = {
   },
 };
 
-function sha256(bytes: string | Uint8Array) {
+function sha256(bytes: string | Uint8Array): `sha256:${string}` {
   return `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+}
+
+async function codeProof({
+  versionId,
+  bundleDigest,
+  bundleByteLength,
+}: {
+  versionId: string;
+  bundleDigest: `sha256:${string}`;
+  bundleByteLength: number;
+}) {
+  expect(versionId).toBe(NEW_VERSION);
+  expect(bundleDigest).toBe(sha256(BUNDLE));
+  expect(bundleByteLength).toBe(Buffer.byteLength(BUNDLE));
+  return {
+    kind: "yurucommu.worker-version-code@v1" as const,
+    versionId,
+    sha256: bundleDigest,
+    size: bundleByteLength,
+  };
 }
 
 async function fixture() {
@@ -181,6 +201,51 @@ function versionDetails(
   };
 }
 
+function moduleContentResponse(
+  content: string | Uint8Array,
+  {
+    entrypoint = "worker.mjs",
+    partName = "worker.mjs",
+    filename = "worker.mjs",
+    mediaType = "application/javascript+module",
+    extraPart = false,
+    status = 200,
+  }: {
+    entrypoint?: string;
+    partName?: string;
+    filename?: string;
+    mediaType?: string;
+    extraPart?: boolean;
+    status?: number;
+  } = {},
+) {
+  const boundary = "yurucommu-version-content-test";
+  const moduleBytes = Buffer.from(content);
+  const firstHeader = Buffer.from(
+    `--${boundary}\r\nContent-Disposition: form-data; name="${partName}"; filename="${filename}"\r\nContent-Type: ${mediaType}\r\n\r\n`,
+  );
+  const additional = extraPart
+    ? Buffer.from(
+        `\r\n--${boundary}\r\nContent-Disposition: form-data; name="other.mjs"; filename="other.mjs"\r\nContent-Type: application/javascript+module\r\n\r\nexport default {};`,
+      )
+    : Buffer.alloc(0);
+  return new Response(
+    Buffer.concat([
+      firstHeader,
+      moduleBytes,
+      additional,
+      Buffer.from(`\r\n--${boundary}--\r\n`),
+    ]),
+    {
+      status,
+      headers: {
+        "Content-Type": `multipart/form-data; boundary=${boundary}`,
+        "cf-entrypoint": entrypoint,
+      },
+    },
+  );
+}
+
 async function mediaDeletionMetadataRows() {
   const database = new Database(":memory:");
   try {
@@ -215,6 +280,7 @@ describe("production yurucommu Worker publisher", () => {
           }),
           check: async () => {},
           provider: {
+            assertVersionCode: codeProof,
             assertMediaDeletionSchema: async ({
               databaseId,
             }: {
@@ -259,6 +325,7 @@ describe("production yurucommu Worker publisher", () => {
         },
         check: async () => {},
         provider: {
+          assertVersionCode: codeProof,
           assertMediaDeletionSchema: async ({
             databaseId,
           }: {
@@ -302,6 +369,7 @@ describe("production yurucommu Worker publisher", () => {
           checks += 1;
         },
         provider: {
+          assertVersionCode: codeProof,
           assertMediaDeletionSchema: async ({
             databaseId,
           }: {
@@ -342,6 +410,7 @@ describe("production yurucommu Worker publisher", () => {
         git: gitSource(),
         check: async () => {},
         provider: {
+          assertVersionCode: codeProof,
           assertMediaDeletionSchema: async ({
             databaseId,
           }: {
@@ -400,6 +469,7 @@ describe("production yurucommu Worker publisher", () => {
           git: gitSource(),
           check: async () => {},
           provider: {
+            assertVersionCode: codeProof,
             assertMediaDeletionSchema: async ({
               databaseId,
             }: {
@@ -427,10 +497,15 @@ describe("production yurucommu Worker publisher", () => {
       let latestVersionReads = 0;
       let activeReads = 0;
       let domainsRead = 0;
+      let codeReads = 0;
       const uploadSequence: string[] = [];
       let uploadMessage = "";
       let deployMessage = "";
       const provider = {
+        assertVersionCode: async (input: Parameters<typeof codeProof>[0]) => {
+          codeReads += 1;
+          return codeProof(input);
+        },
         assertMediaDeletionSchema: async ({
           databaseId,
         }: {
@@ -507,6 +582,8 @@ describe("production yurucommu Worker publisher", () => {
 
       expect(result).toMatchObject({
         status: "PUBLISHED",
+        providerReadback:
+          "EXACT_ACTIVE_DEPLOYMENT_VERSION_METADATA_AND_CODE_BYTES",
         accountId: ACCOUNT_ID,
         workerName: "yurucommu",
         route: "https://test.yurucommu.com",
@@ -518,7 +595,170 @@ describe("production yurucommu Worker publisher", () => {
       expect(activeReads).toBe(4);
       expect(domainsRead).toBe(3);
       expect(latestVersionReads).toBe(0);
+      expect(codeReads).toBe(3);
       expect(uploadSequence).toEqual(["schema", "upload", "deploy"]);
+    }));
+
+  test("refuses a provider without exact Version code readback before upload", () =>
+    cleanFixture(async ({ repo, target }) => {
+      let uploads = 0;
+      const failure = await deployYurucommuWorker({
+        repo,
+        environment: "production",
+        commit: COMMIT,
+        target,
+        git: gitSource(),
+        check: async () => {},
+        provider: {
+          upload: async () => {
+            uploads += 1;
+            throw new Error("must not upload without byte proof");
+          },
+        },
+      }).catch((error: unknown) => error);
+      expect(failureOf(failure).phase).toBe("PRE_UPLOAD_FAILURE");
+      expect((failure as Error).message).toContain(
+        "missing the required exact Version code readback",
+      );
+      expect(uploads).toBe(0);
+    }));
+
+  test("rejects an invalid Version code proof after one upload and before promotion", () =>
+    cleanFixture(async ({ repo, target }) => {
+      for (const variant of ["digest", "version", "size", "extra"] as const) {
+        let uploads = 0;
+        let deploys = 0;
+        let uploadMessage = "";
+        const provider = {
+          assertVersionCode: async (input: Parameters<typeof codeProof>[0]) => {
+            const proof = await codeProof(input);
+            if (variant === "digest")
+              return { ...proof, sha256: sha256("different") };
+            if (variant === "version")
+              return { ...proof, versionId: UNSERVED_VERSION };
+            if (variant === "size") return { ...proof, size: proof.size + 1 };
+            return { ...proof, unexpected: true };
+          },
+          domains: async () => [
+            {
+              hostname: "test.yurucommu.com",
+              service: "yurucommu",
+              environment: "production",
+            },
+          ],
+          activeDeployment: async () => deployment(OLD_DEPLOYMENT, OLD_VERSION),
+          version: async ({ versionId }: { versionId: string }) =>
+            versionDetails(
+              versionId,
+              versionId === OLD_VERSION ? "previous" : uploadMessage,
+            ),
+          assertMediaDeletionSchema: async () =>
+            MEDIA_DELETION_SCHEMA_QUALIFICATION,
+          upload: async ({ message }: { message: string }) => {
+            uploads += 1;
+            uploadMessage = message;
+            return { versionId: NEW_VERSION, workerName: "yurucommu" };
+          },
+          deployVersion: async () => {
+            deploys += 1;
+            throw new Error("must not promote an invalid code proof");
+          },
+        };
+        const failure = await deployYurucommuWorker({
+          repo,
+          environment: "production",
+          commit: COMMIT,
+          target,
+          git: gitSource(),
+          check: async () => {},
+          provider,
+        }).catch((error: unknown) => error);
+        expect(failureOf(failure).phase, variant).toBe(
+          "POST_UPLOAD_INDETERMINATE",
+        );
+        expect((failure as Error).message, variant).toContain(
+          "did not prove the selected bundle bytes",
+        );
+        expect(uploads, variant).toBe(1);
+        expect(deploys, variant).toBe(0);
+      }
+    }));
+
+  test("requires the code proof again immediately before promotion and after smoke", () =>
+    cleanFixture(async ({ repo, target }) => {
+      for (const failedRead of [2, 3]) {
+        let codeReads = 0;
+        let activeReads = 0;
+        let deploys = 0;
+        let smokes = 0;
+        let uploadMessage = "";
+        let deployMessage = "";
+        const provider = {
+          assertVersionCode: async (input: Parameters<typeof codeProof>[0]) => {
+            codeReads += 1;
+            if (codeReads === failedRead) {
+              throw new Error("selected Version code bytes changed");
+            }
+            return codeProof(input);
+          },
+          domains: async () => [
+            {
+              hostname: "test.yurucommu.com",
+              service: "yurucommu",
+              environment: "production",
+            },
+          ],
+          activeDeployment: async () => {
+            activeReads += 1;
+            return activeReads <= 2
+              ? deployment(OLD_DEPLOYMENT, OLD_VERSION)
+              : deployment(NEW_DEPLOYMENT, NEW_VERSION, deployMessage);
+          },
+          version: async ({ versionId }: { versionId: string }) =>
+            versionDetails(
+              versionId,
+              versionId === OLD_VERSION ? "previous" : uploadMessage,
+            ),
+          assertMediaDeletionSchema: async () =>
+            MEDIA_DELETION_SCHEMA_QUALIFICATION,
+          upload: async ({ message }: { message: string }) => {
+            uploadMessage = message;
+            return { versionId: NEW_VERSION, workerName: "yurucommu" };
+          },
+          deployVersion: async ({ message }: { message: string }) => {
+            deploys += 1;
+            deployMessage = message;
+            return { deploymentId: NEW_DEPLOYMENT, workerName: "yurucommu" };
+          },
+          smoke: async () => {
+            smokes += 1;
+            return { status: "passed" };
+          },
+        };
+        const failure = await deployYurucommuWorker({
+          repo,
+          environment: "production",
+          commit: COMMIT,
+          target,
+          git: gitSource(),
+          check: async () => {},
+          provider,
+        }).catch((error: unknown) => error);
+        expect(failureOf(failure).phase).toBe(
+          failedRead === 2
+            ? "POST_UPLOAD_INDETERMINATE"
+            : "POST_CONDITION_INDETERMINATE",
+        );
+        expect((failure as Error).message).toContain(
+          "selected Version code bytes changed",
+        );
+        expect(codeReads).toBe(failedRead);
+        expect(deploys).toBe(failedRead === 2 ? 0 : 1);
+        expect(smokes).toBe(failedRead === 2 ? 0 : 1);
+        expect(JSON.stringify(failureOf(failure).evidence)).not.toContain(
+          "PUBLISHED",
+        );
+      }
     }));
 
   test("requires exactly one UUID D1 DB binding on the active Version before schema query or upload", () =>
@@ -567,6 +807,7 @@ describe("production yurucommu Worker publisher", () => {
           git: gitSource(),
           check: async () => {},
           provider: {
+            assertVersionCode: codeProof,
             domains: async () => [
               {
                 hostname: "test.yurucommu.com",
@@ -693,6 +934,7 @@ describe("production yurucommu Worker publisher", () => {
           git: gitSource(),
           check: async () => {},
           provider: {
+            assertVersionCode: codeProof,
             domains: async () => [
               {
                 hostname: "test.yurucommu.com",
@@ -743,6 +985,7 @@ describe("production yurucommu Worker publisher", () => {
         git: gitSource(),
         check: async () => {},
         provider: {
+          assertVersionCode: codeProof,
           domains: async () => [
             {
               hostname: "test.yurucommu.com",
@@ -803,6 +1046,7 @@ describe("production yurucommu Worker publisher", () => {
         git: gitSource(),
         check: async () => {},
         provider: {
+          assertVersionCode: codeProof,
           domains: async () => [
             {
               hostname: "test.yurucommu.com",
@@ -867,6 +1111,7 @@ describe("production yurucommu Worker publisher", () => {
         git: gitSource(),
         check: async () => {},
         provider: {
+          assertVersionCode: codeProof,
           domains: async () => [
             {
               hostname: "test.yurucommu.com",
@@ -983,6 +1228,7 @@ describe("production yurucommu Worker publisher", () => {
         git: gitSource(),
         check: async () => {},
         provider: {
+          assertVersionCode: codeProof,
           assertMediaDeletionSchema: async ({
             databaseId,
           }: {
@@ -1023,11 +1269,12 @@ describe("production yurucommu Worker publisher", () => {
       expect(deploys).toBe(0);
     }));
 
-  test("requires the authoritative Version script etag to match the uploaded bytes", () =>
+  test("requires a bounded opaque etag and rejects its drift before promotion", () =>
     cleanFixture(async ({ repo, target }) => {
-      for (const mismatch of ["missing", "wrong"] as const) {
+      for (const mismatch of ["missing", "empty", "long", "drift"] as const) {
         let uploadMessage = "";
         let deploys = 0;
+        let candidateReads = 0;
         const failure = await deployYurucommuWorker({
           repo,
           environment: "production",
@@ -1036,6 +1283,7 @@ describe("production yurucommu Worker publisher", () => {
           git: gitSource(),
           check: async () => {},
           provider: {
+            assertVersionCode: codeProof,
             assertMediaDeletionSchema: async ({
               databaseId,
             }: {
@@ -1059,19 +1307,22 @@ describe("production yurucommu Worker publisher", () => {
             },
             version: async ({ versionId }: { versionId: string }) => {
               if (versionId === OLD_VERSION) return versionDetails(OLD_VERSION);
+              candidateReads += 1;
               const candidate = versionDetails(versionId, uploadMessage);
               if (mismatch === "missing") {
                 delete (candidate.resources as Record<string, unknown>).script;
-              } else {
-                (candidate.resources as Record<string, any>).script = {
-                  etag: "0".repeat(64),
-                };
+              } else if (mismatch === "empty") {
+                candidate.resources.script.etag = "";
+              } else if (mismatch === "long") {
+                candidate.resources.script.etag = "x".repeat(257);
+              } else if (candidateReads > 1) {
+                candidate.resources.script.etag = "different-opaque-etag";
               }
               return candidate;
             },
             deployVersion: async () => {
               deploys += 1;
-              throw new Error("must not deploy an etag mismatch");
+              throw new Error("must not deploy a malformed or drifting etag");
             },
           },
         }).catch((error) => error);
@@ -1079,7 +1330,7 @@ describe("production yurucommu Worker publisher", () => {
         expect(failureOf(failure).phase, mismatch).toBe(
           "POST_UPLOAD_INDETERMINATE",
         );
-        expect(failure.message, mismatch).toContain("script etag");
+        expect(failure.message, mismatch).toContain("opaque script etag");
         expect(deploys, mismatch).toBe(0);
       }
     }));
@@ -1095,6 +1346,7 @@ describe("production yurucommu Worker publisher", () => {
         git: gitSource(),
         check: async () => {},
         provider: {
+          assertVersionCode: codeProof,
           assertMediaDeletionSchema: async ({
             databaseId,
           }: {
@@ -1169,6 +1421,7 @@ describe("production yurucommu Worker publisher", () => {
           git: gitSource(),
           check: async () => {},
           provider: {
+            assertVersionCode: codeProof,
             assertMediaDeletionSchema: async ({
               databaseId,
             }: {
@@ -1225,6 +1478,7 @@ describe("production yurucommu Worker publisher", () => {
         git: gitSource(),
         check: async () => {},
         provider: {
+          assertVersionCode: codeProof,
           assertMediaDeletionSchema: async ({
             databaseId,
           }: {
@@ -1278,6 +1532,7 @@ describe("production yurucommu Worker publisher", () => {
         git: gitSource(),
         check: async () => {},
         provider: {
+          assertVersionCode: codeProof,
           assertMediaDeletionSchema: async ({
             databaseId,
           }: {
@@ -1333,6 +1588,7 @@ describe("production yurucommu Worker publisher", () => {
         git: gitSource(),
         check: async () => {},
         provider: {
+          assertVersionCode: codeProof,
           assertMediaDeletionSchema: async ({
             databaseId,
           }: {
@@ -1384,6 +1640,7 @@ describe("production yurucommu Worker publisher", () => {
         git: gitSource(),
         check: async () => {},
         provider: {
+          assertVersionCode: codeProof,
           assertMediaDeletionSchema: async ({
             databaseId,
           }: {
@@ -1434,6 +1691,7 @@ describe("production yurucommu Worker publisher", () => {
         git: gitSource(),
         check: async () => {},
         provider: {
+          assertVersionCode: codeProof,
           assertMediaDeletionSchema: async ({
             databaseId,
           }: {
@@ -1495,6 +1753,7 @@ describe("production yurucommu Worker publisher", () => {
         git: gitSource(),
         check: async () => {},
         provider: {
+          assertVersionCode: codeProof,
           assertMediaDeletionSchema: async ({
             databaseId,
           }: {
@@ -1553,6 +1812,7 @@ describe("production yurucommu Worker publisher", () => {
       let candidateDeploymentMessage = "";
       const deployedVersions: string[] = [];
       const provider = {
+        assertVersionCode: codeProof,
         assertMediaDeletionSchema: async ({
           databaseId,
         }: {
@@ -1650,6 +1910,7 @@ describe("production yurucommu Worker publisher", () => {
         git: gitSource(),
         check: async () => {},
         provider: {
+          assertVersionCode: codeProof,
           assertMediaDeletionSchema: async ({
             databaseId,
           }: {
@@ -1897,9 +2158,8 @@ describe("production yurucommu Worker publisher", () => {
           )
         ) {
           const form = init?.body as FormData;
-          const metadata = JSON.parse(
-            await (form.get("metadata") as Blob).text(),
-          );
+          expect(typeof form.get("metadata")).toBe("string");
+          const metadata = JSON.parse(form.get("metadata") as string);
           expect(metadata).toMatchObject({
             main_module: "worker.mjs",
             compatibility_date: "2026-07-16",
@@ -2022,6 +2282,287 @@ describe("production yurucommu Worker publisher", () => {
         ]),
       );
       expect(writeCalls).toBe(2);
+    }));
+
+  test("reads the exact selected Version module bytes through the fixed content endpoint", () =>
+    cleanFixture(async ({ repo, target }) => {
+      const calls: string[] = [];
+      const provider = createCloudflareWorkerProvider({
+        repo,
+        target,
+        token: "test-token",
+        smokePassword: "test-password",
+        fetcher: async (input, init) => {
+          calls.push(String(input));
+          expect(init?.method).toBe("GET");
+          expect(init?.redirect).toBe("manual");
+          expect(init?.signal).toBeInstanceOf(AbortSignal);
+          return moduleContentResponse("candidate");
+        },
+      });
+      expect(
+        await provider.assertVersionCode({
+          versionId: NEW_VERSION,
+          bundleDigest: sha256("candidate"),
+          bundleByteLength: Buffer.byteLength("candidate"),
+        }),
+      ).toEqual({
+        kind: "yurucommu.worker-version-code@v1",
+        versionId: NEW_VERSION,
+        sha256: sha256("candidate"),
+        size: Buffer.byteLength("candidate"),
+      });
+      expect(calls).toEqual([
+        `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/workers/scripts/yurucommu/content/v2?version=${NEW_VERSION}`,
+      ]);
+    }));
+
+  test("blocks Deployment when the real content reader sees wrong uploaded bytes", () =>
+    cleanFixture(async ({ repo, target }) => {
+      const schemaRows = await mediaDeletionMetadataRows();
+      let uploadMessage = "";
+      let versionWrites = 0;
+      let deploymentWrites = 0;
+      let contentReads = 0;
+      const provider = createCloudflareWorkerProvider({
+        repo,
+        target,
+        token: "test-token",
+        smokePassword: "test-password",
+        fetcher: async (input, init) => {
+          const url = String(input);
+          const method = init?.method ?? "GET";
+          if (method === "GET" && url.includes("/workers/domains?")) {
+            return Response.json({
+              success: true,
+              result: [
+                {
+                  hostname: "test.yurucommu.com",
+                  service: "yurucommu",
+                  environment: "production",
+                },
+              ],
+              result_info: { page: 1, total_pages: 1 },
+            });
+          }
+          if (method === "GET" && url.endsWith("/deployments")) {
+            return Response.json({
+              success: true,
+              result: {
+                deployments: [deployment(OLD_DEPLOYMENT, OLD_VERSION)],
+              },
+            });
+          }
+          if (method === "GET" && url.endsWith(`/versions/${OLD_VERSION}`)) {
+            return Response.json({
+              success: true,
+              result: versionDetails(OLD_VERSION),
+            });
+          }
+          if (method === "GET" && url.endsWith(`/versions/${NEW_VERSION}`)) {
+            return Response.json({
+              success: true,
+              result: versionDetails(NEW_VERSION, uploadMessage),
+            });
+          }
+          if (
+            method === "POST" &&
+            url.includes(`/d1/database/${D1_DATABASE_ID}/query`)
+          ) {
+            return Response.json({
+              success: true,
+              result: [
+                {
+                  success: true,
+                  results: schemaRows,
+                  meta: { changed_db: false, rows_written: 0 },
+                },
+              ],
+            });
+          }
+          if (
+            method === "POST" &&
+            url.endsWith("/versions?bindings_inherit=strict")
+          ) {
+            versionWrites += 1;
+            const form = init?.body as FormData;
+            uploadMessage = JSON.parse(form.get("metadata") as string)
+              .annotations["workers/message"];
+            expect(await (form.get("worker.mjs") as Blob).text()).toBe(BUNDLE);
+            return Response.json({
+              success: true,
+              result: { id: NEW_VERSION },
+            });
+          }
+          if (
+            method === "GET" &&
+            url.endsWith(`/content/v2?version=${NEW_VERSION}`)
+          ) {
+            contentReads += 1;
+            return moduleContentResponse("different Worker code");
+          }
+          if (method === "POST" && url.endsWith("/deployments")) {
+            deploymentWrites += 1;
+            throw new Error("Deployment must not be called for wrong code");
+          }
+          throw new Error(`unexpected Cloudflare request ${method} ${url}`);
+        },
+      });
+      const failure = await deployYurucommuWorker({
+        repo,
+        environment: "production",
+        commit: COMMIT,
+        target,
+        git: gitSource(),
+        check: async () => {},
+        provider,
+      }).catch((error: unknown) => error);
+      expect(failureOf(failure).phase).toBe("POST_UPLOAD_INDETERMINATE");
+      expect((failure as Error).message).toContain(
+        "differs from the reviewed Worker bundle bytes",
+      );
+      expect(versionWrites).toBe(1);
+      expect(contentReads).toBe(1);
+      expect(deploymentWrites).toBe(0);
+    }));
+
+  test("refuses wrong, malformed, extra, redirected, and oversized Version content without retry", () =>
+    cleanFixture(async ({ repo, target }) => {
+      const malformed = () =>
+        new Response("malformed multipart", {
+          headers: {
+            "Content-Type": "multipart/form-data; boundary=broken",
+            "cf-entrypoint": "worker.mjs",
+          },
+        });
+      const redirected = () =>
+        new Response("redirect", {
+          status: 302,
+          headers: { Location: "https://other.invalid/content" },
+        });
+      const cases: Array<[string, () => Response, RegExp]> = [
+        ["wrong bytes", () => moduleContentResponse("wrongbyte"), /differs/u],
+        [
+          "extra part",
+          () => moduleContentResponse("candidate", { extraPart: true }),
+          /parts/u,
+        ],
+        [
+          "wrong entrypoint",
+          () => moduleContentResponse("candidate", { entrypoint: "other.mjs" }),
+          /entrypoint/u,
+        ],
+        [
+          "wrong part name",
+          () => moduleContentResponse("candidate", { partName: "other.mjs" }),
+          /disposition/u,
+        ],
+        [
+          "wrong filename",
+          () => moduleContentResponse("candidate", { filename: "other.mjs" }),
+          /disposition/u,
+        ],
+        [
+          "wrong MIME",
+          () =>
+            moduleContentResponse("candidate", {
+              mediaType: "application/octet-stream",
+            }),
+          /media type/u,
+        ],
+        ["malformed body", malformed, /malformed/u],
+        [
+          "oversized body",
+          () => moduleContentResponse("x".repeat(70_000)),
+          /size bound/u,
+        ],
+        ["redirect", redirected, /redirect/u],
+      ];
+      for (const [label, response, message] of cases) {
+        let calls = 0;
+        const provider = createCloudflareWorkerProvider({
+          repo,
+          target,
+          token: "test-token",
+          smokePassword: "test-password",
+          fetcher: async () => {
+            calls += 1;
+            return response();
+          },
+        });
+        const failure = await provider
+          .assertVersionCode({
+            versionId: NEW_VERSION,
+            bundleDigest: sha256("candidate"),
+            bundleByteLength: Buffer.byteLength("candidate"),
+          })
+          .catch((error: unknown) => error);
+        expect(failure, label).toBeInstanceOf(Error);
+        expect((failure as Error).message, label).toMatch(message);
+        expect(calls, label).toBe(1);
+      }
+    }));
+
+  test("suppresses credential-bearing content transport and body-read errors", () =>
+    cleanFixture(async ({ repo, target }) => {
+      const token = 'token"\\private';
+      const password = 'password"\\private';
+      for (const mode of ["network", "body", "denied"] as const) {
+        let calls = 0;
+        const provider = createCloudflareWorkerProvider({
+          repo,
+          target,
+          token,
+          smokePassword: password,
+          fetcher: async () => {
+            calls += 1;
+            if (mode === "network") {
+              throw new Error(`${token} ${password}`);
+            }
+            if (mode === "denied") {
+              return Response.json(
+                {
+                  success: false,
+                  errors: [{ message: `${token} ${password}` }],
+                },
+                { status: 403 },
+              );
+            }
+            return new Response(
+              new ReadableStream({
+                pull(controller) {
+                  controller.error(new Error(`${token} ${password}`));
+                },
+              }),
+              {
+                headers: {
+                  "Content-Type": "multipart/form-data; boundary=error",
+                  "cf-entrypoint": "worker.mjs",
+                },
+              },
+            );
+          },
+        });
+        const failure = await provider
+          .assertVersionCode({
+            versionId: NEW_VERSION,
+            bundleDigest: sha256("candidate"),
+            bundleByteLength: Buffer.byteLength("candidate"),
+          })
+          .catch((error: unknown) => error);
+        const diagnostic = JSON.stringify(failure);
+        expect(String(failure), mode).not.toContain(token);
+        expect(String(failure), mode).not.toContain(password);
+        expect(diagnostic, mode).not.toContain(token);
+        expect(diagnostic, mode).not.toContain(password);
+        expect(diagnostic, mode).not.toContain(
+          JSON.stringify(token).slice(1, -1),
+        );
+        expect(diagnostic, mode).not.toContain(
+          JSON.stringify(password).slice(1, -1),
+        );
+        expect(calls, mode).toBe(1);
+      }
     }));
 
   test("does not retry a lost Cloudflare Version upload acknowledgement", () =>
@@ -2168,6 +2709,7 @@ describe("production yurucommu Worker publisher", () => {
           target,
           git: gitSource(),
           provider: {
+            assertVersionCode: codeProof,
             assertMediaDeletionSchema: async ({
               databaseId,
             }: {
@@ -2248,6 +2790,7 @@ describe("production yurucommu Worker publisher", () => {
             throw new Error("owner gate must not run after git failure");
           },
           provider: {
+            assertVersionCode: codeProof,
             assertMediaDeletionSchema: async ({
               databaseId,
             }: {

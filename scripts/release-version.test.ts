@@ -467,6 +467,19 @@ describe("release surface status", () => {
       "non-code closure",
     );
     expect(worker?.obligations["post-conditions"]).toContain("script.etag");
+    expect(worker?.obligations["post-conditions"]).toContain(
+      "opaque drift marker",
+    );
+    expect(worker?.obligations["post-conditions"]).toContain(
+      "content/v2?version=UUID",
+    );
+    expect(worker?.obligations["post-conditions"]).toContain("SHA-256");
+    expect(worker?.obligations["post-conditions"]).toContain(
+      "immediately before Deployment promotion, and after smoke",
+    );
+    expect(worker?.obligations["failure-handling"]).toContain(
+      "missing exact Version code readback capability",
+    );
     expect(worker?.obligations["post-conditions"]).toContain("bounded");
     expect(worker?.obligations["post-conditions"]).toContain(
       "direct Cloudflare API",
