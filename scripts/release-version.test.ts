@@ -426,6 +426,7 @@ describe("release surface status", () => {
         covers: string[];
         requiresEnv: string[];
         requiresTools: string[];
+        triggers: string[];
         obligations: Record<string, string>;
       }>;
     };
@@ -446,6 +447,9 @@ describe("release surface status", () => {
     }
     expect(worker?.covers).toContain("scripts/release-yurucommu-worker.mjs");
     expect(worker?.covers).toContain("scripts/media-deletion-schema.mjs");
+    expect(worker?.covers).toContain("scripts/yurucommu-worker-bindings.ts");
+    expect(worker?.triggers).toContain("authority");
+    expect(worker?.obligations["independent-review"]).toContain("exact commit");
     expect(worker?.requiresTools).not.toContain("wrangler");
     expect(worker?.requiresTools).toContain("tofu");
     expect(worker?.obligations.provenance).toContain(
@@ -468,7 +472,10 @@ describe("release surface status", () => {
       "direct Cloudflare API",
     );
     expect(worker?.obligations["post-conditions"]).toContain(
-      "active predecessor Version's exact DB D1 binding",
+      "YURUCOMMU_SESSION_HASH_SALT secret_text binding on the active predecessor Version",
+    );
+    expect(worker?.obligations["post-conditions"]).toContain(
+      "exact DB D1 binding",
     );
     expect(worker?.obligations["post-conditions"]).toContain(
       "fixed read-only direct D1 API query",
@@ -562,7 +569,10 @@ describe("release surface status", () => {
       (surface) => surface.surface === "yurucommu-worker-release",
     );
 
-    expect(release?.triggers).toEqual(["published-identity"]);
+    expect(release?.triggers).toEqual(["published-identity", "authority"]);
+    expect(release?.obligations["independent-review"]).toContain(
+      "exact commit",
+    );
     expect(release?.obligations["no-overwrite"]).toContain("create-only");
     expect(release?.covers).toEqual(
       expect.arrayContaining([

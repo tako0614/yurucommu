@@ -66,6 +66,7 @@ const CONTRACT = {
       covers: [
         "wrangler.jsonc",
         "scripts/build-yurucommu-worker.ts",
+        "scripts/yurucommu-worker-bindings.ts",
         "scripts/post-deploy-smoke.ts",
         "scripts/release-yurucommu-worker.mjs",
         "scripts/media-deletion-schema.mjs",
@@ -82,13 +83,15 @@ const CONTRACT = {
       // 残りますが、read/write の CAS がないためこの surface は自動 rollback しません。
       // durable store の schema を変える作業はこの surface ではなく、別の deliberate な
       // 手順です。
-      triggers: [],
+      triggers: ["authority"],
       obligations: {
+        "independent-review":
+          "before publishing these authentication and publisher-admission changes, requires an independent source review of the exact commit and its regression, native update/restore and CI evidence; the operator records that review and existing secret custody separately. A green check, contract, branch or ledger does not authorize deployment",
         provenance: `requires exactly --environment=production and --commit=<40-hex>; requires a clean HEAD equal to that commit and either freshly pushed main or an exact commit contained by freshly fetched origin/main; uses CLOUDFLARE_API_TOKEN only for provider authentication, reads the operator-private target/config from YURUCOMMU_WORKER_DEPLOY_TARGET as link-free 0600 regular files under 0700 directories outside every discovered Git repository, common directory, and linked worktree, and uses YURUCOMMU_E2E_PASSWORD only for the post-deploy application smoke; runs \`${OWNER_GATE}\` once; and binds the commit, ${W.bundle} sha256, and selected config digest into the uploaded Version annotation`,
-        "post-conditions": `before upload requires the active predecessor Version's exact DB D1 binding and a fixed read-only direct D1 API query of migration 0030 columns, primary key and due index in the validated target account; uses the existing API token and refuses denied or malformed results without granting permissions or mutating schema; uses one direct Cloudflare API Version upload and one direct Cloudflare API Deployment write; binds each acknowledgement to the exact Version and Deployment ids; verifies the selected Version's authoritative resources.script.etag against the uploaded ${W.bundle} bytes and compares its full non-code closure with the active predecessor; re-reads the active Deployment and exact hostname/service/environment custom-domain filters across bounded stable pages; runs \`bun run smoke:postdeploy\` through the public launch URL read from the Capsule outputs file selected by TAKOSUMI_CAPSULE_OUTPUTS_FILE; then requires a final route and active Deployment readback before PUBLISHED`,
+        "post-conditions": `before upload requires exactly one YURUCOMMU_SESSION_HASH_SALT secret_text binding on the active predecessor Version (metadata presence/type only; no value read or secret provisioning), its exact DB D1 binding and a fixed read-only direct D1 API query of migration 0030 columns, primary key and due index in the validated target account; uses the existing API token and refuses denied or malformed results without granting permissions or mutating schema; uses one direct Cloudflare API Version upload and one direct Cloudflare API Deployment write; binds each acknowledgement to the exact Version and Deployment ids; verifies the selected Version's authoritative resources.script.etag against the uploaded ${W.bundle} bytes and compares its full non-code closure with the active predecessor; re-reads the active Deployment and exact hostname/service/environment custom-domain filters across bounded stable pages; runs \`bun run smoke:postdeploy\` through the public launch URL read from the Capsule outputs file selected by TAKOSUMI_CAPSULE_OUTPUTS_FILE; then requires a final route and active Deployment readback before PUBLISHED`,
         reversal: `reads the pre-upload active Deployment and its exact one-Version 100 percent version set rather than Version-list order; a failed smoke never writes an automatic rollback because Cloudflare exposes no compare-and-swap across the read/write boundary, and instead reports that exact predecessor for manual reversal after an authoritative concurrency readback`,
         "failure-handling":
-          "prints provider diagnostics without credentials; missing, ambiguous or invalid active DB binding, denied D1 access, malformed query result or missing migration 0030 structure fails PRE_UPLOAD_FAILURE before Version upload or Deployment write; reports POST_UPLOAD_INDETERMINATE, POST_DEPLOY_INDETERMINATE, or POST_CONDITION_INDETERMINATE after the corresponding operation, and never retries an upload or deployment whose acknowledgement was lost",
+          "prints provider diagnostics without credentials; missing/invalid active session-salt secret binding, missing, ambiguous or invalid active DB binding, denied D1 access, malformed query result or missing migration 0030 structure fails PRE_UPLOAD_FAILURE before Version upload or Deployment write; reports POST_UPLOAD_INDETERMINATE, POST_DEPLOY_INDETERMINATE, or POST_CONDITION_INDETERMINATE after the corresponding operation, and never retries an upload or deployment whose acknowledgement was lost",
       },
     },
     {
@@ -108,8 +111,10 @@ const CONTRACT = {
       requiresScripts: ["check", "build:worker", R.smokeScript],
       requiresTools: ["git", "bun", "gh"],
       requiresEnv: [],
-      triggers: ["published-identity"],
+      triggers: ["published-identity", "authority"],
       obligations: {
+        "independent-review":
+          "before publishing the authentication-enforcement artifact, requires independent review of the exact commit, required secret custody and regression/native/CI evidence; publication does not authorize any consumer installation or live secret change",
         provenance:
           "refuses a dirty, detached, or unpushed worktree; requires main for publication; runs `bun run check`; builds and boots the embedded Worker from that exact commit; requires the repository manifest's default deploy/takoform module and sourceBuild-generated Worker/migration assets, plus direct-Cloudflare module release pins, to align with the same tag and artifact digest; records the source commit plus SHA-256 in the release manifest; and projects the exact version's checked-in CHANGELOG.md section into Release notes",
         "post-conditions":

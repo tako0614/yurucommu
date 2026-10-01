@@ -74,6 +74,20 @@ export type YurucommuRuntimeEnv = Omit<Env, "APP_URL"> & {
   readonly APP_URL?: string;
 };
 
+const DEVELOPMENT_SESSION_HASH_SALT = "yurucommu:dev-only-session-hash-salt";
+
+function requireSessionHashSalt(value: unknown): asserts value is string {
+  if (
+    typeof value !== "string" ||
+    value.trim().length === 0 ||
+    value === DEVELOPMENT_SESSION_HASH_SALT
+  ) {
+    throw new Error(
+      "YURUCOMMU_SESSION_HASH_SALT must be configured with a non-development value",
+    );
+  }
+}
+
 /**
  * Read the declared lane off the deployment's plain variables.
  *
@@ -98,5 +112,12 @@ export function resolveYurucommuRuntimeLane(
 export function wrapYurucommuWorkerBindings(
   bindings: YurucommuWorkerBindings,
 ): YurucommuRuntimeEnv {
+  // Preserve the lane's existing validation error precedence before enforcing
+  // product-specific required variables at the boundary to Core.
+  resolveYurucommuRuntimeLane(bindings);
+  requireSessionHashSalt(
+    (bindings as { readonly YURUCOMMU_SESSION_HASH_SALT?: unknown })
+      .YURUCOMMU_SESSION_HASH_SALT,
+  );
   return wrapRuntimeBindings(bindings) as unknown as YurucommuRuntimeEnv;
 }

@@ -25,6 +25,7 @@ const COMMIT = "c".repeat(40);
 const REMOTE_MAIN = "d".repeat(40);
 const ACCOUNT_ID = "a".repeat(32);
 const D1_DATABASE_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+const SESSION_HASH_SALT_BINDING = "YURUCOMMU_SESSION_HASH_SALT";
 const MEDIA_DELETION_SCHEMA_QUALIFICATION = {
   kind: "yurucommu.core-media-deletion-schema@v1" as const,
   table: "media_blob_deletion_jobs" as const,
@@ -44,6 +45,7 @@ const VERSION_CLOSURE = {
   bindings: {
     DB: { type: "d1", id: D1_DATABASE_ID },
     DELIVERY_QUEUE: { type: "queue", queue_name: "delivery" },
+    [SESSION_HASH_SALT_BINDING]: { type: "secret_text" },
   },
   vars: {
     DELIVERY_QUEUE_NAME: "delivery",
@@ -521,19 +523,34 @@ describe("production yurucommu Worker publisher", () => {
 
   test("requires exactly one UUID D1 DB binding on the active Version before schema query or upload", () =>
     cleanFixture(async ({ repo, target }) => {
-      const invalidBindings = [
-        undefined,
-        { DB: { type: "kv", id: D1_DATABASE_ID } },
-        { DB: { type: "d1", id: "not-a-database-uuid" } },
-        [
-          { name: "DB", type: "d1", id: D1_DATABASE_ID },
-          { name: "DB", type: "d1", id: D1_DATABASE_ID },
-        ],
+      const validSalt = { type: "secret_text" };
+      const invalidCases = [
+        { bindings: { [SESSION_HASH_SALT_BINDING]: validSalt } },
+        {
+          bindings: {
+            DB: { type: "kv", id: D1_DATABASE_ID },
+            [SESSION_HASH_SALT_BINDING]: validSalt,
+          },
+        },
+        {
+          bindings: {
+            DB: { type: "d1", id: "not-a-database-uuid" },
+            [SESSION_HASH_SALT_BINDING]: validSalt,
+          },
+        },
+        {
+          bindings: [
+            { name: "DB", type: "d1", id: D1_DATABASE_ID },
+            { name: "DB", type: "d1", id: D1_DATABASE_ID },
+            { name: SESSION_HASH_SALT_BINDING, type: "secret_text" },
+          ],
+        },
       ];
 
-      for (const bindings of invalidBindings) {
+      for (const { bindings } of invalidCases) {
         let schemaChecks = 0;
         let uploads = 0;
+        let deployments = 0;
         const previousVersion = versionDetails(OLD_VERSION);
         const activeVersion = {
           ...previousVersion,
@@ -568,6 +585,10 @@ describe("production yurucommu Worker publisher", () => {
               uploads += 1;
               throw new Error("invalid DB binding must block upload");
             },
+            deployVersion: async () => {
+              deployments += 1;
+              throw new Error("invalid DB binding must block deployment");
+            },
           },
         }).catch((error) => error);
 
@@ -575,6 +596,139 @@ describe("production yurucommu Worker publisher", () => {
         expect(failure.message).toMatch(/DB binding|database id/u);
         expect(schemaChecks).toBe(0);
         expect(uploads).toBe(0);
+        expect(deployments).toBe(0);
+      }
+    }));
+
+  test("requires one inherited secret_text session salt before schema query or upload", () =>
+    cleanFixture(async ({ repo, target }) => {
+      const { [SESSION_HASH_SALT_BINDING]: _salt, ...bindingsWithoutSalt } =
+        VERSION_CLOSURE.bindings;
+      const validSaltEntry = {
+        name: SESSION_HASH_SALT_BINDING,
+        type: "secret_text",
+      };
+      const invalidCases = [
+        {
+          label: "missing",
+          bindings: bindingsWithoutSalt,
+        },
+        {
+          label: "duplicate array name",
+          bindings: [
+            ...Object.entries(bindingsWithoutSalt).map(([name, binding]) => ({
+              name,
+              ...binding,
+            })),
+            validSaltEntry,
+            validSaltEntry,
+          ],
+        },
+        {
+          label: "plaintext variable",
+          bindings: bindingsWithoutSalt,
+          vars: {
+            ...VERSION_CLOSURE.vars,
+            [SESSION_HASH_SALT_BINDING]: "must-not-count-as-a-secret-binding",
+          },
+        },
+        {
+          label: "wrong binding kind",
+          bindings: {
+            ...VERSION_CLOSURE.bindings,
+            [SESSION_HASH_SALT_BINDING]: { type: "plain_text" },
+          },
+        },
+        {
+          label: "null array element",
+          bindings: [
+            ...Object.entries(VERSION_CLOSURE.bindings).map(
+              ([name, binding]) => ({
+                name,
+                ...binding,
+              }),
+            ),
+            null,
+          ],
+        },
+        {
+          label: "array metadata value",
+          bindings: {
+            ...bindingsWithoutSalt,
+            [SESSION_HASH_SALT_BINDING]: [{ type: "secret_text" }],
+          },
+        },
+        {
+          label: "primitive array element",
+          bindings: [
+            ...Object.entries(VERSION_CLOSURE.bindings).map(
+              ([name, binding]) => ({
+                name,
+                ...binding,
+              }),
+            ),
+            SESSION_HASH_SALT_BINDING,
+          ],
+        },
+      ];
+
+      for (const { label, bindings, vars } of invalidCases) {
+        let schemaChecks = 0;
+        let uploads = 0;
+        let deployments = 0;
+        const previousVersion = versionDetails(OLD_VERSION);
+        const activeVersion = {
+          ...previousVersion,
+          resources: {
+            ...previousVersion.resources,
+            bindings,
+            ...(vars === undefined ? {} : { vars }),
+          },
+        };
+        const failure = await deployYurucommuWorker({
+          repo,
+          environment: "production",
+          commit: COMMIT,
+          target,
+          git: gitSource(),
+          check: async () => {},
+          provider: {
+            domains: async () => [
+              {
+                hostname: "test.yurucommu.com",
+                service: "yurucommu",
+                environment: "production",
+              },
+            ],
+            activeDeployment: async () =>
+              deployment(OLD_DEPLOYMENT, OLD_VERSION),
+            version: async () => activeVersion,
+            assertMediaDeletionSchema: async () => {
+              schemaChecks += 1;
+              return MEDIA_DELETION_SCHEMA_QUALIFICATION;
+            },
+            upload: async () => {
+              uploads += 1;
+              throw new Error("invalid session salt binding must block upload");
+            },
+            deployVersion: async () => {
+              deployments += 1;
+              throw new Error(
+                "invalid session salt binding must block deployment",
+              );
+            },
+          },
+        }).catch((error) => error);
+
+        expect(failureOf(failure).phase, label).toBe("PRE_UPLOAD_FAILURE");
+        expect(failure.message, label).toContain(
+          "YURUCOMMU_SESSION_HASH_SALT secret_text binding",
+        );
+        expect(failure.message, label).toContain("operator review");
+        expect(failure.message, label).toContain("log in again");
+        expect(schemaChecks, label).toBe(0);
+        expect(uploads, label).toBe(0);
+        expect(deployments, label).toBe(0);
       }
     }));
 
@@ -1755,6 +1909,11 @@ describe("production yurucommu Worker publisher", () => {
             { name: "DB", type: "inherit", version_id: OLD_VERSION },
             {
               name: "DELIVERY_QUEUE",
+              type: "inherit",
+              version_id: OLD_VERSION,
+            },
+            {
+              name: SESSION_HASH_SALT_BINDING,
               type: "inherit",
               version_id: OLD_VERSION,
             },

@@ -149,6 +149,17 @@ Cloudflare の Secret として渡してください。`tofu plan` でデータ�
 変え、再ログインが必要になり得ます。Takosumi の direct install へ渡す sealed
 入力経路は未検証で、通常の入力欄に秘密値を書いて代用しません。
 
+Worker は salt の未設定・空白値・公開された開発用 fallback を拒否します。
+direct の code-only 更新も、現在配信中の Version に同名の `secret_text` binding
+が一つあることを upload 前に要求します。binding の名前・型の確認だけでは、
+実値やエントロピーは証明できません。公開済み v2.2.0 の導入契約には salt が
+含まれていなかったため、既存環境で未設定なら、この code-only 更新では追加
+できません。credential owner の別途レビュー済み手順で Secret を先に設定し、
+その環境の password または OIDC による再認証を確認してください。既存 session
+行を変換・削除して回避せず、暗号化キー・所有者・プロフィール・データを保持します。
+新しい salt は更新後と code rollback 時にも同じ値を保持します。
+ローカルの更新・復元検証と公開環境での custody 確認は別です。
+
 
 root `main.tf` の機密入力 `auth_password_hash` は、正規の PBKDF2 hash または
 bootstrap token を `AUTH_PASSWORD_HASH` Secret に渡します。非空値は OpenTofu が

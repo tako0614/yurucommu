@@ -145,13 +145,32 @@ and its Cloudflare resources. Its main inputs are:
 
 - the Cloudflare account ID;
 - the Worker name and public URL;
-- a 64-character hexadecimal encryption key; and
+- a 64-character hexadecimal encryption key;
+- a high-entropy sensitive session salt (`session_hash_salt`); and
 - an initial password or OIDC configuration.
 
 Do not write secret values to the repository or plaintext Worker variables.
 Pass them through sensitive OpenTofu inputs or Cloudflare Secrets. Review the
 database, storage, queues, Worker, and public URL in `tofu plan` before
 applying.
+
+An enabled Worker requires `session_hash_salt`, delivered as the
+`YURUCOMMU_SESSION_HASH_SALT` Secret with its accepted bytes unchanged. Use a
+secure generator for a new instance and preserve the existing value on update.
+The Worker refuses an absent/blank salt or the public development fallback;
+the direct code-only publisher requires exactly one matching `secret_text`
+binding on the active predecessor Version before upload. Metadata verifies its
+name and type, not its value or entropy.
+
+The immutable v2.2.0 install contract did not declare this salt. If it is absent
+in an existing installation, the code-only publisher cannot add it. The
+credential owner must first use a separately reviewed Secret configuration
+procedure and verify re-authentication using that installation's password or
+OIDC method. Introducing the salt invalidates old session lookups; do not
+rewrite/delete sessions to disguise this transition. Preserve the encryption
+key, owner, personas and data, and keep the new salt on subsequent updates and
+code rollback. Local update/restore qualification does not prove public secret
+custody or the platform's sealed-input preservation.
 
 
 The sensitive root `main.tf` input `auth_password_hash` projects a canonical
