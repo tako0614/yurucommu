@@ -1,7 +1,7 @@
 # Yurucommu publication code readback — 2026-10-01
 
 Scope: Yurucommu only, stacked after qualified #53. Parent owns deploy contract,
-release-version contract test and README JA/EN. A bounded implementation worker
+release-version contract test, native-smoke test helper and README JA/EN. A bounded implementation worker
 owns release-yurucommu-worker.mjs, its declaration and test. An independent reviewer
 owns no source edits. Original install work, Meet #28, shared Core/control and
 other worktrees remain read-only. Common evidence feedback is in the external
@@ -34,6 +34,16 @@ with other heavy work. Freeze canonical tracked/nonignored source fingerprints.
 Reuse prior runtime/browser/update proofs only if exact Worker bytes remain equal,
 retaining their old source identity; qualify CI artifact bytes independently.
 Preserve original dirty HEAD/status/binary diff and leave worktrees clean at return.
+
+First CI failed an existing native mutant at 20.12s, matching its 20s child
+deadline; the expected owner-switch diagnostic was absent. A single operator
+probe of the exact fixture with phase-only checker instrumentation completed in
+2.78s with the expected refusal and disposal. The CI stall phase remains unknown.
+Keep the measured deadline unchanged and require a normal child exit before any
+mutant-marker assertion; null exit or signal termination is a harness failure.
+An actual self-signaled child printing the expected marker must still be refused.
+Preserve the failed CI and first local proof separately, then requalify the changed
+test source; do not relabel the earlier CI or claim the CI stall cause is fixed.
 
 Remaining GA conditions include public self-install/Host lifecycle, actual Secret
 custody/materializer preservation, OIDC/Takos recovery, atomic first owner, encrypted
