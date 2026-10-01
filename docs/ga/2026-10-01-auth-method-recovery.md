@@ -58,3 +58,13 @@ layout guard after OIDC checks. That partial run has no success manifest and is
 excluded from whole-browser qualification. Update the guard to the exact local
 shared login container, then requalify final frozen source. Old CI still executing
 full check is not treated as passed or explained by this verifier correction.
+
+Final CI36924543852 on a7cb78f succeeds488/0/2838,26plans,27native/4fresh,
+57Chrome154 checks and both immutable-old OIDC update cases. Its a3a477 Worker
+bytes are qualified separately from local ea44b5 bytes. Local current password/
+product lane passes30 checks, while the two-launch combined runner closes Chrome149
+during feed. The exact closure cause remains unknown. An operator-only candidate
+with one browser lifetime and isolated lane contexts/Workers passes all57 checks
+on the same ea44b5 Worker. Promote only that lifetime management, preserving every
+assertion and primary failure; requalify portable source and exact-tree CI. Earlier
+failed combined runs and the initial cancelled CI are excluded and remain archived.

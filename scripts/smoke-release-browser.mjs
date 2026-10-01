@@ -200,8 +200,7 @@ function nativeWorker(
   );
 }
 
-async function runOidcRecoverySmoke(artifactPath, artifactDigest) {
-  const chromePath = chromeExecutable();
+async function runOidcRecoverySmoke(artifactPath, artifactDigest, browser) {
   const config = unstable_readConfig(
     { config: resolve(repo, "wrangler.jsonc") },
     { hideWarnings: true },
@@ -220,7 +219,6 @@ async function runOidcRecoverySmoke(artifactPath, artifactDigest) {
   });
   let managed;
   let issuer;
-  let browser;
   let primaryError;
   let result;
   const cleanupFailures = [];
@@ -238,11 +236,6 @@ async function runOidcRecoverySmoke(artifactPath, artifactDigest) {
     const { db, schemaSha256, migrationCount } = await applyProductSchema(
       managed.worker,
     );
-    browser = await chromium.launch({
-      executablePath: chromePath,
-      headless: true,
-      args: ["--no-sandbox", "--disable-dev-shm-usage"],
-    });
     const checks = [];
     const recovery = await qualifyBrowserOidcRecovery({
       browser,
@@ -278,7 +271,6 @@ async function runOidcRecoverySmoke(artifactPath, artifactDigest) {
     primaryError = error;
   } finally {
     for (const [label, close] of [
-      ["browser", () => browser?.close()],
       ["worker", () => managed?.dispose()],
       ["issuer", () => issuer?.close()],
     ]) {
@@ -302,8 +294,7 @@ async function runOidcRecoverySmoke(artifactPath, artifactDigest) {
   return result;
 }
 
-async function runBrowserSmoke(artifactPath, artifactDigest) {
-  const chromePath = chromeExecutable();
+async function runBrowserSmoke(artifactPath, artifactDigest, browser) {
   const wranglerConfig = unstable_readConfig(
     { config: resolve(repo, "wrangler.jsonc") },
     { hideWarnings: true },
@@ -320,7 +311,6 @@ async function runBrowserSmoke(artifactPath, artifactDigest) {
     origin,
     wranglerConfig,
   );
-  let browser;
   let context;
   let primaryError;
   let result;
@@ -336,11 +326,6 @@ async function runBrowserSmoke(artifactPath, artifactDigest) {
       await applyProductSchema(worker);
     checks.push("native-migrations-applied-to-empty-actors-and-sessions");
 
-    browser = await chromium.launch({
-      executablePath: chromePath,
-      headless: true,
-      args: ["--no-sandbox", "--disable-dev-shm-usage"],
-    });
     context = await browser.newContext({
       locale: "ja-JP",
       viewport: { width: 1280, height: 900 },
@@ -728,7 +713,6 @@ async function runBrowserSmoke(artifactPath, artifactDigest) {
   } finally {
     for (const [label, close] of [
       ["context", () => context?.close()],
-      ["browser", () => browser?.close()],
       ["worker", () => dispose()],
     ]) {
       try {
@@ -776,10 +760,42 @@ async function main() {
     );
   }
 
-  const oidcRecovery = await runOidcRecoverySmoke(artifactPath, artifactDigest);
-  const result = await runBrowserSmoke(artifactPath, artifactDigest);
-  result.oidcRecovery = oidcRecovery;
-  result.checks.push(...oidcRecovery.checks);
+  const chromePath = chromeExecutable();
+  let browser;
+  let primaryError;
+  let result;
+  const cleanupFailures = [];
+  try {
+    browser = await chromium.launch({
+      executablePath: chromePath,
+      headless: true,
+      args: ["--no-sandbox", "--disable-dev-shm-usage"],
+    });
+    const oidcRecovery = await runOidcRecoverySmoke(
+      artifactPath,
+      artifactDigest,
+      browser,
+    );
+    result = await runBrowserSmoke(artifactPath, artifactDigest, browser);
+    result.oidcRecovery = oidcRecovery;
+    result.checks.push(...oidcRecovery.checks);
+  } catch (error) {
+    primaryError = error;
+  } finally {
+    try {
+      await browser?.close();
+    } catch {
+      cleanupFailures.push("browser");
+    }
+  }
+  if (primaryError) {
+    if (cleanupFailures.length)
+      process.stderr.write(
+        "release-browser secondary-browser-cleanup-failure\n",
+      );
+    throw primaryError;
+  }
+  requireEffect(cleanupFailures.length === 0, "browser cleanup failed");
   process.stdout.write(`${JSON.stringify(result)}\n`);
 }
 
