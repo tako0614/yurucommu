@@ -100,12 +100,104 @@ describe("release Worker smoke", () => {
         "logout-revocation",
       ],
       authentication: { passwordMethods: ["pbkdf2-sha256", "bootstrap"] },
+      onboarding: {
+        substrate: "fresh-native-bindings",
+        cases: ["pbkdf2-sha256", "bootstrap"].flatMap((passwordMethod) =>
+          ["browser", "mobile"].map((firstTransport) => ({
+            passwordMethod,
+            firstTransport,
+            owners: 1,
+            personas: 1,
+            checks: [
+              "first-owner-invalid-password-refusal",
+              "first-owner-password-creation",
+              "first-owner-session-persistence",
+              "first-owner-cookie-and-bearer",
+              "first-owner-relogin",
+              "first-owner-anonymous-create-refusal",
+              "first-owner-persona-linkage",
+              "first-owner-persona-switch",
+            ],
+          })),
+        ),
+      },
       status: "PASSED",
     });
   }, 30_000);
 
   const fetchAnchor = "    // No origin handling here.";
   for (const [name, injected, error] of [
+    [
+      "personal profile switch stripping cookie protection",
+      `    if (request.method === "POST" && new URL(request.url).pathname === "/api/auth/switch") {
+      const response = await backendApp.fetch(request, wrapYurucommuWorkerBindings(env) as Env, ctx);
+      const headers = new Headers(response.headers);
+      const active = response.headers.get("set-cookie").match(/session=[^;,]+/g).at(-1);
+      headers.delete("set-cookie");
+      headers.set("set-cookie", active + "; Max-Age=2592000");
+      return new Response(response.body, { status: response.status, headers });
+    }
+`,
+      "first-owner-persona-switch",
+    ],
+    [
+      "personal profile list duplicating root instead of returning persona",
+      `    if (request.method === "GET" && new URL(request.url).pathname === "/api/auth/accounts") {
+      const response = await backendApp.fetch(request, wrapYurucommuWorkerBindings(env) as Env, ctx);
+      const body = await response.json();
+      if (body.accounts?.length === 2) {
+        const root = body.accounts.find((account) => account.ap_id.endsWith("/tako"));
+        body.accounts = [root, root];
+      }
+      return Response.json(body, { status: response.status, headers: response.headers });
+    }
+`,
+      "first-owner-persona-linkage",
+    ],
+    [
+      "fresh browser login success without owner or session persistence",
+      `    if (request.method === "POST" && new URL(request.url).pathname === "/api/auth/login" && (await request.clone().json()).password === "release-smoke-only" && (await env.DB.prepare("SELECT COUNT(*) AS count FROM actors").first()).count === 0) {
+      return Response.json({ success: true }, { headers: { "set-cookie": "session=fake-fresh-login; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=2592000" } });
+    }
+`,
+      "first-owner-",
+    ],
+    [
+      "fresh mobile login success without owner or session persistence",
+      `    if (request.method === "POST" && new URL(request.url).pathname === "/api/auth/mobile/login" && (await request.clone().json()).password === "release-smoke-only" && (await env.DB.prepare("SELECT COUNT(*) AS count FROM actors").first()).count === 0) {
+      return Response.json({ access_token: "fake-fresh-login", token_type: "Bearer", expires_in: 2592000 });
+    }
+`,
+      "first-owner-",
+    ],
+    [
+      "fresh password login creating a member instead of an owner",
+      `    if (request.method === "POST" && new URL(request.url).pathname === "/api/auth/login" && (await request.clone().json()).password === "release-smoke-only" && (await env.DB.prepare("SELECT COUNT(*) AS count FROM actors").first()).count === 0) {
+      const response = await backendApp.fetch(request, wrapYurucommuWorkerBindings(env) as Env, ctx);
+      await env.DB.prepare("UPDATE actors SET role = 'member'").run();
+      return response;
+    }
+`,
+      "first-owner-",
+    ],
+    [
+      "personal profile promoted to an independent owner",
+      `    if (request.method === "POST" && new URL(request.url).pathname === "/api/auth/accounts") {
+      const response = await backendApp.fetch(request, wrapYurucommuWorkerBindings(env) as Env, ctx);
+      await env.DB.prepare("UPDATE actors SET role = 'owner', owner_actor_ap_id = NULL WHERE preferred_username = 'onboarding_persona'").run();
+      return response;
+    }
+`,
+      "first-owner-persona-linkage",
+    ],
+    [
+      "personal profile switch without session rotation",
+      `    if (request.method === "POST" && new URL(request.url).pathname === "/api/auth/switch") {
+      return Response.json({ success: true }, { headers: { "set-cookie": request.headers.get("cookie") + "; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=2592000" } });
+    }
+`,
+      "first-owner-persona-switch",
+    ],
     [
       "post attachment followers ActivityPub leaked",
       `    if (request.method === "GET" && new URL(request.url).pathname.startsWith("/ap/objects/")) {
