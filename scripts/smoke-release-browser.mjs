@@ -13,6 +13,7 @@ import { unstable_readConfig, unstable_splitSqlQuery } from "wrangler";
 import { qualifyBrowserFeed } from "./release-browser-feed.mjs";
 import { qualifySearchFollowing } from "./release-browser-follow.mjs";
 import { qualifyBrowserDM } from "./release-browser-dm.mjs";
+import { qualifyBrowserNotifications } from "./release-browser-notifications.mjs";
 import { createManagedNativeRuntime } from "./native-runtime-stdio.mjs";
 import {
   createBrowserOidcErrorIssuer,
@@ -646,6 +647,13 @@ async function runBrowserSmoke(artifactPath, artifactDigest, browser) {
       recipientApId: followMetadata.publicActorApId,
       checks,
     });
+    const notificationMetadata = await qualifyBrowserNotifications({
+      page,
+      db,
+      origin,
+      actorApId,
+      checks,
+    });
     const finalActors = (
       await db
         .prepare(
@@ -701,11 +709,12 @@ async function runBrowserSmoke(artifactPath, artifactDigest, browser) {
       schemaSha256,
       migrationCount,
       scope:
-        "one self-created root owner and two API-created own personas; no actor/session seed or external participant; no public TLS/deploy/federation qualification",
+        "one self-created root owner and two API-created own personas; synthetic remote Like/Announce and one cache/inbox peer fixture; no local actor/session seed or public TLS/deploy/federation qualification",
       checks,
       feed: feedMetadata,
       follow: followMetadata,
       dm: dmMetadata,
+      notifications: notificationMetadata,
       status: "PASSED",
     };
   } catch (error) {

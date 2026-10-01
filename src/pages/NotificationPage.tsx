@@ -168,11 +168,15 @@ export function NotificationPage() {
   const [hasMoreOlder, setHasMoreOlder] = createSignal(false);
   const [nextCursor, setNextCursor] = createSignal<string | null>(null);
   const [loadingOlder, setLoadingOlder] = createSignal(false);
+  // A focus GET can finish after an archive commits. Never merge a snapshot
+  // that began before a list reset or archive mutation back into this view.
+  let listVersion = 0;
 
   createEffect(() => {
     const currentFilter = filter();
     const archived = viewArchived();
     reloadKey();
+    listVersion++;
 
     setNotifications([]);
     setHasMoreOlder(false);
@@ -234,6 +238,7 @@ export function NotificationPage() {
 
     onCleanup(() => {
       cancelled = true;
+      listVersion++;
     });
   });
 
@@ -245,6 +250,7 @@ export function NotificationPage() {
   const handleArchiveToggle = async (notification: Notification) => {
     if (archivingAll() || archiving()[notification.id]) return;
     const wasArchived = viewArchived();
+    listVersion++;
     setArchiving((p) => ({ ...p, [notification.id]: true }));
     setNotifications((prev) => prev.filter((n) => n.id !== notification.id));
     try {
@@ -288,6 +294,7 @@ export function NotificationPage() {
     ) {
       return;
     }
+    listVersion++;
     setArchivingAll(true);
     try {
       await archiveAllNotifications();
@@ -389,16 +396,22 @@ export function NotificationPage() {
   // visible or regains focus, so an open notification view doesn't go stale
   // while only the shared badge polls.
   const refreshInPlace = async () => {
-    if (loading() || loadError()) return;
+    if (loading() || loadError() || archiveMutationPending()) return;
     const currentFilter = filter();
     const archived = viewArchived();
+    const version = listVersion;
     try {
       const { notifications: data } = await fetchNotifications({
         type: currentFilter === "all" ? undefined : currentFilter,
         archived,
       });
       // Ignore late responses if the filter / view changed mid-flight.
-      if (filter() !== currentFilter || viewArchived() !== archived) return;
+      if (
+        filter() !== currentFilter ||
+        viewArchived() !== archived ||
+        listVersion !== version
+      )
+        return;
       // The in-place refresh fetches only the NEWEST page, but the list may hold
       // older pages loaded via "load older". Merge the newest page in place, then
       // re-append the still-present older items so a focus/visibility refresh
@@ -425,7 +438,11 @@ export function NotificationPage() {
       if (unread.length > 0) {
         try {
           await markNotificationsRead(unread.map((n) => n.id));
-          if (filter() === currentFilter) {
+          if (
+            filter() === currentFilter &&
+            viewArchived() === archived &&
+            listVersion === version
+          ) {
             // Flip ONLY the rows we actually marked on the server (the newest
             // page's unread). The list may now include older pages whose unread
             // rows were never POSTed — a blanket flip would mark them read
