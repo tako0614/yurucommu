@@ -16,6 +16,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { Miniflare } from "miniflare";
 import { unstable_readConfig, unstable_splitSqlQuery } from "wrangler";
+import { createSyntheticUpdateIssuer } from "./release-update-oidc.mjs";
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const OLD_VERSION = "2.2.0";
@@ -196,7 +197,7 @@ function captureDiagnostic(stream, evidence, channel) {
   });
   stream.resume();
 }
-function nativeWorker(path, paths, ids, config, salt) {
+function nativeWorker(path, paths, ids, config, salt, oidc) {
   const bindings = {
     APP_URL: ORIGIN,
     AUTH_PASSWORD_HASH: PASSWORD_HASH,
@@ -204,6 +205,10 @@ function nativeWorker(path, paths, ids, config, salt) {
     DELIVERY_QUEUE_NAME: "yurucommu-update-smoke-delivery",
     DELIVERY_DLQ_NAME: "yurucommu-update-smoke-dlq",
   };
+  if (oidc) {
+    delete bindings.AUTH_PASSWORD_HASH;
+    Object.assign(bindings, oidc.bindings);
+  }
   if (salt !== OMIT) bindings.YURUCOMMU_SESSION_HASH_SALT = salt;
   const root = dirname(path);
   const evidence = {
@@ -230,10 +235,12 @@ function nativeWorker(path, paths, ids, config, salt) {
           DELIVERY_QUEUE: { queueName: bindings.DELIVERY_QUEUE_NAME },
           DELIVERY_DLQ: { queueName: bindings.DELIVERY_DLQ_NAME },
         },
-        outboundService: async () => {
-          outboundEvidence.blockedFetches++;
-          return new Response(null, { status: 502 });
-        },
+        outboundService: oidc
+          ? (request) => oidc.fetch(request)
+          : async () => {
+              outboundEvidence.blockedFetches++;
+              return new Response(null, { status: 502 });
+            },
       },
     ],
     compatibilityDate: config.compatibility_date,
@@ -1101,6 +1108,402 @@ async function runDedicated(root, bundle, config, oldPath, newPath) {
     await disposeBestEffort(cloneMf, newMf, oldMf);
   }
 }
+async function runOidc(root, bundle, config, oldPath, newPath, firstAddition) {
+  const lane = firstAddition
+    ? "oidc-first-salt-addition"
+    : "oidc-salt-preserved";
+  const paths = storesAt(root, lane + "-primary");
+  const ids = idsFor(lane);
+  const oldSalt = firstAddition ? OMIT : SALT_A;
+  const oldHashSalt = firstAddition ? FALLBACK_SALT : SALT_A;
+  const candidateSalt = firstAddition ? SALT_B : SALT_A;
+  currentCheck = lane + "-issuer-initialization";
+  lastSafeEvidence = undefined;
+  const issuer = await createSyntheticUpdateIssuer({
+    origin: ORIGIN,
+    need,
+    hash,
+  });
+  const owner = ORIGIN + "/ap/users/update_owner";
+  const content = "Synthetic OIDC encrypted-token update fixture";
+  const checks = [];
+  let oldMf, newMf, rollbackMf, cloneMf;
+  let fixture;
+  async function verifyIdentity(mf, cookie, check) {
+    const result = await jsonRequest(mf, "/api/auth/me", cookie, check);
+    need(
+      result.body.actor?.ap_id === owner &&
+        result.body.actor.role === "owner" &&
+        result.body.provider === "takos" &&
+        result.body.has_takos_access === true,
+      check + "-same-pinned-owner-and-provider-presence",
+    );
+  }
+  async function verifySession(db, credential, salt, check) {
+    const row = await session(db, credential.cookie, salt);
+    need(
+      row?.id === sessionId(salt, credential.cookie) &&
+        row.access_token === row.id &&
+        row.member_id === owner &&
+        Date.parse(row.expires_at) > Date.now() &&
+        Date.parse(row.provider_token_expires_at) > Date.now(),
+      check + "-salted-owner-session-and-expiry",
+    );
+    await issuer.assertEncrypted(row, credential, ENCRYPTION_KEY, check);
+    return row;
+  }
+  async function verifyFixture(mf, h, check) {
+    const result = await jsonRequest(
+      mf,
+      "/api/posts/" + encodeURIComponent(fixture.post),
+      fixture.cookie,
+      check + "-post",
+    );
+    need(
+      result.body.post?.ap_id === fixture.post &&
+        result.body.post.author?.ap_id === owner &&
+        result.body.post.content === content &&
+        result.body.post.attachments?.length === 1 &&
+        result.body.post.attachments[0].url === fixture.url,
+      check + "-owner-note-media-reference",
+    );
+    const saved = await h.db
+      .prepare(
+        "SELECT uploader_ap_id, r2_key, size FROM media_uploads WHERE id = ?",
+      )
+      .bind(fixture.mediaId)
+      .first();
+    const object = await h.r2.get(fixture.key);
+    need(
+      saved?.uploader_ap_id === owner &&
+        saved.r2_key === fixture.key &&
+        saved.size === PNG.length &&
+        object &&
+        Buffer.from(await object.arrayBuffer()).equals(PNG),
+      check + "-native-d1-r2-byte-readback",
+    );
+    const response = await fetchPath(mf, fixture.url, {
+      headers: headers(fixture.cookie, false),
+    });
+    need(
+      response.status === 200 &&
+        response.headers.get("content-type") === "image/png" &&
+        Buffer.from(await response.arrayBuffer()).equals(PNG),
+      check + "-http-media-bytes",
+    );
+  }
+  async function oldCookieState(mf, h, old, state, check) {
+    const before = await snapshot(h.db);
+    need(
+      before.dataSha === state.dataSha &&
+        before.schemaSha === state.schemaSha &&
+        before.sessionsSha === state.sessionsSha,
+      check + "-all-logical-data-schema-and-session-columns-preserved",
+    );
+    const preserved = await verifySession(h.db, old, oldHashSalt, check);
+    need(
+      JSON.stringify(preserved) === JSON.stringify(old.row),
+      check + "-exact-old-encrypted-row-preserved",
+    );
+    if (firstAddition) {
+      const refused = await fetchPath(mf, "/api/auth/me", {
+        headers: headers(old.cookie, false),
+      });
+      await refused.body?.cancel();
+      need(refused.status === 401, check + "-new-salt-refuses-old-cookie");
+    } else {
+      await verifyIdentity(mf, old.cookie, check);
+      await verifyFixture(mf, h, check);
+    }
+    const after = await snapshot(h.db);
+    need(
+      after.dataSha === state.dataSha &&
+        after.schemaSha === state.schemaSha &&
+        after.sessionsSha === state.sessionsSha,
+      check + "-reads-or-refusal-do-not-rewrite-data-or-session",
+    );
+    return preserved;
+  }
+  try {
+    currentCheck = lane + "-old-real-oidc-setup";
+    oldMf = nativeWorker(oldPath, paths, ids, config, oldSalt, issuer);
+    await oldMf.ready;
+    const h = await handles(oldMf);
+    await applySchema(h.db, bundle, lane + "-fresh-only-schema");
+    await emptyOwnerSession(h.db, lane + "-no-seeded-identities");
+    currentCheck = lane + "-old-oidc-login";
+    lastSafeEvidence = undefined;
+    const old = await issuer.login(oldMf, fetchPath, activeCookie);
+    await verifyIdentity(oldMf, old.cookie, lane + "-old-http-me");
+    old.row = await verifySession(h.db, old, oldHashSalt, lane + "-old-tokens");
+    const ownerRows = await actors(h.db);
+    need(
+      ownerRows.length === 1 &&
+        ownerRows[0].ap_id === owner &&
+        ownerRows[0].role === "owner" &&
+        ownerRows[0].owner_actor_ap_id == null &&
+        ownerRows[0].takos_user_id === "takos:update_owner",
+      lane + "-one-pinned-human-owner",
+    );
+    const form = new FormData();
+    form.set("file", new File([PNG], "oidc-update.png", { type: "image/png" }));
+    const uploadResponse = await fetchPath(oldMf, "/api/media/upload", {
+      method: "POST",
+      headers: headers(old.cookie, false),
+      body: form,
+    });
+    const upload = await jsonResponse(
+      uploadResponse,
+      200,
+      lane + "-old-upload",
+    );
+    const postResponse = await fetchPath(oldMf, "/api/posts", {
+      method: "POST",
+      headers: headers(old.cookie, true),
+      body: JSON.stringify({
+        content,
+        attachments: [
+          {
+            url: upload.url,
+            r2_key: upload.r2_key,
+            content_type: "image/png",
+          },
+        ],
+      }),
+    });
+    const post = await jsonResponse(postResponse, 200, lane + "-old-note");
+    need(
+      typeof post.post?.ap_id === "string" &&
+        typeof upload.id === "string" &&
+        upload.r2_key === "uploads/" + upload.id + ".png" &&
+        upload.url === "/media/" + upload.id + ".png",
+      lane + "-old-http-fixture-identities",
+    );
+    fixture = {
+      cookie: old.cookie,
+      post: post.post.ap_id,
+      mediaId: upload.id,
+      key: upload.r2_key,
+      url: upload.url,
+    };
+    await verifyFixture(oldMf, h, lane + "-old-fixture");
+    const sentinel = await kvPut(h.kv, lane);
+    const state = await snapshot(h.db);
+    need(
+      state.counts.actors === 1 &&
+        state.counts.sessions === 1 &&
+        state.counts.objects === 1 &&
+        state.counts.mediaUploads === 1,
+      lane + "-old-fixture-scope",
+    );
+    checks.push(
+      "old-http-pinned-oidc-owner-and-encrypted-access-refresh-tokens",
+      "old-token-decryption-and-wrong-key-tamper-controls",
+      "old-owner-note-media-d1-r2-and-kv",
+    );
+    await dispose(oldMf);
+    oldMf = undefined;
+    const closed = storeDigests(paths);
+    const cloned = cloneClosedStores(paths, join(root, lane + "-closed-clone"));
+    checks.push("closed-old-stores-cloned-byte-for-byte-before-update");
+
+    currentCheck = lane + "-candidate-existing-stores";
+    newMf = nativeWorker(newPath, paths, ids, config, candidateSalt, issuer);
+    await newMf.ready;
+    const next = await handles(newMf);
+    await oldCookieState(newMf, next, old, state, lane + "-candidate");
+    await kvAssert(next.kv, sentinel, lane + "-candidate");
+    checks.push(
+      "candidate-preserves-every-old-session-and-encrypted-token-column",
+      firstAddition
+        ? "first-salt-addition-refuses-old-cookie-without-row-rewrite"
+        : "same-salt-candidate-accepts-old-oidc-cookie-and-reads-note-media",
+    );
+
+    currentCheck = lane + "-candidate-same-subject-reauth";
+    const renewed = await issuer.login(
+      newMf,
+      fetchPath,
+      activeCookie,
+      old.cookie,
+    );
+    need(
+      renewed.cookie !== old.cookie &&
+        renewed.access !== old.access &&
+        renewed.refresh !== old.refresh,
+      lane + "-fresh-credentials",
+    );
+    await verifyIdentity(newMf, renewed.cookie, lane + "-reauth-me");
+    const newRow = await verifySession(
+      next.db,
+      renewed,
+      candidateSalt,
+      lane + "-renewed-tokens",
+    );
+    need(
+      newRow.provider_access_token !== old.row.provider_access_token &&
+        newRow.provider_refresh_token !== old.row.provider_refresh_token,
+      lane + "-reauth-encrypts-fresh-token-values",
+    );
+    const retained = await session(next.db, old.cookie, oldHashSalt);
+    need(
+      firstAddition
+        ? JSON.stringify(retained) === JSON.stringify(old.row)
+        : retained == null,
+      lane + "-old-row-retention-or-rotation",
+    );
+    need(
+      (await sessions(next.db)).length === (firstAddition ? 2 : 1),
+      lane + "-reauth-session-count",
+    );
+    const oldReplay = await fetchPath(newMf, "/api/auth/me", {
+      headers: headers(old.cookie, false),
+    });
+    await oldReplay.body?.cancel();
+    need(
+      oldReplay.status === 401,
+      lane + "-old-cookie-no-longer-authenticates",
+    );
+    fixture.cookie = renewed.cookie;
+    await verifyFixture(newMf, next, lane + "-renewed-fixture");
+    const renewedState = await assertStable(
+      next.db,
+      state,
+      lane + "-reauth-data",
+    );
+    await kvAssert(next.kv, sentinel, lane + "-reauth");
+    checks.push(
+      "same-subject-reauth-keeps-one-owner-and-rotates-encrypted-credentials",
+      "old-cookie-refused-after-reauth-with-data-unchanged",
+    );
+    await dispose(newMf);
+    newMf = undefined;
+
+    currentCheck = lane + "-old-code-rollback-with-preserved-secrets";
+    rollbackMf = nativeWorker(
+      oldPath,
+      paths,
+      ids,
+      config,
+      candidateSalt,
+      issuer,
+    );
+    await rollbackMf.ready;
+    const rollback = await handles(rollbackMf);
+    await verifyIdentity(rollbackMf, renewed.cookie, lane + "-rollback-me");
+    need(
+      JSON.stringify(
+        await verifySession(
+          rollback.db,
+          renewed,
+          candidateSalt,
+          lane + "-rollback-tokens",
+        ),
+      ) === JSON.stringify(newRow),
+      lane + "-rollback-exact-renewed-session",
+    );
+    await verifyFixture(rollbackMf, rollback, lane + "-rollback-fixture");
+    need(
+      (await snapshot(rollback.db)).sessionsSha === renewedState.sessionsSha,
+      lane + "-rollback-session-columns-unchanged",
+    );
+    await assertStable(rollback.db, state, lane + "-rollback-data");
+    await kvAssert(rollback.kv, sentinel, lane + "-rollback");
+    await dispose(rollbackMf);
+    rollbackMf = undefined;
+    const primaryAfterRollback = storeDigests(paths);
+    checks.push(
+      "old-code-reopen-with-preserved-current-secrets-accepts-renewed-oidc-cookie",
+    );
+
+    currentCheck = lane + "-candidate-closed-clone-restore";
+    cloneMf = nativeWorker(
+      newPath,
+      cloned.paths,
+      ids,
+      config,
+      candidateSalt,
+      issuer,
+    );
+    await cloneMf.ready;
+    const restored = await handles(cloneMf);
+    fixture.cookie = old.cookie;
+    await oldCookieState(cloneMf, restored, old, state, lane + "-restored");
+    if (firstAddition) {
+      const recovery = await issuer.login(
+        cloneMf,
+        fetchPath,
+        activeCookie,
+        old.cookie,
+      );
+      await verifyIdentity(cloneMf, recovery.cookie, lane + "-restored-reauth");
+      await verifySession(
+        restored.db,
+        recovery,
+        candidateSalt,
+        lane + "-restored-new-tokens",
+      );
+      need(
+        JSON.stringify(await session(restored.db, old.cookie, oldHashSalt)) ===
+          JSON.stringify(old.row),
+        lane + "-restored-legacy-ciphertext-retained",
+      );
+      fixture.cookie = recovery.cookie;
+      const recoveredSessionIds = (await sessions(restored.db))
+        .map((row) => row.id)
+        .sort();
+      need(
+        JSON.stringify(recoveredSessionIds) ===
+          JSON.stringify(
+            [old.row.id, sessionId(candidateSalt, recovery.cookie)].sort(),
+          ),
+        lane + "-restored-exact-two-legacy-and-recovered-sessions",
+      );
+      await verifyFixture(cloneMf, restored, lane + "-restored-fixture");
+      await assertStable(restored.db, state, lane + "-restored-reauth-data");
+    }
+    await kvAssert(restored.kv, sentinel, lane + "-restored");
+    await dispose(cloneMf);
+    cloneMf = undefined;
+    need(
+      JSON.stringify(storeDigests(paths)) ===
+        JSON.stringify(primaryAfterRollback),
+      lane + "-restore-does-not-change-primary-closed-stores",
+    );
+    const issuerEvidence = issuer.evidence();
+    need(
+      issuerEvidence.blocked === 0,
+      lane + "-no-unexpected-outbound-request",
+    );
+    checks.push(
+      "closed-clone-restore-preserves-old-ciphertext-and-identity",
+      firstAddition
+        ? "restored-first-addition-recovers-through-synthetic-oidc-reauth"
+        : "restored-same-salt-old-cookie-still-authenticates",
+      "clone-restore-leaves-primary-closed-stores-unchanged",
+    );
+    return {
+      name: lane,
+      physicalIds: ids,
+      oldClosedFiles: closed,
+      restoredCloneInitialFiles: cloned.evidence,
+      primaryAfterRollbackFiles: primaryAfterRollback,
+      restoredCloneFinalFiles: storeDigests(cloned.paths),
+      oldSessionSha256: "sha256:" + hash(Buffer.from(JSON.stringify(old.row))),
+      oldLogicalDataSha256: "sha256:" + state.dataSha,
+      encryptionKey: "same synthetic key preserved; value omitted",
+      tokenScope:
+        "opaque ciphertext preservation and independent AES-GCM recovery; Core has no decrypt-and-use or refresh path",
+      saltMode: firstAddition
+        ? "old public fallback; candidate/rollback/restore keep a newly configured salt; OIDC reauth required"
+        : "explicit dedicated old salt preserved byte-for-byte",
+      issuer: issuerEvidence,
+      checks,
+    };
+  } finally {
+    await disposeBestEffort(cloneMf, rollbackMf, newMf, oldMf);
+  }
+}
 async function runLegacy(root, bundle, config, oldPath, newPath) {
   const lane = "fallback-salt-relogin";
   const paths = storesAt(root, lane + "-primary");
@@ -1437,6 +1840,22 @@ async function run() {
       config,
       args.newPath,
     );
+    const oidcDedicated = await runOidc(
+      tempRoot,
+      schema.bundle,
+      config,
+      args.oldPath,
+      args.newPath,
+      false,
+    );
+    const oidcFirstAddition = await runOidc(
+      tempRoot,
+      schema.bundle,
+      config,
+      args.oldPath,
+      args.newPath,
+      true,
+    );
     need(
       outboundEvidence.blockedFetches === 0,
       "native-workers-made-no-external-fetches",
@@ -1450,7 +1869,7 @@ async function run() {
       kind: "yurucommu.native-session-update-continuity@v1",
       status: "PASSED",
       scope:
-        "offline disposable workerd with native persistent D1/KV/R2; external Worker fetches denied by a local Miniflare service, no schema migration, cloud, deployment, live identity, or real data",
+        "offline disposable workerd with native persistent D1/KV/R2; password lanes deny all outbound fetches, OIDC lanes admit only a local synthetic signed issuer, no schema migration, cloud, deployment, live identity, or real data",
       artifacts: {
         oldVersion: OLD_VERSION,
         oldCommit: OLD_COMMIT,
@@ -1462,9 +1881,11 @@ async function run() {
         schemaEntriesAppliedOnlyToFreshLocalStores: SCHEMA_COUNT,
       },
       lanes: [dedicated, fallback],
+      oidcLanes: [oidcDedicated, oidcFirstAddition],
       invalidSaltGuards: invalid,
       externalWorkerFetches: {
-        policy: "denied locally by Miniflare outboundService",
+        policy:
+          "password lanes deny all outbound; OIDC lanes admit only local synthetic issuer endpoints and report their blocked counts separately",
         observedBlockedFetches: outboundEvidence.blockedFetches,
       },
       checks: [
@@ -1474,6 +1895,7 @@ async function run() {
         "dedicated-salt-cookie-continuity-and-restored-snapshot",
         "fallback-salt-transition-requires-password-relogin-without-row-rewrite",
         "missing-blank-and-public-fallback-salts-refused-before-owner-or-session-writes",
+        "synthetic-oidc-encrypted-access-refresh-token-update-reauth-rollback-and-closed-restore",
       ],
     };
   } catch (error) {

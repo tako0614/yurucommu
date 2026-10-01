@@ -45,7 +45,7 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run check
       - run: bun run smoke:release-browser -- dist/yurucommu-worker.js
-      - name: Qualify immutable v2.2.0 existing-data update and restore
+      - name: Qualify immutable v2.2.0 password and synthetic OIDC update and restore
         shell: bash
         run: |
           curl --fail --location --silent --show-error \
@@ -53,5 +53,5 @@ jobs:
             --output "$RUNNER_TEMP/yurucommu-v2.2.0-worker.js"
           bun run smoke:release-update -- "$RUNNER_TEMP/yurucommu-v2.2.0-worker.js" dist/yurucommu-worker.js \
             > "$RUNNER_TEMP/yurucommu-update-result.json"
-          bun -e 'const result = await Bun.file(Bun.argv.at(-1)).json(); if (result.kind !== "yurucommu.native-session-update-continuity@v1" || result.status !== "PASSED") throw new Error("Native update result missing or failed"); console.log(JSON.stringify(result));' \
+          bun -e 'const result = await Bun.file(Bun.argv.at(-1)).json(); if (result.kind !== "yurucommu.native-session-update-continuity@v1" || result.status !== "PASSED" || result.oidcLanes?.length !== 2 || result.oidcLanes.some(lane => lane.issuer.blocked !== 0 || lane.checks.length !== 12)) throw new Error("Native password/OIDC update result missing or failed"); console.log(JSON.stringify(result));' \
             "$RUNNER_TEMP/yurucommu-update-result.json"
