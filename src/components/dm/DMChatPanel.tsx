@@ -15,7 +15,7 @@ import {
   sendUserDMTyping,
 } from "../../lib/api.ts";
 import { ApiError } from "../../lib/api/fetch.ts";
-import { classifyMessageDeliveryFailure } from "../../lib/message-delivery.ts";
+import { classifyWriteFailure } from "../../lib/write-outcome.ts";
 import { formatTime } from "../../lib/datetime.ts";
 import { useI18n } from "../../lib/i18n.tsx";
 import { ConfirmSheet } from "../ConfirmSheet.tsx";
@@ -394,7 +394,7 @@ export function DMChatPanel(props: DMChatPanelProps) {
       // conversation-specific error must not surface under the new thread.
       if (stillOnConversation()) {
         setErrorMessage(
-          classifyMessageDeliveryFailure(e) === "unconfirmed"
+          classifyWriteFailure(e) === "unconfirmed"
             ? t("dm.sendUnconfirmed")
             : e instanceof ApiError && e.status === 403
               ? e.message

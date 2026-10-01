@@ -1,11 +1,9 @@
 import { ApiError } from "./api/fetch.ts";
 
-export type MessageDeliveryFailure = "rejected" | "unconfirmed";
+export type WriteFailure = "rejected" | "unconfirmed";
 
 /** Only a received non-timeout client HTTP error establishes rejection. */
-export function classifyMessageDeliveryFailure(
-  error: unknown,
-): MessageDeliveryFailure {
+export function classifyWriteFailure(error: unknown): WriteFailure {
   if (
     error instanceof ApiError &&
     error.status >= 400 &&

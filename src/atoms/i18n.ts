@@ -450,6 +450,8 @@ const translations = {
     "feedback.noteDeleted": "ノートを削除しました",
     "feedback.editFailed": "編集に失敗しました",
     "feedback.postFailed": "投稿に失敗しました",
+    "feedback.postUnconfirmed":
+      "投稿結果を確認できません。すでに投稿されている可能性があります。再投稿する前にフィードを確認してください。",
     "feedback.deleteFailed": "削除に失敗しました",
     "feedback.muted": "ミュートしました",
     "feedback.muteFailed": "ミュートに失敗しました",
@@ -1162,6 +1164,8 @@ const translations = {
     "feedback.noteDeleted": "Note deleted",
     "feedback.editFailed": "Failed to edit post",
     "feedback.postFailed": "Failed to post",
+    "feedback.postUnconfirmed":
+      "The post result could not be confirmed. It may already have been posted. Check your feed before posting again.",
     "feedback.deleteFailed": "Failed to delete",
     "feedback.muted": "Muted",
     "feedback.muteFailed": "Failed to mute",

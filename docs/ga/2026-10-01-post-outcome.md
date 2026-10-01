@@ -1,0 +1,13 @@
+# Create-post unknown outcome — 2026-10-01
+
+Task `GA-20261001-yuru-post-outcome`, Yurucommu only, stacked after qualified #58. Parent owns composition atoms, GlobalPostComposer, TimelinePostModal, bilingual copy and the neutral product-local write outcome classifier rename (existing DM behavior/test semantics retained). Browser helper/driver and this ledger belong to this product. Preserve original dirty work and the separate Yurumeet worktree. No Core/schema/credential/deploy or real-data operation.
+
+GA condition: when a real create-post commits but its acknowledgement is lost, describe the result as unconfirmed rather than definite failure, keep draft/media and warn the user to inspect the feed before retrying. Only a received non-timeout SDK4xx establishes rejection. No automatic retry or text deduplication; successful-create behavior remains, and explicit discard clears the persistent inline error. A malformed/missing successful response likewise cannot establish non-persistence.
+
+Actual immutable #58 browser red: the selected real UI POST returns200 to the interceptor and D1 has one matching Note/outboundCreate; only the browser ACK is then deliberately aborted. The modal stays open with its draft, but the persistent post-specific uncertainty warning is absent. This is local native proof, not a live network incident or duplicate-write proof.
+
+Reuse the tested product-local write classifier under neutral names for both DM and posts. Add a persistent accessible alert inside the post modal, distinguish real4xx rejection, preserve known length/summary messages, and leave the bool submit/close contract intact. Browser qualification must bind actual committed ID/native effects, lost-ACK UI/no-resend/feed reload and a declared induced native4xx no-write positive control. Existing checks remain.
+
+Required qualification: frozen source, explicit fmt, mandatory read-only `bun run check`, fresh tracked browser and immutable v2.2.0 password/OIDC update/restore, exact-tree CI and independent source/final evidence review. Heavy local runs serialize with fresh /proc evidence. No production deploy/live migration.
+
+Dependencies stay separate: Core per-intent atomic create-post replay/idempotency proposal; atomic all-owner paths, DM intent replay, pending Follow hydration and unused upload lifecycle; real install/Takos OIDC/token use/secret custody/public lifecycle/federation. Successful-send concurrent newer-draft/media loss is a separate source candidate, not fixed by this outcome warning. Yurucommu remains one human owner per personal instance; this does not set Yurumeet's owner premise.

@@ -10,6 +10,7 @@ import {
   createPostAtom,
   postContentAtom,
   postSummaryAtom,
+  postSubmitErrorAtom,
   postVisibilityAtom,
   postingAtom,
   removeMediaAtom,
@@ -49,6 +50,7 @@ export function GlobalPostComposer() {
   const uploadedMedia = useAtomValue(uploadedMediaAtom);
   const uploading = useAtomValue(uploadingAtom);
   const uploadError = useAtomValue(uploadErrorAtom);
+  const submitError = useAtomValue(postSubmitErrorAtom);
 
   // The scope switcher is reachable from inside the composer to re-aim the
   // audience, and from the home header pill / scope rail. It is mounted once
@@ -117,6 +119,7 @@ export function GlobalPostComposer() {
             onMediaAltChange={(index, alt) => doSetMediaAlt({ index, alt })}
             uploading={uploading()}
             uploadError={uploadError()}
+            submitError={submitError()}
           />
           {/* Home filter picker. Selecting a community writes the transient
               inhabitedScopeAtom, narrowing the home view to that community. The

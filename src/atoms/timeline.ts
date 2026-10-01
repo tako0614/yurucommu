@@ -23,6 +23,9 @@ import { uploadProductMedia } from "../lib/media-upload.ts";
 import { fetchFollowingTimeline } from "../lib/api/posts.ts";
 import type { UploadedMedia } from "../components/timeline/types.ts";
 import { ApiError } from "../lib/api/fetch.ts";
+import { classifyWriteFailure } from "../lib/write-outcome.ts";
+import { acknowledgesPost } from "../lib/post-acknowledgement.ts";
+import { actorAtom } from "./auth.ts";
 import { pushToast, toastWriter } from "./toast.ts";
 import { scopeQueryAtom } from "./scope.ts";
 // Mirrors the backend MAX_POST_CONTENT_LENGTH (posts/transformers.ts), used to
@@ -113,6 +116,7 @@ export const postVisibilityAtom = atomWithStorage<PostVisibility>(
   "public",
 );
 export const postingAtom = atom(false);
+export const postSubmitErrorAtom = atom<string | null>(null);
 export const uploadedMediaAtom = atom<UploadedMedia[]>([]);
 export const uploadingAtom = atom(false);
 export const uploadErrorAtom = atom<string | null>(null);
@@ -415,12 +419,14 @@ export const createPostAtom = atom(
   null,
   async (get, set, options: CreatePostOptions) => {
     const { content } = options;
+    const submittingActorApId = get(actorAtom)?.ap_id;
     const media = get(uploadedMediaAtom);
     if ((!content.trim() && media.length === 0) || get(postingAtom)) {
       return false;
     }
 
     set(postingAtom, true);
+    set(postSubmitErrorAtom, null);
     try {
       const summary = options.summary?.trim();
       const newPost = await createPost({
@@ -443,6 +449,9 @@ export const createPostAtom = atom(
               }))
             : undefined,
       });
+      if (!acknowledgesPost(newPost, submittingActorApId, content.trim())) {
+        throw new Error("Post response did not acknowledge the submitted Note");
+      }
       if (newPost) {
         // Optimistically prepend ONLY when the post would actually appear in the
         // feed the timeline is currently observing, so it can't show then vanish
@@ -487,7 +496,9 @@ export const createPostAtom = atom(
         });
         return true;
       }
-      return false;
+      // A missing acknowledgement cannot establish that the server did not
+      // persist the post. Keep the draft and describe the outcome honestly.
+      throw new Error("Post response did not acknowledge the created post");
     } catch (e) {
       console.error("Failed to create post:", e);
       // Map a server-side length rejection to a specific message so an
@@ -501,7 +512,9 @@ export const createPostAtom = atom(
       const isSummaryRejection =
         isLengthRejection && /summary|content warning/i.test(e.message);
       let message: string;
-      if (isSummaryRejection) {
+      if (classifyWriteFailure(e) === "unconfirmed") {
+        message = get(tAtom)("feedback.postUnconfirmed");
+      } else if (isSummaryRejection) {
         message = get(tAtom)("compose.cwTooLong");
       } else if (isLengthRejection) {
         message = get(tAtom)("posts.tooLong").replace(
@@ -514,6 +527,7 @@ export const createPostAtom = atom(
       pushToast(toastWriter(set), message, {
         kind: "error",
       });
+      set(postSubmitErrorAtom, message);
       return false;
     } finally {
       set(postingAtom, false);
@@ -637,4 +651,5 @@ export const closePostModalAtom = atom(null, (_get, set) => {
     return [];
   });
   set(uploadErrorAtom, null);
+  set(postSubmitErrorAtom, null);
 });
