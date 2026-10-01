@@ -348,6 +348,14 @@ bounded pagination と安定再読を確認して実 request smoke を実行し�
 active Deployment と正確な predecessor Version を `INDETERMINATE` と manual reversal の
 対象として報告します。
 
+upload 前には、現在配信中の predecessor Version が持つ具体的な D1 `DB` binding を
+同じ target account で読み取り検査します。固定の D1 Query API SELECT で migration
+0030 の `media_blob_deletion_jobs` の列・主キー・due index を確認し、DB が不明確、
+権限不足、応答不正、必要な構造の欠落なら `PRE_UPLOAD_FAILURE` で止まり、Version
+upload と Deployment write は行いません。既存の API token を使い、新たな権限は付与
+しません。この検査は 0030 の指定構造だけを対象とし、全 schema、migration 台帳や
+live の動作を保証するものではありません。private config に DB を追加する必要はありません。
+
 `wrangler deploy`、`wrangler triggers deploy`、D1 migration、secret 更新は実行しません。
 route、cron/queue consumer、schema/data、secret の変更は別 surface / operator 手順です。
 upload/deploy acknowledgement を失った場合は `INDETERMINATE` で停止し、自動 retry
@@ -357,6 +365,7 @@ Deployment API は
 [Cloudflare の Versions / Deployments](https://developers.cloudflare.com/workers/versions-and-deployments/)、
 [Version Upload API](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/versions/methods/create/)、
 [Deployments API](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/deployments/)、
+[D1 Query API](https://developers.cloudflare.com/api/resources/d1/subresources/database/methods/query/)、
 を正本 (正とする情報) とします。
 必要条件は `bun run deploy -- --contract` で副作用なしに確認できます。
 Worker surface の実行環境には `git`、`bun`、`tofu` と、上記の operator-private env が必要です。

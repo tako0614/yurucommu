@@ -445,6 +445,7 @@ describe("release surface status", () => {
       expect(obligationText).toContain(envName);
     }
     expect(worker?.covers).toContain("scripts/release-yurucommu-worker.mjs");
+    expect(worker?.covers).toContain("scripts/media-deletion-schema.mjs");
     expect(worker?.requiresTools).not.toContain("wrangler");
     expect(worker?.requiresTools).toContain("tofu");
     expect(worker?.obligations.provenance).toContain(
@@ -465,6 +466,16 @@ describe("release surface status", () => {
     expect(worker?.obligations["post-conditions"]).toContain("bounded");
     expect(worker?.obligations["post-conditions"]).toContain(
       "direct Cloudflare API",
+    );
+    expect(worker?.obligations["post-conditions"]).toContain(
+      "active predecessor Version's exact DB D1 binding",
+    );
+    expect(worker?.obligations["post-conditions"]).toContain(
+      "fixed read-only direct D1 API query",
+    );
+    expect(worker?.obligations["post-conditions"]).toContain("migration 0030");
+    expect(worker?.obligations["failure-handling"]).toContain(
+      "PRE_UPLOAD_FAILURE before Version upload or Deployment write",
     );
     expect(worker?.obligations.reversal).toContain(
       "pre-upload active Deployment",

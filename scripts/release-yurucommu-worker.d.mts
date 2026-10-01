@@ -45,6 +45,12 @@ export type WorkerProvider = {
   domains(): Promise<WorkerDomain[]>;
   activeDeployment(): Promise<WorkerDeployment>;
   version(input: { versionId: string }): Promise<WorkerVersion>;
+  assertMediaDeletionSchema(input: { databaseId: string }): Promise<{
+    kind: "yurucommu.core-media-deletion-schema@v1";
+    table: "media_blob_deletion_jobs";
+    index: "media_blob_deletion_jobs_due_idx";
+    scope: "migration-0030-only";
+  }>;
   upload(input: {
     repo?: string;
     environment?: WorkerEnvironment;

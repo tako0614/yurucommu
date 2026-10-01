@@ -8,11 +8,12 @@
 //   bun run deploy -- yurucommu-worker --environment=production --commit=<40-hex>
 //
 // この surface が publish するのは **Worker の code だけ** です。durable store
-// (D1 DB / KV / R2 MEDIA) には触れません。schema 変更は `irreversible` な別の作業で、
+// (D1 DB / KV / R2 MEDIA) を変更しません。D1 は必要な 0030 metadata だけ読みます。
+// schema 変更は `irreversible` な別の作業で、
 // この entrypoint の副作用として起きてはいけないからです。
 // ⚠ yurucommu 系の live D1 は `_cf_migrations` 台帳が実態とずれています。
 // `wrangler d1 migrations apply` を絶対に走らせないこと。schema 変更は
-// 直接 `d1 execute` で行う operator 手順です。この script は D1 に触れません。
+// 別の reviewed operator 手順です。この script は schema/data を変更しません。
 
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
@@ -67,6 +68,7 @@ const CONTRACT = {
         "scripts/build-yurucommu-worker.ts",
         "scripts/post-deploy-smoke.ts",
         "scripts/release-yurucommu-worker.mjs",
+        "scripts/media-deletion-schema.mjs",
       ],
       requiresScripts: ["check", "build:worker", "smoke:postdeploy"],
       requiresTools: ["git", "bun", "tofu"],
@@ -83,10 +85,10 @@ const CONTRACT = {
       triggers: [],
       obligations: {
         provenance: `requires exactly --environment=production and --commit=<40-hex>; requires a clean HEAD equal to that commit and either freshly pushed main or an exact commit contained by freshly fetched origin/main; uses CLOUDFLARE_API_TOKEN only for provider authentication, reads the operator-private target/config from YURUCOMMU_WORKER_DEPLOY_TARGET as link-free 0600 regular files under 0700 directories outside every discovered Git repository, common directory, and linked worktree, and uses YURUCOMMU_E2E_PASSWORD only for the post-deploy application smoke; runs \`${OWNER_GATE}\` once; and binds the commit, ${W.bundle} sha256, and selected config digest into the uploaded Version annotation`,
-        "post-conditions": `uses one direct Cloudflare API Version upload and one direct Cloudflare API Deployment write; binds each acknowledgement to the exact Version and Deployment ids; verifies the selected Version's authoritative resources.script.etag against the uploaded ${W.bundle} bytes and compares its full non-code closure with the active predecessor; re-reads the active Deployment and exact hostname/service/environment custom-domain filters across bounded stable pages; runs \`bun run smoke:postdeploy\` through the public launch URL read from the Capsule outputs file selected by TAKOSUMI_CAPSULE_OUTPUTS_FILE; then requires a final route and active Deployment readback before PUBLISHED`,
+        "post-conditions": `before upload requires the active predecessor Version's exact DB D1 binding and a fixed read-only direct D1 API query of migration 0030 columns, primary key and due index in the validated target account; uses the existing API token and refuses denied or malformed results without granting permissions or mutating schema; uses one direct Cloudflare API Version upload and one direct Cloudflare API Deployment write; binds each acknowledgement to the exact Version and Deployment ids; verifies the selected Version's authoritative resources.script.etag against the uploaded ${W.bundle} bytes and compares its full non-code closure with the active predecessor; re-reads the active Deployment and exact hostname/service/environment custom-domain filters across bounded stable pages; runs \`bun run smoke:postdeploy\` through the public launch URL read from the Capsule outputs file selected by TAKOSUMI_CAPSULE_OUTPUTS_FILE; then requires a final route and active Deployment readback before PUBLISHED`,
         reversal: `reads the pre-upload active Deployment and its exact one-Version 100 percent version set rather than Version-list order; a failed smoke never writes an automatic rollback because Cloudflare exposes no compare-and-swap across the read/write boundary, and instead reports that exact predecessor for manual reversal after an authoritative concurrency readback`,
         "failure-handling":
-          "prints provider diagnostics without credentials, reports PRE_UPLOAD_FAILURE, POST_UPLOAD_INDETERMINATE, POST_DEPLOY_INDETERMINATE, or POST_CONDITION_INDETERMINATE, and never retries an upload or deployment whose acknowledgement was lost",
+          "prints provider diagnostics without credentials; missing, ambiguous or invalid active DB binding, denied D1 access, malformed query result or missing migration 0030 structure fails PRE_UPLOAD_FAILURE before Version upload or Deployment write; reports POST_UPLOAD_INDETERMINATE, POST_DEPLOY_INDETERMINATE, or POST_CONDITION_INDETERMINATE after the corresponding operation, and never retries an upload or deployment whose acknowledgement was lost",
       },
     },
     {

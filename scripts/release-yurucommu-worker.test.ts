@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import {
   chmod,
@@ -18,10 +19,18 @@ import {
   ownerGateEnvironment,
   YurucommuWorkerReleaseFailure,
 } from "./release-yurucommu-worker.mjs";
+import { MEDIA_DELETION_SCHEMA_QUERY } from "./media-deletion-schema.mjs";
 
 const COMMIT = "c".repeat(40);
 const REMOTE_MAIN = "d".repeat(40);
 const ACCOUNT_ID = "a".repeat(32);
+const D1_DATABASE_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+const MEDIA_DELETION_SCHEMA_QUALIFICATION = {
+  kind: "yurucommu.core-media-deletion-schema@v1" as const,
+  table: "media_blob_deletion_jobs" as const,
+  index: "media_blob_deletion_jobs_due_idx" as const,
+  scope: "migration-0030-only" as const,
+};
 const OLD_VERSION = "11111111-1111-4111-8111-111111111111";
 const UNSERVED_VERSION = "22222222-2222-4222-8222-222222222222";
 const NEW_VERSION = "33333333-3333-4333-8333-333333333333";
@@ -33,7 +42,7 @@ const BUNDLE_ETAG = createHash("sha256").update(BUNDLE).digest("hex");
 
 const VERSION_CLOSURE = {
   bindings: {
-    DB: { type: "d1", id: "d1-production" },
+    DB: { type: "d1", id: D1_DATABASE_ID },
     DELIVERY_QUEUE: { type: "queue", queue_name: "delivery" },
   },
   vars: {
@@ -170,6 +179,23 @@ function versionDetails(
   };
 }
 
+async function mediaDeletionMetadataRows() {
+  const database = new Database(":memory:");
+  try {
+    const migration = await readFile(
+      new URL(
+        "../deploy/takoform/migrations/sql/0030_media_blob_deletion_jobs.sql",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    database.exec(migration);
+    return database.query(MEDIA_DELETION_SCHEMA_QUERY).all();
+  } finally {
+    database.close();
+  }
+}
+
 describe("production yurucommu Worker publisher", () => {
   test("rejects arbitrary clean feature and detached commits before provider mutation", () =>
     cleanFixture(async ({ repo, target }) => {
@@ -187,6 +213,14 @@ describe("production yurucommu Worker publisher", () => {
           }),
           check: async () => {},
           provider: {
+            assertMediaDeletionSchema: async ({
+              databaseId,
+            }: {
+              databaseId: string;
+            }) => {
+              expect(databaseId).toBe(D1_DATABASE_ID);
+              return MEDIA_DELETION_SCHEMA_QUALIFICATION;
+            },
             upload: async () => {
               uploads += 1;
               throw new Error("must not upload");
@@ -223,6 +257,14 @@ describe("production yurucommu Worker publisher", () => {
         },
         check: async () => {},
         provider: {
+          assertMediaDeletionSchema: async ({
+            databaseId,
+          }: {
+            databaseId: string;
+          }) => {
+            expect(databaseId).toBe(D1_DATABASE_ID);
+            return MEDIA_DELETION_SCHEMA_QUALIFICATION;
+          },
           domains: async () => {
             providerReads += 1;
             return [];
@@ -258,6 +300,14 @@ describe("production yurucommu Worker publisher", () => {
           checks += 1;
         },
         provider: {
+          assertMediaDeletionSchema: async ({
+            databaseId,
+          }: {
+            databaseId: string;
+          }) => {
+            expect(databaseId).toBe(D1_DATABASE_ID);
+            return MEDIA_DELETION_SCHEMA_QUALIFICATION;
+          },
           upload: async () => {
             uploads += 1;
             throw new Error("must not upload");
@@ -290,6 +340,14 @@ describe("production yurucommu Worker publisher", () => {
         git: gitSource(),
         check: async () => {},
         provider: {
+          assertMediaDeletionSchema: async ({
+            databaseId,
+          }: {
+            databaseId: string;
+          }) => {
+            expect(databaseId).toBe(D1_DATABASE_ID);
+            return MEDIA_DELETION_SCHEMA_QUALIFICATION;
+          },
           upload: async () => {
             uploads += 1;
             throw new Error("must not upload");
@@ -340,6 +398,14 @@ describe("production yurucommu Worker publisher", () => {
           git: gitSource(),
           check: async () => {},
           provider: {
+            assertMediaDeletionSchema: async ({
+              databaseId,
+            }: {
+              databaseId: string;
+            }) => {
+              expect(databaseId).toBe(D1_DATABASE_ID);
+              return MEDIA_DELETION_SCHEMA_QUALIFICATION;
+            },
             upload: async () => {
               uploads += 1;
               throw new Error("must not upload");
@@ -359,9 +425,19 @@ describe("production yurucommu Worker publisher", () => {
       let latestVersionReads = 0;
       let activeReads = 0;
       let domainsRead = 0;
+      const uploadSequence: string[] = [];
       let uploadMessage = "";
       let deployMessage = "";
       const provider = {
+        assertMediaDeletionSchema: async ({
+          databaseId,
+        }: {
+          databaseId: string;
+        }) => {
+          uploadSequence.push("schema");
+          expect(databaseId).toBe(D1_DATABASE_ID);
+          return MEDIA_DELETION_SCHEMA_QUALIFICATION;
+        },
         domains: async () => {
           domainsRead += 1;
           return [
@@ -383,9 +459,20 @@ describe("production yurucommu Worker publisher", () => {
           latestVersionReads += 1;
           return UNSERVED_VERSION;
         },
-        version: async ({ versionId }: { versionId: string }) =>
-          versionDetails(versionId, uploadMessage),
+        version: async ({ versionId }: { versionId: string }) => {
+          const version = versionDetails(versionId, uploadMessage);
+          return {
+            ...version,
+            resources: {
+              ...version.resources,
+              bindings: Object.entries(
+                structuredClone(VERSION_CLOSURE.bindings),
+              ).map(([name, binding]) => ({ name, ...binding })),
+            },
+          };
+        },
         upload: async ({ message }: { message: string }) => {
+          uploadSequence.push("upload");
           uploadMessage = message;
           return { versionId: NEW_VERSION, workerName: "yurucommu" };
         },
@@ -396,6 +483,7 @@ describe("production yurucommu Worker publisher", () => {
           versionId: string;
           message: string;
         }) => {
+          uploadSequence.push("deploy");
           expect(versionId).toBe(NEW_VERSION);
           deployMessage = message;
           return { deploymentId: NEW_DEPLOYMENT, workerName: "yurucommu" };
@@ -428,6 +516,306 @@ describe("production yurucommu Worker publisher", () => {
       expect(activeReads).toBe(4);
       expect(domainsRead).toBe(3);
       expect(latestVersionReads).toBe(0);
+      expect(uploadSequence).toEqual(["schema", "upload", "deploy"]);
+    }));
+
+  test("requires exactly one UUID D1 DB binding on the active Version before schema query or upload", () =>
+    cleanFixture(async ({ repo, target }) => {
+      const invalidBindings = [
+        undefined,
+        { DB: { type: "kv", id: D1_DATABASE_ID } },
+        { DB: { type: "d1", id: "not-a-database-uuid" } },
+        [
+          { name: "DB", type: "d1", id: D1_DATABASE_ID },
+          { name: "DB", type: "d1", id: D1_DATABASE_ID },
+        ],
+      ];
+
+      for (const bindings of invalidBindings) {
+        let schemaChecks = 0;
+        let uploads = 0;
+        const previousVersion = versionDetails(OLD_VERSION);
+        const activeVersion = {
+          ...previousVersion,
+          resources: {
+            ...previousVersion.resources,
+            bindings,
+          },
+        };
+        const failure = await deployYurucommuWorker({
+          repo,
+          environment: "production",
+          commit: COMMIT,
+          target,
+          git: gitSource(),
+          check: async () => {},
+          provider: {
+            domains: async () => [
+              {
+                hostname: "test.yurucommu.com",
+                service: "yurucommu",
+                environment: "production",
+              },
+            ],
+            activeDeployment: async () =>
+              deployment(OLD_DEPLOYMENT, OLD_VERSION),
+            version: async () => activeVersion,
+            assertMediaDeletionSchema: async () => {
+              schemaChecks += 1;
+              return MEDIA_DELETION_SCHEMA_QUALIFICATION;
+            },
+            upload: async () => {
+              uploads += 1;
+              throw new Error("invalid DB binding must block upload");
+            },
+          },
+        }).catch((error) => error);
+
+        expect(failureOf(failure).phase).toBe("PRE_UPLOAD_FAILURE");
+        expect(failure.message).toMatch(/DB binding|database id/u);
+        expect(schemaChecks).toBe(0);
+        expect(uploads).toBe(0);
+      }
+    }));
+
+  test("fails closed when an injected provider omits the required schema check", () =>
+    cleanFixture(async ({ repo, target }) => {
+      let uploads = 0;
+      const failure = await deployYurucommuWorker({
+        repo,
+        environment: "production",
+        commit: COMMIT,
+        target,
+        git: gitSource(),
+        check: async () => {},
+        provider: {
+          domains: async () => [
+            {
+              hostname: "test.yurucommu.com",
+              service: "yurucommu",
+              environment: "production",
+            },
+          ],
+          activeDeployment: async () => deployment(OLD_DEPLOYMENT, OLD_VERSION),
+          version: async ({ versionId }: { versionId: string }) =>
+            versionDetails(versionId),
+          upload: async () => {
+            uploads += 1;
+            throw new Error("missing schema check must block upload");
+          },
+        },
+      }).catch((error) => error);
+
+      expect(failureOf(failure).phase).toBe("PRE_UPLOAD_FAILURE");
+      expect(failure.message).toContain(
+        "missing the required read-only migration 0030 D1 preflight",
+      );
+      expect(uploads).toBe(0);
+    }));
+
+  test("keeps D1 permission denial as PRE_UPLOAD_FAILURE without leaking token or smoke password", () =>
+    cleanFixture(async ({ repo, target }) => {
+      const apiToken = "known-cloudflare-test-token";
+      const smokePassword = `${apiToken}"\\known-yurucommu-smoke-password`;
+      const deniedProvider = createCloudflareWorkerProvider({
+        repo,
+        target,
+        token: apiToken,
+        smokePassword,
+        fetcher: async (input) => {
+          expect(String(input)).toBe(
+            `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/d1/database/${D1_DATABASE_ID}/query`,
+          );
+          return Response.json(
+            {
+              success: false,
+              errors: [
+                {
+                  code: 10000,
+                  message: `D1 Read denied for ${apiToken} and ${smokePassword}`,
+                },
+              ],
+            },
+            { status: 403 },
+          );
+        },
+      });
+      let uploads = 0;
+      const failure = await deployYurucommuWorker({
+        repo,
+        environment: "production",
+        commit: COMMIT,
+        target,
+        git: gitSource(),
+        check: async () => {},
+        provider: {
+          domains: async () => [
+            {
+              hostname: "test.yurucommu.com",
+              service: "yurucommu",
+              environment: "production",
+            },
+          ],
+          activeDeployment: async () => deployment(OLD_DEPLOYMENT, OLD_VERSION),
+          version: async ({ versionId }: { versionId: string }) =>
+            versionDetails(versionId),
+          assertMediaDeletionSchema: ({ databaseId }) =>
+            deniedProvider.assertMediaDeletionSchema({ databaseId }),
+          upload: async () => {
+            uploads += 1;
+            throw new Error("D1 permission denial must block upload");
+          },
+        },
+      }).catch((error) => error);
+
+      const releaseFailure = failureOf(failure);
+      expect(releaseFailure.phase).toBe("PRE_UPLOAD_FAILURE");
+      expect(releaseFailure.message).toContain("HTTP 403");
+      expect(releaseFailure.provider?.stderr).toContain("D1 Read denied");
+      expect(releaseFailure.provider?.stderr).not.toContain(apiToken);
+      expect(releaseFailure.provider?.stderr).not.toContain(smokePassword);
+      expect(releaseFailure.provider?.stderr).not.toContain(
+        JSON.stringify(smokePassword).slice(1, -1),
+      );
+      expect(uploads).toBe(0);
+
+      const badPrimaryKeyRows = (await mediaDeletionMetadataRows()).map(
+        (row) => {
+          const metadata = row as Record<string, unknown>;
+          return metadata.kind === "column" && metadata.name === "r2_key"
+            ? { ...metadata, position: 0 }
+            : metadata;
+        },
+      );
+      const wrongSchemaProvider = createCloudflareWorkerProvider({
+        repo,
+        target,
+        token: apiToken,
+        smokePassword,
+        fetcher: async () =>
+          Response.json({
+            success: true,
+            result: [
+              {
+                success: true,
+                results: badPrimaryKeyRows,
+                meta: { changed_db: false, rows_written: 0 },
+              },
+            ],
+          }),
+      });
+      let wrongSchemaUploads = 0;
+      const wrongSchemaFailure = await deployYurucommuWorker({
+        repo,
+        environment: "production",
+        commit: COMMIT,
+        target,
+        git: gitSource(),
+        check: async () => {},
+        provider: {
+          domains: async () => [
+            {
+              hostname: "test.yurucommu.com",
+              service: "yurucommu",
+              environment: "production",
+            },
+          ],
+          activeDeployment: async () => deployment(OLD_DEPLOYMENT, OLD_VERSION),
+          version: async ({ versionId }: { versionId: string }) =>
+            versionDetails(versionId),
+          assertMediaDeletionSchema: ({ databaseId }) =>
+            wrongSchemaProvider.assertMediaDeletionSchema({ databaseId }),
+          upload: async () => {
+            wrongSchemaUploads += 1;
+            throw new Error("wrong primary key must block upload");
+          },
+        },
+      }).catch((error) => error);
+      const wrongSchemaReleaseFailure = failureOf(wrongSchemaFailure);
+      expect(wrongSchemaReleaseFailure.phase).toBe("PRE_UPLOAD_FAILURE");
+      expect(wrongSchemaReleaseFailure.message).toContain(
+        "columns or primary key",
+      );
+      expect(wrongSchemaReleaseFailure.provider?.stderr).not.toContain(
+        apiToken,
+      );
+      expect(wrongSchemaReleaseFailure.provider?.stderr).not.toContain(
+        smokePassword,
+      );
+      expect(wrongSchemaUploads).toBe(0);
+    }));
+
+  test("redacts known credentials from thrown fetch and invalid-success diagnostics", () =>
+    cleanFixture(async ({ repo, target }) => {
+      const apiToken = "known-cloudflare-test-token";
+      const smokePassword = `${apiToken}"\\known-yurucommu-smoke-password`;
+      const fetchFailureProvider = createCloudflareWorkerProvider({
+        repo,
+        target,
+        token: apiToken,
+        smokePassword,
+        fetcher: async () => {
+          throw new Error(`fetch failed for ${apiToken} with ${smokePassword}`);
+        },
+      });
+      const fetchFailure = await fetchFailureProvider
+        .assertMediaDeletionSchema({ databaseId: D1_DATABASE_ID })
+        .catch((error) => error);
+      expect(fetchFailure.message).toContain("fetch failed for [REDACTED]");
+      expect(fetchFailure.message).not.toContain(apiToken);
+      expect(fetchFailure.message).not.toContain(smokePassword);
+
+      const malformedProvider = createCloudflareWorkerProvider({
+        repo,
+        target,
+        token: apiToken,
+        smokePassword,
+        fetcher: async () =>
+          Response.json({
+            success: true,
+            diagnostic: `${apiToken} ${smokePassword}`,
+            result: [{ success: true, results: [], meta: {} }],
+          }),
+      });
+      const malformed = await malformedProvider
+        .assertMediaDeletionSchema({ databaseId: D1_DATABASE_ID })
+        .catch((error) => error);
+      expect(malformed.message).toContain("columns or primary key");
+      expect(malformed.provider.stderr).toContain("[REDACTED] [REDACTED]");
+      expect(malformed.provider.stderr).not.toContain(apiToken);
+      expect(malformed.provider.stderr).not.toContain(smokePassword);
+      expect(malformed.provider.stderr).not.toContain(
+        JSON.stringify(smokePassword).slice(1, -1),
+      );
+
+      const bodyReadProvider = createCloudflareWorkerProvider({
+        repo,
+        target,
+        token: apiToken,
+        smokePassword,
+        fetcher: async () => {
+          const response = new Response("ignored");
+          response.text = async () => {
+            throw new Error(
+              `body read failed for ${apiToken} / ${smokePassword}`,
+            );
+          };
+          return response;
+        },
+      });
+      const bodyReadFailure = await bodyReadProvider
+        .assertMediaDeletionSchema({ databaseId: D1_DATABASE_ID })
+        .catch((error) => error);
+      expect(bodyReadFailure.message).toContain(
+        "response body could not be read",
+      );
+      expect(bodyReadFailure.message).toContain(
+        "body read failed for [REDACTED]",
+      );
+      expect(bodyReadFailure.message).not.toContain(apiToken);
+      expect(bodyReadFailure.message).not.toContain(smokePassword);
+      expect(bodyReadFailure.cause?.message).not.toContain(apiToken);
+      expect(bodyReadFailure.cause?.message).not.toContain(smokePassword);
     }));
 
   test("does not deploy a Version whose remote annotation has the wrong identity", () =>
@@ -441,6 +829,14 @@ describe("production yurucommu Worker publisher", () => {
         git: gitSource(),
         check: async () => {},
         provider: {
+          assertMediaDeletionSchema: async ({
+            databaseId,
+          }: {
+            databaseId: string;
+          }) => {
+            expect(databaseId).toBe(D1_DATABASE_ID);
+            return MEDIA_DELETION_SCHEMA_QUALIFICATION;
+          },
           domains: async () => [
             {
               hostname: "test.yurucommu.com",
@@ -486,6 +882,14 @@ describe("production yurucommu Worker publisher", () => {
           git: gitSource(),
           check: async () => {},
           provider: {
+            assertMediaDeletionSchema: async ({
+              databaseId,
+            }: {
+              databaseId: string;
+            }) => {
+              expect(databaseId).toBe(D1_DATABASE_ID);
+              return MEDIA_DELETION_SCHEMA_QUALIFICATION;
+            },
             domains: async () => [
               {
                 hostname: "test.yurucommu.com",
@@ -537,6 +941,14 @@ describe("production yurucommu Worker publisher", () => {
         git: gitSource(),
         check: async () => {},
         provider: {
+          assertMediaDeletionSchema: async ({
+            databaseId,
+          }: {
+            databaseId: string;
+          }) => {
+            expect(databaseId).toBe(D1_DATABASE_ID);
+            return MEDIA_DELETION_SCHEMA_QUALIFICATION;
+          },
           domains: async () => [
             {
               hostname: "test.yurucommu.com",
@@ -603,6 +1015,14 @@ describe("production yurucommu Worker publisher", () => {
           git: gitSource(),
           check: async () => {},
           provider: {
+            assertMediaDeletionSchema: async ({
+              databaseId,
+            }: {
+              databaseId: string;
+            }) => {
+              expect(databaseId).toBe(D1_DATABASE_ID);
+              return MEDIA_DELETION_SCHEMA_QUALIFICATION;
+            },
             domains: async () => [
               {
                 hostname: "test.yurucommu.com",
@@ -651,6 +1071,14 @@ describe("production yurucommu Worker publisher", () => {
         git: gitSource(),
         check: async () => {},
         provider: {
+          assertMediaDeletionSchema: async ({
+            databaseId,
+          }: {
+            databaseId: string;
+          }) => {
+            expect(databaseId).toBe(D1_DATABASE_ID);
+            return MEDIA_DELETION_SCHEMA_QUALIFICATION;
+          },
           domains: async () => [
             {
               hostname: "test.yurucommu.com",
@@ -696,6 +1124,14 @@ describe("production yurucommu Worker publisher", () => {
         git: gitSource(),
         check: async () => {},
         provider: {
+          assertMediaDeletionSchema: async ({
+            databaseId,
+          }: {
+            databaseId: string;
+          }) => {
+            expect(databaseId).toBe(D1_DATABASE_ID);
+            return MEDIA_DELETION_SCHEMA_QUALIFICATION;
+          },
           domains: async () => [
             {
               hostname: "test.yurucommu.com",
@@ -743,6 +1179,14 @@ describe("production yurucommu Worker publisher", () => {
         git: gitSource(),
         check: async () => {},
         provider: {
+          assertMediaDeletionSchema: async ({
+            databaseId,
+          }: {
+            databaseId: string;
+          }) => {
+            expect(databaseId).toBe(D1_DATABASE_ID);
+            return MEDIA_DELETION_SCHEMA_QUALIFICATION;
+          },
           domains: async () => [
             {
               hostname: "test.yurucommu.com",
@@ -786,6 +1230,14 @@ describe("production yurucommu Worker publisher", () => {
         git: gitSource(),
         check: async () => {},
         provider: {
+          assertMediaDeletionSchema: async ({
+            databaseId,
+          }: {
+            databaseId: string;
+          }) => {
+            expect(databaseId).toBe(D1_DATABASE_ID);
+            return MEDIA_DELETION_SCHEMA_QUALIFICATION;
+          },
           domains: async () => [
             {
               hostname: "test.yurucommu.com",
@@ -828,6 +1280,14 @@ describe("production yurucommu Worker publisher", () => {
         git: gitSource(),
         check: async () => {},
         provider: {
+          assertMediaDeletionSchema: async ({
+            databaseId,
+          }: {
+            databaseId: string;
+          }) => {
+            expect(databaseId).toBe(D1_DATABASE_ID);
+            return MEDIA_DELETION_SCHEMA_QUALIFICATION;
+          },
           domains: async () => [
             {
               hostname: "test.yurucommu.com",
@@ -881,6 +1341,14 @@ describe("production yurucommu Worker publisher", () => {
         git: gitSource(),
         check: async () => {},
         provider: {
+          assertMediaDeletionSchema: async ({
+            databaseId,
+          }: {
+            databaseId: string;
+          }) => {
+            expect(databaseId).toBe(D1_DATABASE_ID);
+            return MEDIA_DELETION_SCHEMA_QUALIFICATION;
+          },
           domains: async () => [
             {
               hostname: "test.yurucommu.com",
@@ -931,6 +1399,14 @@ describe("production yurucommu Worker publisher", () => {
       let candidateDeploymentMessage = "";
       const deployedVersions: string[] = [];
       const provider = {
+        assertMediaDeletionSchema: async ({
+          databaseId,
+        }: {
+          databaseId: string;
+        }) => {
+          expect(databaseId).toBe(D1_DATABASE_ID);
+          return MEDIA_DELETION_SCHEMA_QUALIFICATION;
+        },
         domains: async () => [
           {
             hostname: "test.yurucommu.com",
@@ -1020,6 +1496,14 @@ describe("production yurucommu Worker publisher", () => {
         git: gitSource(),
         check: async () => {},
         provider: {
+          assertMediaDeletionSchema: async ({
+            databaseId,
+          }: {
+            databaseId: string;
+          }) => {
+            expect(databaseId).toBe(D1_DATABASE_ID);
+            return MEDIA_DELETION_SCHEMA_QUALIFICATION;
+          },
           domains: async () => [
             {
               hostname: "test.yurucommu.com",
@@ -1184,6 +1668,7 @@ describe("production yurucommu Worker publisher", () => {
   test("uses Cloudflare's current API shape with one-request Version and Deployment writes", () =>
     cleanFixture(async ({ repo, target }) => {
       const apiCalls: string[] = [];
+      const schemaRows = await mediaDeletionMetadataRows();
       let writeCalls = 0;
       const fetcher = async (input: string | URL, init?: RequestInit) => {
         const url = String(input);
@@ -1193,7 +1678,31 @@ describe("production yurucommu Worker publisher", () => {
           Accept: "application/json",
         });
         const method = init?.method ?? "GET";
-        if (method === "POST") writeCalls += 1;
+        if (method === "POST" && !url.includes("/d1/database/")) {
+          writeCalls += 1;
+        }
+        if (
+          method === "POST" &&
+          url ===
+            `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/d1/database/${D1_DATABASE_ID}/query`
+        ) {
+          expect(init?.headers).toMatchObject({
+            "Content-Type": "application/json",
+          });
+          expect(JSON.parse(String(init?.body))).toEqual({
+            sql: MEDIA_DELETION_SCHEMA_QUERY,
+          });
+          return Response.json({
+            success: true,
+            result: [
+              {
+                success: true,
+                results: schemaRows,
+                meta: { changed_db: false, rows_written: 0 },
+              },
+            ],
+          });
+        }
         if (method === "GET" && url.includes("/workers/domains?")) {
           const query = new URL(url).searchParams;
           expect(query.get("hostname")).toBe("test.yurucommu.com");
@@ -1311,6 +1820,11 @@ describe("production yurucommu Worker publisher", () => {
       expect(await provider.version({ versionId: NEW_VERSION })).toMatchObject({
         id: NEW_VERSION,
       });
+      expect(
+        await provider.assertMediaDeletionSchema({
+          databaseId: D1_DATABASE_ID,
+        }),
+      ).toEqual(MEDIA_DELETION_SCHEMA_QUALIFICATION);
       expect(
         await provider.upload({
           target,
@@ -1495,6 +2009,14 @@ describe("production yurucommu Worker publisher", () => {
           target,
           git: gitSource(),
           provider: {
+            assertMediaDeletionSchema: async ({
+              databaseId,
+            }: {
+              databaseId: string;
+            }) => {
+              expect(databaseId).toBe(D1_DATABASE_ID);
+              return MEDIA_DELETION_SCHEMA_QUALIFICATION;
+            },
             domains: async () => [
               {
                 hostname: "test.yurucommu.com",
@@ -1567,6 +2089,14 @@ describe("production yurucommu Worker publisher", () => {
             throw new Error("owner gate must not run after git failure");
           },
           provider: {
+            assertMediaDeletionSchema: async ({
+              databaseId,
+            }: {
+              databaseId: string;
+            }) => {
+              expect(databaseId).toBe(D1_DATABASE_ID);
+              return MEDIA_DELETION_SCHEMA_QUALIFICATION;
+            },
             upload: async () => {
               throw new Error("must not upload");
             },

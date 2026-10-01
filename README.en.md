@@ -354,6 +354,16 @@ and observed active Deployment are reported as `INDETERMINATE` for manual
 reversal. A lost upload/deploy acknowledgement is `INDETERMINATE` and is never
 retried automatically.
 
+Before upload, the publisher reads the concrete D1 `DB` binding from that exact
+active predecessor Version and queries it in the validated target account. A
+fixed read-only D1 Query API SELECT checks migration 0030's
+`media_blob_deletion_jobs` columns, primary key, and due index. An ambiguous DB,
+denied access, malformed response, or missing structure stops with
+`PRE_UPLOAD_FAILURE` before Version upload or Deployment write. It reuses the
+existing API token and grants no additional permissions. The check covers only
+that named 0030 structure, not the entire schema, migration ledger, or live
+behavior. Do not add a DB binding to the private code-only config.
+
 It does not run `wrangler deploy`, trigger deployment, D1 migrations, or secret
 updates. Route, cron/queue consumer, schema/data, and secret changes remain
 separate operations. Inspect all requirements without side effects with
@@ -364,7 +374,8 @@ operator-private environment above.
 The readback contract follows Cloudflare's primary
 [Versions and Deployments](https://developers.cloudflare.com/workers/versions-and-deployments/),
 [Version Upload API](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/versions/methods/create/),
-and [Deployments API](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/deployments/)
+[Deployments API](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/deployments/),
+and [D1 Query API](https://developers.cloudflare.com/api/resources/d1/subresources/database/methods/query/)
 documentation.
 
 ## Repository guide
