@@ -12,6 +12,7 @@ import { unstable_readConfig, unstable_splitSqlQuery } from "wrangler";
 import { qualifyBrowserFeed } from "./release-browser-feed.mjs";
 import { qualifySearchFollowing } from "./release-browser-follow.mjs";
 import { qualifyBrowserDM } from "./release-browser-dm.mjs";
+import { createManagedNativeRuntime } from "./native-runtime-stdio.mjs";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const PASSWORD = " release-browser-owner ";
@@ -155,32 +156,32 @@ async function ownerIdentity(page, origin) {
 }
 
 function nativeWorker(artifactPath, origin, wranglerConfig) {
-  return new Miniflare({
-    rootPath: dirname(artifactPath),
-    modules: [{ type: "ESModule", path: artifactPath }],
-    modulesRoot: dirname(artifactPath),
-    compatibilityDate: wranglerConfig.compatibility_date,
-    compatibilityFlags: wranglerConfig.compatibility_flags,
-    host: "127.0.0.1",
-    port: Number(new URL(origin).port),
-    cf: false,
-    bindings: {
-      APP_URL: origin,
-      AUTH_PASSWORD_HASH: PASSWORD,
-      YURUCOMMU_SESSION_HASH_SALT: SESSION_SALT,
-      DELIVERY_QUEUE_NAME: "yurucommu-browser-smoke-delivery",
-      DELIVERY_DLQ_NAME: "yurucommu-browser-smoke-dlq",
-      ENCRYPTION_KEY: ENCRYPTION_KEY,
-    },
-    d1Databases: ["DB"],
-    kvNamespaces: ["KV"],
-    r2Buckets: ["MEDIA"],
-    queueProducers: ["DELIVERY_QUEUE", "DELIVERY_DLQ"],
-    handleRuntimeStdio(stdout, stderr) {
-      stdout.pipe(process.stderr, { end: false });
-      stderr.pipe(process.stderr, { end: false });
-    },
-  });
+  return createManagedNativeRuntime(
+    (handleRuntimeStdio) =>
+      new Miniflare({
+        rootPath: dirname(artifactPath),
+        modules: [{ type: "ESModule", path: artifactPath }],
+        modulesRoot: dirname(artifactPath),
+        compatibilityDate: wranglerConfig.compatibility_date,
+        compatibilityFlags: wranglerConfig.compatibility_flags,
+        host: "127.0.0.1",
+        port: Number(new URL(origin).port),
+        cf: false,
+        bindings: {
+          APP_URL: origin,
+          AUTH_PASSWORD_HASH: PASSWORD,
+          YURUCOMMU_SESSION_HASH_SALT: SESSION_SALT,
+          DELIVERY_QUEUE_NAME: "yurucommu-browser-smoke-delivery",
+          DELIVERY_DLQ_NAME: "yurucommu-browser-smoke-dlq",
+          ENCRYPTION_KEY: ENCRYPTION_KEY,
+        },
+        d1Databases: ["DB"],
+        kvNamespaces: ["KV"],
+        r2Buckets: ["MEDIA"],
+        queueProducers: ["DELIVERY_QUEUE", "DELIVERY_DLQ"],
+        handleRuntimeStdio,
+      }),
+  );
 }
 
 async function runBrowserSmoke(artifactPath, artifactDigest) {
@@ -196,7 +197,11 @@ async function runBrowserSmoke(artifactPath, artifactDigest) {
 
   const port = await freeLoopbackPort();
   const origin = `http://127.0.0.1:${port}`;
-  const worker = nativeWorker(artifactPath, origin, wranglerConfig);
+  const { worker, dispose } = nativeWorker(
+    artifactPath,
+    origin,
+    wranglerConfig,
+  );
   let browser;
   let context;
   let primaryError;
@@ -523,7 +528,7 @@ async function runBrowserSmoke(artifactPath, artifactDigest) {
     for (const [label, close] of [
       ["context", () => context?.close()],
       ["browser", () => browser?.close()],
-      ["worker", () => worker.dispose()],
+      ["worker", () => dispose()],
     ]) {
       try {
         await close();

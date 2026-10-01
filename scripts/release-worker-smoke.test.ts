@@ -3,9 +3,11 @@ import { createHash } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PassThrough, Transform, type Readable } from "node:stream";
 import { build, stop } from "esbuild";
 
 import { createEntrySource } from "./build-yurucommu-worker.ts";
+import { createManagedNativeRuntime } from "./native-runtime-stdio.mjs";
 
 const repo = new URL("../", import.meta.url).pathname;
 const temporaryDirectories: string[] = [];
@@ -76,6 +78,303 @@ afterEach(async () => {
       .splice(0)
       .map((path) => rm(path, { recursive: true, force: true })),
   );
+});
+
+const pipeEvents = ["unpipe", "error", "close", "finish"] as const;
+
+function pipeListenerCounts(destination: PassThrough) {
+  return pipeEvents.map((event) => destination.listenerCount(event));
+}
+
+function runtimeChannel() {
+  const upstream = new PassThrough();
+  const buffered = new Transform({
+    transform(chunk, _encoding, done) {
+      done(null, chunk);
+    },
+  });
+  upstream.pipe(buffered);
+  return { upstream, buffered };
+}
+
+describe("native runtime stdio cleanup", () => {
+  test("returns shared stderr listeners to baseline across six runtimes and rebuild callbacks", async () => {
+    const destination = new PassThrough();
+    let diagnostics = "";
+    destination.on("data", (chunk) => {
+      diagnostics += chunk.toString();
+    });
+    const baseline = pipeListenerCounts(destination);
+    let expected = "";
+
+    for (let index = 0; index < 6; index += 1) {
+      const first = [runtimeChannel(), runtimeChannel()];
+      const rebuilt = index === 2 ? [runtimeChannel(), runtimeChannel()] : [];
+      const managed = createManagedNativeRuntime(
+        (handleRuntimeStdio) => {
+          handleRuntimeStdio(first[0]!.buffered, first[1]!.buffered);
+          if (rebuilt.length) {
+            handleRuntimeStdio(rebuilt[0]!.buffered, rebuilt[1]!.buffered);
+          }
+          return {
+            async dispose() {
+              for (const channel of [...first, ...rebuilt]) {
+                channel.upstream.destroy();
+              }
+            },
+          };
+        },
+        { destination },
+      );
+
+      for (const [channelIndex, channel] of [...first, ...rebuilt].entries()) {
+        const message = `runtime-${index}-channel-${channelIndex}\n`;
+        channel.upstream.write(message);
+        expected += message;
+      }
+      expect(diagnostics).toBe(expected);
+      expect(pipeListenerCounts(destination)).toEqual(
+        baseline.map((count) => count + first.length + rebuilt.length),
+      );
+
+      await managed.dispose();
+      for (const channel of [...first, ...rebuilt]) {
+        expect(channel.buffered.destroyed).toBe(true);
+      }
+      expect(pipeListenerCounts(destination)).toEqual(baseline);
+      expect(destination.destroyed).toBe(false);
+      expect(destination.writableEnded).toBe(false);
+    }
+
+    destination.write("destination-still-usable\n");
+    expect(diagnostics).toBe(`${expected}destination-still-usable\n`);
+    destination.destroy();
+  });
+
+  test("preserves the exact disposal error, cleans every stream, and never disposes twice", async () => {
+    const destination = new PassThrough();
+    destination.resume();
+    const baseline = pipeListenerCounts(destination);
+    const channels = [runtimeChannel(), runtimeChannel()];
+    const disposalError = new Error("original disposal failure");
+    const cleanupError = new Error("first stream unpipe failure");
+    const originalUnpipe = channels[0]!.buffered.unpipe.bind(
+      channels[0]!.buffered,
+    );
+    Object.defineProperty(channels[0]!.buffered, "unpipe", {
+      value: (target: PassThrough) => {
+        originalUnpipe(target);
+        throw cleanupError;
+      },
+    });
+    let disposeCalls = 0;
+    const managed = createManagedNativeRuntime(
+      (handleRuntimeStdio) => {
+        handleRuntimeStdio(channels[0]!.buffered, channels[1]!.buffered);
+        return {
+          async dispose() {
+            disposeCalls += 1;
+            for (const channel of channels) channel.upstream.destroy();
+            throw disposalError;
+          },
+        };
+      },
+      { destination },
+    );
+
+    await expect(managed.dispose()).rejects.toBe(disposalError);
+    await expect(managed.dispose()).rejects.toBe(disposalError);
+    expect(disposeCalls).toBe(1);
+    expect(channels.every((channel) => channel.buffered.destroyed)).toBe(true);
+    expect(pipeListenerCounts(destination)).toEqual(baseline);
+    expect(destination.destroyed).toBe(false);
+    destination.destroy();
+  });
+
+  test("reports cleanup failure after an otherwise successful disposal", async () => {
+    const destination = new PassThrough();
+    destination.resume();
+    const baseline = pipeListenerCounts(destination);
+    const channels = [runtimeChannel(), runtimeChannel()];
+    const cleanupError = new Error("stdio cleanup failed");
+    const originalUnpipe = channels[0]!.buffered.unpipe.bind(
+      channels[0]!.buffered,
+    );
+    Object.defineProperty(channels[0]!.buffered, "unpipe", {
+      value: (target: PassThrough) => {
+        originalUnpipe(target);
+        throw cleanupError;
+      },
+    });
+    const managed = createManagedNativeRuntime(
+      (handleRuntimeStdio) => {
+        handleRuntimeStdio(channels[0]!.buffered, channels[1]!.buffered);
+        return {
+          dispose: () =>
+            channels.forEach((channel) => channel.upstream.destroy()),
+        };
+      },
+      { destination },
+    );
+
+    await expect(managed.dispose()).rejects.toBe(cleanupError);
+    expect(channels.every((channel) => channel.buffered.destroyed)).toBe(true);
+    expect(pipeListenerCounts(destination)).toEqual(baseline);
+    expect(destination.writableEnded).toBe(false);
+    destination.destroy();
+  });
+
+  test("cleans constructor failure and rejects late callbacks without reattaching", async () => {
+    const destination = new PassThrough();
+    destination.resume();
+    const baseline = pipeListenerCounts(destination);
+    const constructed = [runtimeChannel(), runtimeChannel()];
+    const constructorError = new Error("original constructor failure");
+    const originalUnpipe = constructed[0]!.buffered.unpipe.bind(
+      constructed[0]!.buffered,
+    );
+    Object.defineProperty(constructed[0]!.buffered, "unpipe", {
+      value: (target: PassThrough) => {
+        originalUnpipe(target);
+        throw new Error("constructor stream cleanup failed");
+      },
+    });
+    let caught;
+    try {
+      createManagedNativeRuntime(
+        (handleRuntimeStdio) => {
+          handleRuntimeStdio(
+            constructed[0]!.buffered,
+            constructed[1]!.buffered,
+          );
+          throw constructorError;
+        },
+        { destination },
+      );
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBe(constructorError);
+    expect(constructed.every((channel) => channel.buffered.destroyed)).toBe(
+      true,
+    );
+    expect(pipeListenerCounts(destination)).toEqual(baseline);
+    for (const channel of constructed) channel.upstream.destroy();
+
+    let callback: (stdout: Readable, stderr: Readable) => void = () => {
+      throw new Error("stdio callback not registered");
+    };
+    let finishDispose!: () => void;
+    const pendingDisposal = new Promise<void>((resolve) => {
+      finishDispose = resolve;
+    });
+    const managed = createManagedNativeRuntime(
+      (handleRuntimeStdio) => {
+        callback = handleRuntimeStdio;
+        return {
+          async dispose() {
+            await pendingDisposal;
+          },
+        };
+      },
+      { destination },
+    );
+    const closing = managed.dispose();
+    const late = [runtimeChannel(), runtimeChannel()];
+    callback(late[0]!.buffered, late[1]!.buffered);
+    expect(late.every((channel) => channel.buffered.destroyed)).toBe(true);
+    expect(pipeListenerCounts(destination)).toEqual(baseline);
+    finishDispose();
+    await closing;
+    const afterClose = [runtimeChannel(), runtimeChannel()];
+    callback(afterClose[0]!.buffered, afterClose[1]!.buffered);
+    expect(afterClose.every((channel) => channel.buffered.destroyed)).toBe(
+      true,
+    );
+    expect(pipeListenerCounts(destination)).toEqual(baseline);
+    expect(destination.destroyed).toBe(false);
+    for (const channel of [...late, ...afterClose]) channel.upstream.destroy();
+    destination.destroy();
+  });
+
+  test("releases both late channels when the first release throws during disposal and after close", async () => {
+    const destination = new PassThrough();
+    let diagnostics = "";
+    destination.on("data", (chunk) => {
+      diagnostics += chunk.toString();
+    });
+    const baseline = pipeListenerCounts(destination);
+    const closingChannels = [runtimeChannel(), runtimeChannel()];
+    const closingError = new Error("first closing release failed");
+
+    function failUnpipe(buffered: Transform, error: Error) {
+      const originalUnpipe = buffered.unpipe.bind(buffered);
+      Object.defineProperty(buffered, "unpipe", {
+        value: (target: PassThrough) => {
+          originalUnpipe(target);
+          throw error;
+        },
+      });
+    }
+
+    failUnpipe(closingChannels[0]!.buffered, closingError);
+    failUnpipe(
+      closingChannels[1]!.buffered,
+      new Error("second closing release failed"),
+    );
+    const managed = createManagedNativeRuntime(
+      (handleRuntimeStdio) => ({
+        dispose() {
+          handleRuntimeStdio(
+            closingChannels[0]!.buffered,
+            closingChannels[1]!.buffered,
+          );
+        },
+      }),
+      { destination },
+    );
+
+    await expect(managed.dispose()).rejects.toBe(closingError);
+    await expect(managed.dispose()).rejects.toBe(closingError);
+    expect(closingChannels.every((channel) => channel.buffered.destroyed)).toBe(
+      true,
+    );
+    expect(pipeListenerCounts(destination)).toEqual(baseline);
+
+    let lateCallback: (stdout: Readable, stderr: Readable) => void = () => {
+      throw new Error("stdio callback not registered");
+    };
+    const closed = createManagedNativeRuntime(
+      (handleRuntimeStdio) => {
+        lateCallback = handleRuntimeStdio;
+        return { dispose() {} };
+      },
+      { destination },
+    );
+    await closed.dispose();
+    const closedChannels = [runtimeChannel(), runtimeChannel()];
+    const closedError = new Error("first closed release failed");
+    failUnpipe(closedChannels[0]!.buffered, closedError);
+    let caught;
+    try {
+      lateCallback(closedChannels[0]!.buffered, closedChannels[1]!.buffered);
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBe(closedError);
+    expect(closedChannels.every((channel) => channel.buffered.destroyed)).toBe(
+      true,
+    );
+    expect(pipeListenerCounts(destination)).toEqual(baseline);
+    destination.write("destination-still-usable\n");
+    expect(diagnostics).toBe("destination-still-usable\n");
+    expect(destination.destroyed).toBe(false);
+    expect(destination.writableEnded).toBe(false);
+    for (const channel of [...closingChannels, ...closedChannels]) {
+      channel.upstream.destroy();
+    }
+    destination.destroy();
+  });
 });
 
 describe("release Worker smoke", () => {

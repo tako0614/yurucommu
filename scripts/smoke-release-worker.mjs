@@ -9,6 +9,7 @@ import { Miniflare } from "miniflare";
 import { unstable_readConfig, unstable_splitSqlQuery } from "wrangler";
 import { qualifyProductJourneys } from "./release-product-journeys.mjs";
 import { qualifyOwnerOnboarding } from "./release-owner-onboarding.mjs";
+import { createManagedNativeRuntime } from "./native-runtime-stdio.mjs";
 
 const MAX_RESPONSE_BYTES = 1024 * 1024;
 const TEST_PASSWORD = "release-smoke-only";
@@ -268,35 +269,36 @@ function nativeWorker(artifactPath, passwordFixture) {
   if (!sourceConfig.compatibility_date) {
     throw new Error("wrangler.jsonc must declare compatibility_date");
   }
-  return new Miniflare({
-    rootPath: dirname(artifactPath),
-    modules: [{ type: "ESModule", path: artifactPath }],
-    modulesRoot: dirname(artifactPath),
-    compatibilityDate: sourceConfig.compatibility_date,
-    compatibilityFlags: sourceConfig.compatibility_flags,
-    cf: false,
-    bindings: {
-      APP_URL: APP_ORIGIN,
-      AUTH_PASSWORD_HASH: passwordFixture.hash,
-      YURUCOMMU_SESSION_HASH_SALT: SESSION_SALT,
-      DELIVERY_QUEUE_NAME: DELIVERY_QUEUE,
-      DELIVERY_DLQ_NAME: DELIVERY_DLQ,
-      ENCRYPTION_KEY: "00".repeat(32),
-    },
-    d1Databases: ["DB"],
-    kvNamespaces: ["KV"],
-    r2Buckets: ["MEDIA"],
-    queueProducers: ["DELIVERY_QUEUE", "DELIVERY_DLQ"],
-    // Application diagnostics go to stderr; stdout is one evidence document.
-    handleRuntimeStdio(stdout, stderr) {
-      stdout.pipe(process.stderr, { end: false });
-      stderr.pipe(process.stderr, { end: false });
-    },
-  });
+  return createManagedNativeRuntime(
+    (handleRuntimeStdio) =>
+      new Miniflare({
+        rootPath: dirname(artifactPath),
+        modules: [{ type: "ESModule", path: artifactPath }],
+        modulesRoot: dirname(artifactPath),
+        compatibilityDate: sourceConfig.compatibility_date,
+        compatibilityFlags: sourceConfig.compatibility_flags,
+        cf: false,
+        bindings: {
+          APP_URL: APP_ORIGIN,
+          AUTH_PASSWORD_HASH: passwordFixture.hash,
+          YURUCOMMU_SESSION_HASH_SALT: SESSION_SALT,
+          DELIVERY_QUEUE_NAME: DELIVERY_QUEUE,
+          DELIVERY_DLQ_NAME: DELIVERY_DLQ,
+          ENCRYPTION_KEY: "00".repeat(32),
+        },
+        d1Databases: ["DB"],
+        kvNamespaces: ["KV"],
+        r2Buckets: ["MEDIA"],
+        queueProducers: ["DELIVERY_QUEUE", "DELIVERY_DLQ"],
+        // Application diagnostics go to stderr; stdout is one evidence document.
+        handleRuntimeStdio,
+      }),
+  );
 }
 
 async function smokeFreshOwner(artifactPath, passwordFixture, firstTransport) {
-  const worker = nativeWorker(artifactPath, passwordFixture);
+  const { worker, dispose } = nativeWorker(artifactPath, passwordFixture);
+  let primaryFailed = false;
   try {
     await worker.ready;
     // Separate disposable bindings; this lane never seeds an actor or session.
@@ -309,8 +311,16 @@ async function smokeFreshOwner(artifactPath, passwordFixture, firstTransport) {
       firstTransport,
     });
     return { passwordMethod: passwordFixture.method, ...schema, ...onboarding };
+  } catch (error) {
+    primaryFailed = true;
+    throw error;
   } finally {
-    await worker.dispose();
+    try {
+      await dispose();
+    } catch (error) {
+      if (!primaryFailed) throw error;
+      process.stderr.write(`release-worker cleanup also failed: ${error}\n`);
+    }
   }
 }
 
@@ -319,13 +329,13 @@ async function smokeNativeWorker(
   artifactDigest,
   passwordFixture,
 ) {
-  const worker = nativeWorker(artifactPath, passwordFixture);
-  const sourceConfig = unstable_readConfig(
-    { config: resolve(repo, "wrangler.jsonc") },
-    { hideWarnings: true },
-  );
-
+  const { worker, dispose } = nativeWorker(artifactPath, passwordFixture);
+  let primaryFailed = false;
   try {
+    const sourceConfig = unstable_readConfig(
+      { config: resolve(repo, "wrangler.jsonc") },
+      { hideWarnings: true },
+    );
     await worker.ready;
     // HTTP middleware can enqueue durable outbox work. Prepare and exercise
     // the product schema before any request reaches those background tasks.
@@ -406,8 +416,16 @@ async function smokeNativeWorker(
       ],
       status: "PASSED",
     };
+  } catch (error) {
+    primaryFailed = true;
+    throw error;
   } finally {
-    await worker.dispose();
+    try {
+      await dispose();
+    } catch (error) {
+      if (!primaryFailed) throw error;
+      process.stderr.write(`release-worker cleanup also failed: ${error}\n`);
+    }
   }
 }
 
