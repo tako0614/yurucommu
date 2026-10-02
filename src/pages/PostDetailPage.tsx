@@ -5,7 +5,6 @@ import { MediaAttachment, Post } from "../types/index.ts";
 import {
   bookmarkPost,
   createPost,
-  deletePost,
   editPost,
   fetchPost,
   fetchReplies,
@@ -23,8 +22,7 @@ import { decodeApIdParam } from "../lib/routeApId.ts";
 import { useSetAtom } from "solid-jotai";
 import { pushToast, toastsAtom } from "../atoms/toast.ts";
 import {
-  followingPostsAtom,
-  pendingNewPostsAtom,
+  deleteTimelinePostAtom,
   timelinePostsAtom,
 } from "../atoms/timeline.ts";
 import { ConfirmSheet } from "../components/ConfirmSheet.tsx";
@@ -91,8 +89,7 @@ export function PostDetailPage() {
   const { t, language } = useI18n();
   const setToasts = useSetAtom(toastsAtom);
   const setTimelinePosts = useSetAtom(timelinePostsAtom);
-  const setFollowingPosts = useSetAtom(followingPostsAtom);
-  const setPendingNewPosts = useSetAtom(pendingNewPostsAtom);
+  const deleteTimelinePost = useSetAtom(deleteTimelinePostAtom);
   const [error, setError] = createSignal<string | null>(null);
   const clearError = () => setError(null);
   const [post, setPost] = createSignal<Post | null>(null);
@@ -405,7 +402,7 @@ export function PostDetailPage() {
     if (!pending) return;
     setPendingDelete(null);
     try {
-      await deletePost(pending.post.ap_id);
+      await deleteTimelinePost(pending.post.ap_id);
       if (pending.isReply) {
         setReplies((prev) =>
           prev.filter((r) => r.ap_id !== pending.post.ap_id),
@@ -419,12 +416,6 @@ export function PostDetailPage() {
         }
         pushToast(setToasts, t("feedback.postDeleted"), { kind: "success" });
       } else {
-        // Both feeds reuse fresh cached rows when returning from detail.
-        // Remove the canonical post from each cache and the staged buffer.
-        const removed = pending.post.ap_id;
-        setTimelinePosts((prev) => prev.filter((p) => p.ap_id !== removed));
-        setFollowingPosts((prev) => prev.filter((p) => p.ap_id !== removed));
-        setPendingNewPosts((prev) => prev.filter((p) => p.ap_id !== removed));
         // On a deep link / fresh tab there is no in-app history entry to go
         // back to — navigate(-1) would bounce out of the app (or nowhere).
         if (window.history.length > 1) {

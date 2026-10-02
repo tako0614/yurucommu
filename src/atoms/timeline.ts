@@ -1,4 +1,4 @@
-import { atom } from "jotai/vanilla";
+import { atom, type SetStateAction } from "jotai/vanilla";
 import {
   clearStoredPostDraftAtom,
   postDraftWriteFailedAtom,
@@ -37,7 +37,7 @@ import {
   switchAccount,
 } from "../lib/api.ts";
 import { uploadProductMedia } from "../lib/media-upload.ts";
-import { fetchFollowingTimeline } from "../lib/api/posts.ts";
+import { deletePost, fetchFollowingTimeline } from "../lib/api/posts.ts";
 import type { UploadedMedia } from "../components/timeline/types.ts";
 import { ApiError } from "../lib/api/fetch.ts";
 import { classifyWriteFailure } from "../lib/write-outcome.ts";
@@ -65,7 +65,32 @@ export type CreatePostOptions = {
 };
 
 // --- Post state ---
-export const timelinePostsAtom = atom<Post[]>([]);
+// A successful DELETE establishes a fact about a globally unique canonical AP
+// object, including its boost entries. Retain only IDs in this Jotai store for
+// its lifetime (no TTL/LRU or storage): delayed reads/ACKs must not undo that
+// fact. Persona/scope switches do not create a new object with the same ID.
+// A page reload creates a fresh store and relies on the server's durable state.
+const deletedTimelinePostIdsAtom = atom<ReadonlySet<string>>(new Set<string>());
+function createFeedPostsAtom() {
+  const rows = atom<Post[]>([]);
+  return atom(
+    (get) => get(rows),
+    (get, set, update: SetStateAction<Post[]>) => {
+      const next = typeof update === "function" ? update(get(rows)) : update;
+      const deleted = get(deletedTimelinePostIdsAtom);
+      set(
+        rows,
+        deleted.size === 0
+          ? next
+          : next.filter((post) => !deleted.has(post.ap_id)),
+      );
+    },
+  );
+}
+// All writes pass through this boundary: full/older/head reads, pending apply,
+// composer ACKs and page-level updater functions. Filter at commit time, while
+// keeping the server's original cursor/hasMore and unrelated rows.
+export const timelinePostsAtom = createFeedPostsAtom();
 export const timelineLoadingAtom = atom(true);
 export const timelineLoadingMoreAtom = atom(false);
 export const timelineHasMoreAtom = atom(true);
@@ -100,7 +125,7 @@ export const homeFeedTabAtom = atom<HomeFeedTab>("all");
 // unified atoms above) so switching tabs never resets the other tab's loaded
 // pages or reading position, and the unified feed's 60s freshness-reuse
 // semantics stay untouched.
-export const followingPostsAtom = atom<Post[]>([]);
+export const followingPostsAtom = createFeedPostsAtom();
 export const followingLoadingAtom = atom(true);
 export const followingLoadingMoreAtom = atom(false);
 export const followingHasMoreAtom = atom(true);
@@ -167,7 +192,27 @@ export const showScopeSwitcherAtom = atom(false);
 // Posts fetched from the timeline head that are newer than what is currently
 // displayed. They are staged here (not prepended automatically) so the user
 // keeps their scroll position; a pill surfaces the count and prepends on click.
-export const pendingNewPostsAtom = atom<Post[]>([]);
+export const pendingNewPostsAtom = createFeedPostsAtom();
+
+// Keep both deletion entrypoints on the same success-only cache transition.
+// A refusal or missing ACK throws without registering a deletion or hiding rows.
+export const deleteTimelinePostAtom = atom(
+  null,
+  async (get, set, apId: string) => {
+    await deletePost(apId);
+    set(
+      deletedTimelinePostIdsAtom,
+      new Set([...get(deletedTimelinePostIdsAtom), apId]),
+    );
+    for (const feed of [
+      timelinePostsAtom,
+      followingPostsAtom,
+      pendingNewPostsAtom,
+    ]) {
+      set(feed, (prev) => prev.filter((post) => post.ap_id !== apId));
+    }
+  },
+);
 
 // Ordering key of the newest post ever incorporated into the visible feed,
 // mirroring the server feed order `desc(published), desc(apId)`. "Newer" = a
@@ -228,6 +273,7 @@ export const checkNewPostsAtom = atom(null, async (get, set) => {
     // being re-staged as "new".
     const fresh = head.filter(
       (p) =>
+        !get(deletedTimelinePostIdsAtom).has(p.ap_id) &&
         !knownIds.has(feedItemKey(p)) &&
         (watermark === null || postKey(p) > watermark),
     );
@@ -312,7 +358,9 @@ export const loadTimelineAtom = atom(null, async (get, set) => {
     set(pendingNewPostsAtom, []);
     set(
       newestSeenKeyAtom,
-      page.posts.length > 0 ? postKey(page.posts[0]) : null,
+      get(timelinePostsAtom).length > 0
+        ? postKey(get(timelinePostsAtom)[0])
+        : null,
     );
   } catch (e) {
     if (gen !== timelineLoadGen) return;
@@ -326,11 +374,10 @@ export const loadTimelineAtom = atom(null, async (get, set) => {
 export const loadMoreTimelineAtom = atom(null, async (get, set) => {
   const loadingMore = get(timelineLoadingMoreAtom);
   const hasMore = get(timelineHasMoreAtom);
-  const posts = get(timelinePostsAtom);
   const cursor = get(timelineCursorAtom);
   // No server cursor means there is no defined "next older" boundary to resume
   // from — stop rather than refetch the head (which would re-serve page 1).
-  if (loadingMore || !hasMore || posts.length === 0 || !cursor) return;
+  if (loadingMore || !hasMore || !cursor) return;
 
   set(timelineLoadingMoreAtom, true);
   const gen = timelineLoadGen;
@@ -355,7 +402,10 @@ export const loadMoreTimelineAtom = atom(null, async (get, set) => {
       // keeps the window the user is actively scrolling through (the oldest tail)
       // and evicts the already-scrolled-past newest head (a scroll back to the
       // very top then re-fetches). The staging buffer is likewise capped.
-      const merged = [...get(timelinePostsAtom), ...page.posts];
+      const survivingPage = page.posts.filter(
+        (post) => !get(deletedTimelinePostIdsAtom).has(post.ap_id),
+      );
+      const merged = [...get(timelinePostsAtom), ...survivingPage];
       set(
         timelinePostsAtom,
         merged.length > MAX_TIMELINE_POSTS
@@ -408,9 +458,8 @@ export const loadFollowingTimelineAtom = atom(null, async (get, set) => {
 export const loadMoreFollowingTimelineAtom = atom(null, async (get, set) => {
   const loadingMore = get(followingLoadingMoreAtom);
   const hasMore = get(followingHasMoreAtom);
-  const posts = get(followingPostsAtom);
   const cursor = get(followingCursorAtom);
-  if (loadingMore || !hasMore || posts.length === 0 || !cursor) return;
+  if (loadingMore || !hasMore || !cursor) return;
 
   set(followingLoadingMoreAtom, true);
   const gen = followingLoadGen;
@@ -419,7 +468,10 @@ export const loadMoreFollowingTimelineAtom = atom(null, async (get, set) => {
     // A full reload happened mid-flight → do not append a stale older page.
     if (gen !== followingLoadGen) return;
     if (page.posts.length > 0) {
-      const merged = [...get(followingPostsAtom), ...page.posts];
+      const survivingPage = page.posts.filter(
+        (post) => !get(deletedTimelinePostIdsAtom).has(post.ap_id),
+      );
+      const merged = [...get(followingPostsAtom), ...survivingPage];
       set(
         followingPostsAtom,
         merged.length > MAX_TIMELINE_POSTS
@@ -526,7 +578,8 @@ export const createPostAtom = atom(
           set(timelinePostsAtom, (prev) => [newPost, ...prev]);
           // The own post is now the freshest head; advance the watermark so a
           // head-poll doesn't later re-stage it as "new" if it gets evicted.
-          bumpNewestSeen(get, set, newPost);
+          if (!get(deletedTimelinePostIdsAtom).has(newPost.ap_id))
+            bumpNewestSeen(get, set, newPost);
         }
         // The following feed's own-posts leg includes every personal
         // (non-community, non-direct) post of yours, so mirror the prepend

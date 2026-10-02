@@ -22,6 +22,8 @@ import { qualifyBrowserStoryOutcome } from "./release-browser-story-outcome.mjs"
 import { qualifyBrowserProfileSave } from "./release-browser-profile-save.mjs";
 import { qualifyBrowserTimelineScope } from "./release-browser-timeline-scope.mjs";
 import { qualifyBrowserFollowingDelete } from "./release-browser-following-delete.mjs";
+import { qualifyBrowserDeleteResponse } from "./release-browser-delete-response.mjs";
+import { qualifyBrowserDeletedPage } from "./release-browser-delete-page.mjs";
 import { createManagedNativeRuntime } from "./native-runtime-stdio.mjs";
 import {
   createBrowserOidcErrorIssuer,
@@ -817,6 +819,40 @@ async function runBrowserSmoke(artifactPath, artifactDigest, browser) {
       "Following deletion returned an unexpected HTTP 5xx",
     );
 
+    const deleteResponseChecks = [];
+    const deleteResponseMetadata = await qualifyBrowserDeleteResponse({
+      page,
+      db,
+      origin,
+      actorApId,
+      checks: deleteResponseChecks,
+    });
+    requireEffect(
+      pageErrors.length === 0,
+      "Late feed response raised a page runtime error",
+    );
+    requireEffect(
+      serverErrors.length === 0,
+      "Late feed response returned an unexpected HTTP 5xx",
+    );
+
+    const deletedPageChecks = [];
+    const deletedPageMetadata = await qualifyBrowserDeletedPage({
+      page,
+      db,
+      origin,
+      actorApId,
+      checks: deletedPageChecks,
+    });
+    requireEffect(
+      pageErrors.length === 0,
+      "Deleted-only page raised a page runtime error",
+    );
+    requireEffect(
+      serverErrors.length === 0,
+      "Deleted-only page returned an unexpected HTTP 5xx",
+    );
+
     result = {
       kind: "yurucommu.release-browser-smoke@v1",
       artifact: basename(artifactPath),
@@ -844,6 +880,11 @@ async function runBrowserSmoke(artifactPath, artifactDigest, browser) {
         ...followingDeleteMetadata,
         checks: followingDeleteChecks,
       },
+      deleteResponse: {
+        ...deleteResponseMetadata,
+        checks: deleteResponseChecks,
+      },
+      deletedPage: { ...deletedPageMetadata, checks: deletedPageChecks },
       status: "PASSED",
     };
   } catch (error) {
@@ -923,6 +964,8 @@ async function main() {
       ...result.profileSave.checks,
       ...result.timelineScope.checks,
       ...result.followingDelete.checks,
+      ...result.deleteResponse.checks,
+      ...result.deletedPage.checks,
     );
   } catch (error) {
     primaryError = error;
