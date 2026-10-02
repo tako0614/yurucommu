@@ -17,6 +17,7 @@ import { qualifyBrowserNotifications } from "./release-browser-notifications.mjs
 import { qualifyBrowserPostOutcome } from "./release-browser-post-outcome.mjs";
 import { qualifyBrowserDraftStorage } from "./release-browser-draft-storage.mjs";
 import { qualifyBrowserPostSnapshot } from "./release-browser-post-snapshot.mjs";
+import { qualifyBrowserStorySubmit } from "./release-browser-story-submit.mjs";
 import { createManagedNativeRuntime } from "./native-runtime-stdio.mjs";
 import {
   createBrowserOidcErrorIssuer,
@@ -724,6 +725,25 @@ async function runBrowserSmoke(artifactPath, artifactDigest, browser) {
     );
     checks.push("browser-no-page-errors-or-http-5xx");
 
+    // Keep all prior checks in their existing order; append Story assertions
+    // after the independent OIDC result is joined in main().
+    const storySubmitChecks = [];
+    const storySubmitMetadata = await qualifyBrowserStorySubmit({
+      page,
+      db,
+      origin,
+      actorApId,
+      checks: storySubmitChecks,
+    });
+    requireEffect(
+      pageErrors.length === 0,
+      "Story submission raised a page runtime error",
+    );
+    requireEffect(
+      serverErrors.length === 0,
+      "Story submission returned an unexpected HTTP 5xx",
+    );
+
     result = {
       kind: "yurucommu.release-browser-smoke@v1",
       artifact: basename(artifactPath),
@@ -743,6 +763,7 @@ async function runBrowserSmoke(artifactPath, artifactDigest, browser) {
       postSnapshot: postSnapshotMetadata,
       draftStorage: draftStorageMetadata,
       notifications: notificationMetadata,
+      storySubmit: { ...storySubmitMetadata, checks: storySubmitChecks },
       status: "PASSED",
     };
   } catch (error) {
@@ -815,7 +836,7 @@ async function main() {
     );
     result = await runBrowserSmoke(artifactPath, artifactDigest, browser);
     result.oidcRecovery = oidcRecovery;
-    result.checks.push(...oidcRecovery.checks);
+    result.checks.push(...oidcRecovery.checks, ...result.storySubmit.checks);
   } catch (error) {
     primaryError = error;
   } finally {

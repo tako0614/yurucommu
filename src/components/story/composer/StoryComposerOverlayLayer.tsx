@@ -9,7 +9,7 @@
  * the exported image — they ship as structured `StoryOverlay` data.
  */
 
-import { For, Show } from "solid-js";
+import { createEffect, For, onCleanup, Show } from "solid-js";
 import { useI18n } from "../../../lib/i18n.tsx";
 import type { StoryOverlay } from "../../../types/index.ts";
 import type { OverlayItem } from "./useStoryOverlays.ts";
@@ -22,6 +22,7 @@ interface StoryComposerOverlayLayerProps {
   onResize: (id: string, width: number) => void;
   onEdit: (id: string) => void;
   onRemove: (id: string) => void;
+  disabled?: boolean;
 }
 
 interface DragState {
@@ -78,11 +79,29 @@ export function StoryComposerOverlayLayer(
   let layerRef: HTMLDivElement | undefined;
   let drag: DragState | null = null;
   let resize: ResizeState | null = null;
+  let capture: { target: HTMLElement; pointerId: number } | null = null;
+
+  const endDrag = () => {
+    drag = null;
+    resize = null;
+    if (capture?.target.hasPointerCapture(capture.pointerId))
+      capture.target.releasePointerCapture(capture.pointerId);
+    capture = null;
+  };
+  createEffect(() => {
+    if (props.disabled) endDrag();
+  });
+  onCleanup(endDrag);
 
   const onPointerDown = (e: PointerEvent, item: OverlayItem) => {
+    if (props.disabled) return;
     e.stopPropagation();
     e.preventDefault();
     (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+    capture = {
+      target: e.currentTarget as HTMLElement,
+      pointerId: e.pointerId,
+    };
     props.onSelect(item.id);
     drag = {
       id: item.id,
@@ -94,7 +113,7 @@ export function StoryComposerOverlayLayer(
   };
 
   const onPointerMove = (e: PointerEvent) => {
-    if (!layerRef) return;
+    if (!layerRef || props.disabled) return;
     const rect = layerRef.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return;
     if (resize) {
@@ -110,15 +129,15 @@ export function StoryComposerOverlayLayer(
     props.onMove(drag.id, drag.originX + dx, drag.originY + dy);
   };
 
-  const endDrag = () => {
-    drag = null;
-    resize = null;
-  };
-
   const onResizeDown = (e: PointerEvent, item: OverlayItem) => {
+    if (props.disabled) return;
     e.stopPropagation();
     e.preventDefault();
     (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+    capture = {
+      target: e.currentTarget as HTMLElement,
+      pointerId: e.pointerId,
+    };
     resize = {
       id: item.id,
       startX: e.clientX,
@@ -164,6 +183,7 @@ export function StoryComposerOverlayLayer(
                     onPointerDown={(e) => e.stopPropagation()}
                     onClick={(e) => {
                       e.stopPropagation();
+                      if (props.disabled) return;
                       props.onEdit(item.id);
                     }}
                     class="rounded-full px-3 py-1 text-xs text-white hover:bg-white/10"
@@ -175,6 +195,7 @@ export function StoryComposerOverlayLayer(
                     onPointerDown={(e) => e.stopPropagation()}
                     onClick={(e) => {
                       e.stopPropagation();
+                      if (props.disabled) return;
                       props.onRemove(item.id);
                     }}
                     aria-label={t("story.overlay.remove")}

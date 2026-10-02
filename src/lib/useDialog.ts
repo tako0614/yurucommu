@@ -16,6 +16,10 @@ interface UseDialogOptions {
   // omitted (or detached) focus falls back to the main content landmark so it
   // never silently drops to <body>.
   returnFocus?: () => HTMLElement | null | undefined;
+  // A busy dialog can temporarily make all editors inert. Keep its status
+  // focused without reopening the dialog or changing its scroll/return stack.
+  busyFocus?: () => HTMLElement | null | undefined;
+  busyReturnFocus?: () => HTMLElement | null | undefined;
 }
 
 /**
@@ -83,6 +87,7 @@ function focusableWithin(root: HTMLElement): HTMLElement[] {
   ).filter(
     (el) =>
       !el.hasAttribute("disabled") &&
+      !el.closest("[inert]") &&
       el.getAttribute("aria-hidden") !== "true" &&
       // offsetParent is null for display:none; visibility:hidden also fails.
       (el.offsetParent !== null || el.getClientRects().length > 0),
@@ -101,6 +106,38 @@ function focusableWithin(root: HTMLElement): HTMLElement[] {
  * drawer); overlays must not keep their own Escape / scroll-lock wiring.
  */
 export function useDialog(options: UseDialogOptions): void {
+  let beforeBusy: HTMLElement | null = null;
+  createEffect(() => {
+    if (!options.isOpen()) return;
+    const target = options.busyFocus?.();
+    if (target) {
+      beforeBusy ??=
+        options.busyReturnFocus?.() ??
+        (document.activeElement instanceof HTMLElement
+          ? document.activeElement
+          : null);
+      target.focus();
+    } else if (beforeBusy) {
+      const previous = beforeBusy;
+      beforeBusy = null;
+      // Wait for disabled/inert to be removed before restoring the editor.
+      queueMicrotask(() => {
+        if (options.busyFocus?.()) return;
+        const root = options.container();
+        if (!root?.isConnected) return;
+        if (
+          previous.isConnected &&
+          root.contains(previous) &&
+          !previous.closest("[inert]")
+        )
+          previous.focus();
+        else {
+          root.setAttribute("tabindex", "-1");
+          root.focus();
+        }
+      });
+    }
+  });
   createEffect(() => {
     if (!options.isOpen()) return;
 
@@ -144,6 +181,13 @@ export function useDialog(options: UseDialogOptions): void {
         return;
       }
       if (e.key !== "Tab") return;
+
+      const busyTarget = options.busyFocus?.();
+      if (busyTarget) {
+        e.preventDefault();
+        busyTarget.focus();
+        return;
+      }
 
       const items = focusableWithin(root);
       if (items.length === 0) {

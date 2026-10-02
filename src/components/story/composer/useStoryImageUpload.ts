@@ -11,12 +11,14 @@ interface UseStoryImageUploadOptions {
   setUploading: (value: boolean) => void;
   setError: (message: string) => void;
   onUpdate: () => void;
+  canEdit: () => boolean;
 }
 
 export function useStoryImageUpload(opts: UseStoryImageUploadOptions) {
   const { t } = useI18n();
   let fileInputRef!: HTMLInputElement;
   const objectUrls = new Set<string>();
+  let selecting = false;
 
   // Cleanup object URLs on unmount to prevent memory leaks
   createEffect(() => {
@@ -31,6 +33,7 @@ export function useStoryImageUpload(opts: UseStoryImageUploadOptions) {
   const handleImageSelect = async (
     e: Event & { currentTarget: HTMLInputElement },
   ) => {
+    if (selecting || !opts.canEdit()) return;
     const file = (e.currentTarget as HTMLInputElement).files?.[0];
     if (!file || !opts.storyCanvas) return;
 
@@ -49,6 +52,7 @@ export function useStoryImageUpload(opts: UseStoryImageUploadOptions) {
       return;
     }
 
+    selecting = true;
     opts.setUploading(true);
     try {
       const preview = URL.createObjectURL(file);
@@ -62,6 +66,7 @@ export function useStoryImageUpload(opts: UseStoryImageUploadOptions) {
       console.error("Failed to add image:", err);
       opts.setError(t("story.mediaUploadFailed"));
     } finally {
+      selecting = false;
       opts.setUploading(false);
       if (fileInputRef) fileInputRef.value = "";
     }

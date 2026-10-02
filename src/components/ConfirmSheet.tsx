@@ -14,6 +14,8 @@ interface ConfirmSheetProps {
   destructive?: boolean;
   // Disables the confirm button (e.g. while the action is in flight).
   busy?: boolean;
+  // Portal confirmations must sit above a caller that already owns a modal.
+  zIndex?: number;
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -38,6 +40,7 @@ export function ConfirmSheet(props: ConfirmSheetProps) {
       <Portal>
         <div
           class="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-0 sm:items-center sm:p-4"
+          style={{ "z-index": props.zIndex }}
           onClick={(e) => {
             if (e.target === e.currentTarget) props.onCancel();
           }}

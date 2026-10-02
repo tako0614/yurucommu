@@ -5,6 +5,7 @@ interface StoryComposerStatusOverlayProps {
   ffmpegLoading: boolean;
   posting: boolean;
   progress: number;
+  postingRef?: (el: HTMLDivElement) => void;
 }
 
 export function StoryComposerStatusOverlay(
@@ -23,7 +24,13 @@ export function StoryComposerStatusOverlay(
       </Show>
 
       <Show when={props.posting}>
-        <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 bg-black/80 backdrop-blur-sm rounded-2xl px-8 py-6">
+        <div
+          ref={props.postingRef}
+          role="status"
+          aria-live="polite"
+          tabindex="-1"
+          class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 bg-black/80 backdrop-blur-sm rounded-2xl px-8 py-6"
+        >
           <div class="flex flex-col items-center gap-4">
             <div class="w-16 h-16 relative">
               <svg class="w-full h-full -rotate-90">

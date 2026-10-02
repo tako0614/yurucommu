@@ -74,7 +74,9 @@ export function StoryComposer(props: StoryComposerProps) {
 
   // UI state
   const [activeTab, setActiveTab] = createSignal<ToolTab>("none");
-  const [uploading, setUploading] = createSignal(false);
+  const [imageLoading, setImageLoading] = createSignal(false);
+  const [videoLoading, setVideoLoading] = createSignal(false);
+  const uploading = () => imageLoading() || videoLoading();
   const [error, setError] = createSignal<string | null>(null);
   const [displayScale, setDisplayScale] = createSignal(1);
   // Backing-store size of the display canvas. Tracks the stage's CSS size ×
@@ -152,7 +154,11 @@ export function StoryComposer(props: StoryComposerProps) {
   // The TextEditorModal and the discard ConfirmSheet register ABOVE this on the
   // shared dialog stack, so while either is open Escape closes IT, not the sheet.
   let composerRootRef: HTMLDivElement | undefined;
+  const [submissionStatus, setSubmissionStatus] =
+    createSignal<HTMLDivElement | null>(null);
+  let submissionReturnFocus: HTMLElement | null = null;
   const handleComposerEscape = () => {
+    if (postActions.posting()) return;
     if (showBackgroundPanel()) {
       setShowBackgroundPanel(false);
       return;
@@ -168,6 +174,8 @@ export function StoryComposer(props: StoryComposerProps) {
     isOpen: () => !showDiscard(),
     onClose: handleComposerEscape,
     container: () => composerRootRef,
+    busyFocus: () => (postActions.posting() ? submissionStatus() : null),
+    busyReturnFocus: () => submissionReturnFocus,
   });
 
   // Double-tap detection for text editing
@@ -179,7 +187,8 @@ export function StoryComposer(props: StoryComposerProps) {
     get storyCanvas() {
       return storyCanvas();
     },
-    setUploading: (value) => setUploading(value),
+    setUploading: setVideoLoading,
+    canEdit: () => !uploading() && !postActions.posting(),
     setError: (message) => setError(message),
     maxVideoSize: MAX_VIDEO_SIZE,
     onBackgroundChange: bumpRenderKey,
@@ -194,6 +203,7 @@ export function StoryComposer(props: StoryComposerProps) {
     getSelectedLayer,
     handlePointerDown,
     handleWheel,
+    finishInteraction,
     drawingSettings,
     setDrawingSettings,
     clearDrawing,
@@ -207,6 +217,7 @@ export function StoryComposer(props: StoryComposerProps) {
     },
     onUpdate: bumpRenderKey,
     onSnapGuidesChange: setSnapGuides,
+    canEdit: () => !postActions.posting(),
   });
 
   const postActions = useStoryPost({
@@ -230,6 +241,22 @@ export function StoryComposer(props: StoryComposerProps) {
     },
     get ffmpegReady() {
       return video.ffmpegReady();
+    },
+    get busy() {
+      return (
+        uploading() ||
+        textEditor.isTextEditorOpen() ||
+        !!overlayEditor() ||
+        showDiscard()
+      );
+    },
+    onStart: () => {
+      submissionReturnFocus =
+        document.activeElement instanceof HTMLElement
+          ? document.activeElement
+          : null;
+      finishInteraction();
+      videoTransform.finishInteraction();
     },
     get overlays() {
       return overlayState.overlays();
@@ -274,7 +301,8 @@ export function StoryComposer(props: StoryComposerProps) {
       return storyCanvas();
     },
     selectLayer,
-    setUploading: (value) => setUploading(value),
+    setUploading: setImageLoading,
+    canEdit: () => !uploading() && !postActions.posting(),
     setError: (message) => setError(message),
     onUpdate: () => {
       bumpRenderKey();
@@ -284,7 +312,7 @@ export function StoryComposer(props: StoryComposerProps) {
 
   const videoTransform = useVideoTransform({
     get enabled() {
-      return !!video.videoPreview();
+      return !!video.videoPreview() && !postActions.posting();
     },
     get scale() {
       return video.videoScale();
@@ -483,7 +511,7 @@ export function StoryComposer(props: StoryComposerProps) {
   // canPost / isCanvasEmpty read the (non-reactive) layer array, so they take a
   // dependency on renderKey() — which bumps on every canvas mutation — to stay
   // in sync when layers are added or removed.
-  const canPost = () => {
+  const hasContent = () => {
     renderKey();
     const sc = storyCanvas();
     return (
@@ -493,6 +521,7 @@ export function StoryComposer(props: StoryComposerProps) {
         overlayState.overlays().length > 0)
     );
   };
+  const canPost = () => hasContent() && !uploading();
   // Empty == only the background layer, no video, and no overlays: show the
   // "tap to add text" affordance so a fresh canvas isn't a blank stage.
   const isCanvasEmpty = () => {
@@ -508,7 +537,8 @@ export function StoryComposer(props: StoryComposerProps) {
 
   // The composer holds unsent work worth confirming before discarding: any
   // placed layer / video / overlay (== canPost) or a typed caption.
-  const isDirty = () => canPost() || caption().trim().length > 0;
+  const isDirty = () =>
+    hasContent() || uploading() || caption().trim().length > 0;
 
   // Close request: confirm first when there is unsent work, otherwise close
   // straight away. Used by Escape (handleComposerEscape) and the header X.
@@ -547,194 +577,204 @@ export function StoryComposer(props: StoryComposerProps) {
           "max-width": "100vw",
         }}
       >
-        <StoryComposerCanvas
-          canvasContainerRef={(el) => {
-            canvasContainerRef = el;
-            setContainerRef(el);
-            // First real layout — compute the display scale/resolution now.
-            queueMicrotask(syncStageSize);
-          }}
-          displayCanvasRef={(el) => {
-            displayCanvasRef = el;
-          }}
-          displayDimensions={displayDims()}
-          videoPreview={video.videoPreview()}
-          videoRef={video.videoRef}
-          videoPosition={video.videoPosition()}
-          videoScale={video.videoScale()}
-          videoRotation={video.videoRotation()}
-          onCanvasPointerDown={handleCanvasPointerDown}
-          onCanvasWheel={handleWheel}
-          onVideoPointerDown={videoTransform.handlePointerDown}
-          onVideoPointerMove={videoTransform.handlePointerMove}
-          onVideoPointerUp={videoTransform.handlePointerUp}
-          onVideoWheel={videoTransform.handleWheel}
-          onVideoTouchStart={videoTransform.handleTouchStart}
-          onVideoTouchMove={videoTransform.handleTouchMove}
-          onVideoTouchEnd={videoTransform.handleTouchEnd}
-        />
+        {/* All draft editors, including nested panels, freeze together. */}
+        <fieldset
+          class="contents"
+          disabled={postActions.posting()}
+          inert={postActions.posting()}
+          aria-busy={postActions.posting()}
+        >
+          <StoryComposerCanvas
+            canvasContainerRef={(el) => {
+              canvasContainerRef = el;
+              setContainerRef(el);
+              // First real layout — compute the display scale/resolution now.
+              queueMicrotask(syncStageSize);
+            }}
+            displayCanvasRef={(el) => {
+              displayCanvasRef = el;
+            }}
+            displayDimensions={displayDims()}
+            videoPreview={video.videoPreview()}
+            videoRef={video.videoRef}
+            videoPosition={video.videoPosition()}
+            videoScale={video.videoScale()}
+            videoRotation={video.videoRotation()}
+            onCanvasPointerDown={handleCanvasPointerDown}
+            onCanvasWheel={handleWheel}
+            onVideoPointerDown={videoTransform.handlePointerDown}
+            onVideoPointerMove={videoTransform.handlePointerMove}
+            onVideoPointerUp={videoTransform.handlePointerUp}
+            onVideoWheel={videoTransform.handleWheel}
+            onVideoTouchStart={videoTransform.handleTouchStart}
+            onVideoTouchMove={videoTransform.handleTouchMove}
+            onVideoTouchEnd={videoTransform.handleTouchEnd}
+          />
 
-        {/* Interactive overlay layer (poll / note / link) over the canvas. */}
-        <StoryComposerOverlayLayer
-          items={overlayState.items()}
-          selectedId={overlayState.selectedId()}
-          onSelect={overlayState.setSelectedId}
-          onMove={overlayState.moveOverlay}
-          onResize={overlayState.resizeOverlay}
-          onEdit={openOverlayEdit}
-          onRemove={overlayState.removeOverlay}
-        />
+          {/* Interactive overlay layer (poll / note / link) over the canvas. */}
+          <StoryComposerOverlayLayer
+            disabled={postActions.posting()}
+            items={overlayState.items()}
+            selectedId={overlayState.selectedId()}
+            onSelect={overlayState.setSelectedId}
+            onMove={overlayState.moveOverlay}
+            onResize={overlayState.resizeOverlay}
+            onEdit={openOverlayEdit}
+            onRemove={overlayState.removeOverlay}
+          />
 
-        {/* Empty-canvas affordance — only a background, nothing placed yet. */}
-        <Show when={isCanvasEmpty()}>
-          <div class="pointer-events-none absolute inset-0 z-[5] flex items-center justify-center">
-            <button
-              type="button"
-              onClick={handleOpenText}
-              class="pointer-events-auto rounded-full bg-black/30 px-5 py-2.5 text-sm font-medium text-white/90 shadow-md backdrop-blur-sm"
-            >
-              {t("story.tapToAddText")}
-            </button>
-          </div>
-        </Show>
+          {/* Empty-canvas affordance — only a background, nothing placed yet. */}
+          <Show when={isCanvasEmpty()}>
+            <div class="pointer-events-none absolute inset-0 z-[5] flex items-center justify-center">
+              <button
+                type="button"
+                onClick={handleOpenText}
+                class="pointer-events-auto rounded-full bg-black/30 px-5 py-2.5 text-sm font-medium text-white/90 shadow-md backdrop-blur-sm"
+              >
+                {t("story.tapToAddText")}
+              </button>
+            </div>
+          </Show>
 
-        <StoryComposerHeader
-          onClose={requestClose}
-          onText={handleOpenText}
-          onSticker={handleToggleSticker}
-          stickerActive={activeTool() === "sticker"}
-          onDraw={handleToggleDraw}
-          drawActive={interactionState().mode === "draw"}
-          onImage={handlePickImage}
-          onVideo={handlePickVideo}
-          hasVideo={!!video.videoFile()}
-          onBackground={handleToggleBackground}
-          backgroundActive={showBackgroundPanel()}
-          uploading={uploading()}
-        />
+          <StoryComposerHeader
+            onClose={requestClose}
+            onText={handleOpenText}
+            onSticker={handleToggleSticker}
+            stickerActive={activeTool() === "sticker"}
+            onDraw={handleToggleDraw}
+            drawActive={interactionState().mode === "draw"}
+            onImage={handlePickImage}
+            onVideo={handlePickVideo}
+            hasVideo={!!video.videoFile()}
+            onBackground={handleToggleBackground}
+            backgroundActive={showBackgroundPanel()}
+            uploading={uploading()}
+          />
 
-        <StoryComposerSelectionToolbar
-          selectedLayer={selectedLayer()}
-          onEditText={textEditor.handleEditText}
-          onBringToFront={layerActions.handleBringToFront}
-          onSendToBack={layerActions.handleSendToBack}
-          onDelete={layerActions.handleDeleteLayer}
-        />
+          <StoryComposerSelectionToolbar
+            selectedLayer={selectedLayer()}
+            onEditText={textEditor.handleEditText}
+            onBringToFront={layerActions.handleBringToFront}
+            onSendToBack={layerActions.handleSendToBack}
+            onDelete={layerActions.handleDeleteLayer}
+          />
 
-        <StoryComposerFooter
-          caption={caption()}
-          onCaptionChange={setCaption}
-          onPost={postActions.handlePost}
-          canPost={canPost()}
-          posting={postActions.posting()}
-          progress={postActions.progress()}
-          videoFile={video.videoFile()}
-          ffmpegReady={video.ffmpegReady()}
-          error={error()}
-          onDismissError={() => setError(null)}
-          scopeLabel={null}
-        />
+          <StoryComposerFooter
+            caption={caption()}
+            onCaptionChange={setCaption}
+            onPost={postActions.handlePost}
+            canPost={canPost()}
+            posting={postActions.posting()}
+            progress={postActions.progress()}
+            videoFile={video.videoFile()}
+            ffmpegReady={video.ffmpegReady()}
+            error={error()}
+            onDismissError={() => setError(null)}
+            scopeLabel={null}
+          />
 
-        <StoryComposerStickerPanel
-          open={showToolPanel() && activeTool() === "sticker"}
-          onAddEmoji={(emoji) => {
-            handleAddEmoji(emoji);
-            setShowToolPanel(false);
-            setActiveTool(null);
-          }}
-          onAddOverlay={openOverlayCreate}
-          canAddOverlay={overlayState.canAdd}
-          onClose={() => {
-            setShowToolPanel(false);
-            setActiveTool(null);
-          }}
-        />
+          <StoryComposerStickerPanel
+            open={showToolPanel() && activeTool() === "sticker"}
+            onAddEmoji={(emoji) => {
+              handleAddEmoji(emoji);
+              setShowToolPanel(false);
+              setActiveTool(null);
+            }}
+            onAddOverlay={openOverlayCreate}
+            canAddOverlay={overlayState.canAdd}
+            onClose={() => {
+              setShowToolPanel(false);
+              setActiveTool(null);
+            }}
+          />
 
-        <StoryComposerBackgroundPanel
-          open={showBackgroundPanel()}
-          fillType={backgroundType()}
-          solidColor={solidColor()}
-          gradientColors={gradientColors()}
-          gradientAngle={gradientAngle()}
-          onSolidColorChange={(color) => {
-            setBackgroundType("solid");
-            setSolidColor(color);
-          }}
-          onGradientChange={(colors, angle) => {
-            setBackgroundType("gradient");
-            setGradientColors(colors);
-            setGradientAngle(angle);
-          }}
-          onFillTypeChange={setBackgroundType}
-          onClose={() => setShowBackgroundPanel(false)}
-        />
+          <StoryComposerBackgroundPanel
+            open={showBackgroundPanel()}
+            fillType={backgroundType()}
+            solidColor={solidColor()}
+            gradientColors={gradientColors()}
+            gradientAngle={gradientAngle()}
+            onSolidColorChange={(color) => {
+              setBackgroundType("solid");
+              setSolidColor(color);
+            }}
+            onGradientChange={(colors, angle) => {
+              setBackgroundType("gradient");
+              setGradientColors(colors);
+              setGradientAngle(angle);
+            }}
+            onFillTypeChange={setBackgroundType}
+            onClose={() => setShowBackgroundPanel(false)}
+          />
 
-        <StoryComposerDrawingPanel
-          isDrawing={interactionState().mode === "draw"}
-          drawingSettings={drawingSettings()}
-          onDrawingSettingsChange={setDrawingSettings}
-          onClear={clearDrawing}
-          onUndo={undoDrawing}
-          onDone={() => setMode("select")}
-        />
+          <StoryComposerDrawingPanel
+            isDrawing={interactionState().mode === "draw"}
+            drawingSettings={drawingSettings()}
+            onDrawingSettingsChange={setDrawingSettings}
+            onClear={clearDrawing}
+            onUndo={undoDrawing}
+            onDone={() => setMode("select")}
+          />
 
+          {/* Hidden file inputs */}
+          <input
+            ref={(el) => {
+              imageUpload.fileInputRef = el;
+            }}
+            type="file"
+            accept="image/*"
+            onInput={imageUpload.handleImageSelect}
+            class="hidden"
+          />
+          <input
+            ref={(el) => {
+              video.videoInputRef = el;
+            }}
+            type="file"
+            accept="video/*"
+            onInput={video.handleVideoSelect}
+            class="hidden"
+          />
+
+          {/* Text editor modal */}
+          <TextEditorModal
+            isOpen={textEditor.isTextEditorOpen()}
+            onClose={textEditor.handleTextEditorClose}
+            onSave={textEditor.handleTextSave}
+            initialText={textEditor.getInitialTextData()}
+          />
+
+          {/* Interactive overlay editor modal */}
+          <Show when={overlayEditor()}>
+            {(editor) => (
+              <StoryOverlayEditorModal
+                open
+                kind={editor().kind}
+                initial={editor().initial ?? null}
+                onSave={handleOverlaySave}
+                onClose={() => setOverlayEditor(null)}
+              />
+            )}
+          </Show>
+
+          {/* Discard confirm — layered above the composer; cancel keeps editing. */}
+          <ConfirmSheet
+            open={showDiscard()}
+            zIndex={52}
+            title={t("posts.discardTitle")}
+            body={t("posts.discardBody")}
+            confirmLabel={t("posts.discardConfirm")}
+            cancelLabel={t("posts.keepEditing")}
+            destructive
+            onConfirm={confirmDiscard}
+            onCancel={() => setShowDiscard(false)}
+          />
+        </fieldset>
         <StoryComposerStatusOverlay
           ffmpegLoading={video.ffmpegLoading()}
           posting={postActions.posting()}
           progress={postActions.progress()}
-        />
-
-        {/* Hidden file inputs */}
-        <input
-          ref={(el) => {
-            imageUpload.fileInputRef = el;
-          }}
-          type="file"
-          accept="image/*"
-          onInput={imageUpload.handleImageSelect}
-          class="hidden"
-        />
-        <input
-          ref={(el) => {
-            video.videoInputRef = el;
-          }}
-          type="file"
-          accept="video/*"
-          onInput={video.handleVideoSelect}
-          class="hidden"
-        />
-
-        {/* Text editor modal */}
-        <TextEditorModal
-          isOpen={textEditor.isTextEditorOpen()}
-          onClose={textEditor.handleTextEditorClose}
-          onSave={textEditor.handleTextSave}
-          initialText={textEditor.getInitialTextData()}
-        />
-
-        {/* Interactive overlay editor modal */}
-        <Show when={overlayEditor()}>
-          {(editor) => (
-            <StoryOverlayEditorModal
-              open
-              kind={editor().kind}
-              initial={editor().initial ?? null}
-              onSave={handleOverlaySave}
-              onClose={() => setOverlayEditor(null)}
-            />
-          )}
-        </Show>
-
-        {/* Discard confirm — layered above the composer; cancel keeps editing. */}
-        <ConfirmSheet
-          open={showDiscard()}
-          title={t("posts.discardTitle")}
-          body={t("posts.discardBody")}
-          confirmLabel={t("posts.discardConfirm")}
-          cancelLabel={t("posts.keepEditing")}
-          destructive
-          onConfirm={confirmDiscard}
-          onCancel={() => setShowDiscard(false)}
+          postingRef={setSubmissionStatus}
         />
       </div>
     </div>

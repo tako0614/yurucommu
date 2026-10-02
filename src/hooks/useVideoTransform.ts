@@ -36,6 +36,15 @@ export function useVideoTransform(args: UseVideoTransformArgs) {
     startAngle: number;
     startRotation: number;
   } | null = null;
+  let capture: { target: HTMLElement; pointerId: number } | null = null;
+
+  const finishInteraction = () => {
+    dragRef = null;
+    pinchRef = null;
+    if (capture?.target.hasPointerCapture(capture.pointerId))
+      capture.target.releasePointerCapture(capture.pointerId);
+    capture = null;
+  };
 
   const handlePointerDown: JSX.EventHandler<HTMLDivElement, PointerEvent> = (
     e,
@@ -52,6 +61,7 @@ export function useVideoTransform(args: UseVideoTransformArgs) {
 
     const target = e.currentTarget as HTMLElement;
     target.setPointerCapture(e.pointerId);
+    capture = { target, pointerId: e.pointerId };
   };
 
   const handlePointerMove: JSX.EventHandler<HTMLDivElement, PointerEvent> = (
@@ -69,12 +79,9 @@ export function useVideoTransform(args: UseVideoTransformArgs) {
   };
 
   const handlePointerUp: JSX.EventHandler<HTMLDivElement, PointerEvent> = (
-    e,
+    _e,
   ) => {
-    if (!args.enabled) return;
-    dragRef = null;
-    const target = e.currentTarget as HTMLElement;
-    target.releasePointerCapture(e.pointerId);
+    finishInteraction();
   };
 
   const handleWheel: JSX.EventHandler<HTMLDivElement, WheelEvent> = (e) => {
@@ -132,5 +139,6 @@ export function useVideoTransform(args: UseVideoTransformArgs) {
     handleTouchStart,
     handleTouchMove,
     handleTouchEnd,
+    finishInteraction,
   };
 }
