@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
+import { spawn } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,6 +9,7 @@ import { build, stop } from "esbuild";
 
 import { createEntrySource } from "./build-yurucommu-worker.ts";
 import { createManagedNativeRuntime } from "./native-runtime-stdio.mjs";
+import { runSupervisedCommand } from "./native-smoke-supervisor.mjs";
 
 const repo = new URL("../", import.meta.url).pathname;
 const temporaryDirectories: string[] = [];
@@ -378,6 +380,438 @@ describe("native runtime stdio cleanup", () => {
 });
 
 describe("release Worker smoke", () => {
+  function streamCapture() {
+    const stream = new PassThrough();
+    const chunks: Buffer[] = [];
+    stream.on("data", (chunk: Buffer) => chunks.push(Buffer.from(chunk)));
+    return {
+      stream,
+      bytes: () => Buffer.concat(chunks),
+    };
+  }
+
+  async function runSupervisedFixture(
+    source: string,
+    options: {
+      timeoutMs?: number;
+      termGraceMs?: number;
+      killWaitMs?: number;
+      stdoutLimitBytes?: number;
+    } = {},
+  ) {
+    const stdout = streamCapture();
+    const stderr = streamCapture();
+    let error: unknown;
+    const startedAt = performance.now();
+    try {
+      await runSupervisedCommand([process.execPath, "-e", source], {
+        cwd: repo,
+        stdoutTarget: stdout.stream,
+        stderrTarget: stderr.stream,
+        timeoutMs: 500,
+        termGraceMs: 100,
+        killWaitMs: 300,
+        ...options,
+      });
+    } catch (caught) {
+      error = caught;
+    }
+    return {
+      error,
+      stdout: stdout.bytes(),
+      stderr: stderr.bytes(),
+      elapsedMs: performance.now() - startedAt,
+      close() {
+        stdout.stream.destroy();
+        stderr.stream.destroy();
+      },
+    };
+  }
+
+  test("releases exact child stdout only after a successful closed process", async () => {
+    const success = Buffer.from('{"kind":"smoke","status":"PASSED"}\n');
+    const source = `process.stdout.write(Buffer.from(${JSON.stringify(success.toString())})); process.stderr.write(Buffer.from([0x72, 0x61, 0x77, 0xff]));`;
+    const result = await runSupervisedFixture(source);
+    try {
+      expect(result.error).toBeUndefined();
+      expect(result.stdout).toEqual(success);
+      expect(result.stderr).toEqual(Buffer.from([0x72, 0x61, 0x77, 0xff]));
+    } finally {
+      result.close();
+    }
+  });
+
+  test("withholds a success-looking line when the child exceeds its deadline", async () => {
+    const result = await runSupervisedFixture(
+      'process.stdout.write("{\\"status\\":\\"PASSED\\"}\\n"); process.stderr.write(Buffer.from([0x72, 0x61, 0x77, 0xff])); setInterval(() => {}, 1000);',
+      { timeoutMs: 100, termGraceMs: 80 },
+    );
+    try {
+      expect(result.error).toBeInstanceOf(Error);
+      expect((result.error as Error).message).toContain(
+        "exceeded its deadline",
+      );
+      expect(result.stdout).toEqual(Buffer.alloc(0));
+      expect(result.stderr).toEqual(Buffer.from([0x72, 0x61, 0x77, 0xff]));
+      expect(result.elapsedMs).toBeLessThan(1000);
+    } finally {
+      result.close();
+    }
+  });
+
+  test("withholds partial stdout on nonzero exit and signal termination", async () => {
+    const nonzero = await runSupervisedFixture(
+      'process.stdout.write("partial-success.json\\n"); process.stderr.write("raw failure bytes\\n", () => process.exit(7));',
+    );
+    try {
+      expect(nonzero.error).toBeInstanceOf(Error);
+      expect((nonzero.error as Error).message).toContain("exitCode=7");
+      expect(nonzero.stdout).toEqual(Buffer.alloc(0));
+      expect(nonzero.stderr).toEqual(Buffer.from("raw failure bytes\n"));
+    } finally {
+      nonzero.close();
+    }
+
+    const signaled = await runSupervisedFixture(
+      'process.stdout.write("{\\"status\\":\\"PASSED\\"}\\n"); process.stderr.write("raw signal bytes\\n", () => process.kill(process.pid, "SIGTERM"));',
+    );
+    try {
+      expect(signaled.error).toBeInstanceOf(Error);
+      expect((signaled.error as Error).message).toContain("child was signaled");
+      expect(signaled.stdout).toEqual(Buffer.alloc(0));
+      expect(signaled.stderr).toEqual(Buffer.from("raw signal bytes\n"));
+    } finally {
+      signaled.close();
+    }
+  });
+
+  test("reports nonzero exit before inherited pipe EOF and kills the owned descendant", async () => {
+    const result = await runSupervisedFixture(
+      'const { spawn } = require("node:child_process"); spawn(process.execPath, ["-e", "process.on(\\"SIGTERM\\", () => {}); setInterval(() => {}, 1000);"], { stdio: ["ignore", "inherit", "inherit"] }); process.stdout.write("candidate manifest\\n", () => process.exit(7));',
+      { timeoutMs: 500, termGraceMs: 60, killWaitMs: 200 },
+    );
+    try {
+      expect(result.error).toBeInstanceOf(Error);
+      expect((result.error as Error).message).toContain("exitCode=7");
+      expect((result.error as Error).message).not.toContain(
+        "exceeded its deadline",
+      );
+      expect(result.stdout).toEqual(Buffer.alloc(0));
+      expect(result.elapsedMs).toBeLessThan(450);
+    } finally {
+      result.close();
+    }
+  });
+
+  test("preserves a large delayed stderr tail on nonzero exit", async () => {
+    const expected = Buffer.alloc(256 * 1024);
+    for (let index = 0; index < expected.length; index += 1) {
+      expected[index] = index % 251;
+    }
+    const result = await runSupervisedFixture(
+      "const tail = Buffer.alloc(256 * 1024); for (let index = 0; index < tail.length; index += 1) tail[index] = index % 251; setTimeout(() => process.stderr.write(tail, () => process.exit(7)), 30);",
+      { timeoutMs: 1500, termGraceMs: 100, killWaitMs: 500 },
+    );
+    try {
+      expect(result.error).toBeInstanceOf(Error);
+      expect((result.error as Error).message).toContain("exitCode=7");
+      expect((result.error as Error).message).toContain("stderrDrain=complete");
+      expect(result.stdout).toEqual(Buffer.alloc(0));
+      expect(result.stderr).toEqual(expected);
+    } finally {
+      result.close();
+    }
+  });
+
+  test("terminates an owned descendant holding inherited output pipes", async () => {
+    const result = await runSupervisedFixture(
+      'const { spawn } = require("node:child_process"); spawn(process.execPath, ["-e", "process.on(\\"SIGTERM\\", () => {}); setInterval(() => {}, 1000);"], { stdio: ["ignore", "inherit", "inherit"] }); process.stdout.write("candidate manifest\\n", () => process.exit(0));',
+      { timeoutMs: 100, termGraceMs: 60, killWaitMs: 250 },
+    );
+    try {
+      expect(result.error).toBeInstanceOf(Error);
+      expect((result.error as Error).message).toContain(
+        "exceeded its deadline",
+      );
+      expect(result.stdout).toEqual(Buffer.alloc(0));
+      expect(result.stderr).toEqual(Buffer.alloc(0));
+      expect(result.elapsedMs).toBeLessThan(1000);
+    } finally {
+      result.close();
+    }
+  });
+
+  test("a supervisor SIGTERM terminates only its smoke child group", async () => {
+    const moduleUrl = new URL("./native-smoke-supervisor.mjs", import.meta.url)
+      .href;
+    const nestedSource =
+      "process.stderr.write(`nested-pid=${process.pid}\\n`); setInterval(() => {}, 1000);";
+    const wrapperSource = [
+      `import { runSupervisedCommand } from ${JSON.stringify(moduleUrl)};`,
+      `try { await runSupervisedCommand([process.execPath, "-e", ${JSON.stringify(nestedSource)}], { timeoutMs: 5000, termGraceMs: 200, killWaitMs: 500 }); }`,
+      `catch (error) { process.stderr.write("caught=" + error.message + "\\n"); process.exitCode = 1; }`,
+    ].join("\n");
+    const supervisor = spawn(process.execPath, ["-e", wrapperSource], {
+      cwd: repo,
+      stdio: ["ignore", "pipe", "pipe"],
+      detached: true,
+    });
+    let stderr = "";
+    let stdout = "";
+    let nestedPid: number | undefined;
+    let resolveNestedPid!: () => void;
+    const nestedPidSeen = new Promise<void>((resolve) => {
+      resolveNestedPid = resolve;
+    });
+    supervisor.stderr!.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString();
+      const match = stderr.match(/nested-pid=(\d+)/);
+      if (match) {
+        nestedPid = Number(match[1]);
+        resolveNestedPid();
+      }
+    });
+    supervisor.stdout!.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString();
+    });
+    const stdoutEnded = new Promise<void>((resolve) =>
+      supervisor.stdout!.once("end", resolve),
+    );
+    const stderrEnded = new Promise<void>((resolve) =>
+      supervisor.stderr!.once("end", resolve),
+    );
+
+    function withTimeout<T>(promise: Promise<T>, ms: number, message: string) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      return Promise.race([
+        promise,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error(message)), ms);
+        }),
+      ]).finally(() => {
+        if (timer !== undefined) clearTimeout(timer);
+      });
+    }
+
+    try {
+      await withTimeout(
+        nestedPidSeen,
+        2000,
+        "nested smoke child did not start",
+      );
+      supervisor.kill("SIGTERM");
+      const exitCode = await withTimeout(
+        new Promise<number | null>((resolve) =>
+          supervisor.once("exit", (code) => resolve(code)),
+        ),
+        2000,
+        "supervisor did not stop after SIGTERM",
+      );
+      await Promise.all([stdoutEnded, stderrEnded]);
+      expect(exitCode).toBe(1);
+      expect(supervisor.signalCode).toBeNull();
+      expect(stdout).toBe("");
+      expect(stderr).toContain("supervisor received a termination signal");
+      if (nestedPid) {
+        let alive = true;
+        try {
+          process.kill(nestedPid, 0);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === "ESRCH") alive = false;
+          else throw error;
+        }
+        expect(alive).toBe(false);
+      }
+    } finally {
+      try {
+        if (supervisor.pid) process.kill(-supervisor.pid, "SIGKILL");
+      } catch {
+        // The wrapper's process group is expected to be gone after completion.
+      }
+      if (nestedPid) {
+        try {
+          process.kill(nestedPid, "SIGKILL");
+        } catch {
+          // The smoke child is expected to be gone after group termination.
+        }
+      }
+    }
+  });
+
+  test("terminates the owned group and withholds stdout when the byte cap is exceeded", async () => {
+    const result = await runSupervisedFixture(
+      "process.stdout.write(Buffer.alloc(4096, 0x61)); setInterval(() => {}, 1000);",
+      { timeoutMs: 500, termGraceMs: 80, stdoutLimitBytes: 64 },
+    );
+    try {
+      expect(result.error).toBeInstanceOf(Error);
+      expect((result.error as Error).message).toContain(
+        "stdout exceeded its limit",
+      );
+      expect(result.stdout).toEqual(Buffer.alloc(0));
+    } finally {
+      result.close();
+    }
+  });
+
+  test("cleans up a child when stream setup fails after spawn", async () => {
+    let spawnedPid: number | undefined;
+    const result = await runSupervisedCommand(
+      [process.execPath, "-e", "setInterval(() => {}, 1000)"],
+      {
+        timeoutMs: 500,
+        termGraceMs: 100,
+        killWaitMs: 200,
+        spawn: ((command: string, args: string[], options: object) => {
+          const child = spawn(command, args, options);
+          spawnedPid = child.pid;
+          Object.defineProperty(child, "stdout", { value: undefined });
+          return child;
+        }) as typeof spawn,
+      },
+    ).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    expect(result).toBeInstanceOf(Error);
+    expect((result as Error).message).toContain(
+      "child stdio pipes were not created",
+    );
+    if (spawnedPid) {
+      expect(() => process.kill(spawnedPid, 0)).toThrow();
+    }
+  });
+
+  test("a stalled stdout destination fails within the overall deadline", async () => {
+    const destination = new PassThrough();
+    Object.defineProperty(destination, "write", { value: () => false });
+    const startedAt = performance.now();
+    try {
+      const result = await runSupervisedCommand(
+        [
+          process.execPath,
+          "-e",
+          'process.stdout.write("{\\"status\\":\\"PASSED\\"}\\n");',
+        ],
+        {
+          cwd: repo,
+          timeoutMs: 150,
+          termGraceMs: 50,
+          killWaitMs: 100,
+          stdoutTarget: destination,
+        },
+      ).then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+      expect(result).toBeInstanceOf(Error);
+      expect((result as Error).message).toContain("stdout destination failed");
+      expect(performance.now() - startedAt).toBeLessThan(1000);
+    } finally {
+      destination.destroy();
+    }
+  });
+
+  test("a destination error while the child runs terminates its group", async () => {
+    const stdout = streamCapture();
+    const stderr = new PassThrough();
+    const pending = runSupervisedCommand(
+      [
+        process.execPath,
+        "-e",
+        'process.stdout.write("candidate manifest\\n"); setInterval(() => {}, 1000);',
+      ],
+      {
+        cwd: repo,
+        timeoutMs: 500,
+        termGraceMs: 50,
+        killWaitMs: 100,
+        stdoutTarget: stdout.stream,
+        stderrTarget: stderr,
+      },
+    ).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    stderr.emit("error", new Error("broken stderr sink"));
+    const result = await pending;
+    try {
+      expect(result).toBeInstanceOf(Error);
+      expect((result as Error).message).toContain("stderr destination failed");
+      expect(stdout.bytes()).toEqual(Buffer.alloc(0));
+    } finally {
+      stdout.stream.destroy();
+      stderr.destroy();
+    }
+  });
+
+  test("an early stdout cap aborts a pending stderr write callback", async () => {
+    const stdout = streamCapture();
+    const stderr = new PassThrough();
+    let releaseWrite: ((error?: Error) => void) | undefined;
+    let outputWrites = 0;
+    Object.defineProperty(stderr, "write", {
+      value: (_chunk: Buffer, callback: (error?: Error) => void) => {
+        outputWrites += 1;
+        releaseWrite = callback;
+        return false;
+      },
+    });
+    const startedAt = performance.now();
+    try {
+      const result = await runSupervisedCommand(
+        [
+          process.execPath,
+          "-e",
+          'process.stderr.write("phase started\\n"); setTimeout(() => process.stdout.write(Buffer.alloc(4096)), 20); setInterval(() => {}, 1000);',
+        ],
+        {
+          cwd: repo,
+          timeoutMs: 500,
+          termGraceMs: 50,
+          killWaitMs: 100,
+          stdoutLimitBytes: 64,
+          stdoutTarget: stdout.stream,
+          stderrTarget: stderr,
+        },
+      ).then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+      expect(result).toBeInstanceOf(Error);
+      expect((result as Error).message).toContain("stdout exceeded its limit");
+      expect(performance.now() - startedAt).toBeLessThan(450);
+      expect(outputWrites).toBe(1);
+      expect(stdout.bytes()).toEqual(Buffer.alloc(0));
+      expect(stderr.listenerCount("drain")).toBe(0);
+      expect(stderr.listenerCount("error")).toBe(0);
+      expect(stderr.listenerCount("close")).toBe(0);
+      // Releasing a stale callback must not publish buffered success bytes.
+      releaseWrite?.();
+      expect(stdout.bytes()).toEqual(Buffer.alloc(0));
+    } finally {
+      stdout.stream.destroy();
+      stderr.destroy();
+    }
+  });
+
+  test("withholds a complete manifest while an owned child keeps serving with closed pipes", async () => {
+    const result = await runSupervisedFixture(
+      'const { spawn } = require("node:child_process"); spawn(process.execPath, ["-e", "process.stdout.end(); process.stderr.end(); setInterval(() => {}, 1000);"], { stdio: ["ignore", "ignore", "ignore"] }); process.stdout.write("{\\"status\\":\\"PASSED\\"}\\n", () => process.exit(0));',
+      { timeoutMs: 120, termGraceMs: 60, killWaitMs: 200 },
+    );
+    try {
+      expect(result.error).toBeInstanceOf(Error);
+      expect((result.error as Error).message).toContain(
+        "exceeded its deadline",
+      );
+      expect(result.stdout).toEqual(Buffer.alloc(0));
+      expect(result.elapsedMs).toBeLessThan(1000);
+    } finally {
+      result.close();
+    }
+  });
+
   test("refuses a signaled child even if it printed the expected refusal marker", () => {
     const result = Bun.spawnSync(
       [
