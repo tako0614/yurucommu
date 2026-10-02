@@ -378,6 +378,39 @@ const translations = {
     "story.videoProcessError": "動画処理エラー: {message}",
     "story.genericError": "エラー: {message}",
     "story.createFailed": "ストーリーの作成に失敗しました",
+    "story.recoveryTitle": "ストーリーの投稿結果",
+    "story.recoveryEdit": "元の下書きの編集に戻る",
+    "story.recoveryIdentityChanged":
+      "接続先または利用中のアカウントが変わったため、この下書きの投稿を停止しました。必要な内容をコピーして閉じ、元の接続先・アカウントで確認してください。",
+    "story.recoveryUnconfirmed":
+      "ストーリーの投稿結果を確認できません。すでに投稿されている可能性があります。再送する前にあなたのストーリーを確認してください。",
+    "story.recoveryRejected":
+      "ストーリーの投稿は受け付けられませんでした。アップロード済みの内容は保持しています。",
+    "story.recoveryReady":
+      "アップロード済みの内容を保持しています。ストーリーの作成はまだ送信していません。",
+    "story.recoveryConfirmed":
+      "ストーリーの投稿を確認しました。この内容を再送しません。",
+    "story.recoveryStorageFailed":
+      "投稿記録を安全に保存・確認できません。再読込やタブを閉じる前に、必要な本文・投票内容をコピーしてください。",
+    "story.recoveryConfirmedUnsaved":
+      "確認済みの投稿IDを保存できていない場合、再読込後に結果不明として表示されることがあります。再送する前にあなたのストーリーを確認してください。",
+    "story.recoveryCaption": "保持したストーリーのキャプション",
+    "story.recoveryOverlays": "保持したストーリーの投票・リンク",
+    "story.recoverySaved":
+      "アップロード済みの画像・動画と本文・投票内容は、このタブで再読込後も復旧できます。元の編集画面は復元されません。",
+    "story.recoverySend": "保持した内容を投稿",
+    "story.recoveryRetry": "保持した内容を再送",
+    "story.recoveryClose": "記録を残して閉じる",
+    "story.recoveryCloseUnsaved":
+      "未保存の内容が失われる可能性を理解して閉じる",
+    "story.recoveryDiscard": "このタブの投稿記録を破棄",
+    "story.recoverySendBody":
+      "保持した画像・動画と本文・投票内容を投稿します。画像・動画のアップロードは繰り返しません。",
+    "story.recoveryRetryBody":
+      "すでに投稿されている場合、再送すると同じストーリーが重複します。あなたのストーリーを確認しましたか？保持した内容を再送します。",
+    "story.recoveryDiscardBody":
+      "このタブの保持内容を破棄して閉じます。すでに公開されたストーリーやアップロード済みの画像・動画は削除しません。",
+
     "story.loadFailed": "ストーリーの読み込みに失敗しました",
     "story.yourStory": "あなたのストーリー",
     "story.addStory": "ストーリーを追加",
@@ -1104,6 +1137,39 @@ const translations = {
     "story.videoProcessError": "Video processing error: {message}",
     "story.genericError": "Error: {message}",
     "story.createFailed": "Failed to create story",
+    "story.recoveryTitle": "Story publication result",
+    "story.recoveryEdit": "Return to editing the original draft",
+    "story.recoveryIdentityChanged":
+      "The server or active account changed, so this draft cannot be sent. Copy any needed content, close, and check with the original server and account.",
+    "story.recoveryUnconfirmed":
+      "The Story result is unconfirmed. It may already be published. Check your stories before sending again.",
+    "story.recoveryRejected":
+      "The Story was rejected. Its uploaded content has been kept.",
+    "story.recoveryReady":
+      "Uploaded content has been kept. Story creation has not been sent yet.",
+    "story.recoveryConfirmed":
+      "The Story was confirmed. This content will not be sent again.",
+    "story.recoveryStorageFailed":
+      "The publication record could not be safely saved or checked. Copy any caption and poll content before reloading or closing this tab.",
+    "story.recoveryConfirmedUnsaved":
+      "If the confirmed Story ID could not be saved, reloading may show an unconfirmed result. Check your stories before sending again.",
+    "story.recoveryCaption": "Retained Story caption",
+    "story.recoveryOverlays": "Retained Story poll and links",
+    "story.recoverySaved":
+      "The uploaded image or video, caption and poll content can be recovered after reloading this tab. The original editor is not restored.",
+    "story.recoverySend": "Publish retained content",
+    "story.recoveryRetry": "Send retained content again",
+    "story.recoveryClose": "Keep record and close",
+    "story.recoveryCloseUnsaved":
+      "Close accepting that unsaved content may be lost",
+    "story.recoveryDiscard": "Discard this tab’s publication record",
+    "story.recoverySendBody":
+      "Publish the retained image or video, caption and poll content. The media upload will not be repeated.",
+    "story.recoveryRetryBody":
+      "If the Story is already published, sending again will create a duplicate. Have you checked your stories? The retained content will be sent again.",
+    "story.recoveryDiscardBody":
+      "Discard this tab’s retained content and close. Published stories and uploaded images or videos will not be deleted.",
+
     "story.loadFailed": "Failed to load stories",
     "story.yourStory": "Your story",
     "story.addStory": "Add story",

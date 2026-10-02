@@ -18,6 +18,7 @@ import { qualifyBrowserPostOutcome } from "./release-browser-post-outcome.mjs";
 import { qualifyBrowserDraftStorage } from "./release-browser-draft-storage.mjs";
 import { qualifyBrowserPostSnapshot } from "./release-browser-post-snapshot.mjs";
 import { qualifyBrowserStorySubmit } from "./release-browser-story-submit.mjs";
+import { qualifyBrowserStoryOutcome } from "./release-browser-story-outcome.mjs";
 import { createManagedNativeRuntime } from "./native-runtime-stdio.mjs";
 import {
   createBrowserOidcErrorIssuer,
@@ -744,6 +745,24 @@ async function runBrowserSmoke(artifactPath, artifactDigest, browser) {
       "Story submission returned an unexpected HTTP 5xx",
     );
 
+    const storyOutcomeChecks = [];
+    const storyOutcomeMetadata = await qualifyBrowserStoryOutcome({
+      page,
+      db,
+      worker,
+      origin,
+      actorApId,
+      checks: storyOutcomeChecks,
+    });
+    requireEffect(
+      pageErrors.length === 0,
+      "Story outcome raised a page runtime error",
+    );
+    requireEffect(
+      serverErrors.length === 0,
+      "Story outcome returned an unexpected HTTP 5xx",
+    );
+
     result = {
       kind: "yurucommu.release-browser-smoke@v1",
       artifact: basename(artifactPath),
@@ -764,6 +783,7 @@ async function runBrowserSmoke(artifactPath, artifactDigest, browser) {
       draftStorage: draftStorageMetadata,
       notifications: notificationMetadata,
       storySubmit: { ...storySubmitMetadata, checks: storySubmitChecks },
+      storyOutcome: { ...storyOutcomeMetadata, checks: storyOutcomeChecks },
       status: "PASSED",
     };
   } catch (error) {
@@ -836,7 +856,11 @@ async function main() {
     );
     result = await runBrowserSmoke(artifactPath, artifactDigest, browser);
     result.oidcRecovery = oidcRecovery;
-    result.checks.push(...oidcRecovery.checks, ...result.storySubmit.checks);
+    result.checks.push(
+      ...oidcRecovery.checks,
+      ...result.storySubmit.checks,
+      ...result.storyOutcome.checks,
+    );
   } catch (error) {
     primaryError = error;
   } finally {

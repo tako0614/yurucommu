@@ -57,7 +57,7 @@ function requireSmokeProcessExit(
   return result;
 }
 
-function runSmoke(artifactPath: string) {
+function runSmoke(artifactPath: string, timeoutMs = 20_000) {
   const started = performance.now();
   const result = Bun.spawnSync(
     ["bun", "scripts/smoke-release-worker.mjs", artifactPath],
@@ -65,7 +65,7 @@ function runSmoke(artifactPath: string) {
       cwd: repo,
       stdout: "pipe",
       stderr: "pipe",
-      timeout: 20_000,
+      timeout: timeoutMs,
     },
   );
   return requireSmokeProcessExit(
@@ -832,7 +832,9 @@ describe("release Worker smoke", () => {
 
   test("verifies the generated artifact's native queue/DLQ and story/media retention", async () => {
     const artifactPath = await buildGeneratedFixture();
-    const result = runSmoke(artifactPath);
+    // Let the native supervisor enforce its 120s deadline and finish bounded
+    // cleanup before this outer guard intervenes. Mutation fixtures stay at 20s.
+    const result = runSmoke(artifactPath, 130_000);
     if (result.exitCode !== 0) throw new Error(result.stderr.toString());
     expect(JSON.parse(result.stdout.toString())).toMatchObject({
       kind: "yurucommu.release-worker-smoke@v1",
@@ -891,7 +893,7 @@ describe("release Worker smoke", () => {
       },
       status: "PASSED",
     });
-  }, 30_000);
+  }, 140_000);
 
   const fetchAnchor = "    // No origin handling here.";
   for (const [name, injected, error] of [
