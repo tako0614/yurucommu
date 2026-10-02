@@ -1,4 +1,10 @@
-import { atom, type SetStateAction } from "jotai/vanilla";
+import {
+  atom,
+  type Getter,
+  type Setter,
+  type PrimitiveAtom,
+  type SetStateAction,
+} from "jotai/vanilla";
 import {
   clearStoredPostDraftAtom,
   postDraftWriteFailedAtom,
@@ -341,10 +347,108 @@ const followingRequestsAtom = atom<FeedRequests>({
   generation: 0,
   pager: null,
 });
+type HeadAcknowledgement = { post: Post; shown: boolean };
+type HeadWindow = {
+  ticket: object;
+  community?: string;
+  acknowledged: HeadAcknowledgement[];
+};
+// Only ACKs received during this full request may supplement its earlier
+// snapshot. The next full request starts empty; no persistent overlay is kept.
+const timelineHeadWindowAtom = atom<HeadWindow | null>(null);
+const followingHeadWindowAtom = atom<HeadWindow | null>(null);
+
+function acknowledgeFeedPost(
+  get: Getter,
+  set: Setter,
+  postsAtom: typeof timelinePostsAtom,
+  windowAtom: PrimitiveAtom<HeadWindow | null>,
+  post: Post,
+  show: boolean,
+): void {
+  if (get(deletedTimelinePostIdsAtom).has(post.ap_id)) return;
+  const key = feedItemKey(post);
+  if (show) {
+    set(postsAtom, (rows) => {
+      const position = rows.findIndex((row) => feedItemKey(row) === key);
+      if (position < 0) return [post, ...rows].slice(0, MAX_TIMELINE_POSTS);
+      // A GET can show the committed post before the POST ACK arrives. Keep
+      // its server position and current local fields, with only one entry.
+      return rows.filter(
+        (row, index) => feedItemKey(row) !== key || index === position,
+      );
+    });
+  }
+  const window = get(windowAtom);
+  if (!window) return;
+  if (
+    windowAtom === timelineHeadWindowAtom &&
+    window.community !== get(scopeQueryAtom)?.community
+  )
+    return;
+  const previous = window.acknowledged.find(
+    (entry) => feedItemKey(entry.post) === key,
+  );
+  set(windowAtom, {
+    ...window,
+    acknowledged: [
+      { post, shown: show || previous?.shown === true },
+      ...window.acknowledged.filter((entry) => feedItemKey(entry.post) !== key),
+    ].slice(0, MAX_TIMELINE_POSTS),
+  });
+}
+
+function reconcileHeadAcknowledgements(
+  server: Post[],
+  current: Post[],
+  window: HeadWindow,
+  deleted: ReadonlySet<string>,
+): Post[] {
+  const currentRows = new Map(current.map((post) => [feedItemKey(post), post]));
+  const acknowledged = new Map<string, Post>();
+  const displayed = new Set<string>();
+  const removed = new Set<string>();
+  for (const entry of window.acknowledged) {
+    const key = feedItemKey(entry.post);
+    const visible = currentRows.get(key);
+    if (deleted.has(entry.post.ap_id) || (entry.shown && !visible)) {
+      removed.add(key);
+    } else {
+      acknowledged.set(key, visible ?? entry.post);
+      if (visible) displayed.add(key);
+    }
+  }
+  const seen = new Set<string>();
+  const merged: Post[] = [];
+  for (const post of server) {
+    const key = feedItemKey(post);
+    if (seen.has(key) || removed.has(key) || deleted.has(post.ap_id)) continue;
+    seen.add(key);
+    // Keep server order, replacing only this window's ACK entries with their
+    // latest displayed fields. Unrelated server rows stay authoritative.
+    merged.push(displayed.has(key) ? acknowledged.get(key)! : post);
+  }
+  const missing = [...acknowledged].filter(([key]) => !seen.has(key));
+  missing.sort(([, left], [, right]) =>
+    postKey(left) > postKey(right)
+      ? -1
+      : postKey(left) < postKey(right)
+        ? 1
+        : 0,
+  );
+  for (const [, post] of missing) {
+    const position = merged.findIndex((row) => postKey(row) < postKey(post));
+    merged.splice(position < 0 ? merged.length : position, 0, post);
+  }
+  return merged.slice(0, MAX_TIMELINE_POSTS);
+}
 let storiesLoadGen = 0;
 
 export const loadTimelineAtom = atom(null, async (get, set) => {
   const gen = get(timelineRequestsAtom).generation + 1;
+  const community = get(scopeQueryAtom)?.community;
+  const ticket = {};
+  set(timelineHeadWindowAtom, { ticket, community, acknowledged: [] });
   set(timelineRequestsAtom, { generation: gen, pager: null });
   set(timelineCursorAtom, null);
   set(timelineLoadingMoreAtom, false);
@@ -354,31 +458,45 @@ export const loadTimelineAtom = atom(null, async (get, set) => {
   if (get(timelinePostsAtom).length === 0) set(timelineLoadingAtom, true);
   set(timelineLoadErrorAtom, null);
   set(timelineHasMoreAtom, true);
+  const ownsHead = () =>
+    gen === get(timelineRequestsAtom).generation &&
+    get(timelineHeadWindowAtom)?.ticket === ticket &&
+    community === get(scopeQueryAtom)?.community;
   try {
-    const scope = get(scopeQueryAtom);
     const page = await fetchTimeline({
       limit: 20,
-      community: scope?.community,
+      community,
     });
-    if (gen !== get(timelineRequestsAtom).generation) return;
-    set(timelinePostsAtom, page.posts);
+    if (!ownsHead()) return;
+    set(
+      timelinePostsAtom,
+      reconcileHeadAcknowledgements(
+        page.posts,
+        get(timelinePostsAtom),
+        get(timelineHeadWindowAtom)!,
+        get(deletedTimelinePostIdsAtom),
+      ),
+    );
     set(timelineCursorAtom, page.nextCursor);
     set(timelineHasMoreAtom, page.hasMore);
     set(timelineLoadedAtAtom, Date.now());
-    // A full reload already shows the freshest head; drop any staged posts and
-    // reset the new-posts watermark to this fresh head (page is newest-first).
+    // Scope-specific reset: a supplemental ACK can sit behind a newer server
+    // row, so the freshest surviving key rather than ACK position is the head.
     set(pendingNewPostsAtom, []);
     set(
       newestSeenKeyAtom,
-      get(timelinePostsAtom).length > 0
-        ? postKey(get(timelinePostsAtom)[0])
-        : null,
+      get(timelinePostsAtom).reduce<string | null>((newest, post) => {
+        const key = postKey(post);
+        return newest === null || key > newest ? key : newest;
+      }, null),
     );
   } catch (e) {
-    if (gen !== get(timelineRequestsAtom).generation) return;
+    if (!ownsHead()) return;
     console.error("Failed to load timeline:", e);
     set(timelineLoadErrorAtom, get(tAtom)("common.loadFailed"));
   } finally {
+    if (get(timelineHeadWindowAtom)?.ticket === ticket)
+      set(timelineHeadWindowAtom, null);
     if (gen === get(timelineRequestsAtom).generation)
       set(timelineLoadingAtom, false);
   }
@@ -459,6 +577,8 @@ export const loadMoreTimelineAtom = atom(null, async (get, set) => {
 // pieces that are unified-home-only (scope filter, staged new-posts buffer).
 export const loadFollowingTimelineAtom = atom(null, async (get, set) => {
   const gen = get(followingRequestsAtom).generation + 1;
+  const ticket = {};
+  set(followingHeadWindowAtom, { ticket, acknowledged: [] });
   set(followingRequestsAtom, { generation: gen, pager: null });
   set(followingCursorAtom, null);
   set(followingLoadingMoreAtom, false);
@@ -467,8 +587,20 @@ export const loadFollowingTimelineAtom = atom(null, async (get, set) => {
   set(followingHasMoreAtom, true);
   try {
     const page = await fetchFollowingTimeline({ limit: 20 });
-    if (gen !== get(followingRequestsAtom).generation) return;
-    set(followingPostsAtom, page.posts);
+    if (
+      gen !== get(followingRequestsAtom).generation ||
+      get(followingHeadWindowAtom)?.ticket !== ticket
+    )
+      return;
+    set(
+      followingPostsAtom,
+      reconcileHeadAcknowledgements(
+        page.posts,
+        get(followingPostsAtom),
+        get(followingHeadWindowAtom)!,
+        get(deletedTimelinePostIdsAtom),
+      ),
+    );
     set(followingCursorAtom, page.nextCursor);
     set(followingHasMoreAtom, page.hasMore);
     set(followingLoadedAtAtom, Date.now());
@@ -477,6 +609,8 @@ export const loadFollowingTimelineAtom = atom(null, async (get, set) => {
     console.error("Failed to load following timeline:", e);
     set(followingLoadErrorAtom, get(tAtom)("common.loadFailed"));
   } finally {
+    if (get(followingHeadWindowAtom)?.ticket === ticket)
+      set(followingHeadWindowAtom, null);
     if (gen === get(followingRequestsAtom).generation)
       set(followingLoadingAtom, false);
   }
@@ -620,7 +754,14 @@ export const createPostAtom = atom(
             : !options.community_ap_id &&
               (vis === "public" || vis === "unlisted");
         if (showsInActiveFeed) {
-          set(timelinePostsAtom, (prev) => [newPost, ...prev]);
+          acknowledgeFeedPost(
+            get,
+            set,
+            timelinePostsAtom,
+            timelineHeadWindowAtom,
+            newPost,
+            true,
+          );
           // The own post is now the freshest head; advance the watermark so a
           // head-poll doesn't later re-stage it as "new" if it gets evicted.
           if (!get(deletedTimelinePostIdsAtom).has(newPost.ap_id))
@@ -628,15 +769,17 @@ export const createPostAtom = atom(
         }
         // The following feed's own-posts leg includes every personal
         // (non-community, non-direct) post of yours, so mirror the prepend
-        // there — but only once that tab has actually loaded (prepending into
-        // a never-loaded feed would fake a head that the first real load
-        // replaces anyway).
-        if (
-          !options.community_ap_id &&
-          vis !== "direct" &&
-          get(followingLoadedAtAtom) !== null
-        ) {
-          set(followingPostsAtom, (prev) => [newPost, ...prev]);
+        // there only once that tab has loaded. During its initial full load,
+        // record the ACK for reconciliation without inventing a visible head.
+        if (!options.community_ap_id && vis !== "direct") {
+          acknowledgeFeedPost(
+            get,
+            set,
+            followingPostsAtom,
+            followingHeadWindowAtom,
+            newPost,
+            get(followingLoadedAtAtom) !== null,
+          );
         }
         // A storage event may still be queued when this ACK arrives. Check the
         // actual saved values too, not just this tab's observed atoms. This is
