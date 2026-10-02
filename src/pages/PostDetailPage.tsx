@@ -22,7 +22,11 @@ import { useI18n } from "../lib/i18n.tsx";
 import { decodeApIdParam } from "../lib/routeApId.ts";
 import { useSetAtom } from "solid-jotai";
 import { pushToast, toastsAtom } from "../atoms/toast.ts";
-import { pendingNewPostsAtom, timelinePostsAtom } from "../atoms/timeline.ts";
+import {
+  followingPostsAtom,
+  pendingNewPostsAtom,
+  timelinePostsAtom,
+} from "../atoms/timeline.ts";
 import { ConfirmSheet } from "../components/ConfirmSheet.tsx";
 import { formatDateTime } from "../lib/datetime.ts";
 import { UserAvatar } from "../components/UserAvatar.tsx";
@@ -87,6 +91,7 @@ export function PostDetailPage() {
   const { t, language } = useI18n();
   const setToasts = useSetAtom(toastsAtom);
   const setTimelinePosts = useSetAtom(timelinePostsAtom);
+  const setFollowingPosts = useSetAtom(followingPostsAtom);
   const setPendingNewPosts = useSetAtom(pendingNewPostsAtom);
   const [error, setError] = createSignal<string | null>(null);
   const clearError = () => setError(null);
@@ -414,11 +419,11 @@ export function PostDetailPage() {
         }
         pushToast(setToasts, t("feedback.postDeleted"), { kind: "success" });
       } else {
-        // Remove the deleted post from the timeline atoms too, otherwise it
-        // lingers as a zombie in the feed (the detail page kept its own local
-        // state and never told the timeline) until a full reload.
+        // Both feeds reuse fresh cached rows when returning from detail.
+        // Remove the canonical post from each cache and the staged buffer.
         const removed = pending.post.ap_id;
         setTimelinePosts((prev) => prev.filter((p) => p.ap_id !== removed));
+        setFollowingPosts((prev) => prev.filter((p) => p.ap_id !== removed));
         setPendingNewPosts((prev) => prev.filter((p) => p.ap_id !== removed));
         // On a deep link / fresh tab there is no in-app history entry to go
         // back to — navigate(-1) would bounce out of the app (or nowhere).
