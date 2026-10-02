@@ -393,6 +393,7 @@ export function AppMenu() {
             </div>
             <ConfirmSheet
               open={confirmLogout()}
+              zIndex={70}
               title={t("settings.logoutConfirmTitle")}
               body={t("settings.logoutConfirmBody")}
               confirmLabel={t("settings.logout")}
