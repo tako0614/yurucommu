@@ -147,7 +147,11 @@ async function installObserverControl(context) {
 
 function installTimelineRoutes(page, origin, pathname) {
   const headReady = gate("initial full head fetched from Worker");
+  const headDelivered = gate("initial full head delivered to page");
   const refreshedHeadReady = gate("stale-return full head fetched from Worker");
+  const refreshedHeadDelivered = gate(
+    "stale-return full head delivered to page",
+  );
   const oldReady = gate("cursorA response fetched from Worker");
   const newReady = gate("cursorB response fetched from Worker");
   const oldRelease = gate("cursorA delivery release");
@@ -155,6 +159,7 @@ function installTimelineRoutes(page, origin, pathname) {
   const oldDelivered = gate("cursorA response delivered");
   const newDelivered = gate("cursorB response delivered");
   const records = [];
+  const unexpectedRequests = [];
   let active = 0;
   let headCount = 0;
   let pageCount = 0;
@@ -186,6 +191,11 @@ function installTimelineRoutes(page, origin, pathname) {
     workerUrl.searchParams.set("limit", isHead ? "2" : "1");
     try {
       if (headIndex > 2 || pageIndex > 2) {
+        unexpectedRequests.push({
+          method: request.method(),
+          url: sourceUrl.href,
+          classification: isHead ? "extra-head" : "extra-cursor-page",
+        });
         throw new Error(
           "unexpected extra timeline request during controlled pager race",
         );
@@ -218,10 +228,17 @@ function installTimelineRoutes(page, origin, pathname) {
       );
       records.push(record);
       let ready;
+      let headDelivery;
       let release;
       let delivered;
-      if (isHead && headIndex === 1) ready = headReady;
-      if (isHead && headIndex === 2) ready = refreshedHeadReady;
+      if (isHead && headIndex === 1) {
+        ready = headReady;
+        headDelivery = headDelivered;
+      }
+      if (isHead && headIndex === 2) {
+        ready = refreshedHeadReady;
+        headDelivery = refreshedHeadDelivered;
+      }
       if (!isHead && pageIndex === 1) {
         record.held = true;
         ready = oldReady;
@@ -238,11 +255,14 @@ function installTimelineRoutes(page, origin, pathname) {
       if (release)
         await bounded(release.promise, "held real Worker page release", 60_000);
       await route.fulfill({ response, body: rawBody });
+      headDelivery?.resolve(record);
       delivered?.resolve(record);
     } catch (caught) {
       error = caught;
       if (isHead && headIndex === 1) headReady.reject(caught);
       if (isHead && headIndex === 2) refreshedHeadReady.reject(caught);
+      if (isHead && headIndex === 1) headDelivered.reject(caught);
+      if (isHead && headIndex === 2) refreshedHeadDelivered.reject(caught);
       if (!isHead && pageIndex === 1) {
         oldReady.reject(caught);
         oldDelivered.reject(caught);
@@ -270,6 +290,16 @@ function installTimelineRoutes(page, origin, pathname) {
       return bounded(
         refreshedHeadReady.promise,
         "refreshed native head",
+        20_000,
+      );
+    },
+    get initialHeadDelivered() {
+      return bounded(headDelivered.promise, "initial head delivery", 20_000);
+    },
+    get refreshedHeadDelivered() {
+      return bounded(
+        refreshedHeadDelivered.promise,
+        "refreshed head delivery",
         20_000,
       );
     },
@@ -302,14 +332,47 @@ function installTimelineRoutes(page, origin, pathname) {
     get counts() {
       return { heads: headCount, pages: pageCount, records: records.length };
     },
+    get unexpectedRequests() {
+      return [...unexpectedRequests];
+    },
     get error() {
       return error;
     },
   };
 }
 
-function rowCount(page, content) {
-  return page.locator("article").filter({ hasText: content }).count();
+function canonicalPostLink(page, apId, content) {
+  const pathname = `/post/${encodeURIComponent(apId)}`;
+  const activeFeed = page.locator(
+    "div.relative.flex-1.overflow-y-auto:visible",
+  );
+  return activeFeed.locator(`a[href="${pathname}"]`).filter({
+    has: page.getByText(content, { exact: true }),
+  });
+}
+
+function rowCount(page, content, apId) {
+  return canonicalPostLink(page, apId, content).count();
+}
+
+async function waitCanonicalPosts(page, posts, expectedCount, lane, phase) {
+  const deadline = Date.now() + 10_000;
+  let observed = [];
+  do {
+    observed = await Promise.all(
+      posts.map(async (post) => ({
+        apId: post.apId,
+        content: post.content,
+        count: await rowCount(page, post.content, post.apId),
+      })),
+    );
+    if (observed.every((post) => post.count === expectedCount)) return observed;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  } while (Date.now() < deadline);
+  requirePagerRefresh(
+    false,
+    `${lane} ${phase} canonical post links did not settle to count ${expectedCount}: ${JSON.stringify(observed)}`,
+  );
 }
 
 async function waitTwoFrames(page) {
@@ -335,13 +398,22 @@ async function advanceClientClock(page) {
 
 async function returnThroughDetail(page, post) {
   const detail = `/post/${encodeURIComponent(post.apId)}`;
-  await page.getByText(post.content, { exact: true }).click();
+  const link = canonicalPostLink(page, post.apId, post.content);
+  await waitCanonicalPosts(
+    page,
+    [post],
+    1,
+    "detail-return",
+    "source post render",
+  );
+  await link.waitFor({ state: "visible", timeout: 10_000 });
+  await link.click();
   await page.waitForURL((url) => url.pathname === detail, { timeout: 10_000 });
   await page.goBack({ waitUntil: "domcontentloaded", timeout: 10_000 });
   await page.waitForURL((url) => url.pathname === "/", { timeout: 10_000 });
 }
 
-async function settleHead(page, record, expectedContents, lane) {
+async function settleHead(page, record, expectedContents, lane, delivered) {
   requirePagerRefresh(
     record.status === 200 &&
       record.body?.posts?.length === 2 &&
@@ -349,11 +421,17 @@ async function settleHead(page, record, expectedContents, lane) {
         expectedContents.join("|"),
     `${lane} native full head differed: ${JSON.stringify(record.body)}`,
   );
-  for (const content of expectedContents) {
-    await page
-      .getByText(content, { exact: true })
-      .waitFor({ state: "visible", timeout: 10_000 });
-  }
+  await delivered;
+  await waitCanonicalPosts(
+    page,
+    record.body.posts.map((post) => ({
+      apId: post.ap_id,
+      content: post.content,
+    })),
+    1,
+    lane,
+    "head render",
+  );
 }
 
 async function runLane({
@@ -424,7 +502,13 @@ async function runLane({
     const headPromise = routes.initialHead;
     await tab.click();
     const initialHead = await headPromise;
-    await settleHead(page, initialHead, [content.head, content.older], lane);
+    await settleHead(
+      page,
+      initialHead,
+      [content.head, content.older],
+      lane,
+      routes.initialHeadDelivered,
+    );
     const cursorA = initialHead.body.next_cursor;
     requirePagerRefresh(
       typeof cursorA === "string" &&
@@ -477,16 +561,31 @@ async function runLane({
       content: content.head,
     });
     const refreshed = await refreshedPromise;
-    await page
-      .getByText(content.older, { exact: true })
-      .waitFor({ state: "hidden", timeout: 10_000 });
     await settleHead(
       page,
       refreshed,
       [content.interleaved, content.head],
       lane,
+      routes.refreshedHeadDelivered,
+    );
+    await waitCanonicalPosts(
+      page,
+      [{ apId: posts[1].apId, content: content.older }],
+      0,
+      lane,
+      "prior second-row removal",
     );
     const cursorB = refreshed.body.next_cursor;
+    await waitCanonicalPosts(
+      page,
+      [
+        { apId: interleaved.apId, content: content.interleaved },
+        { apId: posts[2].apId, content: content.head },
+      ],
+      1,
+      lane,
+      "refreshed head commit",
+    );
     requirePagerRefresh(
       refreshed.body.has_more === true &&
         typeof cursorB === "string" &&
@@ -494,7 +593,7 @@ async function runLane({
         new URL(refreshed.sourceUrl).searchParams.get("limit") === "20" &&
         !new URL(refreshed.sourceUrl).searchParams.has("before") &&
         new URL(refreshed.workerUrl).searchParams.get("limit") === "2" &&
-        (await rowCount(page, content.oldest)) === 0,
+        (await rowCount(page, content.oldest, posts[0].apId)) === 0,
       `${lane} stale return did not commit cursorB and only the refreshed head`,
     );
     const busy = page.getByRole("status", {
@@ -549,7 +648,7 @@ async function runLane({
     );
     await busy.waitFor({ state: "visible", timeout: 10_000 });
     requirePagerRefresh(
-      (await rowCount(page, content.older)) === 0,
+      (await rowCount(page, content.older, posts[1].apId)) === 0,
       `${lane} held cursorB row rendered before its real response was delivered`,
     );
 
@@ -575,29 +674,65 @@ async function runLane({
       oldDone.status === 200 &&
         (await busy.isVisible().catch(() => false)) &&
         !(await more.isVisible().catch(() => false)) &&
-        (await rowCount(page, content.oldest)) === 0 &&
-        (await rowCount(page, content.older)) === 0,
+        (await rowCount(page, content.oldest, posts[0].apId)) === 0 &&
+        (await rowCount(page, content.older, posts[1].apId)) === 0,
       `${lane} old success cleared the current cursorB pending UI or changed its rows`,
     );
 
     routes.releaseNew();
     const newDone = await routes.newDelivered;
     await routes.waitIdle();
-    await page
-      .getByText(content.older, { exact: true })
-      .waitFor({ state: "visible", timeout: 10_000 });
+    await waitCanonicalPosts(
+      page,
+      [{ apId: posts[1].apId, content: content.older }],
+      1,
+      lane,
+      "cursorB page render",
+    );
     await busy.waitFor({ state: "hidden", timeout: 10_000 });
     await waitTwoFrames(page);
+    const finalObservation = {
+      status: {
+        old: oldDone.status,
+        current: newDone.status,
+      },
+      rows: {
+        oldest: await rowCount(page, content.oldest, posts[0].apId),
+        older: await rowCount(page, content.older, posts[1].apId),
+        interleaved: await rowCount(
+          page,
+          content.interleaved,
+          interleaved.apId,
+        ),
+        head: await rowCount(page, content.head, posts[2].apId),
+      },
+      routeCounts: routes.counts,
+      routeError: routes.error ? String(routes.error) : null,
+      unexpectedRequests: routes.unexpectedRequests,
+      requests: routes.records.map((record) => ({
+        method: record.method,
+        sourceUrl: record.sourceUrl,
+        workerUrl: record.workerUrl,
+        status: record.status,
+        held: record.held,
+        posts: Array.isArray(record.body?.posts)
+          ? record.body.posts.map((post) => post.content)
+          : null,
+        hasMore: record.body?.has_more,
+        nextCursor: record.body?.next_cursor,
+      })),
+    };
     requirePagerRefresh(
-      newDone.status === 200 &&
-        (await rowCount(page, content.older)) === 1 &&
-        (await rowCount(page, content.oldest)) === 0 &&
-        (await rowCount(page, content.interleaved)) === 1 &&
-        (await rowCount(page, content.head)) === 1 &&
+      finalObservation.status.old === 200 &&
+        finalObservation.status.current === 200 &&
+        finalObservation.rows.older === 1 &&
+        finalObservation.rows.oldest === 0 &&
+        finalObservation.rows.interleaved === 1 &&
+        finalObservation.rows.head === 1 &&
         routes.counts.heads === 2 &&
         routes.counts.pages === 2 &&
         routes.error === null,
-      `${lane} final UI did not retain head and append only cursorB once`,
+      `${lane} final UI did not retain head and append only cursorB once; observation=${JSON.stringify(finalObservation)}`,
     );
     checks.push(`browser-pager-refresh-${lane}-refresh-resets-current-pager`);
     checks.push(
@@ -730,7 +865,7 @@ export async function qualifyBrowserPagerRefresh({
         "only timeline sentinel observe suppressed; all other targets delegated",
       response:
         "actual local Worker response bodies; limit query overridden to record head=2 and older=1; fulfilled unchanged",
-      externalRequests: "denied by native focused driver",
+      externalRequests: "denied by the owning browser smoke driver",
     },
     checks: checks.slice(checksStart),
   };
