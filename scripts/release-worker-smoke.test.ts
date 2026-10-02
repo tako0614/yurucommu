@@ -677,9 +677,11 @@ describe("release Worker smoke", () => {
     expect((result as Error).message).toContain(
       "child stdio pipes were not created",
     );
-    if (spawnedPid) {
-      expect(() => process.kill(spawnedPid, 0)).toThrow();
+    const pid = spawnedPid;
+    if (typeof pid !== "number") {
+      throw new Error("Fixture child did not provide a PID");
     }
+    expect(() => process.kill(pid, 0)).toThrow();
   });
 
   test("a stalled stdout destination fails within the overall deadline", async () => {
