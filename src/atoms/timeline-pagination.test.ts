@@ -325,3 +325,223 @@ test("checkNewPosts ignores an evicted-but-seen head post, stages a genuinely ne
     clearYurucommuFrontendPlugin();
   }
 });
+
+// Head polling and a scope reload overlap in the mounted timeline page. Hold
+// the actual fetch boundary so an old response lands after the new view loads.
+for (const transition of [
+  "different-scope",
+  "same-scope-reload",
+  "scope-ABA",
+  "before-reload",
+] as const) {
+  test(`checkNewPosts ignores a superseded head: ${transition}`, async () => {
+    ensureLocalStorage();
+    const {
+      applyNewPostsAtom,
+      checkNewPostsAtom,
+      loadTimelineAtom,
+      pendingNewPostsAtom,
+      timelinePostsAtom,
+      timelineCursorAtom,
+      timelineHasMoreAtom,
+      newestSeenKeyAtom,
+    } = await import("./timeline.ts");
+    const { inhabitedScopeAtom } = await import("./scope.ts");
+    const { clearYurucommuFrontendPlugin } = await import("../lib/plugin.ts");
+    const scope = (id: string) => ({
+      kind: "community" as const,
+      ap_id: id,
+      name: id,
+      display_name: id,
+      member_role: "owner" as const,
+    });
+    const a = scope("https://example.com/ap/communities/a");
+    const b = scope("https://example.com/ap/communities/b");
+    const old = makePost("https://example.com/ap/objects/a-old");
+    const late = makePost(
+      "https://example.com/ap/objects/a-late",
+      "2026-01-10T00:00:00.000Z",
+    );
+    const fresh = makePost(
+      "https://example.com/ap/objects/fresh",
+      "2026-01-02T00:00:00.000Z",
+    );
+    let release!: (response: Response) => void;
+    const requests: string[] = [];
+    const originalFetch = globalThis.fetch;
+    clearYurucommuFrontendPlugin();
+    globalThis.fetch = ((input: RequestInfo | URL) => {
+      requests.push(String(input));
+      if (requests.length === 1)
+        return new Promise<Response>((resolve) => {
+          release = resolve;
+        });
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            posts: [fresh],
+            has_more: true,
+            next_cursor: "fresh-cursor",
+          }),
+          { headers: { "Content-Type": "application/json" } },
+        ),
+      );
+    }) as typeof fetch;
+    try {
+      const store = createStore();
+      store.set(inhabitedScopeAtom, a);
+      store.set(timelinePostsAtom, [old]);
+      store.set(timelineCursorAtom, "old-cursor");
+      store.set(newestSeenKeyAtom, `${old.published} ${old.ap_id}`);
+      const polling = store.set(checkNewPostsAtom);
+      assertEquals(requests.length, 1);
+      assertEquals(
+        new URL(requests[0], "http://localhost").searchParams.get("community"),
+        a.ap_id,
+      );
+      if (transition !== "same-scope-reload") store.set(inhabitedScopeAtom, b);
+      if (transition !== "before-reload") await store.set(loadTimelineAtom);
+      if (transition === "scope-ABA") {
+        store.set(inhabitedScopeAtom, a);
+        await store.set(loadTimelineAtom);
+      }
+      const before = {
+        posts: store.get(timelinePostsAtom),
+        cursor: store.get(timelineCursorAtom),
+        hasMore: store.get(timelineHasMoreAtom),
+        watermark: store.get(newestSeenKeyAtom),
+      };
+      release(
+        new Response(JSON.stringify({ posts: [late], has_more: false }), {
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+      await polling;
+      assertEquals(store.get(pendingNewPostsAtom), []);
+      store.set(applyNewPostsAtom);
+      assertEquals(store.get(timelinePostsAtom), before.posts);
+      assertEquals(store.get(timelineCursorAtom), before.cursor);
+      assertEquals(store.get(timelineHasMoreAtom), before.hasMore);
+      assertEquals(store.get(newestSeenKeyAtom), before.watermark);
+    } finally {
+      globalThis.fetch = originalFetch;
+      clearYurucommuFrontendPlugin();
+    }
+  });
+}
+
+test("reload clears staged head before a changed scope finishes or fails", async () => {
+  ensureLocalStorage();
+  const {
+    applyNewPostsAtom,
+    loadTimelineAtom,
+    pendingNewPostsAtom,
+    timelinePostsAtom,
+  } = await import("./timeline.ts");
+  const { inhabitedScopeAtom } = await import("./scope.ts");
+  const { clearYurucommuFrontendPlugin } = await import("../lib/plugin.ts");
+  let reject!: (error: Error) => void;
+  let loading: Promise<void> | undefined;
+  const originalFetch = globalThis.fetch;
+  clearYurucommuFrontendPlugin();
+  globalThis.fetch = ((_input: RequestInfo | URL) =>
+    new Promise<Response>((_resolve, fail) => {
+      reject = fail;
+    })) as typeof fetch;
+  try {
+    const store = createStore();
+    store.set(pendingNewPostsAtom, [
+      makePost("https://example.com/ap/objects/a-pending"),
+    ]);
+    store.set(inhabitedScopeAtom, {
+      kind: "community",
+      ap_id: "https://example.com/ap/communities/b",
+      name: "b",
+      display_name: "B",
+      member_role: "member",
+    });
+    // The mounted page clears the prior rows before issuing the scoped load.
+    store.set(timelinePostsAtom, []);
+    loading = store.set(loadTimelineAtom);
+    assertEquals(store.get(pendingNewPostsAtom), []);
+    store.set(applyNewPostsAtom);
+    assertEquals(store.get(timelinePostsAtom), []);
+    reject(new Error("new scope offline"));
+    await loading;
+    assertEquals(store.get(pendingNewPostsAtom), []);
+  } finally {
+    // Settle the request even if the early assertion failed on the baseline.
+    reject(new Error("fixture cleanup"));
+    await loading;
+    globalThis.fetch = originalFetch;
+    clearYurucommuFrontendPlugin();
+  }
+});
+
+test("same-scope concurrent head polls stage each new entry once", async () => {
+  ensureLocalStorage();
+  const {
+    applyNewPostsAtom,
+    checkNewPostsAtom,
+    pendingNewPostsAtom,
+    timelinePostsAtom,
+    timelineCursorAtom,
+    newestSeenKeyAtom,
+  } = await import("./timeline.ts");
+  const { inhabitedScopeAtom } = await import("./scope.ts");
+  const { clearYurucommuFrontendPlugin } = await import("../lib/plugin.ts");
+  const old = makePost("https://example.com/ap/objects/old");
+  const fresh = makePost(
+    "https://example.com/ap/objects/new",
+    "2026-01-03T00:00:00.000Z",
+  );
+  const releases: ((response: Response) => void)[] = [];
+  const originalFetch = globalThis.fetch;
+  clearYurucommuFrontendPlugin();
+  globalThis.fetch = ((_input: RequestInfo | URL) =>
+    new Promise<Response>((resolve) => {
+      releases.push(resolve);
+    })) as typeof fetch;
+  try {
+    const store = createStore();
+    const scope = {
+      kind: "community" as const,
+      ap_id: "https://example.com/ap/communities/a",
+      name: "a",
+      display_name: "A",
+      member_role: "owner" as const,
+    };
+    store.set(inhabitedScopeAtom, scope);
+    store.set(timelinePostsAtom, [old]);
+    store.set(timelineCursorAtom, "older-cursor");
+    store.set(newestSeenKeyAtom, `${old.published} ${old.ap_id}`);
+    const first = store.set(checkNewPostsAtom);
+    const second = store.set(checkNewPostsAtom);
+    // Hydration can refresh metadata for the same community without changing
+    // its feed identity; that does not invalidate these legitimate head polls.
+    store.set(inhabitedScopeAtom, { ...scope, display_name: "Renamed A" });
+    const response = () =>
+      new Response(JSON.stringify({ posts: [fresh, old], has_more: false }), {
+        headers: { "Content-Type": "application/json" },
+      });
+    releases[1](response());
+    await second;
+    assertEquals(
+      store.get(pendingNewPostsAtom).map((p) => p.ap_id),
+      [fresh.ap_id],
+    );
+    store.set(applyNewPostsAtom);
+    releases[0](response());
+    await first;
+    assertEquals(store.get(pendingNewPostsAtom), []);
+    store.set(applyNewPostsAtom);
+    assertEquals(
+      store.get(timelinePostsAtom).map((p) => p.ap_id),
+      [fresh.ap_id, old.ap_id],
+    );
+    assertEquals(store.get(timelineCursorAtom), "older-cursor");
+  } finally {
+    globalThis.fetch = originalFetch;
+    clearYurucommuFrontendPlugin();
+  }
+});

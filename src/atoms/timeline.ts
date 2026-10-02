@@ -197,23 +197,28 @@ const bumpNewestSeen = (
 // Cheap and idempotent: it only stages posts not already shown or staged, and
 // silently no-ops on error (the indicator is non-critical).
 export const checkNewPostsAtom = atom(null, async (get, set) => {
-  const current = get(timelinePostsAtom);
   // Nothing to compare against yet (or the primary list never loaded).
-  if (current.length === 0) return;
+  if (get(timelinePostsAtom).length === 0) return;
+
+  const gen = timelineLoadGen;
+  const community = get(scopeQueryAtom)?.community;
 
   try {
-    const scope = get(scopeQueryAtom);
     const { posts: head } = await fetchTimeline({
       limit: 20,
-      community: scope?.community,
+      community,
     });
+    // A reload invalidates the prior head, including A -> B -> A switches.
+    // Check the scope too: its atom can change before the page starts reloading.
+    if (gen !== timelineLoadGen || community !== get(scopeQueryAtom)?.community)
+      return;
     if (head.length === 0) return;
 
     // Keyed by feed-ENTRY identity (feedItemKey): a boost entry shares the
     // boosted post's ap_id, so an ap_id set would wrongly swallow a new boost
     // of an already-shown post (and vice versa).
     const knownIds = new Set([
-      ...current.map(feedItemKey),
+      ...get(timelinePostsAtom).map(feedItemKey),
       ...get(pendingNewPostsAtom).map(feedItemKey),
     ]);
     const watermark = get(newestSeenKeyAtom);
@@ -284,6 +289,9 @@ let storiesLoadGen = 0;
 
 export const loadTimelineAtom = atom(null, async (get, set) => {
   const gen = ++timelineLoadGen;
+  // These candidates belong to the previous head. Clear immediately, so the
+  // pill cannot apply them while the replacement view is loading or offline.
+  set(pendingNewPostsAtom, []);
   if (get(timelinePostsAtom).length === 0) set(timelineLoadingAtom, true);
   set(timelineLoadErrorAtom, null);
   set(timelineHasMoreAtom, true);

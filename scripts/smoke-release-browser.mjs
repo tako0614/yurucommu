@@ -20,6 +20,7 @@ import { qualifyBrowserPostSnapshot } from "./release-browser-post-snapshot.mjs"
 import { qualifyBrowserStorySubmit } from "./release-browser-story-submit.mjs";
 import { qualifyBrowserStoryOutcome } from "./release-browser-story-outcome.mjs";
 import { qualifyBrowserProfileSave } from "./release-browser-profile-save.mjs";
+import { qualifyBrowserTimelineScope } from "./release-browser-timeline-scope.mjs";
 import { createManagedNativeRuntime } from "./native-runtime-stdio.mjs";
 import {
   createBrowserOidcErrorIssuer,
@@ -781,6 +782,23 @@ async function runBrowserSmoke(artifactPath, artifactDigest, browser) {
       "Profile save returned an unexpected HTTP 5xx",
     );
 
+    const timelineScopeChecks = [];
+    const timelineScopeMetadata = await qualifyBrowserTimelineScope({
+      page,
+      db,
+      origin,
+      actorApId,
+      checks: timelineScopeChecks,
+    });
+    requireEffect(
+      pageErrors.length === 0,
+      "Timeline scope raised a page runtime error",
+    );
+    requireEffect(
+      serverErrors.length === 0,
+      "Timeline scope returned an unexpected HTTP 5xx",
+    );
+
     result = {
       kind: "yurucommu.release-browser-smoke@v1",
       artifact: basename(artifactPath),
@@ -803,6 +821,7 @@ async function runBrowserSmoke(artifactPath, artifactDigest, browser) {
       storySubmit: { ...storySubmitMetadata, checks: storySubmitChecks },
       storyOutcome: { ...storyOutcomeMetadata, checks: storyOutcomeChecks },
       profileSave: { ...profileSaveMetadata, checks: profileSaveChecks },
+      timelineScope: { ...timelineScopeMetadata, checks: timelineScopeChecks },
       status: "PASSED",
     };
   } catch (error) {
@@ -880,6 +899,7 @@ async function main() {
       ...result.storySubmit.checks,
       ...result.storyOutcome.checks,
       ...result.profileSave.checks,
+      ...result.timelineScope.checks,
     );
   } catch (error) {
     primaryError = error;
