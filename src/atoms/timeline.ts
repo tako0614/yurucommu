@@ -1,5 +1,22 @@
 import { atom } from "jotai/vanilla";
-import { atomWithStorage } from "jotai/vanilla/utils";
+import {
+  clearStoredPostDraftAtom,
+  postDraftWriteFailedAtom,
+  type PostDraft,
+  postContentAtom,
+  postSummaryAtom,
+  postVisibilityAtom,
+  readPostDraftFromStorage,
+  refreshPostDraftAtom,
+  saveRetainedPostDraftAtom,
+  type PostVisibility,
+} from "./post-draft.ts";
+export {
+  postContentAtom,
+  postSummaryAtom,
+  postVisibilityAtom,
+} from "./post-draft.ts";
+export type { PostVisibility } from "./post-draft.ts";
 import {
   feedItemKey,
   type ActorStories,
@@ -35,8 +52,6 @@ const MAX_POST_CONTENT_LENGTH = 5000;
 // the live <For> DOM + memory bounded; older posts drop out of the window and
 // re-load on a fresh scroll/reload.
 const MAX_TIMELINE_POSTS = 300;
-
-export type PostVisibility = "public" | "unlisted" | "followers" | "direct";
 
 export type CreatePostOptions = {
   content: string;
@@ -103,20 +118,38 @@ export const followingLoadErrorAtom = atom<string | null>(null);
 // localStorage so an unsent post survives a reload or a navigation away and is
 // restored the next time the composer opens — the composer atoms are mounted
 // once at shell level (GlobalPostComposer), so on app load they re-sync from
-// storage. A successful post and an explicit discard both clear these
-// (createPostAtom / closePostModalAtom), so nothing stale lingers. Visibility is
+// storage. A successful post clears only its unchanged submitted draft; an
+// explicit discard clears the current draft. Visibility is
 // persisted alongside the text so restoring a draft can never silently widen a
 // followers-only post back to public. Staged media is NOT part of the draft
 // (blob URLs / File handles are not serializable); text is.
-export const postContentAtom = atomWithStorage("compose.draft.content", "");
-export const postSummaryAtom = atomWithStorage("compose.draft.summary", "");
-// Default visibility is public and is never changed implicitly.
-export const postVisibilityAtom = atomWithStorage<PostVisibility>(
-  "compose.draft.visibility",
-  "public",
-);
 export const postingAtom = atom(false);
 export const postSubmitErrorAtom = atom<string | null>(null);
+export const postDraftNoticeAtom = atom<string | null>(null);
+const postDraftRecoveryRequestedAtom = atom(false);
+export const postDraftRecoveryNeededAtom = atom(
+  (get) => get(postDraftRecoveryRequestedAtom) || get(postDraftWriteFailedAtom),
+  (_get, set, needed: boolean) => set(postDraftRecoveryRequestedAtom, needed),
+);
+const acknowledgedDraftAtom = atom<PostDraft | null>(null);
+export const recoverPostDraftAtom = atom(null, (get, set) => {
+  const stored = readPostDraftFromStorage();
+  const acknowledged = get(acknowledgedDraftAtom);
+  const matches = (draft: PostDraft | null) =>
+    draft !== null &&
+    draft.content === get(postContentAtom) &&
+    draft.summary === get(postSummaryAtom) &&
+    draft.visibility === get(postVisibilityAtom);
+  if (
+    matches(stored) ||
+    (matches(acknowledged) && !get(postDraftWriteFailedAtom))
+  ) {
+    if (set(refreshPostDraftAtom)) set(postDraftRecoveryNeededAtom, false);
+  }
+});
+export const saveRecoveryPostDraftAtom = atom(null, (_get, set) => {
+  if (set(saveRetainedPostDraftAtom)) set(postDraftRecoveryNeededAtom, false);
+});
 export const uploadedMediaAtom = atom<UploadedMedia[]>([]);
 export const uploadingAtom = atom(false);
 // A selection may upload several files sequentially. Keep the whole batch busy,
@@ -428,6 +461,7 @@ export const createPostAtom = atom(
       (!content.trim() && media.length === 0) ||
       get(postingAtom) ||
       get(uploadingAtom) ||
+      get(postDraftRecoveryNeededAtom) ||
       get(uploadSelectionsPendingAtom) > 0
     ) {
       return false;
@@ -435,6 +469,8 @@ export const createPostAtom = atom(
 
     set(postingAtom, true);
     set(postSubmitErrorAtom, null);
+    set(postDraftNoticeAtom, null);
+    set(acknowledgedDraftAtom, null);
     try {
       const summary = options.summary?.trim();
       const newPost = await createPost({
@@ -496,19 +532,45 @@ export const createPostAtom = atom(
         ) {
           set(followingPostsAtom, (prev) => [newPost, ...prev]);
         }
-        // Another mounted tab can change these stored atoms despite this
-        // composer's UI lock. Preserve changes already observed before this
-        // ACK; false means keep the modal, even though this post succeeded.
-        // This is not an atomic compare-and-swap across browser tabs.
-        const canClearSubmittedDraft =
+        // A storage event may still be queued when this ACK arrives. Check the
+        // actual saved values too, not just this tab's observed atoms. This is
+        // a synchronous reread, not cross-tab atomic compare-and-swap.
+        const stored = readPostDraftFromStorage();
+        const memoryMatchesSubmission =
           get(postContentAtom) === content &&
           get(postSummaryAtom) === (options.summary ?? "") &&
-          get(postVisibilityAtom) === (options.visibility ?? "public") &&
+          get(postVisibilityAtom) === (options.visibility ?? "public");
+        const storageMatchesSubmission =
+          stored?.content === content &&
+          stored?.summary === (options.summary ?? "") &&
+          stored?.visibility === (options.visibility ?? "public");
+        const mayClearSubmittedDraft =
+          memoryMatchesSubmission &&
+          storageMatchesSubmission &&
           get(uploadedMediaAtom) === media;
+        const canClearSubmittedDraft =
+          mayClearSubmittedDraft && set(clearStoredPostDraftAtom);
         if (canClearSubmittedDraft) {
-          set(postContentAtom, "");
           media.forEach((m) => m.preview && URL.revokeObjectURL(m.preview));
           set(uploadedMediaAtom, []);
+        } else {
+          set(acknowledgedDraftAtom, {
+            content,
+            summary: options.summary ?? "",
+            visibility: options.visibility ?? "public",
+          });
+          const memoryMatchesStorage =
+            get(postContentAtom) === stored?.content &&
+            get(postSummaryAtom) === stored?.summary &&
+            get(postVisibilityAtom) === stored?.visibility;
+          const refreshed =
+            stored &&
+            !get(postDraftWriteFailedAtom) &&
+            (memoryMatchesSubmission || memoryMatchesStorage)
+              ? set(refreshPostDraftAtom)
+              : null;
+          set(postDraftRecoveryNeededAtom, !refreshed);
+          set(postDraftNoticeAtom, get(tAtom)("feedback.postDraftKept"));
         }
         pushToast(toastWriter(set), get(tAtom)("feedback.postCreated"), {
           kind: "success",
@@ -555,7 +617,12 @@ export const createPostAtom = atom(
 );
 
 export const uploadMediaAtom = atom(null, async (get, set, file: File) => {
-  if (get(postingAtom) || get(uploadingAtom)) return;
+  if (
+    get(postingAtom) ||
+    get(uploadingAtom) ||
+    get(postDraftRecoveryNeededAtom)
+  )
+    return;
   if (get(uploadedMediaAtom).length >= 4) {
     // Selecting more than 4 files at once lands here for the excess — surface
     // the limit instead of silently dropping them.
@@ -607,7 +674,7 @@ export const uploadMediaAtom = atom(null, async (get, set, file: File) => {
 });
 
 export const removeMediaAtom = atom(null, (get, set, index: number) => {
-  if (get(postingAtom)) return;
+  if (get(postingAtom) || get(postDraftRecoveryNeededAtom)) return;
   set(uploadedMediaAtom, (prev) => {
     const media = prev[index];
     if (media?.preview) URL.revokeObjectURL(media.preview);
@@ -619,7 +686,7 @@ export const removeMediaAtom = atom(null, (get, set, index: number) => {
 export const setMediaAltAtom = atom(
   null,
   (get, set, payload: { index: number; alt: string }) => {
-    if (get(postingAtom)) return;
+    if (get(postingAtom) || get(postDraftRecoveryNeededAtom)) return;
     set(uploadedMediaAtom, (prev) =>
       prev.map((m, i) =>
         i === payload.index ? { ...m, name: payload.alt } : m,
@@ -666,18 +733,35 @@ export const closePostModalAtom = atom(null, (get, set) => {
   if (
     get(postingAtom) ||
     get(uploadingAtom) ||
+    get(postDraftRecoveryNeededAtom) ||
     get(uploadSelectionsPendingAtom) > 0
   )
     return;
+  if (!set(clearStoredPostDraftAtom)) {
+    set(postDraftRecoveryNeededAtom, true);
+    set(postDraftNoticeAtom, get(tAtom)("compose.draftSaveFailed"));
+    return;
+  }
   set(showPostModalAtom, false);
-  set(postContentAtom, "");
-  set(postSummaryAtom, "");
-  // Reset to the default reach (public).
-  set(postVisibilityAtom, "public");
   set(uploadedMediaAtom, (prev) => {
     prev.forEach((m) => m.preview && URL.revokeObjectURL(m.preview));
     return [];
   });
   set(uploadErrorAtom, null);
   set(postSubmitErrorAtom, null);
+  set(postDraftNoticeAtom, null);
+});
+
+// The acknowledged draft was already cleared in createPostAtom. Closing its
+// modal must not write the persistent fields a second time.
+export const closeSubmittedPostModalAtom = atom(null, (_get, set) => {
+  set(showPostModalAtom, false);
+  set(uploadErrorAtom, null);
+  set(postSubmitErrorAtom, null);
+  set(postDraftNoticeAtom, null);
+});
+
+// Recovery exit retains draft/media/notice and its resend/discard guard.
+export const hideRetainedPostModalAtom = atom(null, (_get, set) => {
+  set(showPostModalAtom, false);
 });

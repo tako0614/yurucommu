@@ -15,6 +15,7 @@ import { qualifySearchFollowing } from "./release-browser-follow.mjs";
 import { qualifyBrowserDM } from "./release-browser-dm.mjs";
 import { qualifyBrowserNotifications } from "./release-browser-notifications.mjs";
 import { qualifyBrowserPostOutcome } from "./release-browser-post-outcome.mjs";
+import { qualifyBrowserDraftStorage } from "./release-browser-draft-storage.mjs";
 import { qualifyBrowserPostSnapshot } from "./release-browser-post-snapshot.mjs";
 import { createManagedNativeRuntime } from "./native-runtime-stdio.mjs";
 import {
@@ -664,6 +665,13 @@ async function runBrowserSmoke(artifactPath, artifactDigest, browser) {
       actorApId,
       checks,
     });
+    const draftStorageMetadata = await qualifyBrowserDraftStorage({
+      page,
+      db,
+      origin,
+      actorApId,
+      checks,
+    });
     const notificationMetadata = await qualifyBrowserNotifications({
       page,
       db,
@@ -733,6 +741,7 @@ async function runBrowserSmoke(artifactPath, artifactDigest, browser) {
       follow: followMetadata,
       dm: dmMetadata,
       postSnapshot: postSnapshotMetadata,
+      draftStorage: draftStorageMetadata,
       notifications: notificationMetadata,
       status: "PASSED",
     };
