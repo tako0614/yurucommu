@@ -196,6 +196,126 @@ function timelinePill(page) {
   });
 }
 
+function ownerAuthResponse(response, origin) {
+  const request = response.request();
+  const url = new URL(request.url());
+  return (
+    request.method() === "GET" &&
+    url.origin === new URL(origin).origin &&
+    url.pathname === "/api/auth/me" &&
+    url.search === ""
+  );
+}
+
+function retryAfterSeconds(response, phase) {
+  const raw = response.headers()["retry-after"];
+  const seconds = raw && /^\d+$/.test(raw) ? Number(raw) : NaN;
+  requireScope(
+    Number.isFinite(seconds) && seconds >= 1 && seconds <= 120,
+    `${phase} auth 429 lacked a finite Retry-After of 1-120s`,
+  );
+  return seconds;
+}
+
+async function ownerSessionCookie(page, origin, phase) {
+  const cookie = (await page.context().cookies(origin)).find(
+    (entry) => entry.name === "session",
+  );
+  requireScope(
+    Boolean(cookie?.value),
+    `${phase} lost the owner session cookie`,
+  );
+  return cookie.value;
+}
+
+async function rootSessionCount(db, actorApId) {
+  const row = await db
+    .prepare("SELECT COUNT(*) AS count FROM sessions WHERE member_id = ?")
+    .bind(actorApId)
+    .first();
+  return row?.count;
+}
+
+async function loadOwnerHome(
+  page,
+  db,
+  origin,
+  actorApId,
+  phase,
+  navigate,
+  quotaRecovery,
+) {
+  const cookieBefore = await ownerSessionCookie(page, origin, phase);
+  const rootSessionsBefore = await rootSessionCount(db, actorApId);
+  const first = page.waitForResponse(
+    (response) => ownerAuthResponse(response, origin),
+    { timeout: 20_000 },
+  );
+  first.catch(() => {});
+  await navigate();
+  let response = await first;
+  let recovery;
+  if (response.status() === 429) {
+    const retryAfter = retryAfterSeconds(response, phase);
+    await page
+      .getByText(/^(認証の確認に失敗しました|Failed to verify authentication)$/)
+      .waitFor({ state: "visible", timeout: 10_000 });
+    const waitStarted = Date.now();
+    await page.waitForTimeout(retryAfter * 1000);
+    const waitedMilliseconds = Date.now() - waitStarted;
+    requireScope(
+      waitedMilliseconds >= retryAfter * 1000,
+      `${phase} UI retry did not honor Retry-After`,
+    );
+    const retry = page.waitForResponse(
+      (next) => ownerAuthResponse(next, origin),
+      { timeout: 20_000 },
+    );
+    retry.catch(() => {});
+    await page.getByRole("button", { name: /^(再試行|Retry)$/ }).click();
+    response = await retry;
+    recovery = {
+      phase,
+      firstStatus: 429,
+      retryAfterSeconds: retryAfter,
+      waitedMilliseconds,
+      uiRetryClicks: 1,
+      retryStatus: response.status(),
+    };
+  }
+  requireScope(
+    response.status() === 200,
+    `${phase} owner auth failed with status ${response.status()} (Retry-After ${response.headers()["retry-after"] ?? "absent"})`,
+  );
+  const body = await response.json();
+  const sameRootOwner =
+    body.actor?.ap_id === actorApId && body.actor?.role === "owner";
+  requireScope(
+    sameRootOwner,
+    `${phase} auth response did not identify the same root owner`,
+  );
+  const sameSessionCookie =
+    (await ownerSessionCookie(page, origin, phase)) === cookieBefore;
+  requireScope(
+    sameSessionCookie,
+    `${phase} owner session cookie changed across navigation/auth recovery`,
+  );
+  const rootSessionsAfter = await rootSessionCount(db, actorApId);
+  requireScope(
+    rootSessionsBefore >= 1 && rootSessionsAfter === rootSessionsBefore,
+    `${phase} root owner sessions changed across navigation/auth recovery`,
+  );
+  if (recovery) {
+    quotaRecovery.push({
+      ...recovery,
+      sameSessionCookie,
+      sameRootOwner,
+      rootSessionsBefore,
+      rootSessionsAfter,
+    });
+  }
+}
+
 export async function qualifyBrowserTimelineScope({
   page,
   db,
@@ -226,9 +346,18 @@ export async function qualifyBrowserTimelineScope({
     bNew: `scope-B-new-${suffix}`,
   };
   const identityBefore = await identitySnapshot(db, actorApId);
+  const quotaRecovery = [];
   let primaryError;
   try {
-    await page.goto(`${origin}/`, { waitUntil: "domcontentloaded" });
+    await loadOwnerHome(
+      page,
+      db,
+      origin,
+      actorApId,
+      "initial home",
+      () => page.goto(`${origin}/`, { waitUntil: "domcontentloaded" }),
+      quotaRecovery,
+    );
     const b = await ownerCommunity(page, names.b);
     const a = await ownerCommunity(page, names.a);
     await nativeOwnerMembership(db, b.ap_id, actorApId);
@@ -242,7 +371,15 @@ export async function qualifyBrowserTimelineScope({
 
     // The scope picker hydrates joined communities on page mount. Reloading the
     // existing authenticated page updates that list without creating a session.
-    await page.reload({ waitUntil: "domcontentloaded" });
+    await loadOwnerHome(
+      page,
+      db,
+      origin,
+      actorApId,
+      "community hydrate reload",
+      () => page.reload({ waitUntil: "domcontentloaded" }),
+      quotaRecovery,
+    );
     await switchScope(page, names.a, a.ap_id, contents.aBase);
     await page.waitForTimeout(30);
     const aNew = await ownerPost(page, contents.aNew, a.ap_id, actorApId);
@@ -358,6 +495,7 @@ export async function qualifyBrowserTimelineScope({
           bNativeResponsePostIds: bBody.posts.map((post) => post.ap_id),
           nativeBefore,
           nativeNew,
+          quotaRecovery,
           boundary:
             "A and B posts/GET responses came from native disposable Worker/D1; Playwright held only A response delivery and synthetically dispatched visibilitychange to start the mounted poll. No remote federation or production data.",
         };
@@ -411,6 +549,7 @@ export async function qualifyBrowserTimelineScope({
         nativeNew,
         nativeBNew,
         interceptedAPolls: intercepted,
+        quotaRecovery,
         boundary:
           "A/B communities and posts were owner API writes with native D1 readback; both timeline payloads were real disposable Worker responses. Playwright delayed A delivery and synthetically dispatched visibilitychange to start mounted polls. B's subsequent native poll and pill application provide practical settling evidence beyond the short A delivery wait; no additional human owner, remote federation, or public environment was used.",
       };
@@ -424,20 +563,41 @@ export async function qualifyBrowserTimelineScope({
   } finally {
     // Reloading remounts the non-persisted scope atom at personal/unfiltered
     // home, including when an assertion failed partway through the fixture.
+    let cleanupError;
     try {
-      await page.goto(`${origin}/`, { waitUntil: "domcontentloaded" });
+      await loadOwnerHome(
+        page,
+        db,
+        origin,
+        actorApId,
+        "personal home cleanup",
+        () => page.goto(`${origin}/`, { waitUntil: "domcontentloaded" }),
+        quotaRecovery,
+      );
       await page
         .locator(
           'header button[title="表示を絞り込む"], header button[title="Filter the view"]',
         )
         .filter({ hasText: /ホーム|Home/ })
         .waitFor({ state: "visible", timeout: 10_000 });
+    } catch (error) {
+      cleanupError = error;
+    }
+    try {
       const identityAfter = await identitySnapshot(db, actorApId);
       requireScope(
         JSON.stringify(identityAfter) === JSON.stringify(identityBefore),
         `actor/owner/session identity changed: ${JSON.stringify({ identityBefore, identityAfter })}`,
       );
-    } catch (cleanupError) {
+    } catch (identityError) {
+      cleanupError = cleanupError
+        ? new AggregateError(
+            [cleanupError, identityError],
+            "home cleanup and identity readback failed",
+          )
+        : identityError;
+    }
+    if (cleanupError) {
       if (!primaryError) throw cleanupError;
       primaryError.message += `; cleanup also failed: ${String(cleanupError)}`;
     }

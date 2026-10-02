@@ -46,6 +46,17 @@ a formal guarantee of atom continuation; the green lane also consumes and
 applies a fresh B poll. Visibility events are dispatched synthetic triggers for
 the mounted page's existing poll handler, while payloads and writes are native.
 
+The first composed browser lane and its first CI stopped before the scope
+oracle because the authentication check was quota-limited. A source-unchanged
+diagnostic replay observed `/api/auth/me` 429 with `Retry-After: 42`, the correct
+existing authentication-error/manual-retry UI, no page errors, and unchanged
+one owner / two own personas / one root session. This was a driver assumption,
+not a demonstrated authentication implementation failure. The driver must wait
+the declared interval and make one explicit UI retry to 200 with the same cookie
+and principal; it must fail on a repeated refusal or other status. Keep the old
+failed local/CI/diagnostic logs excluded from qualification. Do not alter quotas,
+reset the fixture data or widen interaction deadlines to obtain green results.
+
 No shared Core/schema changes, production deploy, publication, new resources,
 billing/auth permissions, live D1 application, real-data deletion or other
 worktree edits. Source/local/native/synthetic/CI evidence does not qualify
