@@ -24,6 +24,7 @@ import { qualifyBrowserTimelineScope } from "./release-browser-timeline-scope.mj
 import { qualifyBrowserFollowingDelete } from "./release-browser-following-delete.mjs";
 import { qualifyBrowserDeleteResponse } from "./release-browser-delete-response.mjs";
 import { qualifyBrowserDeletedPage } from "./release-browser-delete-page.mjs";
+import { qualifyBrowserPagerRefresh } from "./release-browser-pager-refresh.mjs";
 import { createManagedNativeRuntime } from "./native-runtime-stdio.mjs";
 import {
   createBrowserOidcErrorIssuer,
@@ -853,6 +854,24 @@ async function runBrowserSmoke(artifactPath, artifactDigest, browser) {
       "Deleted-only page returned an unexpected HTTP 5xx",
     );
 
+    const pagerRefreshChecks = [];
+    const pagerRefreshMetadata = await qualifyBrowserPagerRefresh({
+      page,
+      context,
+      db,
+      origin,
+      actorApId,
+      checks: pagerRefreshChecks,
+    });
+    requireEffect(
+      pageErrors.length === 0,
+      "Pager-refresh race raised a page runtime error",
+    );
+    requireEffect(
+      serverErrors.length === 0,
+      "Pager-refresh race returned an unexpected HTTP 5xx",
+    );
+
     result = {
       kind: "yurucommu.release-browser-smoke@v1",
       artifact: basename(artifactPath),
@@ -885,6 +904,7 @@ async function runBrowserSmoke(artifactPath, artifactDigest, browser) {
         checks: deleteResponseChecks,
       },
       deletedPage: { ...deletedPageMetadata, checks: deletedPageChecks },
+      pagerRefresh: { ...pagerRefreshMetadata, checks: pagerRefreshChecks },
       status: "PASSED",
     };
   } catch (error) {
@@ -966,6 +986,7 @@ async function main() {
       ...result.followingDelete.checks,
       ...result.deleteResponse.checks,
       ...result.deletedPage.checks,
+      ...result.pagerRefresh.checks,
     );
   } catch (error) {
     primaryError = error;
