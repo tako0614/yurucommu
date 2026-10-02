@@ -1,4 +1,4 @@
-import { createSignal, Index, Show } from "solid-js";
+import { createEffect, createSignal, Index, onCleanup, Show } from "solid-js";
 import { CloseIcon } from "./ProfileIcons.tsx";
 import { UserAvatar } from "../UserAvatar.tsx";
 import { FileValidationError } from "../../lib/api/media.ts";
@@ -62,11 +62,32 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
   const [uploadingIcon, setUploadingIcon] = createSignal(false);
   const [uploadingHeader, setUploadingHeader] = createSignal(false);
   const [uploadError, setUploadError] = createSignal<string | null>(null);
+  let uploadGeneration = 0;
+  const invalidateUploads = () => {
+    uploadGeneration += 1;
+    setUploadingIcon(false);
+    setUploadingHeader(false);
+    setUploadError(null);
+  };
+  createEffect(() => {
+    if (!props.isOpen) invalidateUploads();
+  });
+  onCleanup(() => {
+    uploadGeneration += 1;
+  });
+  const requestClose = () => {
+    if (props.saving) return;
+    // Closing cancels only local application of the result. An upload may
+    // already exist remotely; its lifecycle remains the engine's contract.
+    invalidateUploads();
+    props.onClose();
+  };
 
   useDialog({
     isOpen: () => props.isOpen,
-    onClose: props.onClose,
+    onClose: requestClose,
     container: () => dialogRef,
+    busyFocus: () => (props.saving ? dialogRef : undefined),
   });
 
   const updateField = (
@@ -92,13 +113,16 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
     setBusy: (busy: boolean) => void,
     apply: (url: string) => void,
   ) => {
-    if (!file) return;
+    if (!file || !props.isOpen || props.saving) return;
+    const generation = uploadGeneration;
     setBusy(true);
     setUploadError(null);
     try {
       const result = await uploadProductMedia(file);
+      if (generation !== uploadGeneration || !props.isOpen) return;
       apply(result.url);
     } catch (err) {
+      if (generation !== uploadGeneration || !props.isOpen) return;
       // Surface the failure (e.g. >20MB image, wrong type, network) — it was
       // previously only console.error'd, so the upload failed silently and the
       // user was left wondering why their avatar/header never changed. Show a
@@ -106,7 +130,7 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
       console.error("Failed to upload image:", err);
       setUploadError(props.t(uploadErrorKey(err)));
     } finally {
-      setBusy(false);
+      if (generation === uploadGeneration) setBusy(false);
     }
   };
 
@@ -115,20 +139,23 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
       <div
         class="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4"
         onClick={(e) => {
-          if (e.target === e.currentTarget) props.onClose();
+          if (e.target === e.currentTarget) requestClose();
         }}
       >
         <div
           ref={dialogRef}
           role="dialog"
+          tabindex="-1"
           aria-modal="true"
+          aria-busy={props.saving}
           aria-labelledby="profile-edit-title"
           class="bg-neutral-900 rounded-2xl w-full max-w-md max-h-[calc(100dvh-3rem)] overflow-y-auto"
         >
           <div class="flex items-center justify-between px-4 py-3 border-b border-neutral-800">
             <div class="flex items-center gap-4">
               <button
-                onClick={props.onClose}
+                onClick={requestClose}
+                disabled={props.saving}
                 aria-label={props.t("common.close")}
                 class="p-1 hover:bg-neutral-800 rounded-full transition-colors"
               >
@@ -139,7 +166,10 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
               </h2>
             </div>
             <button
-              onClick={props.onSave}
+              onClick={() => {
+                if (!props.saving && !uploadingIcon() && !uploadingHeader())
+                  props.onSave();
+              }}
               disabled={props.saving || uploadingIcon() || uploadingHeader()}
               class="px-4 py-1.5 bg-white text-black rounded-full font-bold text-sm hover:bg-neutral-200 disabled:bg-neutral-600 transition-colors"
             >
@@ -148,7 +178,7 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
                 : props.t("common.save")}
             </button>
           </div>
-          <div class="p-4 space-y-4">
+          <fieldset disabled={props.saving} class="p-4 space-y-4 min-w-0">
             <Show when={uploadError()}>
               <div
                 role="alert"
@@ -346,7 +376,7 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
                 />
               </button>
             </div>
-          </div>
+          </fieldset>
         </div>
       </div>
     </Show>

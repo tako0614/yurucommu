@@ -19,6 +19,7 @@ import { qualifyBrowserDraftStorage } from "./release-browser-draft-storage.mjs"
 import { qualifyBrowserPostSnapshot } from "./release-browser-post-snapshot.mjs";
 import { qualifyBrowserStorySubmit } from "./release-browser-story-submit.mjs";
 import { qualifyBrowserStoryOutcome } from "./release-browser-story-outcome.mjs";
+import { qualifyBrowserProfileSave } from "./release-browser-profile-save.mjs";
 import { createManagedNativeRuntime } from "./native-runtime-stdio.mjs";
 import {
   createBrowserOidcErrorIssuer,
@@ -763,6 +764,23 @@ async function runBrowserSmoke(artifactPath, artifactDigest, browser) {
       "Story outcome returned an unexpected HTTP 5xx",
     );
 
+    const profileSaveChecks = [];
+    const profileSaveMetadata = await qualifyBrowserProfileSave({
+      page,
+      db,
+      origin,
+      actorApId,
+      checks: profileSaveChecks,
+    });
+    requireEffect(
+      pageErrors.length === 0,
+      "Profile save raised a page runtime error",
+    );
+    requireEffect(
+      serverErrors.length === 0,
+      "Profile save returned an unexpected HTTP 5xx",
+    );
+
     result = {
       kind: "yurucommu.release-browser-smoke@v1",
       artifact: basename(artifactPath),
@@ -784,6 +802,7 @@ async function runBrowserSmoke(artifactPath, artifactDigest, browser) {
       notifications: notificationMetadata,
       storySubmit: { ...storySubmitMetadata, checks: storySubmitChecks },
       storyOutcome: { ...storyOutcomeMetadata, checks: storyOutcomeChecks },
+      profileSave: { ...profileSaveMetadata, checks: profileSaveChecks },
       status: "PASSED",
     };
   } catch (error) {
@@ -860,6 +879,7 @@ async function main() {
       ...oidcRecovery.checks,
       ...result.storySubmit.checks,
       ...result.storyOutcome.checks,
+      ...result.profileSave.checks,
     );
   } catch (error) {
     primaryError = error;
