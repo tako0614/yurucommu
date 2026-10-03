@@ -3,7 +3,12 @@ import { A } from "@solidjs/router";
 import { useAtom, useAtomValue, useSetAtom } from "solid-jotai";
 import { useI18n } from "../../lib/i18n.tsx";
 import { useDialog } from "../../lib/useDialog.ts";
-import { actorAtom, logoutAtom } from "../../atoms/auth.ts";
+import {
+  actorAtom,
+  logoutAtom,
+  logoutBusyAtom,
+  logoutErrorAtom,
+} from "../../atoms/auth.ts";
 import { appMenuOpenAtom } from "../../atoms/shell.ts";
 import { pushToast, toastsAtom } from "../../atoms/toast.ts";
 import {
@@ -112,7 +117,8 @@ export function AppMenu() {
   const doLogout = useSetAtom(logoutAtom);
   const setToasts = useSetAtom(toastsAtom);
   const [confirmLogout, setConfirmLogout] = createSignal(false);
-  const [loggingOut, setLoggingOut] = createSignal(false);
+  const loggingOut = useAtomValue(logoutBusyAtom);
+  const logoutError = useAtomValue(logoutErrorAtom);
 
   // switchAccountAtom reloads the page on success and throws on failure; the
   // call site (this menu, with no inline error UI) must surface the failure as
@@ -146,15 +152,10 @@ export function AppMenu() {
   });
 
   const handleLogout = async () => {
+    if (loggingOut()) return;
     // Route through logoutAtom so the observation scope is reset (resetScope);
     // a direct lib/api logout would leave the previous owner's community lens.
-    setLoggingOut(true);
-    try {
-      await doLogout();
-    } catch {
-      // Ignore — fall through to the redirect which re-triggers auth.
-    }
-    globalThis.location.href = "/";
+    if (await doLogout()) globalThis.location.href = "/";
   };
 
   return (
@@ -396,11 +397,15 @@ export function AppMenu() {
               zIndex={70}
               title={t("settings.logoutConfirmTitle")}
               body={t("settings.logoutConfirmBody")}
+              error={logoutError()}
               confirmLabel={t("settings.logout")}
               destructive
               busy={loggingOut()}
+              blockDismissWhileBusy
               onConfirm={handleLogout}
-              onCancel={() => setConfirmLogout(false)}
+              onCancel={() => {
+                if (!loggingOut()) setConfirmLogout(false);
+              }}
             />
           </div>
         );

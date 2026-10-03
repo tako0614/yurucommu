@@ -7,6 +7,7 @@ interface ConfirmSheetProps {
   open: boolean;
   title: string;
   body?: string;
+  error?: string | null;
   // Defaults to the shared confirm/cancel labels when omitted.
   confirmLabel?: string;
   cancelLabel?: string;
@@ -14,6 +15,7 @@ interface ConfirmSheetProps {
   destructive?: boolean;
   // Disables the confirm button (e.g. while the action is in flight).
   busy?: boolean;
+  blockDismissWhileBusy?: boolean;
   // Portal confirmations must sit above a caller that already owns a modal.
   zIndex?: number;
   onConfirm: () => void;
@@ -31,7 +33,9 @@ export function ConfirmSheet(props: ConfirmSheetProps) {
 
   useDialog({
     isOpen: () => props.open,
-    onClose: () => props.onCancel(),
+    onClose: () => {
+      if (!(props.busy && props.blockDismissWhileBusy)) props.onCancel();
+    },
     container: () => dialogRef,
   });
 
@@ -42,7 +46,11 @@ export function ConfirmSheet(props: ConfirmSheetProps) {
           class="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-0 sm:items-center sm:p-4"
           style={{ "z-index": props.zIndex }}
           onClick={(e) => {
-            if (e.target === e.currentTarget) props.onCancel();
+            if (
+              e.target === e.currentTarget &&
+              !(props.busy && props.blockDismissWhileBusy)
+            )
+              props.onCancel();
           }}
         >
           <div
@@ -56,11 +64,17 @@ export function ConfirmSheet(props: ConfirmSheetProps) {
             <Show when={props.body}>
               <p class="mt-2 text-sm text-neutral-400">{props.body}</p>
             </Show>
+            <Show when={props.error}>
+              <p role="alert" class="mt-2 text-sm text-red-400">
+                {props.error}
+              </p>
+            </Show>
             <div class="mt-5 flex gap-2">
               <button
                 type="button"
                 onClick={props.onCancel}
-                class="flex-1 rounded-full bg-neutral-800 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-neutral-700"
+                disabled={props.busy && props.blockDismissWhileBusy}
+                class="flex-1 rounded-full bg-neutral-800 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-neutral-700 disabled:opacity-50"
               >
                 {props.cancelLabel ?? t("common.cancel")}
               </button>

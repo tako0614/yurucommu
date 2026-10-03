@@ -3,7 +3,7 @@ import { useRequiredActor } from "../hooks/useRequiredActor.ts";
 import type { Actor } from "../types/index.ts";
 import { useI18n } from "../lib/i18n.tsx";
 import { useAtomValue, useSetAtom } from "solid-jotai";
-import { logoutAtom } from "../atoms/auth.ts";
+import { logoutAtom, logoutBusyAtom, logoutErrorAtom } from "../atoms/auth.ts";
 import { pushToast, toastsAtom } from "../atoms/toast.ts";
 import {
   accountsAtom,
@@ -110,17 +110,11 @@ export function SettingsPage() {
   // Logout is confirm-gated (same ConfirmSheet + copy as the AppMenu logout):
   // a single mis-tap in the settings list must not sign the user out.
   const [confirmingLogout, setConfirmingLogout] = createSignal(false);
-  const [loggingOut, setLoggingOut] = createSignal(false);
+  const loggingOut = useAtomValue(logoutBusyAtom);
+  const logoutError = useAtomValue(logoutErrorAtom);
   const handleLogout = async () => {
     if (loggingOut()) return;
-    setLoggingOut(true);
-    try {
-      await doLogout();
-    } catch {
-      // Ignore errors
-    }
-    // The shared logout action preserves explicit sign-out before navigation.
-    globalThis.location.href = "/";
+    if (await doLogout()) globalThis.location.href = "/";
   };
 
   const resetCreateAccount = () => {
@@ -583,11 +577,15 @@ export function SettingsPage() {
         open={confirmingLogout()}
         title={t("settings.logoutConfirmTitle")}
         body={t("settings.logoutConfirmBody")}
+        error={logoutError()}
         confirmLabel={t("settings.logout")}
         destructive
         busy={loggingOut()}
+        blockDismissWhileBusy
         onConfirm={handleLogout}
-        onCancel={() => setConfirmingLogout(false)}
+        onCancel={() => {
+          if (!loggingOut()) setConfirmingLogout(false);
+        }}
       />
     </div>
   );
