@@ -41,6 +41,7 @@ import {
   maxImageFileSize,
   maxVideoFileSize,
   switchAccount,
+  unbookmarkPost,
 } from "../lib/api.ts";
 import { uploadProductMedia } from "../lib/media-upload.ts";
 import { deletePost, fetchFollowingTimeline } from "../lib/api/posts.ts";
@@ -217,6 +218,34 @@ export const deleteTimelinePostAtom = atom(
     ]) {
       set(feed, (prev) => prev.filter((post) => post.ap_id !== apId));
     }
+  },
+);
+
+// BookmarksPage removes a saved row, but the same Note can remain in both
+// fresh Home caches and the staged head. Reflect only a confirmed unsave and
+// retain every feed entry, cursor and reading position. This fences observed
+// actor changes, not silent HttpOnly session changes or stale server snapshots.
+export const unbookmarkTimelinePostAtom = atom(
+  null,
+  async (get, set, apId: string): Promise<boolean> => {
+    const actorApId = get(actorAtom)?.ap_id;
+    if (!actorApId) return false;
+    await unbookmarkPost(apId);
+    if (get(actorAtom)?.ap_id !== actorApId) return false;
+    for (const feed of [
+      timelinePostsAtom,
+      followingPostsAtom,
+      pendingNewPostsAtom,
+    ]) {
+      set(feed, (prev) =>
+        prev.map((post) =>
+          post.ap_id === apId && post.bookmarked
+            ? { ...post, bookmarked: false }
+            : post,
+        ),
+      );
+    }
+    return true;
   },
 );
 

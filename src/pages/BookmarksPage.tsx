@@ -1,11 +1,15 @@
-import { createSignal, For, onMount, Show } from "solid-js";
+import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { A } from "@solidjs/router";
 import { useRequiredActor } from "../hooks/useRequiredActor.ts";
 import { Post } from "../types/index.ts";
-import { fetchBookmarks, unbookmarkPost } from "../lib/api.ts";
+import { fetchBookmarks } from "../lib/api.ts";
 import { toggleLike } from "../atoms/posts.ts";
-import { useSetAtom } from "solid-jotai";
-import { timelinePostsAtom } from "../atoms/timeline.ts";
+import { useAtomValue, useSetAtom } from "solid-jotai";
+import { actorAtom } from "../atoms/auth.ts";
+import {
+  timelinePostsAtom,
+  unbookmarkTimelinePostAtom,
+} from "../atoms/timeline.ts";
 import { formatRelativeTime } from "../lib/datetime.ts";
 import { useI18n } from "../lib/i18n.tsx";
 import { UserAvatar } from "../components/UserAvatar.tsx";
@@ -25,9 +29,15 @@ import {
 
 export function BookmarksPage() {
   const actor = useRequiredActor();
+  const currentActor = useAtomValue(actorAtom);
   const { t, language } = useI18n();
   const lightbox = useMediaLightbox();
   const setTimelinePosts = useSetAtom(timelinePostsAtom);
+  const unbookmarkTimelinePost = useSetAtom(unbookmarkTimelinePostAtom);
+  let disposed = false;
+  onCleanup(() => {
+    disposed = true;
+  });
   const [error, setError] = createSignal<string | null>(null);
   const clearError = () => setError(null);
   const [loadError, setLoadError] = createSignal<string | null>(null);
@@ -105,11 +115,16 @@ export function BookmarksPage() {
   const unbookmarkInFlight = new Set<string>();
   const handleUnbookmark = async (postApId: string) => {
     if (unbookmarkInFlight.has(postApId)) return;
+    const actorApId = currentActor()?.ap_id;
+    if (!actorApId) return;
     unbookmarkInFlight.add(postApId);
     try {
-      await unbookmarkPost(postApId);
-      setPosts((prev) => prev.filter((p) => p.ap_id !== postApId));
+      const confirmed = await unbookmarkTimelinePost(postApId);
+      if (!disposed && confirmed) {
+        setPosts((prev) => prev.filter((p) => p.ap_id !== postApId));
+      }
     } catch (e) {
+      if (disposed || currentActor()?.ap_id !== actorApId) return;
       console.error("Failed to unbookmark:", e);
       setError(t("common.error"));
     } finally {

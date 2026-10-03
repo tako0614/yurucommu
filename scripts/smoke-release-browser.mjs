@@ -36,6 +36,7 @@ import {
   qualifySettingsSignout,
 } from "./release-browser-settings-signout.mjs";
 import { qualifyLogoutOutcome } from "./release-browser-logout-outcome.mjs";
+import { qualifyBookmarkCache } from "./release-browser-bookmark-cache.mjs";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const PASSWORD = " release-browser-owner ";
@@ -1068,6 +1069,78 @@ async function runBrowserSmoke(artifactPath, artifactDigest, browser) {
   return result;
 }
 
+async function runBookmarkCacheSmoke(artifactPath, artifactDigest, browser) {
+  const config = unstable_readConfig(
+    { config: resolve(repo, "wrangler.jsonc") },
+    { hideWarnings: true },
+  );
+  const origin = `http://127.0.0.1:${await freeLoopbackPort()}`;
+  let managed;
+  let primaryError;
+  let result;
+  let outboundRequests = 0;
+  const destination = new Writable({
+    write(_chunk, _encoding, callback) {
+      callback();
+    },
+  });
+  try {
+    managed = nativeWorker(artifactPath, origin, config, {
+      destination,
+      outboundService: async () => {
+        outboundRequests += 1;
+        return new Response(null, { status: 502 });
+      },
+    });
+    await managed.worker.ready;
+    const { db, schemaSha256, migrationCount } = await applyProductSchema(
+      managed.worker,
+    );
+    const counts = await db
+      .prepare(
+        "SELECT (SELECT COUNT(*) FROM actors) AS actors, (SELECT COUNT(*) FROM sessions) AS sessions, (SELECT COUNT(*) FROM objects) AS objects",
+      )
+      .first();
+    requireEffect(
+      counts.actors === 0 && counts.sessions === 0 && counts.objects === 0,
+      "bookmark cache fixture requires a fresh disposable database",
+    );
+    const checks = [];
+    const cache = await qualifyBookmarkCache({
+      browser,
+      worker: managed.worker,
+      db,
+      origin,
+      password: PASSWORD,
+      sessionSalt: SESSION_SALT,
+      checks,
+      mode: "candidate",
+    });
+    requireEffect(
+      outboundRequests === 0,
+      "bookmark cache external Worker fetch",
+    );
+    result = {
+      ...cache,
+      sha256: `sha256:${artifactDigest}`,
+      schemaSha256,
+      migrationCount,
+      browser: browser.version(),
+    };
+  } catch (error) {
+    primaryError = error;
+  } finally {
+    try {
+      await managed?.dispose();
+    } catch {
+      if (!primaryError)
+        primaryError = new Error("bookmark cache cleanup failed");
+    }
+  }
+  if (primaryError) throw primaryError;
+  return result;
+}
+
 async function main() {
   const [artifactArgument, expectedDigest] = process.argv.slice(2);
   if (!artifactArgument || process.argv.length > 4) {
@@ -1136,6 +1209,13 @@ async function main() {
       ...settingsSignout.checks,
       ...logoutOutcome.checks,
     );
+    const bookmarkCache = await runBookmarkCacheSmoke(
+      artifactPath,
+      artifactDigest,
+      browser,
+    );
+    result.bookmarkCache = bookmarkCache;
+    result.checks.push(...bookmarkCache.checks);
   } catch (error) {
     primaryError = error;
   } finally {
