@@ -78,6 +78,9 @@ describe("release Worker smoke", () => {
         "queue-dlq",
         "scheduled-retention",
         "scheduled-retention-idempotence",
+        "password-login",
+        "session-rotation",
+        "invalid-password-refusal",
         "authenticated-dm",
         "dm-isolation",
         "media-upload",
@@ -85,13 +88,57 @@ describe("release Worker smoke", () => {
         "private-media-read-refusal",
         "invalid-media-refusal",
         "unauthenticated-api-refusal",
+        "logout-revocation",
       ],
+      authentication: { passwordMethods: ["pbkdf2-sha256", "bootstrap"] },
       status: "PASSED",
     });
   }, 30_000);
 
   const fetchAnchor = "    // No origin handling here.";
   for (const [name, injected, error] of [
+    [
+      "private media denial with image bytes",
+      `    if (request.method === "GET" && new URL(request.url).pathname.startsWith("/media/") && !request.headers.get("cookie")) {
+      return Response.json({ error: "Authentication required", bytes: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mMQCDjxHwADxAIopPp9tgAAAABJRU5ErkJggg==" }, { status: 403, headers: { "cache-control": "no-store" } });
+    }\n`,
+      "private-media-refusal included non-error content",
+    ],
+    [
+      "revoked private media denial with image bytes",
+      `    if (request.method === "GET" && new URL(request.url).pathname.startsWith("/media/") && request.headers.get("cookie") && (await env.DB.prepare("SELECT COUNT(*) AS count FROM sessions").first()).count === 2) {
+      return Response.json({ error: "Authentication required", bytes: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mMQCDjxHwADxAIopPp9tgAAAABJRU5ErkJggg==" }, { status: 403, headers: { "cache-control": "no-store" } });
+    }\n`,
+      "logout-revocation included non-error content",
+    ],
+    [
+      "bootstrap login success without a session row",
+      `    if (request.method === "POST" && new URL(request.url).pathname === "/api/auth/login" && !env.AUTH_PASSWORD_HASH.includes(":") && (await request.clone().json()).password === "release-smoke-only") {
+      return Response.json({ success: true }, { headers: { "set-cookie": "session=fake-native-login-session; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=2592000" } });
+    }\n`,
+      "password-login did not persist",
+    ],
+    [
+      "an accepted invalid password",
+      `    if (request.method === "POST" && new URL(request.url).pathname === "/api/auth/login" && (await request.clone().json()).password === "release-smoke-only-incorrect") {
+      return Response.json({ success: true });
+    }\n`,
+      "invalid-password-refusal",
+    ],
+    [
+      "login success without a session row",
+      `    if (request.method === "POST" && new URL(request.url).pathname === "/api/auth/login" && (await request.clone().json()).password === "release-smoke-only") {
+      return Response.json({ success: true }, { headers: { "set-cookie": "session=fake-native-login-session; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=2592000" } });
+    }\n`,
+      "password-login did not persist",
+    ],
+    [
+      "logout success without session revocation",
+      `    if (request.method === "POST" && new URL(request.url).pathname === "/api/auth/logout") {
+      return Response.json({ success: true }, { headers: { "set-cookie": "session=; Path=/; Max-Age=0" } });
+    }\n`,
+      "logout-revocation left",
+    ],
     [
       "DM success without durable recipient records",
       `    if (request.method === "POST" && new URL(request.url).pathname.startsWith("/api/dm/user/")) {

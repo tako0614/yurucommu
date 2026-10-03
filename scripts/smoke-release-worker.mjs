@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-import { createHash } from "node:crypto";
+import { createHash, pbkdf2Sync } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 import process from "node:process";
@@ -10,6 +10,15 @@ import { unstable_readConfig, unstable_splitSqlQuery } from "wrangler";
 import { qualifyProductJourneys } from "./release-product-journeys.mjs";
 
 const MAX_RESPONSE_BYTES = 1024 * 1024;
+const TEST_PASSWORD = "release-smoke-only";
+const TEST_PASSWORD_SALT = Buffer.alloc(32, 0xa1);
+const PASSWORD_FIXTURES = [
+  {
+    method: "pbkdf2-sha256",
+    hash: `${TEST_PASSWORD_SALT.toString("hex")}:${pbkdf2Sync(TEST_PASSWORD, TEST_PASSWORD_SALT, 100000, 32, "sha256").toString("hex")}`,
+  },
+  { method: "bootstrap", hash: TEST_PASSWORD },
+];
 const APP_ORIGIN = "https://release-smoke.yurucommu.invalid";
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const DELIVERY_QUEUE = "yurucommu-delivery";
@@ -241,7 +250,11 @@ async function requireJson(response, label) {
   }
 }
 
-async function smokeNativeWorker(artifactPath, artifactDigest) {
+async function smokeNativeWorker(
+  artifactPath,
+  artifactDigest,
+  passwordFixture,
+) {
   const sourceConfig = unstable_readConfig(
     { config: resolve(repo, "wrangler.jsonc") },
     { hideWarnings: true },
@@ -258,7 +271,7 @@ async function smokeNativeWorker(artifactPath, artifactDigest) {
     cf: false,
     bindings: {
       APP_URL: APP_ORIGIN,
-      AUTH_PASSWORD_HASH: "release-smoke-only",
+      AUTH_PASSWORD_HASH: passwordFixture.hash,
       YURUCOMMU_SESSION_HASH_SALT: SESSION_SALT,
       DELIVERY_QUEUE_NAME: DELIVERY_QUEUE,
       DELIVERY_DLQ_NAME: DELIVERY_DLQ,
@@ -330,6 +343,7 @@ async function smokeNativeWorker(artifactPath, artifactDigest) {
 
     const journeys = await qualifyProductJourneys(worker, {
       origin: APP_ORIGIN,
+      password: TEST_PASSWORD,
       sessionSalt: SESSION_SALT,
       readJson: requireJson,
     });
@@ -380,8 +394,23 @@ async function main() {
       `artifact digest sha256:${artifactDigest} does not equal ${expectedDigestArgument}`,
     );
   }
-  const result = await smokeNativeWorker(artifactPath, artifactDigest);
-  process.stdout.write(`${JSON.stringify(result)}\n`);
+  const results = [];
+  for (const fixture of PASSWORD_FIXTURES) {
+    // Separate disposable bindings; both auth paths must pass on these bytes.
+    results.push(
+      await smokeNativeWorker(artifactPath, artifactDigest, fixture),
+    );
+  }
+  process.stdout.write(
+    `${JSON.stringify({
+      ...results[0],
+      authentication: {
+        passwordMethods: PASSWORD_FIXTURES.map((fixture) => fixture.method),
+        actor: "preexisting-fixture-owner",
+        revocation: "salted SQL disappearance and replay refusal",
+      },
+    })}\n`,
+  );
 }
 
 await main();
