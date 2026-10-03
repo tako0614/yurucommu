@@ -279,19 +279,33 @@ async function submitLogout(confirm) {
     },
     { timeout: TIMEOUT },
   );
-  await submit.click({ timeout: TIMEOUT });
-  return responsePromise;
+  const clickPromise = submit.click({ timeout: TIMEOUT });
+  const [response] = await Promise.all([responsePromise, clickPromise]);
+  return response;
 }
 
 async function waitForFailureAndRetry({ fixture, origin, caller }) {
   const { page, seeded, observed } = fixture;
   const confirmation = await openAndConfirmLogout(page, caller);
   const firstResponse = submitLogout(confirmation);
+  // Handle early cleanup rejection while the pending response is held below.
+  firstResponse.catch(() => {});
   await fixture.fixed503Entered;
   // The pending request must keep the confirmation controls locked. Releasing
   // the deterministic failure only happens after those states are observed.
   const retry = confirmation.getByRole("button", { name: "ログアウト" });
   const cancel = confirmation.getByRole("button", { name: "キャンセル" });
+  // Network interception can precede Solid's DOM update. Wait for the actual
+  // disabled controls while the request remains deterministically held.
+  await page.waitForFunction(
+    () => {
+      const dialog = document.querySelector('[role="alertdialog"]');
+      const buttons = Array.from(dialog?.querySelectorAll("button") ?? []);
+      return buttons.length === 2 && buttons.every((button) => button.disabled);
+    },
+    undefined,
+    { timeout: TIMEOUT },
+  );
   need(!(await retry.isEnabled()), `${caller}-confirm-locked-while-pending`);
   need(!(await cancel.isEnabled()), `${caller}-cancel-locked-while-pending`);
   await page.keyboard.press("Escape");
@@ -472,15 +486,20 @@ async function qualifyAckLoss({
         fixture.observed.pageErrors === 0,
       "ack-loss-no-retry-or-oidc-or-pageerror",
     );
+    const browserJarRetainsStaleCookie = (
+      await fixture.context.cookies(origin)
+    ).some((cookie) => cookie.name === "session");
+    need(
+      browserJarRetainsStaleCookie,
+      "ack-loss-browser-did-not-receive-cookie-clear",
+    );
     return {
       lane: "real-commit-response-lost",
       status: fixture.committedResponse().status,
       responseBodyBytes: fixture.committedResponse().bodyBytes,
       responseBodySha256: fixture.committedResponse().bodySha256,
       browserOldCookieStatus: oldCookieResponse.status(),
-      browserJarRetainsStaleCookie: (
-        await fixture.context.cookies(origin)
-      ).some((cookie) => cookie.name === "session"),
+      browserJarRetainsStaleCookie,
       nativeLiveSessionCount: after.liveSessionCount,
       nativeSessionRow: after.session,
       ownerUnchanged: true,
