@@ -830,3 +830,324 @@ test("ACK state is isolated between Jotai stores", async () => {
     await h.cleanup();
   }
 });
+
+for (const kind of ["unified", "following", "poll"] as const) {
+  test(`${kind} pre-unsave read cannot restore an absent saved object or its boost`, async () => {
+    const h = await fixture();
+    const f = lane(h, kind === "following" ? "following" : "unified");
+    const target = post("older-or-poll-unsave", kind === "poll" ? 12 : 8, {
+      bookmarked: true,
+    });
+    const boost: PostWithRepost = {
+      ...target,
+      repost_ap_id: objectId("older-or-poll-boost"),
+      reposted_by: actor(),
+      repost_published: "2026-01-13T00:00:00.000Z",
+    };
+    const existing = post("existing-read-anchor", 10);
+    const unrelated = post("unrelated-read-save", kind === "poll" ? 11 : 7, {
+      bookmarked: true,
+      liked: true,
+    });
+    try {
+      h.store.set(f.posts, [existing]);
+      h.store.set(f.cursor, "start-cursor");
+      h.store.set(f.hasMore, true);
+      const read =
+        kind === "poll"
+          ? h.atoms.checkNewPostsAtom
+          : kind === "following"
+            ? h.atoms.loadMoreFollowingTimelineAtom
+            : h.atoms.loadMoreTimelineAtom;
+      const loading = h.store.set(read);
+      await h.waitForHeads(1);
+      await h.store.set(h.atoms.unbookmarkTimelinePostAtom, target.ap_id);
+      h.heads[0]!.resolve(
+        page([boost, target, unrelated], "next-cursor", false),
+      );
+      await loading;
+      const rows = h.store.get(
+        kind === "poll" ? h.atoms.pendingNewPostsAtom : f.posts,
+      );
+      expect(
+        rows
+          .filter((row) => row.ap_id === target.ap_id)
+          .map((row) => row.bookmarked),
+      ).toEqual([false, false]);
+      expect(rows.find((row) => row.ap_id === unrelated.ap_id)).toEqual(
+        unrelated,
+      );
+      if (kind === "poll") {
+        h.store.set(h.atoms.applyNewPostsAtom);
+        expect(
+          h.store
+            .get(f.posts)
+            .filter((row) => row.ap_id === target.ap_id)
+            .every((row) => row.bookmarked === false),
+        ).toBe(true);
+      } else {
+        expect(h.store.get(f.cursor)).toBe("next-cursor");
+        expect(h.store.get(f.hasMore)).toBe(false);
+      }
+    } finally {
+      await h.cleanup();
+    }
+  });
+}
+
+for (const kind of ["unified", "following", "poll"] as const) {
+  for (const outcome of ["503", "ack-loss"] as const) {
+    test(`${kind} unconfirmed unsave ${outcome} leaves earlier GET authority`, async () => {
+      const h = await fixture();
+      const f = lane(h, kind === "following" ? "following" : "unified");
+      const target = post("unconfirmed-page-target", kind === "poll" ? 12 : 8, {
+        bookmarked: true,
+      });
+      try {
+        h.store.set(f.posts, [post("page-anchor", 10)]);
+        h.store.set(f.cursor, "initial");
+        const read =
+          kind === "poll"
+            ? h.atoms.checkNewPostsAtom
+            : kind === "following"
+              ? h.atoms.loadMoreFollowingTimelineAtom
+              : h.atoms.loadMoreTimelineAtom;
+        const loading = h.store.set(read);
+        await h.waitForHeads(1);
+        h.setDeleteResponder(async () => {
+          if (outcome === "ack-loss") throw new TypeError("lost ACK");
+          return new Response("refused", { status: 503 });
+        });
+        await expect(
+          h.store.set(h.atoms.unbookmarkTimelinePostAtom, target.ap_id),
+        ).rejects.toThrow();
+        h.heads[0]!.resolve(page([target], "next", true));
+        await loading;
+        expect(
+          h.store
+            .get(kind === "poll" ? h.atoms.pendingNewPostsAtom : f.posts)
+            .find((row) => row.ap_id === target.ap_id)?.bookmarked,
+        ).toBe(true);
+      } finally {
+        await h.cleanup();
+      }
+    });
+  }
+  test(`${kind} late read and error cannot publish across an observed actor change`, async () => {
+    const h = await fixture();
+    const f = lane(h, kind === "following" ? "following" : "unified");
+    const anchor = post("actor-page-anchor", 10);
+    const next = post("next-actor-anchor", 11);
+    try {
+      h.store.set(f.posts, [anchor]);
+      h.store.set(f.cursor, "actor-cursor");
+      const read =
+        kind === "poll"
+          ? h.atoms.checkNewPostsAtom
+          : kind === "following"
+            ? h.atoms.loadMoreFollowingTimelineAtom
+            : h.atoms.loadMoreTimelineAtom;
+      const loading = h.store.set(read);
+      await h.waitForHeads(1);
+      h.store.set(h.auth.actorAtom, {
+        ...actor(),
+        ap_id: `${origin}/ap/users/persona`,
+      });
+      h.store.set(f.posts, [next]);
+      h.heads[0]!.resolve(
+        page(
+          [
+            post("old-principal-target", kind === "poll" ? 12 : 8, {
+              bookmarked: true,
+            }),
+          ],
+          "old-next",
+          false,
+        ),
+      );
+      await loading;
+      expect(h.store.get(f.posts)).toEqual([next]);
+      expect(h.store.get(h.atoms.pendingNewPostsAtom)).toEqual([]);
+      expect(h.store.get(f.cursor)).toBe("actor-cursor");
+      expect(h.store.get(f.hasMore)).toBe(true);
+      // New active request belongs to the current actor; losing it after a
+      // second actor change must not publish that prior actor's error either.
+      const failed = h.store.set(read);
+      await h.waitForHeads(2);
+      h.store.set(h.auth.actorAtom, actor());
+      h.heads[1]!.reject(new Error("old actor offline"));
+      await failed;
+      const { toastsAtom } = await import("./toast.ts");
+      expect(h.store.get(toastsAtom)).toEqual([]);
+    } finally {
+      await h.cleanup();
+    }
+  });
+  test(`${kind} later GET remains authoritative after a confirmed unsave`, async () => {
+    const h = await fixture();
+    const f = lane(h, kind === "following" ? "following" : "unified");
+    const target = post("next-get-authority", kind === "poll" ? 12 : 8, {
+      bookmarked: true,
+    });
+    try {
+      h.store.set(f.posts, [post("authority-anchor", 10)]);
+      h.store.set(f.cursor, "initial");
+      const read =
+        kind === "poll"
+          ? h.atoms.checkNewPostsAtom
+          : kind === "following"
+            ? h.atoms.loadMoreFollowingTimelineAtom
+            : h.atoms.loadMoreTimelineAtom;
+      const loading = h.store.set(read);
+      await h.waitForHeads(1);
+      await h.store.set(h.atoms.unbookmarkTimelinePostAtom, target.ap_id);
+      h.heads[0]!.resolve(page([target], "next", true));
+      await loading;
+      h.store.set(f.posts, [post("authority-anchor", 10)]);
+      h.store.set(h.atoms.pendingNewPostsAtom, []);
+      const later = h.store.set(read);
+      await h.waitForHeads(2);
+      h.heads[1]!.resolve(page([target], "latest", false));
+      await later;
+      expect(
+        h.store
+          .get(kind === "poll" ? h.atoms.pendingNewPostsAtom : f.posts)
+          .find((row) => row.ap_id === target.ap_id)?.bookmarked,
+      ).toBe(true);
+    } finally {
+      await h.cleanup();
+    }
+  });
+}
+
+for (const kind of ["unified", "following", "poll"] as const) {
+  test(`${kind} Home toggle ACK participates in earlier read ordering`, async () => {
+    const h = await fixture();
+    const f = lane(h, kind === "following" ? "following" : "unified");
+    const target = post("home-toggle-target", kind === "poll" ? 12 : 8, {
+      bookmarked: true,
+    });
+    try {
+      h.store.set(f.posts, [target, post("home-toggle-anchor", 10)]);
+      h.store.set(f.cursor, "start");
+      const read =
+        kind === "poll"
+          ? h.atoms.checkNewPostsAtom
+          : kind === "following"
+            ? h.atoms.loadMoreFollowingTimelineAtom
+            : h.atoms.loadMoreTimelineAtom;
+      const loading = h.store.set(read);
+      await h.waitForHeads(1);
+      const { toggleBookmark } = await import("./posts.ts");
+      await toggleBookmark(
+        target,
+        (fn) => h.store.set(f.posts, fn),
+        (bookmarked) => {
+          h.store.set(h.atoms.acknowledgeTimelineBookmarkAtom, {
+            actorApId: ownerId,
+            apId: target.ap_id,
+            bookmarked,
+          });
+        },
+      );
+      const boost: PostWithRepost = {
+        ...target,
+        repost_ap_id: objectId("home-toggle-boost"),
+        reposted_by: actor(),
+        repost_published: "2026-01-13T00:00:00.000Z",
+      };
+      h.heads[0]!.resolve(page([boost], "next", false));
+      await loading;
+      expect(
+        h.store
+          .get(kind === "poll" ? h.atoms.pendingNewPostsAtom : f.posts)
+          .find((row) => feedItemKey(row) === feedItemKey(boost))?.bookmarked,
+      ).toBe(false);
+    } finally {
+      await h.cleanup();
+    }
+  });
+}
+
+test("overlapping read windows retain ACKs independently and leave later server saves authoritative", async () => {
+  const h = await fixture();
+  const target = post("overlapping-window-target", 12, { bookmarked: true });
+  const anchor = post("overlapping-anchor", 10);
+  try {
+    h.store.set(h.atoms.timelinePostsAtom, [anchor]);
+    h.store.set(h.atoms.followingPostsAtom, [anchor]);
+    h.store.set(h.atoms.followingCursorAtom, "start");
+    const polling = h.store.set(h.atoms.checkNewPostsAtom);
+    const paging = h.store.set(h.atoms.loadMoreFollowingTimelineAtom);
+    await h.waitForHeads(2);
+    await h.store.set(h.atoms.unbookmarkTimelinePostAtom, target.ap_id);
+    h.heads[0]!.resolve(page([target], "poll", false));
+    await polling;
+    expect(h.store.get(h.atoms.pendingNewPostsAtom)[0]!.bookmarked).toBe(false);
+    h.heads[1]!.resolve(page([target], "older", true));
+    await paging;
+    expect(h.store.get(h.atoms.followingPostsAtom)[1]!.bookmarked).toBe(false);
+    const later = h.store.set(h.atoms.loadFollowingTimelineAtom);
+    await h.waitForHeads(3);
+    h.heads[2]!.resolve(page([target], null, false));
+    await later;
+    expect(h.store.get(h.atoms.followingPostsAtom)[0]!.bookmarked).toBe(true);
+  } finally {
+    await h.cleanup();
+  }
+});
+
+test("a failed optimistic Home unsave cannot roll back a later confirmed Bookmarks unsave", async () => {
+  const h = await fixture();
+  const target = post("rollback-after-detail-ack", 10, { bookmarked: true });
+  try {
+    h.store.set(h.atoms.timelinePostsAtom, [target]);
+    const loading = h.store.set(h.atoms.loadTimelineAtom);
+    await h.waitForHeads(1);
+    const failedDelete = deferred<Response>();
+    h.setDeleteResponder(() => failedDelete.promise);
+    const toggling = h.store.set(h.atoms.toggleTimelineBookmarkAtom, target);
+    h.setDeleteResponder(
+      async () => new Response(JSON.stringify({ success: true })),
+    );
+    expect(
+      await h.store.set(h.atoms.unbookmarkTimelinePostAtom, target.ap_id),
+    ).toBe(true);
+    failedDelete.reject(new TypeError("earlier Home ACK lost"));
+    await expect(toggling).rejects.toThrow();
+    expect(h.store.get(h.atoms.timelinePostsAtom)[0]!.bookmarked).toBe(false);
+    h.heads[0]!.resolve(page([target], null, false));
+    await loading;
+    expect(h.store.get(h.atoms.timelinePostsAtom)[0]!.bookmarked).toBe(false);
+  } finally {
+    await h.cleanup();
+  }
+});
+
+for (const later of ["none", "other-object"] as const) {
+  test(`failed Home unsave still rolls back when later ACK is ${later}`, async () => {
+    const h = await fixture();
+    const target = post("rollback-owned-target", 10, { bookmarked: true });
+    try {
+      h.store.set(h.atoms.timelinePostsAtom, [target]);
+      const failedDelete = deferred<Response>();
+      h.setDeleteResponder(() => failedDelete.promise);
+      const toggling = h.store.set(h.atoms.toggleTimelineBookmarkAtom, target);
+      expect(h.store.get(h.atoms.timelinePostsAtom)[0]!.bookmarked).toBe(false);
+      if (later === "other-object") {
+        h.setDeleteResponder(
+          async () => new Response(JSON.stringify({ success: true })),
+        );
+        await h.store.set(
+          h.atoms.unbookmarkTimelinePostAtom,
+          objectId("other-rollback-target"),
+        );
+      }
+      failedDelete.reject(new TypeError("Home write failed"));
+      await expect(toggling).rejects.toThrow();
+      expect(h.store.get(h.atoms.timelinePostsAtom)[0]!.bookmarked).toBe(true);
+    } finally {
+      await h.cleanup();
+    }
+  });
+}

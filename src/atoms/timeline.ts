@@ -51,7 +51,16 @@ import { classifyWriteFailure } from "../lib/write-outcome.ts";
 import { acknowledgesPost } from "../lib/post-acknowledgement.ts";
 import { actorAtom } from "./auth.ts";
 import { pushToast, toastWriter } from "./toast.ts";
+import { toggleBookmark } from "./posts.ts";
 import { scopeQueryAtom } from "./scope.ts";
+import {
+  acknowledgeBookmarkReadAtom,
+  beginBookmarkRead,
+  finishBookmarkRead,
+  hasBookmarkAcknowledgement,
+  ownsBookmarkRead,
+  reconcileBookmarkRead,
+} from "./bookmark-reads.ts";
 // Mirrors the backend MAX_POST_CONTENT_LENGTH (posts/transformers.ts), used to
 // surface a specific message when the server rejects an over-length post.
 const MAX_POST_CONTENT_LENGTH = 5000;
@@ -221,29 +230,16 @@ export const deleteTimelinePostAtom = atom(
   },
 );
 
-// BookmarksPage removes a saved row, but the same Note can remain in both
-// fresh Home caches and the staged head. Reflect only a confirmed unsave and
-// retain every feed entry, cursor and reading position. This fences observed
-// actor changes, not silent HttpOnly session changes. An in-flight full head
-// records this ACK so its earlier bookmark snapshot cannot reverse it.
-export const unbookmarkTimelinePostAtom = atom(
+// All bookmark entrypoints record only a successful ACK for the observed
+// actor. This updates both Home caches and fences every earlier active read.
+export const acknowledgeTimelineBookmarkAtom = atom(
   null,
-  async (get, set, apId: string): Promise<boolean> => {
-    const actorApId = get(actorAtom)?.ap_id;
-    if (!actorApId) return false;
-    await unbookmarkPost(apId);
-    if (get(actorAtom)?.ap_id !== actorApId) return false;
-    for (const windowAtom of [
-      timelineHeadWindowAtom,
-      followingHeadWindowAtom,
-    ]) {
-      const window = get(windowAtom);
-      if (window?.actorApId !== actorApId) continue;
-      set(windowAtom, {
-        ...window,
-        unsavedIds: new Set([...window.unsavedIds, apId]),
-      });
-    }
+  (
+    get,
+    set,
+    change: { actorApId: string; apId: string; bookmarked: boolean },
+  ): boolean => {
+    if (!set(acknowledgeBookmarkReadAtom, change)) return false;
     for (const feed of [
       timelinePostsAtom,
       followingPostsAtom,
@@ -251,13 +247,59 @@ export const unbookmarkTimelinePostAtom = atom(
     ]) {
       set(feed, (prev) =>
         prev.map((post) =>
-          post.ap_id === apId && post.bookmarked
-            ? { ...post, bookmarked: false }
+          post.ap_id === change.apId
+            ? { ...post, bookmarked: change.bookmarked }
             : post,
         ),
       );
     }
     return true;
+  },
+);
+
+export const unbookmarkTimelinePostAtom = atom(
+  null,
+  async (get, set, apId: string): Promise<boolean> => {
+    const actorApId = get(actorAtom)?.ap_id;
+    if (!actorApId) return false;
+    await unbookmarkPost(apId);
+    return set(acknowledgeTimelineBookmarkAtom, {
+      actorApId,
+      apId,
+      bookmarked: false,
+    });
+  },
+);
+
+// Keep optimistic rollback inside the same store-local ACK boundary as reads.
+// A failed earlier Home request must not reverse a later confirmed Detail or
+// Bookmarks interaction, even if the resulting flag equals its optimistic one.
+export const toggleTimelineBookmarkAtom = atom(
+  null,
+  async (get, set, post: Post) => {
+    const actorApId = get(actorAtom)?.ap_id;
+    if (!actorApId) return;
+    const interaction = beginBookmarkRead(get, set);
+    try {
+      await toggleBookmark(
+        post,
+        (update) => {
+          if (get(actorAtom)?.ap_id !== actorApId) return;
+          set(timelinePostsAtom, update);
+          set(followingPostsAtom, update);
+        },
+        (bookmarked) => {
+          set(acknowledgeTimelineBookmarkAtom, {
+            actorApId,
+            apId: post.ap_id,
+            bookmarked,
+          });
+        },
+        () => !hasBookmarkAcknowledgement(get, interaction, post.ap_id),
+      );
+    } finally {
+      finishBookmarkRead(get, set, interaction);
+    }
   },
 );
 
@@ -295,18 +337,24 @@ export const checkNewPostsAtom = atom(null, async (get, set) => {
   const gen = get(timelineRequestsAtom).generation;
   const community = get(scopeQueryAtom)?.community;
 
+  const bookmarkRead = beginBookmarkRead(get, set);
   try {
-    const { posts: head } = await fetchTimeline({
+    const { posts: serverHead } = await fetchTimeline({
       limit: 20,
       community,
     });
     // A reload invalidates the prior head, including A -> B -> A switches.
     // Check the scope too: its atom can change before the page starts reloading.
     if (
+      !ownsBookmarkRead(get, bookmarkRead) ||
       gen !== get(timelineRequestsAtom).generation ||
       community !== get(scopeQueryAtom)?.community
     )
       return;
+    const head = reconcileBookmarkRead(get, bookmarkRead, serverHead, [
+      ...get(timelinePostsAtom),
+      ...get(pendingNewPostsAtom),
+    ])!;
     if (head.length === 0) return;
 
     // Keyed by feed-ENTRY identity (feedItemKey): a boost entry shares the
@@ -339,7 +387,10 @@ export const checkNewPostsAtom = atom(null, async (get, set) => {
       return merged.slice(0, 100);
     });
   } catch (e) {
+    if (!ownsBookmarkRead(get, bookmarkRead)) return;
     console.error("Failed to check for new posts:", e);
+  } finally {
+    finishBookmarkRead(get, set, bookmarkRead);
   }
 });
 
@@ -394,7 +445,6 @@ type HeadWindow = {
   community?: string;
   actorApId?: string;
   acknowledged: HeadAcknowledgement[];
-  unsavedIds: ReadonlySet<string>;
 };
 // Only ACKs received during this full request may supplement its earlier
 // snapshot. The next full request starts empty; no persistent overlay is kept.
@@ -483,20 +533,7 @@ function reconcileHeadAcknowledgements(
     const position = merged.findIndex((row) => postKey(row) < postKey(post));
     merged.splice(position < 0 ? merged.length : position, 0, post);
   }
-  // Bookmark removal is reversible. Fence only this earlier full-head read;
-  // the next read starts empty and observes the server normally. Prefer the
-  // latest displayed flag if another local interaction changed it after ACK.
-  // This also covers a saved object absent from the currently displayed head.
-  const currentBookmarks = new Map(
-    current.map((post) => [post.ap_id, post.bookmarked]),
-  );
-  return merged
-    .slice(0, MAX_TIMELINE_POSTS)
-    .map((post) =>
-      window.unsavedIds.has(post.ap_id)
-        ? { ...post, bookmarked: currentBookmarks.get(post.ap_id) ?? false }
-        : post,
-    );
+  return merged.slice(0, MAX_TIMELINE_POSTS);
 }
 let storiesLoadGen = 0;
 
@@ -510,7 +547,6 @@ export const loadTimelineAtom = atom(null, async (get, set) => {
     community,
     actorApId,
     acknowledged: [],
-    unsavedIds: new Set<string>(),
   });
   set(timelineRequestsAtom, { generation: gen, pager: null });
   set(timelineCursorAtom, null);
@@ -526,6 +562,7 @@ export const loadTimelineAtom = atom(null, async (get, set) => {
     get(timelineHeadWindowAtom)?.ticket === ticket &&
     actorApId === get(actorAtom)?.ap_id &&
     community === get(scopeQueryAtom)?.community;
+  const bookmarkRead = beginBookmarkRead(get, set);
   try {
     const page = await fetchTimeline({
       limit: 20,
@@ -535,7 +572,12 @@ export const loadTimelineAtom = atom(null, async (get, set) => {
     set(
       timelinePostsAtom,
       reconcileHeadAcknowledgements(
-        page.posts,
+        reconcileBookmarkRead(
+          get,
+          bookmarkRead,
+          page.posts,
+          get(timelinePostsAtom),
+        )!,
         get(timelinePostsAtom),
         get(timelineHeadWindowAtom)!,
         get(deletedTimelinePostIdsAtom),
@@ -559,6 +601,7 @@ export const loadTimelineAtom = atom(null, async (get, set) => {
     console.error("Failed to load timeline:", e);
     set(timelineLoadErrorAtom, get(tAtom)("common.loadFailed"));
   } finally {
+    finishBookmarkRead(get, set, bookmarkRead);
     if (get(timelineHeadWindowAtom)?.ticket === ticket)
       set(timelineHeadWindowAtom, null);
     if (gen === get(timelineRequestsAtom).generation)
@@ -580,6 +623,7 @@ export const loadMoreTimelineAtom = atom(null, async (get, set) => {
   )
     return;
 
+  const community = get(scopeQueryAtom)?.community;
   const ticket = {};
   const gen = get(timelineRequestsAtom).generation;
   set(timelineRequestsAtom, { generation: gen, pager: ticket });
@@ -588,19 +632,25 @@ export const loadMoreTimelineAtom = atom(null, async (get, set) => {
     const active = get(timelineRequestsAtom);
     return active.generation === gen && active.pager === ticket;
   };
+  const bookmarkRead = beginBookmarkRead(get, set);
   try {
-    const scope = get(scopeQueryAtom);
     const page = await fetchTimeline({
       limit: 20,
       // The server-issued composite cursor — NOT lastPost.ap_id, which decodes
       // as a legacy published-only cursor that matches every row (the feed would
       // re-serve page 1 forever and stall).
       before: cursor,
-      community: scope?.community,
+      community,
     });
     // A full reload (e.g. filter switch) happened mid-flight → these are the
     // previous scope's next page; do not append them onto the new feed.
-    if (!ownsPager() || get(timelineCursorAtom) !== cursor) return;
+    if (
+      !ownsPager() ||
+      !ownsBookmarkRead(get, bookmarkRead) ||
+      community !== get(scopeQueryAtom)?.community ||
+      get(timelineCursorAtom) !== cursor
+    )
+      return;
     if (page.posts.length > 0) {
       // Cap the in-memory feed: the IntersectionObserver auto-fires load-more on
       // scroll, so an unbounded append would grow the live <For> DOM, memory, and
@@ -609,7 +659,13 @@ export const loadMoreTimelineAtom = atom(null, async (get, set) => {
       // keeps the window the user is actively scrolling through (the oldest tail)
       // and evicts the already-scrolled-past newest head (a scroll back to the
       // very top then re-fetches). The staging buffer is likewise capped.
-      const survivingPage = page.posts.filter(
+      const reconciled = reconcileBookmarkRead(
+        get,
+        bookmarkRead,
+        page.posts,
+        get(timelinePostsAtom),
+      )!;
+      const survivingPage = reconciled.filter(
         (post) => !get(deletedTimelinePostIdsAtom).has(post.ap_id),
       );
       const merged = [...get(timelinePostsAtom), ...survivingPage];
@@ -623,12 +679,19 @@ export const loadMoreTimelineAtom = atom(null, async (get, set) => {
     set(timelineCursorAtom, page.nextCursor);
     set(timelineHasMoreAtom, page.hasMore);
   } catch (e) {
-    if (!ownsPager() || get(timelineCursorAtom) !== cursor) return;
+    if (
+      !ownsPager() ||
+      !ownsBookmarkRead(get, bookmarkRead) ||
+      community !== get(scopeQueryAtom)?.community ||
+      get(timelineCursorAtom) !== cursor
+    )
+      return;
     console.error("Failed to load more:", e);
     pushToast(toastWriter(set), get(tAtom)("common.loadFailed"), {
       kind: "error",
     });
   } finally {
+    finishBookmarkRead(get, set, bookmarkRead);
     if (ownsPager()) {
       set(timelineRequestsAtom, { generation: gen, pager: null });
       set(timelineLoadingMoreAtom, false);
@@ -647,7 +710,6 @@ export const loadFollowingTimelineAtom = atom(null, async (get, set) => {
     ticket,
     actorApId,
     acknowledged: [],
-    unsavedIds: new Set<string>(),
   });
   set(followingRequestsAtom, { generation: gen, pager: null });
   set(followingCursorAtom, null);
@@ -655,6 +717,7 @@ export const loadFollowingTimelineAtom = atom(null, async (get, set) => {
   if (get(followingPostsAtom).length === 0) set(followingLoadingAtom, true);
   set(followingLoadErrorAtom, null);
   set(followingHasMoreAtom, true);
+  const bookmarkRead = beginBookmarkRead(get, set);
   try {
     const page = await fetchFollowingTimeline({ limit: 20 });
     if (
@@ -666,7 +729,12 @@ export const loadFollowingTimelineAtom = atom(null, async (get, set) => {
     set(
       followingPostsAtom,
       reconcileHeadAcknowledgements(
-        page.posts,
+        reconcileBookmarkRead(
+          get,
+          bookmarkRead,
+          page.posts,
+          get(followingPostsAtom),
+        )!,
         get(followingPostsAtom),
         get(followingHeadWindowAtom)!,
         get(deletedTimelinePostIdsAtom),
@@ -684,6 +752,7 @@ export const loadFollowingTimelineAtom = atom(null, async (get, set) => {
     console.error("Failed to load following timeline:", e);
     set(followingLoadErrorAtom, get(tAtom)("common.loadFailed"));
   } finally {
+    finishBookmarkRead(get, set, bookmarkRead);
     if (get(followingHeadWindowAtom)?.ticket === ticket)
       set(followingHeadWindowAtom, null);
     if (gen === get(followingRequestsAtom).generation)
@@ -713,12 +782,24 @@ export const loadMoreFollowingTimelineAtom = atom(null, async (get, set) => {
     const active = get(followingRequestsAtom);
     return active.generation === gen && active.pager === ticket;
   };
+  const bookmarkRead = beginBookmarkRead(get, set);
   try {
     const page = await fetchFollowingTimeline({ limit: 20, before: cursor });
     // A full reload happened mid-flight → do not append a stale older page.
-    if (!ownsPager() || get(followingCursorAtom) !== cursor) return;
+    if (
+      !ownsPager() ||
+      !ownsBookmarkRead(get, bookmarkRead) ||
+      get(followingCursorAtom) !== cursor
+    )
+      return;
     if (page.posts.length > 0) {
-      const survivingPage = page.posts.filter(
+      const reconciled = reconcileBookmarkRead(
+        get,
+        bookmarkRead,
+        page.posts,
+        get(followingPostsAtom),
+      )!;
+      const survivingPage = reconciled.filter(
         (post) => !get(deletedTimelinePostIdsAtom).has(post.ap_id),
       );
       const merged = [...get(followingPostsAtom), ...survivingPage];
@@ -732,12 +813,18 @@ export const loadMoreFollowingTimelineAtom = atom(null, async (get, set) => {
     set(followingCursorAtom, page.nextCursor);
     set(followingHasMoreAtom, page.hasMore);
   } catch (e) {
-    if (!ownsPager() || get(followingCursorAtom) !== cursor) return;
+    if (
+      !ownsPager() ||
+      !ownsBookmarkRead(get, bookmarkRead) ||
+      get(followingCursorAtom) !== cursor
+    )
+      return;
     console.error("Failed to load more:", e);
     pushToast(toastWriter(set), get(tAtom)("common.loadFailed"), {
       kind: "error",
     });
   } finally {
+    finishBookmarkRead(get, set, bookmarkRead);
     if (ownsPager()) {
       set(followingRequestsAtom, { generation: gen, pager: null });
       set(followingLoadingMoreAtom, false);

@@ -2,10 +2,10 @@ import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { A } from "@solidjs/router";
 import { useRequiredActor } from "../hooks/useRequiredActor.ts";
 import { Post } from "../types/index.ts";
-import { fetchBookmarks } from "../lib/api.ts";
 import { toggleLike } from "../atoms/posts.ts";
-import { useAtomValue, useSetAtom } from "solid-jotai";
+import { useAtom, useAtomValue, useSetAtom } from "solid-jotai";
 import { actorAtom } from "../atoms/auth.ts";
+import { createBookmarksState } from "../atoms/bookmarks.ts";
 import {
   timelinePostsAtom,
   unbookmarkTimelinePostAtom,
@@ -32,61 +32,28 @@ export function BookmarksPage() {
   const currentActor = useAtomValue(actorAtom);
   const { t, language } = useI18n();
   const lightbox = useMediaLightbox();
+  const bookmarks = createBookmarksState();
+  const [posts, setPosts] = useAtom(bookmarks.posts);
+  const loading = useAtomValue(bookmarks.loading);
+  const hasMore = useAtomValue(bookmarks.hasMore);
+  const loadingMore = useAtomValue(bookmarks.loadingMore);
+  const loadError = useAtomValue(bookmarks.loadError);
+  const [error, setError] = useAtom(bookmarks.error);
+  const loadBookmarks = useSetAtom(bookmarks.load);
+  const loadMore = useSetAtom(bookmarks.loadMore);
+  const disposeBookmarks = useSetAtom(bookmarks.dispose);
   const setTimelinePosts = useSetAtom(timelinePostsAtom);
   const unbookmarkTimelinePost = useSetAtom(unbookmarkTimelinePostAtom);
   let disposed = false;
   onCleanup(() => {
     disposed = true;
+    disposeBookmarks();
   });
-  const [error, setError] = createSignal<string | null>(null);
   const clearError = () => setError(null);
-  const [loadError, setLoadError] = createSignal<string | null>(null);
-  const [posts, setPosts] = createSignal<Post[]>([]);
-  const [loading, setLoading] = createSignal(true);
-  const [cursor, setCursor] = createSignal<string | null>(null);
-  const [hasMore, setHasMore] = createSignal(false);
-  const [loadingMore, setLoadingMore] = createSignal(false);
 
   onMount(() => {
     loadBookmarks();
   });
-
-  const loadBookmarks = async () => {
-    // Only show loading if no cached data
-    if (posts().length === 0) setLoading(true);
-    setLoadError(null);
-    try {
-      const data = await fetchBookmarks();
-      setPosts(data.posts);
-      setCursor(data.nextCursor);
-      setHasMore(data.hasMore);
-    } catch (e) {
-      console.error("Failed to load bookmarks:", e);
-      setLoadError(t("common.loadFailed"));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadMore = async () => {
-    const before = cursor();
-    if (loadingMore() || !hasMore() || !before) return;
-    setLoadingMore(true);
-    try {
-      const data = await fetchBookmarks({ before });
-      setPosts((prev) => {
-        const seen = new Set(prev.map((p) => p.ap_id));
-        return [...prev, ...data.posts.filter((p) => !seen.has(p.ap_id))];
-      });
-      setCursor(data.nextCursor);
-      setHasMore(data.hasMore);
-    } catch (e) {
-      console.error("Failed to load more bookmarks:", e);
-      setError(t("common.error"));
-    } finally {
-      setLoadingMore(false);
-    }
-  };
 
   const handleLike = async (post: Post) => {
     try {
