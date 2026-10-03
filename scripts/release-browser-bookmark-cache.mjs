@@ -188,12 +188,12 @@ async function navigateToBookmarks(page) {
     .waitFor({ state: "visible", timeout: TIMEOUT });
 }
 
-async function navigateHomeInApp(page) {
+async function navigateHomeInApp(page, selectAll = true) {
   await page.locator('a[href="/"]').first().click();
   await page.waitForURL((url) => url.pathname === "/", { timeout: TIMEOUT });
   const allTab = page.getByRole("tab", { name: "すべて", exact: true });
   await allTab.waitFor({ state: "visible", timeout: TIMEOUT });
-  if ((await allTab.getAttribute("aria-selected")) !== "true")
+  if (selectAll && (await allTab.getAttribute("aria-selected")) !== "true")
     await allTab.click();
 }
 
@@ -806,6 +806,375 @@ export async function qualifyBookmarkCache({
       await context.close();
     } catch (error) {
       if (!primaryError) throw error;
+    }
+  }
+}
+
+function headOrderGate() {
+  let resolve;
+  let reject;
+  const promise = new Promise((yes, no) => {
+    resolve = yes;
+    reject = no;
+  });
+  promise.catch(() => {});
+  return { promise, resolve, reject };
+}
+
+async function headOrderWait(promise, label) {
+  let timer;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`bookmark-head-order:${label}-timeout`)),
+          TIMEOUT,
+        );
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Hold original native GET bytes across a real Bookmarks DELETE ACK. */
+export async function qualifyBookmarkHeadOrder({
+  browser,
+  worker,
+  db,
+  origin,
+  password,
+  sessionSalt,
+  checks = [],
+  mode = "candidate",
+}) {
+  const parsed = new URL(origin);
+  need(
+    ["127.0.0.1", "localhost"].includes(parsed.hostname) &&
+      parsed.origin === origin,
+    "head-order-loopback-only",
+  );
+  need(["baseline", "candidate"].includes(mode), "head-order-mode");
+  const auth = await loginWithPassword(
+    worker,
+    db,
+    origin,
+    password,
+    sessionSalt,
+  );
+  const context = await browser.newContext({
+    serviceWorkers: "block",
+    locale: "ja-JP",
+    viewport: { width: 1280, height: 900 },
+    reducedMotion: "reduce",
+  });
+  const releases = [];
+  let primary;
+  let outboundBlocked = 0;
+  try {
+    await context.addCookies([
+      {
+        name: "session",
+        value: auth.rawCookie,
+        domain: parsed.hostname,
+        path: "/",
+        httpOnly: true,
+        secure: parsed.protocol === "https:",
+        sameSite: "Lax",
+      },
+    ]);
+    await context.route("**/*", (route) => {
+      const url = new URL(route.request().url());
+      if (url.origin === origin || ["data:", "blob:"].includes(url.protocol))
+        return route.continue();
+      outboundBlocked += 1;
+      return route.abort("blockedbyclient");
+    });
+    const page = await context.newPage();
+    const pageErrors = [];
+    page.on("pageerror", (error) => pageErrors.push(error.name));
+    await page.goto(origin, {
+      waitUntil: "domcontentloaded",
+      timeout: TIMEOUT,
+    });
+    await page
+      .getByRole("tab", { name: "すべて", exact: true })
+      .waitFor({ state: "visible", timeout: TIMEOUT });
+    const nonce = randomUUID();
+    const target = await createNote(page, `bookmark-head-target-${nonce}`);
+    const unrelated = await createNote(
+      page,
+      `bookmark-head-unrelated-${nonce}`,
+    );
+    await clickBookmark(page, target);
+    await clickBookmark(page, unrelated);
+    const initialNotes = await Promise.all(
+      [target, unrelated].map((post) => nativeNote(db, post.ap_id)),
+    );
+    const initialActors = await db
+      .prepare("SELECT * FROM actors ORDER BY ap_id")
+      .all();
+    const initialSessions = await db
+      .prepare("SELECT * FROM sessions ORDER BY id")
+      .all();
+    const lanes = [];
+    for (const [name, path] of [
+      ["すべて", "/api/timeline"],
+      ["フォロー中", "/api/timeline/following"],
+    ]) {
+      if (lanes.length) {
+        const res = await page.request.post(
+          `${origin}/api/posts/${encodeURIComponent(target.ap_id)}/bookmark`,
+          { headers: { origin } },
+        );
+        need(
+          res.status() === 200 && (await res.json()).bookmarked === true,
+          "between-lanes-real-rebookmark",
+        );
+      }
+      const entered = headOrderGate();
+      const release = headOrderGate();
+      const delivered = headOrderGate();
+      releases.push(release);
+      let getCount = 0;
+      let deleteCount = 0;
+      let snapshot;
+      const pattern = `${origin}/api/**`;
+      const handler = async (route) => {
+        const request = route.request();
+        const url = new URL(request.url());
+        if (
+          url.pathname !== path ||
+          request.method() !== "GET" ||
+          url.searchParams.has("before")
+        )
+          return route.fallback();
+        getCount += 1;
+        if (getCount === 1)
+          return route.fulfill({
+            status: 503,
+            contentType: "application/json",
+            body: JSON.stringify({ error: "fixed initial head refusal" }),
+          });
+        if (getCount !== 2) return route.fallback();
+        try {
+          const response = await route.fetch();
+          const body = await response.body();
+          const value = JSON.parse(body.toString("utf8"));
+          need(
+            response.status() === 200 &&
+              value.posts?.some(
+                (post) =>
+                  post.ap_id === target.ap_id && post.bookmarked === true,
+              ),
+            "held-native-get-contains-saved-target",
+          );
+          snapshot = {
+            status: response.status(),
+            bodySha256: createHash("sha256").update(body).digest("hex"),
+            targetSaved: true,
+            posts: value.posts.map((post) => post.ap_id),
+          };
+          entered.resolve();
+          await headOrderWait(release.promise, "native-head-release");
+          await route.fulfill({ response, body });
+          delivered.resolve();
+        } catch (error) {
+          entered.reject(error);
+          delivered.reject(error);
+          await route.abort().catch(() => {});
+        }
+      };
+      const countDelete = (request) => {
+        if (
+          new URL(request.url()).pathname ===
+            `/api/posts/${encodeURIComponent(target.ap_id)}/bookmark` &&
+          request.method() === "DELETE"
+        )
+          deleteCount += 1;
+      };
+      page.on("request", countDelete);
+      await page.route(pattern, handler);
+      await page.reload({ waitUntil: "domcontentloaded", timeout: TIMEOUT });
+      await page
+        .getByRole("tab", { name: "すべて", exact: true })
+        .waitFor({ state: "visible", timeout: TIMEOUT });
+      if (name === "フォロー中")
+        await page.getByRole("tab", { name, exact: true }).click();
+      need(
+        (await page
+          .getByRole("tab", { name, exact: true })
+          .getAttribute("aria-selected")) === "true",
+        `head-order-initial-lane-${name}`,
+      );
+      const retry = page.getByRole("button", { name: "再試行", exact: true });
+      await retry.waitFor({ state: "visible", timeout: TIMEOUT });
+      need(getCount === 1, "exactly-one-initial-head-503");
+      await retry.click();
+      await headOrderWait(entered.promise, "head-snapshot-captured");
+      need(getCount === 2, "exactly-one-user-read-retry-held");
+      await navigateToBookmarks(page);
+      await assertRowsVisible(page, [target.content, unrelated.content]);
+      const row = page
+        .locator("div.flex.gap-3")
+        .filter({ has: page.getByText(target.content, { exact: true }) });
+      await row
+        .getByRole("button", { name: "ブックマークを解除", exact: true })
+        .click();
+      const confirm = page.getByRole("alertdialog", {
+        name: "ブックマークを解除しますか？",
+      });
+      const deleteWait = page.waitForResponse(
+        (res) =>
+          new URL(res.url()).pathname ===
+            `/api/posts/${encodeURIComponent(target.ap_id)}/bookmark` &&
+          res.request().method() === "DELETE",
+        { timeout: TIMEOUT },
+      );
+      await confirm
+        .getByRole("button", { name: "ブックマークを解除", exact: true })
+        .click();
+      const deletion = await deleteWait;
+      need(
+        deletion.status() === 200 && deleteCount === 1,
+        "one-real-delete-200-before-head-release",
+      );
+      await row.waitFor({ state: "detached", timeout: TIMEOUT });
+      const list = await apiBookmarks(page);
+      need(
+        list.status === 200 &&
+          !list.posts.some((post) => post.ap_id === target.ap_id) &&
+          list.posts.some((post) => post.ap_id === unrelated.ap_id),
+        "delete-authority-verified-before-head-release",
+      );
+      need(
+        !(await nativeBookmark(db, auth.actor.ap_id, target.ap_id)) &&
+          Boolean(await nativeBookmark(db, auth.actor.ap_id, unrelated.ap_id)),
+        "exact-native-row-removal-before-head-release",
+      );
+      const responseWait = page.waitForResponse(
+        (res) =>
+          new URL(res.url()).pathname === path &&
+          res.status() === 200 &&
+          res.request().method() === "GET",
+        { timeout: TIMEOUT },
+      );
+      release.resolve();
+      const late = await Promise.race([
+        responseWait,
+        delivered.promise.then(() => responseWait),
+      ]);
+      await headOrderWait(delivered.promise, "original-head-bytes-delivered");
+      need(
+        createHash("sha256")
+          .update(await late.body())
+          .digest("hex") === snapshot.bodySha256,
+        "browser-received-original-native-response-bytes",
+      );
+      await page.evaluate(
+        () =>
+          new Promise((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(resolve)),
+          ),
+      );
+      const beforeReturn = getCount;
+      await navigateHomeInApp(page, false);
+      await page
+        .getByRole("tab", { name, exact: true })
+        .waitFor({ state: "visible", timeout: TIMEOUT });
+      need(
+        (await page
+          .getByRole("tab", { name, exact: true })
+          .getAttribute("aria-selected")) === "true",
+        "return-retains-held-lane",
+      );
+      await article(page, target).waitFor({
+        state: "visible",
+        timeout: TIMEOUT,
+      });
+      const pressed = await homeBookmarkButton(page, target).getAttribute(
+        "aria-pressed",
+      );
+      need(
+        pressed === (mode === "baseline" ? "true" : "false"),
+        "late-full-head-respects-confirmed-unsave",
+      );
+      need(
+        getCount === beforeReturn && getCount === 2,
+        "return-reuses-delivered-head-with-zero-new-get",
+      );
+      need(
+        (await homeBookmarkButton(page, unrelated).getAttribute(
+          "aria-pressed",
+        )) === "true",
+        "unrelated-saved-flag-preserved",
+      );
+      lanes.push({
+        name,
+        path,
+        initial503: { requests: 1, forwarded: false },
+        headRequests: getCount,
+        snapshot,
+        delete: {
+          status: deletion.status(),
+          requests: deleteCount,
+          targetApiAbsent: true,
+          targetNativeAbsent: true,
+        },
+        pressed,
+        returnHeadFetches: getCount - beforeReturn,
+      });
+      checks.push(
+        `bookmark-full-head-${name === "すべて" ? "unified" : "following"}-pre-unsave-response-cannot-restore-saved-flag`,
+      );
+      page.off("request", countDelete);
+      await page.unroute(pattern, handler);
+    }
+    const finalNotes = await Promise.all(
+      [target, unrelated].map((post) => nativeNote(db, post.ap_id)),
+    );
+    const finalActors = await db
+      .prepare("SELECT * FROM actors ORDER BY ap_id")
+      .all();
+    const finalSessions = await db
+      .prepare("SELECT * FROM sessions ORDER BY id")
+      .all();
+    need(
+      JSON.stringify(finalNotes) === JSON.stringify(initialNotes),
+      "head-order-preserves-both-native-notes",
+    );
+    need(
+      JSON.stringify(finalActors.results) ===
+        JSON.stringify(initialActors.results) &&
+        JSON.stringify(finalSessions.results) ===
+          JSON.stringify(initialSessions.results),
+      "head-order-preserves-owner-and-exact-session-rows",
+    );
+    need(
+      outboundBlocked === 0 && pageErrors.length === 0,
+      "head-order-no-outbound-or-page-errors",
+    );
+    return {
+      status: mode === "baseline" ? "EXPECTED_BASELINE_RED" : "PASSED",
+      mode,
+      lanes,
+      checks,
+      outboundBlocked,
+      nativeNotesUnchanged: true,
+      ownerSessionsUnchanged: true,
+      renderCheckpoint:
+        "original body received, route fulfilled and two animation frames; not durable client quiescence",
+    };
+  } catch (error) {
+    primary = error;
+    throw error;
+  } finally {
+    for (const release of releases) release.resolve();
+    try {
+      await context.close();
+    } catch (error) {
+      if (!primary) throw error;
     }
   }
 }

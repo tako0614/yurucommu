@@ -36,7 +36,10 @@ import {
   qualifySettingsSignout,
 } from "./release-browser-settings-signout.mjs";
 import { qualifyLogoutOutcome } from "./release-browser-logout-outcome.mjs";
-import { qualifyBookmarkCache } from "./release-browser-bookmark-cache.mjs";
+import {
+  qualifyBookmarkCache,
+  qualifyBookmarkHeadOrder,
+} from "./release-browser-bookmark-cache.mjs";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const PASSWORD = " release-browser-owner ";
@@ -1069,7 +1072,12 @@ async function runBrowserSmoke(artifactPath, artifactDigest, browser) {
   return result;
 }
 
-async function runBookmarkCacheSmoke(artifactPath, artifactDigest, browser) {
+async function runBookmarkCacheSmoke(
+  artifactPath,
+  artifactDigest,
+  browser,
+  qualify = qualifyBookmarkCache,
+) {
   const config = unstable_readConfig(
     { config: resolve(repo, "wrangler.jsonc") },
     { hideWarnings: true },
@@ -1106,7 +1114,7 @@ async function runBookmarkCacheSmoke(artifactPath, artifactDigest, browser) {
       "bookmark cache fixture requires a fresh disposable database",
     );
     const checks = [];
-    const cache = await qualifyBookmarkCache({
+    const cache = await qualify({
       browser,
       worker: managed.worker,
       db,
@@ -1216,6 +1224,14 @@ async function main() {
     );
     result.bookmarkCache = bookmarkCache;
     result.checks.push(...bookmarkCache.checks);
+    const bookmarkHeadOrder = await runBookmarkCacheSmoke(
+      artifactPath,
+      artifactDigest,
+      browser,
+      qualifyBookmarkHeadOrder,
+    );
+    result.bookmarkHeadOrder = bookmarkHeadOrder;
+    result.checks.push(...bookmarkHeadOrder.checks);
   } catch (error) {
     primaryError = error;
   } finally {
