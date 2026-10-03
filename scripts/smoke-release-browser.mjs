@@ -21,6 +21,7 @@ import { qualifyBrowserStorySubmit } from "./release-browser-story-submit.mjs";
 import { qualifyBrowserStoryOutcome } from "./release-browser-story-outcome.mjs";
 import { qualifyBrowserProfileSave } from "./release-browser-profile-save.mjs";
 import { qualifyBrowserTimelineScope } from "./release-browser-timeline-scope.mjs";
+import { qualifyBrowserFollowingDelete } from "./release-browser-following-delete.mjs";
 import { createManagedNativeRuntime } from "./native-runtime-stdio.mjs";
 import {
   createBrowserOidcErrorIssuer,
@@ -799,6 +800,23 @@ async function runBrowserSmoke(artifactPath, artifactDigest, browser) {
       "Timeline scope returned an unexpected HTTP 5xx",
     );
 
+    const followingDeleteChecks = [];
+    const followingDeleteMetadata = await qualifyBrowserFollowingDelete({
+      page,
+      db,
+      origin,
+      actorApId,
+      checks: followingDeleteChecks,
+    });
+    requireEffect(
+      pageErrors.length === 0,
+      "Following deletion raised a page runtime error",
+    );
+    requireEffect(
+      serverErrors.length === 0,
+      "Following deletion returned an unexpected HTTP 5xx",
+    );
+
     result = {
       kind: "yurucommu.release-browser-smoke@v1",
       artifact: basename(artifactPath),
@@ -822,6 +840,10 @@ async function runBrowserSmoke(artifactPath, artifactDigest, browser) {
       storyOutcome: { ...storyOutcomeMetadata, checks: storyOutcomeChecks },
       profileSave: { ...profileSaveMetadata, checks: profileSaveChecks },
       timelineScope: { ...timelineScopeMetadata, checks: timelineScopeChecks },
+      followingDelete: {
+        ...followingDeleteMetadata,
+        checks: followingDeleteChecks,
+      },
       status: "PASSED",
     };
   } catch (error) {
@@ -900,6 +922,7 @@ async function main() {
       ...result.storyOutcome.checks,
       ...result.profileSave.checks,
       ...result.timelineScope.checks,
+      ...result.followingDelete.checks,
     );
   } catch (error) {
     primaryError = error;
