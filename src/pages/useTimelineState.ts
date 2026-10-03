@@ -1,9 +1,11 @@
 import { createEffect, createSignal, on, onCleanup, onMount } from "solid-js";
 import { useAtom, useAtomValue, useSetAtom } from "solid-jotai";
+import { actorAtom } from "../atoms/auth.ts";
 import { tAtom } from "../atoms/i18n.ts";
 import { hydrateScopeAtom, scopeQueryAtom } from "../atoms/scope.ts";
 import { pushToast, toastsAtom } from "../atoms/toast.ts";
 import {
+  toggleTimelineBookmarkAtom,
   actorStoriesAtom,
   applyNewPostsAtom,
   checkNewPostsAtom,
@@ -38,7 +40,7 @@ import {
   timelineScrollTopAtom,
   type HomeFeedTab,
 } from "../atoms/timeline.ts";
-import { toggleBookmark, toggleLike, toggleRepost } from "../atoms/posts.ts";
+import { toggleLike, toggleRepost } from "../atoms/posts.ts";
 import { editPost } from "../lib/api/posts.ts";
 import { blockUser, muteUser } from "../lib/api/actors.ts";
 import { reportContent } from "../lib/api/moderation.ts";
@@ -46,6 +48,8 @@ import type { ActorStories, Post } from "../types/index.ts";
 
 export function useTimelineState() {
   const t = useAtomValue(tAtom);
+  const currentActor = useAtomValue(actorAtom);
+  const toggleTimelineBookmark = useSetAtom(toggleTimelineBookmarkAtom);
   const setToasts = useSetAtom(toastsAtom);
   const toastError = (key: Parameters<ReturnType<typeof t>>[0]) =>
     pushToast(setToasts, t()(key), { kind: "error" });
@@ -353,10 +357,13 @@ export function useTimelineState() {
     }
   };
 
-  const handleBookmark = async (post: Parameters<typeof toggleBookmark>[0]) => {
+  const handleBookmark = async (post: Post) => {
+    const actorApId = currentActor()?.ap_id;
+    if (!actorApId) return;
     try {
-      await toggleBookmark(post, setBothFeeds);
+      await toggleTimelineBookmark(post);
     } catch (e) {
+      if (currentActor()?.ap_id !== actorApId) return;
       console.error("Failed to toggle bookmark:", e);
       toastError("common.error");
     }

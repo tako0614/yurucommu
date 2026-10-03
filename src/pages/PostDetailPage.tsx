@@ -19,9 +19,11 @@ import { EditPostModal } from "../components/timeline/EditPostModal.tsx";
 import { PostVisibilityIndicator } from "../components/timeline/PostVisibilityIndicator.tsx";
 import { useI18n } from "../lib/i18n.tsx";
 import { decodeApIdParam } from "../lib/routeApId.ts";
-import { useSetAtom } from "solid-jotai";
+import { useAtomValue, useSetAtom } from "solid-jotai";
+import { actorAtom } from "../atoms/auth.ts";
 import { pushToast, toastsAtom } from "../atoms/toast.ts";
 import {
+  acknowledgeTimelineBookmarkAtom,
   deleteTimelinePostAtom,
   timelinePostsAtom,
 } from "../atoms/timeline.ts";
@@ -84,6 +86,8 @@ const EditIcon = () => (
 
 export function PostDetailPage() {
   const actor = useRequiredActor();
+  const currentActor = useAtomValue(actorAtom);
+  const acknowledgeBookmark = useSetAtom(acknowledgeTimelineBookmarkAtom);
   const params = useParams();
   const navigate = useNavigate();
   const { t, language } = useI18n();
@@ -432,26 +436,25 @@ export function PostDetailPage() {
 
   const handleBookmark = async () => {
     const currentPost = post();
-    if (!currentPost) return;
+    const actorApId = currentActor()?.ap_id;
+    if (!currentPost || !actorApId) return;
     if (bookmarkInFlight.has(currentPost.ap_id)) return;
     bookmarkInFlight.add(currentPost.ap_id);
     try {
-      if (currentPost.bookmarked) {
-        await unbookmarkPost(currentPost.ap_id);
-        setPost({ ...currentPost, bookmarked: false });
-        syncTimelinePost(currentPost.ap_id, (p) => ({
-          ...p,
-          bookmarked: false,
-        }));
-      } else {
-        await bookmarkPost(currentPost.ap_id);
-        setPost({ ...currentPost, bookmarked: true });
-        syncTimelinePost(currentPost.ap_id, (p) => ({
-          ...p,
-          bookmarked: true,
-        }));
-      }
+      const bookmarked = !currentPost.bookmarked;
+      if (bookmarked) await bookmarkPost(currentPost.ap_id);
+      else await unbookmarkPost(currentPost.ap_id);
+      if (
+        !acknowledgeBookmark({ actorApId, apId: currentPost.ap_id, bookmarked })
+      )
+        return;
+      setPost((latest) =>
+        latest?.ap_id === currentPost.ap_id
+          ? { ...latest, bookmarked }
+          : latest,
+      );
     } catch (e) {
+      if (currentActor()?.ap_id !== actorApId) return;
       console.error("Failed to toggle bookmark:", e);
       setError(t("common.error"));
     } finally {

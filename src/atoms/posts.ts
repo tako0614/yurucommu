@@ -40,15 +40,18 @@ async function optimisticToggle(
   apply: (p: Post) => Post,
   revert: (p: Post) => Post,
   call: () => Promise<unknown>,
+  onAcknowledged?: () => void,
+  canRollback: () => boolean = () => true,
 ) {
   if (inFlightToggles.has(key)) return;
   inFlightToggles.add(key);
   setPosts((prev) => updatePost(prev, apId, apply));
   try {
     await call();
+    onAcknowledged?.();
   } catch (e) {
-    console.error("Interaction failed, rolling back:", e);
-    setPosts((prev) => updatePost(prev, apId, revert));
+    console.error("Interaction failed:", e);
+    if (canRollback()) setPosts((prev) => updatePost(prev, apId, revert));
     throw e;
   } finally {
     inFlightToggles.delete(key);
@@ -100,6 +103,8 @@ export async function toggleRepost(
 export async function toggleBookmark(
   post: Post,
   setPosts: (fn: (prev: Post[]) => Post[]) => void,
+  onAcknowledged?: (bookmarked: boolean) => void,
+  canRollback?: () => boolean,
 ) {
   const bookmarked = post.bookmarked;
   await optimisticToggle(
@@ -109,5 +114,7 @@ export async function toggleBookmark(
     (p) => ({ ...p, bookmarked: !bookmarked }),
     (p) => ({ ...p, bookmarked }),
     () => (bookmarked ? unbookmarkPost(post.ap_id) : bookmarkPost(post.ap_id)),
+    () => onAcknowledged?.(!bookmarked),
+    canRollback,
   );
 }

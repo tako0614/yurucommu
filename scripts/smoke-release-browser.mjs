@@ -41,6 +41,8 @@ import {
   qualifyBookmarkHeadOrder,
 } from "./release-browser-bookmark-cache.mjs";
 
+import { qualifyBookmarkReadOrder } from "./release-browser-bookmark-read-order.mjs";
+
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const PASSWORD = " release-browser-owner ";
 const SESSION_SALT = "release-browser-session-salt-fixture";
@@ -1232,6 +1234,14 @@ async function main() {
     );
     result.bookmarkHeadOrder = bookmarkHeadOrder;
     result.checks.push(...bookmarkHeadOrder.checks);
+    const bookmarkReadOrder = await runBookmarkCacheSmoke(
+      artifactPath,
+      artifactDigest,
+      browser,
+      qualifyBookmarkReadOrder,
+    );
+    result.bookmarkReadOrder = bookmarkReadOrder;
+    result.checks.push(...bookmarkReadOrder.checks);
   } catch (error) {
     primaryError = error;
   } finally {
