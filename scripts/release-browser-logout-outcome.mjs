@@ -290,7 +290,22 @@ async function waitForFailureAndRetry({ fixture, origin, caller }) {
   const firstResponse = submitLogout(confirmation);
   // Handle early cleanup rejection while the pending response is held below.
   firstResponse.catch(() => {});
-  await fixture.fixed503Entered;
+  let gateTimeout;
+  try {
+    await Promise.race([
+      fixture.fixed503Entered,
+      firstResponse.then(() => {
+        throw new Error("logout-outcome:response-before-held-503");
+      }),
+      new Promise((_, reject) => {
+        gateTimeout = setTimeout(() => {
+          reject(new Error("logout-outcome:held-503-request-deadline"));
+        }, TIMEOUT);
+      }),
+    ]);
+  } finally {
+    clearTimeout(gateTimeout);
+  }
   // The pending request must keep the confirmation controls locked. Releasing
   // the deterministic failure only happens after those states are observed.
   const retry = confirmation.getByRole("button", { name: "ログアウト" });
@@ -545,6 +560,7 @@ export async function qualifyLogoutOutcome({
       caller: "settings",
     });
   } finally {
+    settings.releaseFixed503();
     await settings.context.close();
   }
 
@@ -566,6 +582,7 @@ export async function qualifyLogoutOutcome({
       caller: "app-menu",
     });
   } finally {
+    appMenu.releaseFixed503();
     await appMenu.context.close();
   }
 
