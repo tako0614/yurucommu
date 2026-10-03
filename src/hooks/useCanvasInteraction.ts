@@ -54,14 +54,12 @@ interface UseCanvasInteractionOptions {
   displayScale: number;
   onUpdate: () => void;
   onSnapGuidesChange?: (guides: SnapGuide[]) => void;
+  canEdit?: () => boolean;
 }
 
-export function useCanvasInteraction({
-  canvas,
-  displayScale,
-  onUpdate,
-  onSnapGuidesChange,
-}: UseCanvasInteractionOptions) {
+export function useCanvasInteraction(opts: UseCanvasInteractionOptions) {
+  // The canvas is created after mount; never freeze its getter at hook setup.
+  const { onUpdate, onSnapGuidesChange, canEdit = () => true } = opts;
   const [state, setState] = createSignal<InteractionState>({
     mode: "select",
     selectedLayerId: null,
@@ -127,6 +125,7 @@ export function useCanvasInteraction({
 
   // Get selected layer
   const getSelectedLayer = (): Layer | null => {
+    const canvas = opts.canvas;
     const s = state();
     if (!canvas || !s.selectedLayerId) return null;
     return canvas.getLayer(s.selectedLayerId) || null;
@@ -134,7 +133,8 @@ export function useCanvasInteraction({
 
   // Handle pointer/touch down
   const handlePointerDown = (e: MouseEvent | TouchEvent) => {
-    if (!canvas) return;
+    const canvas = opts.canvas;
+    if (!canvas || !canEdit()) return;
 
     const isTouchEvent = "touches" in e;
     const touchCount = isTouchEvent ? e.touches.length : 1;
@@ -243,7 +243,8 @@ export function useCanvasInteraction({
 
   // Handle pointer/touch move
   const handlePointerMove = (e: MouseEvent | TouchEvent) => {
-    if (!canvas) return;
+    const canvas = opts.canvas;
+    if (!canvas || !canEdit()) return;
 
     const currentState = state();
     const isTouchEvent = "touches" in e;
@@ -407,6 +408,7 @@ export function useCanvasInteraction({
 
   // Handle pointer/touch up
   const handlePointerUp = () => {
+    const canvas = opts.canvas;
     const currentState = state();
 
     if (
@@ -442,7 +444,8 @@ export function useCanvasInteraction({
 
   // Clear drawing
   const clearDrawing = () => {
-    if (!canvas) return;
+    const canvas = opts.canvas;
+    if (!canvas || !canEdit()) return;
 
     const drawingLayer = canvas.getLayers().find((l) => l.type === "drawing");
     if (drawingLayer) {
@@ -454,7 +457,8 @@ export function useCanvasInteraction({
 
   // Undo last drawing stroke
   const undoDrawing = () => {
-    if (!canvas || !drawingLayerIdRef) return;
+    const canvas = opts.canvas;
+    if (!canvas || !drawingLayerIdRef || !canEdit()) return;
 
     const drawingLayer = canvas.getLayer(drawingLayerIdRef) as DrawingLayer;
     if (drawingLayer && drawingLayer.paths.length > 0) {
@@ -466,6 +470,8 @@ export function useCanvasInteraction({
 
   // Handle mouse wheel for resize (PC) or rotate (Shift + wheel)
   const handleWheel = (e: WheelEvent) => {
+    const canvas = opts.canvas;
+    if (!canEdit()) return;
     const currentState = state();
     if (
       !canvas ||
@@ -556,6 +562,7 @@ export function useCanvasInteraction({
     selectLayer,
     getSelectedLayer,
     handlePointerDown,
+    finishInteraction: handlePointerUp,
     handleWheel,
     drawingSettings,
     setDrawingSettings,

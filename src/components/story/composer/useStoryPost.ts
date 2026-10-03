@@ -5,10 +5,10 @@ import { createStory } from "../../../lib/api.ts";
 import { uploadProductMedia } from "../../../lib/media-upload.ts";
 import { useI18n } from "../../../lib/i18n.tsx";
 import {
-  exportCanvasWithVideo,
-  FFmpegError,
-  type VideoTransform,
-} from "../../../lib/ffmpeg.ts";
+  captureStorySubmission,
+  copyStorySubmissionCanvas,
+} from "../../../lib/story-submission.ts";
+import { exportCanvasWithVideo, FFmpegError } from "../../../lib/ffmpeg.ts";
 
 interface UseStoryPostOptions {
   storyCanvas: StoryCanvas | null;
@@ -18,6 +18,8 @@ interface UseStoryPostOptions {
   videoRotation: number;
   displayScale: number;
   ffmpegReady: boolean;
+  busy: boolean;
+  onStart: () => void;
   overlays: StoryOverlay[];
   // Optional caption/text the user typed in the composer footer. Persisted with
   // the story and rendered in the viewer.
@@ -37,64 +39,52 @@ export function useStoryPost(opts: UseStoryPostOptions) {
   const [posting, setPosting] = createSignal(false);
   const [progress, setProgress] = createSignal(0);
 
-  const calculateDuration = (): number => {
-    if (!opts.storyCanvas) return 5;
-
-    const layers = opts.storyCanvas.getLayers();
-    let seconds = 3;
-
-    const textLayers = layers.filter((l) => l.type === "text") as TextLayer[];
-    seconds += textLayers.length * 2;
-
-    for (const layer of textLayers) {
-      seconds += Math.ceil(layer.content.length / 20);
-    }
-
-    // Interactive overlays need time to read/tap; a poll needs the most so the
-    // viewer can actually read the question + options and vote before it
-    // auto-advances.
-    for (const overlay of opts.overlays) {
-      seconds += overlay.type === "Question" ? 4 : 2;
-    }
-
-    return Math.max(3, Math.min(15, seconds));
-  };
-
   const handlePost = async () => {
-    if (!opts.storyCanvas || posting()) return;
+    const storyCanvas = opts.storyCanvas;
+    if (!storyCanvas || posting() || opts.busy) return;
     // Video mode requires FFmpeg to be ready
     if (opts.videoFile && !opts.ffmpegReady) {
       opts.setError(t("story.videoNotReady"));
       return;
     }
 
-    setPosting(true);
-    setProgress(0);
-    opts.setError(null);
-
     try {
+      // Finish active gestures before taking one immutable submission draft.
+      opts.onStart();
+      setPosting(true);
+      setProgress(0);
+      opts.setError(null);
+      const captured = captureStorySubmission({
+        caption: opts.caption,
+        communityApId: opts.communityApId,
+        overlays: opts.overlays,
+        text: (
+          storyCanvas
+            .getLayers()
+            .filter((l) => l.type === "text") as TextLayer[]
+        ).map((l) => l.content),
+        videoFile: opts.videoFile,
+        videoScale: opts.videoScale,
+        videoPosition: opts.videoPosition,
+        videoRotation: opts.videoRotation,
+        displayScale: opts.displayScale,
+      });
       // Render canvas first
-      await opts.storyCanvas.render();
-      const canvas = opts.storyCanvas.getCanvas();
+      await storyCanvas.render();
+      const canvas = copyStorySubmissionCanvas(storyCanvas.getCanvas());
 
       let blob: Blob;
       let contentType: string;
       let duration: number;
 
-      if (opts.videoFile) {
+      if (captured.videoFile) {
         // Video mode: export canvas overlay on video through FFmpeg
         setProgress(10);
-        const transform: VideoTransform = {
-          scale: opts.videoScale,
-          position: opts.videoPosition,
-          rotation: opts.videoRotation,
-          displayScale: opts.displayScale,
-        };
         const result = await exportCanvasWithVideo(
           canvas,
-          opts.videoFile,
+          captured.videoFile,
           (p) => setProgress(10 + p * 0.6), // 10-70%
-          transform,
+          captured.transform,
         );
         blob = result.blob;
         contentType = "video/mp4";
@@ -113,13 +103,13 @@ export function useStoryPost(opts: UseStoryPostOptions) {
           );
         });
         contentType = "image/jpeg";
-        duration = calculateDuration();
+        duration = captured.imageDuration;
         setProgress(50);
       }
 
       // Upload to server
       setProgress(70);
-      const filename = opts.videoFile ? "story.mp4" : "story.jpg";
+      const filename = captured.videoFile ? "story.mp4" : "story.jpg";
       const file = new File([blob], filename, { type: contentType });
       const result = await uploadProductMedia(file);
 
@@ -132,10 +122,10 @@ export function useStoryPost(opts: UseStoryPostOptions) {
           content_type: contentType,
         },
         displayDuration: `PT${Math.round(duration)}S`,
-        caption: opts.caption?.trim() ? opts.caption.trim() : undefined,
-        overlays: opts.overlays.length > 0 ? opts.overlays : undefined,
+        caption: captured.caption,
+        overlays: captured.overlays.length > 0 ? captured.overlays : undefined,
         // Bind to the inhabited community scope when present (else personal).
-        community_ap_id: opts.communityApId,
+        community_ap_id: captured.communityApId,
       });
 
       setProgress(100);

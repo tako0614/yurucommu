@@ -17,6 +17,7 @@ interface UseStoryVideoOptions {
   setError: (message: string) => void;
   maxVideoSize: number;
   onBackgroundChange: () => void;
+  canEdit: () => boolean;
 }
 
 export function useStoryVideo(opts: UseStoryVideoOptions) {
@@ -34,6 +35,7 @@ export function useStoryVideo(opts: UseStoryVideoOptions) {
   const [ffmpegLoading, setFfmpegLoading] = createSignal(false);
   let videoInputRef!: HTMLInputElement;
   let videoRef!: HTMLVideoElement;
+  let selecting = false;
 
   // Keep ref in sync for cleanup on unmount
   createEffect(() => {
@@ -77,6 +79,7 @@ export function useStoryVideo(opts: UseStoryVideoOptions) {
   const handleVideoSelect = async (
     e: Event & { currentTarget: HTMLInputElement },
   ) => {
+    if (selecting || !opts.canEdit()) return;
     const file = (e.currentTarget as HTMLInputElement).files?.[0];
     if (!file || !opts.storyCanvas) return;
 
@@ -95,6 +98,7 @@ export function useStoryVideo(opts: UseStoryVideoOptions) {
       return;
     }
 
+    selecting = true;
     opts.setUploading(true);
     try {
       const currentPreview = videoPreview();
@@ -121,6 +125,7 @@ export function useStoryVideo(opts: UseStoryVideoOptions) {
       console.error("Failed to process video:", err);
       opts.setError(t("story.videoProcessFailed"));
     } finally {
+      selecting = false;
       opts.setUploading(false);
       if (videoInputRef) videoInputRef.value = "";
     }
