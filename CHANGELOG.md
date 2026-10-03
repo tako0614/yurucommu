@@ -1,5 +1,28 @@
 # Changelog
 
+## 2.3.0 - 2026-10-03
+
+- Align onboarding, account settings and the install contract with a personal
+  deployment owned by one human. Linked profiles are that owner's personas;
+  communication peers are not additional instance owners. Require the session
+  hash salt and valid password or complete OIDC configuration at the product
+  adapters, retaining the exact salt across code updates and rollback.
+- Improve feed, story, bookmarks, profile editing, uploads and direct messages:
+  preserve acknowledged changes and drafts, fence stale requests after account
+  or conversation switches, and maintain ordered DM history and pagination.
+  Include native Worker and real-browser regressions for these journeys.
+- Qualify immutable v2.2.0 to candidate password and synthetic-OIDC updates and
+  code restore in disposable native runtimes. Keep Core/API 4.1.11 and Takoform
+  Provider 4.1.0; retain existing release identities and rollback pins.
+- This publication does not deploy an instance or migrate existing data. Real
+  issuer and secret custody, existing-data update/restore, atomic first-owner
+  claims and legacy multiple-owner preservation, published Host installation
+  and public federation remain separate qualification requirements. It is not
+  a claim that GA or live production verification is complete.
+- Existing operators must follow the credential-owner procedure before updating
+  an installation whose previous release did not supply the required session
+  salt. Keep encryption keys and the new salt unchanged through update/restore.
+
 ## 2.2.0 - 2026-09-29
 
 - Publish the stable release the website installs. The source-built Worker ships

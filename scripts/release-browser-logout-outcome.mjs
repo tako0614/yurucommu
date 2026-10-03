@@ -187,6 +187,9 @@ async function createOwnerPage({
     },
   ]);
   const page = await context.newPage();
+  // Install before application timers exist. The held-503 cases pause only
+  // while checking pending UI; login, failure recovery and ACK-loss stay live.
+  if (lane !== "ack-loss") await page.clock.install();
   const observed = watchPage(page, origin);
   await context.route("**/*", async (route) => {
     const request = route.request();
@@ -270,7 +273,7 @@ async function createOwnerPage({
     page,
     seeded,
     observed,
-    fixed503Entered,
+    fixed503Entered: fixed503Request,
     releaseFixed503,
     logoutAttempt: () => logoutAttempt,
     committedResponse: () => committedResponse,
@@ -322,6 +325,7 @@ async function submitLogout(confirm) {
 async function waitForFailureAndRetry({ fixture, origin, caller }) {
   const { page, seeded, observed } = fixture;
   const confirmation = await openAndConfirmLogout(page, caller);
+  const pendingStartedAt = Date.now();
   const firstResponse = submitLogout(confirmation);
   // Handle early cleanup rejection while the pending response is held below.
   firstResponse.catch(() => {});
@@ -341,29 +345,58 @@ async function waitForFailureAndRetry({ fixture, origin, caller }) {
   } finally {
     clearTimeout(gateTimeout);
   }
-  // The pending request must keep the confirmation controls locked. Releasing
-  // the deterministic failure only happens after those states are observed.
+  // Holding HTTP alone does not hold the client's 15s request deadline.
+  // Pause its installed clock so slow driver scheduling cannot turn this
+  // pending-state assertion into an assertion after logout has timed out.
+  // The application's real timeout is unchanged; resume for 503 recovery.
   const retry = confirmation.getByRole("button", { name: "ログアウト" });
   const cancel = confirmation.getByRole("button", { name: "キャンセル" });
-  // Network interception can precede Solid's DOM update. Wait for the actual
-  // disabled controls while the request remains deterministically held.
-  await page.waitForFunction(
-    () => {
-      const dialog = document.querySelector('[role="alertdialog"]');
-      const buttons = Array.from(dialog?.querySelectorAll("button") ?? []);
-      return buttons.length === 2 && buttons.every((button) => button.disabled);
-    },
-    undefined,
-    { timeout: TIMEOUT },
-  );
-  need(!(await retry.isEnabled()), `${caller}-confirm-locked-while-pending`);
-  need(!(await cancel.isEnabled()), `${caller}-cancel-locked-while-pending`);
-  await page.keyboard.press("Escape");
-  await page.waitForTimeout(100);
-  need(
-    (await confirmation.isVisible()) && fixture.logoutAttempt() === 1,
-    `${caller}-pending-escape-does-not-dismiss-or-resend`,
-  );
+  let pending;
+  // The CDP call executes after the driver samples time. Use a bounded
+  // future browser-clock target instead of racing a past wall-clock value.
+  const pauseAt = await page.evaluate(() => Date.now() + 1_000);
+  await page.clock.pauseAt(pauseAt);
+  try {
+    // Advance rendering while preserving plenty of the pending deadline.
+    await page.clock.runFor(100);
+    // Browser rAF/timer polling would stop with the paused clock. Bound
+    // these DOM observations with the driver's wall clock instead.
+    const controlsDeadline = Date.now() + TIMEOUT;
+    let controlsLocked = false;
+    while (Date.now() < controlsDeadline) {
+      controlsLocked = await page.evaluate(() => {
+        const dialog = document.querySelector('[role="alertdialog"]');
+        const buttons = Array.from(dialog?.querySelectorAll("button") ?? []);
+        return (
+          buttons.length === 2 && buttons.every((button) => button.disabled)
+        );
+      });
+      if (controlsLocked) break;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    need(controlsLocked, `${caller}-pending-controls-not-locked`);
+    need(!(await retry.isEnabled()), `${caller}-confirm-locked-while-pending`);
+    need(!(await cancel.isEnabled()), `${caller}-cancel-locked-while-pending`);
+    await page.keyboard.press("Escape");
+    await page.clock.runFor(100);
+    pending = {
+      clock: "paused-during-held-response",
+      wallElapsedMs: Date.now() - pendingStartedAt,
+      confirmationVisible: await confirmation.isVisible(),
+      logoutAttempts: fixture.logoutAttempt(),
+      confirmDisabled: !(await retry.isEnabled()),
+      cancelDisabled: !(await cancel.isEnabled()),
+    };
+    need(
+      pending.confirmationVisible &&
+        pending.logoutAttempts === 1 &&
+        pending.confirmDisabled &&
+        pending.cancelDisabled,
+      `${caller}-pending-escape-does-not-dismiss-or-resend:${JSON.stringify(pending)}`,
+    );
+  } finally {
+    await page.clock.resume();
+  }
   const failedAuthResponse = waitForBrowserAuth(page, origin);
   fixture.releaseFixed503();
   const response = await firstResponse;
@@ -459,6 +492,7 @@ async function waitForFailureAndRetry({ fixture, origin, caller }) {
   );
   return {
     caller,
+    pending,
     failedAttempt: {
       status: 503,
       postCount: 1,
