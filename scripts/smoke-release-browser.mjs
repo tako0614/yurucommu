@@ -25,6 +25,7 @@ import { qualifyBrowserFollowingDelete } from "./release-browser-following-delet
 import { qualifyBrowserDeleteResponse } from "./release-browser-delete-response.mjs";
 import { qualifyBrowserDeletedPage } from "./release-browser-delete-page.mjs";
 import { qualifyBrowserPagerRefresh } from "./release-browser-pager-refresh.mjs";
+import { qualifyBrowserFeedAck } from "./release-browser-feed-ack.mjs";
 import { createManagedNativeRuntime } from "./native-runtime-stdio.mjs";
 import {
   createBrowserOidcErrorIssuer,
@@ -872,6 +873,24 @@ async function runBrowserSmoke(artifactPath, artifactDigest, browser) {
       "Pager-refresh race returned an unexpected HTTP 5xx",
     );
 
+    const feedAckChecks = [];
+    const feedAckMetadata = await qualifyBrowserFeedAck({
+      page,
+      context,
+      db,
+      origin,
+      actorApId,
+      checks: feedAckChecks,
+    });
+    requireEffect(
+      pageErrors.length === 0,
+      "Feed ACK race raised a page runtime error",
+    );
+    requireEffect(
+      serverErrors.length === 0,
+      "Feed ACK race returned an unexpected HTTP 5xx",
+    );
+
     result = {
       kind: "yurucommu.release-browser-smoke@v1",
       artifact: basename(artifactPath),
@@ -905,6 +924,7 @@ async function runBrowserSmoke(artifactPath, artifactDigest, browser) {
       },
       deletedPage: { ...deletedPageMetadata, checks: deletedPageChecks },
       pagerRefresh: { ...pagerRefreshMetadata, checks: pagerRefreshChecks },
+      feedAck: { ...feedAckMetadata, checks: feedAckChecks },
       status: "PASSED",
     };
   } catch (error) {
@@ -987,6 +1007,7 @@ async function main() {
       ...result.deleteResponse.checks,
       ...result.deletedPage.checks,
       ...result.pagerRefresh.checks,
+      ...result.feedAck.checks,
     );
   } catch (error) {
     primaryError = error;
