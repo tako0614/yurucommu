@@ -3,6 +3,7 @@ import { useRequiredActor } from "../hooks/useRequiredActor.ts";
 import type { Actor } from "../types/index.ts";
 import { useI18n } from "../lib/i18n.tsx";
 import { useAtomValue, useSetAtom } from "solid-jotai";
+import { logoutAtom } from "../atoms/auth.ts";
 import { pushToast, toastsAtom } from "../atoms/toast.ts";
 import {
   accountsAtom,
@@ -34,7 +35,6 @@ import {
   fetchBlockedUsers,
   fetchMutedUsers,
   getBrowserNotificationPushState,
-  logout as logoutRequest,
   refreshBrowserNotificationPush,
   type BrowserNotificationPushState,
   unblockUser,
@@ -50,6 +50,7 @@ export function SettingsPage() {
   const actor = useRequiredActor();
   const { t, language, setLanguage } = useI18n();
   const setToasts = useSetAtom(toastsAtom);
+  const doLogout = useSetAtom(logoutAtom);
   const [error, setError] = createSignal<string | null>(null);
   const clearError = () => setError(null);
   const [confirmingDeleteAccount, setConfirmingDeleteAccount] =
@@ -114,12 +115,11 @@ export function SettingsPage() {
     if (loggingOut()) return;
     setLoggingOut(true);
     try {
-      await clearYurucommuBrowserPushBeforeSignOut();
-      await logoutRequest();
+      await doLogout();
     } catch {
       // Ignore errors
     }
-    // Redirect to home to trigger re-auth
+    // The shared logout action preserves explicit sign-out before navigation.
     globalThis.location.href = "/";
   };
 

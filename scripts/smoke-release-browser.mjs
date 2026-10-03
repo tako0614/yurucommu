@@ -31,6 +31,10 @@ import {
   createBrowserOidcErrorIssuer,
   qualifyBrowserOidcRecovery,
 } from "./release-browser-oidc.mjs";
+import {
+  createSettingsSignoutIssuer,
+  qualifySettingsSignout,
+} from "./release-browser-settings-signout.mjs";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const PASSWORD = " release-browser-owner ";
@@ -303,6 +307,108 @@ async function runOidcRecoverySmoke(artifactPath, artifactDigest, browser) {
   requireEffect(
     cleanupFailures.length === 0,
     "OIDC recovery runtime cleanup failed",
+  );
+  return result;
+}
+
+async function runSettingsSignoutSmoke(artifactPath, artifactDigest, browser) {
+  const config = unstable_readConfig(
+    { config: resolve(repo, "wrangler.jsonc") },
+    { hideWarnings: true },
+  );
+  const origin = `http://127.0.0.1:${await freeLoopbackPort()}`;
+  let diagnosticBytes = 0;
+  let externalWorkerFetches = 0;
+  const destination = new Writable({
+    write(chunk, _encoding, callback) {
+      diagnosticBytes = Math.min(
+        Number.MAX_SAFE_INTEGER,
+        diagnosticBytes + chunk.length,
+      );
+      callback();
+    },
+  });
+  let managed;
+  let issuer;
+  let primaryError;
+  let result;
+  const cleanupFailures = [];
+  try {
+    issuer = await createSettingsSignoutIssuer({
+      origin,
+      sessionSalt: SESSION_SALT,
+    });
+    managed = nativeWorker(artifactPath, origin, config, {
+      authBindings: issuer.bindings,
+      destination,
+      outboundService: async (request) => {
+        const response = await issuer.fetch(request);
+        if (response.status === 502) externalWorkerFetches += 1;
+        return response;
+      },
+    });
+    await managed.worker.ready;
+    const { db, schemaSha256, migrationCount } = await applyProductSchema(
+      managed.worker,
+    );
+    const checks = [];
+    const qualification = await qualifySettingsSignout({
+      browser,
+      worker: managed.worker,
+      db,
+      origin,
+      mode: "candidate",
+      checks,
+      issuer,
+      sessionSalt: SESSION_SALT,
+    });
+    requireEffect(
+      externalWorkerFetches === 0,
+      "Settings sign-out attempted an external Worker fetch",
+    );
+    result = {
+      ...qualification,
+      sha256: `sha256:${artifactDigest}`,
+      schemaSha256,
+      migrationCount,
+      browser: browser.version(),
+      substrate:
+        "fresh-local-http-native-d1-kv-r2-queues-and-signed-local-oidc-provider",
+      runtimeDiagnostics: {
+        policy: "discard-raw-output",
+        observedBytes: diagnosticBytes,
+      },
+      externalWorkerFetches: {
+        policy: "denied-locally",
+        attempted: externalWorkerFetches,
+      },
+      status: "PASSED",
+    };
+  } catch (error) {
+    primaryError = error;
+  } finally {
+    for (const [label, close] of [
+      ["worker", () => managed?.dispose()],
+      ["issuer", () => issuer?.close()],
+    ]) {
+      try {
+        await close();
+      } catch {
+        cleanupFailures.push(label);
+      }
+    }
+    destination.destroy();
+  }
+  if (primaryError) {
+    if (cleanupFailures.length)
+      process.stderr.write(
+        "release-browser settings-signout-secondary-cleanup-failure\n",
+      );
+    throw primaryError;
+  }
+  requireEffect(
+    cleanupFailures.length === 0,
+    "Settings sign-out runtime cleanup failed",
   );
   return result;
 }
@@ -995,8 +1101,14 @@ async function main() {
       artifactDigest,
       browser,
     );
+    const settingsSignout = await runSettingsSignoutSmoke(
+      artifactPath,
+      artifactDigest,
+      browser,
+    );
     result = await runBrowserSmoke(artifactPath, artifactDigest, browser);
     result.oidcRecovery = oidcRecovery;
+    result.settingsSignout = settingsSignout;
     result.checks.push(
       ...oidcRecovery.checks,
       ...result.storySubmit.checks,
@@ -1008,6 +1120,7 @@ async function main() {
       ...result.deletedPage.checks,
       ...result.pagerRefresh.checks,
       ...result.feedAck.checks,
+      ...settingsSignout.checks,
     );
   } catch (error) {
     primaryError = error;
