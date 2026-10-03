@@ -7,12 +7,14 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { Miniflare } from "miniflare";
 import { unstable_readConfig, unstable_splitSqlQuery } from "wrangler";
+import { qualifyProductJourneys } from "./release-product-journeys.mjs";
 
 const MAX_RESPONSE_BYTES = 1024 * 1024;
 const APP_ORIGIN = "https://release-smoke.yurucommu.invalid";
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const DELIVERY_QUEUE = "yurucommu-delivery";
 const DELIVERY_DLQ = "yurucommu-delivery-dlq";
+const SESSION_SALT = "release-smoke-only-session-salt";
 
 async function qualifyBackgroundEvents(worker) {
   const schemaBytes = readFileSync(
@@ -257,6 +259,7 @@ async function smokeNativeWorker(artifactPath, artifactDigest) {
     bindings: {
       APP_URL: APP_ORIGIN,
       AUTH_PASSWORD_HASH: "release-smoke-only",
+      YURUCOMMU_SESSION_HASH_SALT: SESSION_SALT,
       DELIVERY_QUEUE_NAME: DELIVERY_QUEUE,
       DELIVERY_DLQ_NAME: DELIVERY_DLQ,
       ENCRYPTION_KEY: "00".repeat(32),
@@ -325,6 +328,12 @@ async function smokeNativeWorker(artifactPath, artifactDigest) {
       throw new Error("embedded Yurucommu UI did not boot from the artifact");
     }
 
+    const journeys = await qualifyProductJourneys(worker, {
+      origin: APP_ORIGIN,
+      sessionSalt: SESSION_SALT,
+      readJson: requireJson,
+    });
+
     return {
       kind: "yurucommu.release-worker-smoke@v1",
       artifact: basename(artifactPath),
@@ -342,6 +351,7 @@ async function smokeNativeWorker(artifactPath, artifactDigest) {
         "queue-dlq",
         "scheduled-retention",
         "scheduled-retention-idempotence",
+        ...journeys,
       ],
       status: "PASSED",
     };
