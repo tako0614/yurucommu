@@ -28,7 +28,7 @@
     "check:site": "bunx prettier --check site site-src && bun scripts/build-site.mjs --check",
     "check:core-release": "bun scripts/check-core-release.mjs",
     "generate:schema-bundle": "bun scripts/generate-schema-bundle.ts",
-    "check:opentofu": "tofu fmt -check -recursive && tofu init -backend=false -input=false -lockfile=readonly && tofu validate && tofu test -no-color -filter=tests/session-salt.tftest.hcl && bun run build:worker && bun scripts/prepare-takoform-v1-source.ts && bun scripts/validate-takoform-v1.ts",
+    "check:opentofu": "tofu fmt -check -recursive && tofu init -backend=false -input=false -lockfile=readonly && tofu validate && tofu test -no-color -filter=tests/session-salt.tftest.hcl -filter=tests/auth-password.tftest.hcl && bun run build:worker && bun scripts/prepare-takoform-v1-source.ts && bun scripts/validate-takoform-v1.ts",
     "e2e:takoform-v1": "bun scripts/takoform-v1-e2e.ts",
     "e2e:takoform-v1:full": "bun scripts/takoform-v1-e2e-full.ts",
     "e2e:takosumi:managed-staging": "bun scripts/takosumi-managed-staging-browser.ts",
@@ -36,7 +36,7 @@
     "smoke:postdeploy": "bun scripts/post-deploy-smoke.ts",
     "smoke:release-artifact": "bun scripts/smoke-release-worker.mjs",
     "lint": "tsc --noEmit",
-    "fmt": "bunx prettier --write index.html vite.config.ts public.ts plugin.ts src site site-src shims scripts",
+    "fmt": "bunx prettier --write index.html vite.config.ts public.ts plugin.ts src site site-src shims scripts && tofu fmt main.tf tests/auth-password.tftest.hcl",
     "fmt:check": "bunx prettier --check index.html vite.config.ts public.ts plugin.ts src site site-src shims scripts"
   },
   "cloudflare": {
