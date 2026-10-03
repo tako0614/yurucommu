@@ -8,6 +8,9 @@ type Window = BookmarkRead & { confirmed: ReadonlyMap<string, boolean> };
 // read leaves no overlay on later GETs, and nothing is persisted to storage.
 const windowsAtom = atom<ReadonlyMap<object, Window>>(new Map());
 
+// Read-only view of the actual store-local registry for lifetime checks.
+export const activeBookmarkReadCountAtom = atom((get) => get(windowsAtom).size);
+
 export function beginBookmarkRead(get: Getter, set: Setter): BookmarkRead {
   const read = { actorApId: get(actorAtom)?.ap_id, ticket: {} };
   set(
@@ -32,7 +35,9 @@ export function finishBookmarkRead(
   set: Setter,
   read: BookmarkRead,
 ): void {
-  const next = new Map(get(windowsAtom));
+  const windows = get(windowsAtom);
+  if (!windows.has(read.ticket)) return;
+  const next = new Map(windows);
   next.delete(read.ticket);
   set(windowsAtom, next);
 }
