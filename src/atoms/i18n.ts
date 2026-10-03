@@ -225,6 +225,9 @@ const translations = {
     "dm.noMessages": "メッセージを送信",
     "dm.placeholder": "メッセージを入力...",
     "dm.send": "送信",
+    "dm.sendRejected": "送信を受け付けられませんでした",
+    "dm.sendUnconfirmed":
+      "送信結果を確認できません。再送すると重複する可能性があります。履歴を確認してください。",
     "dm.typing": "入力中...",
     "dm.loadOlder": "過去のメッセージを読み込む",
     "dm.groupChat": "グループチャット",
@@ -934,6 +937,9 @@ const translations = {
     "dm.noMessages": "No messages yet",
     "dm.placeholder": "Type a message...",
     "dm.send": "Send",
+    "dm.sendRejected": "The message was not accepted",
+    "dm.sendUnconfirmed":
+      "The send result could not be confirmed. Re-sending may duplicate this message. Check the conversation history.",
     "dm.typing": "Typing...",
     "dm.loadOlder": "Load older messages",
     "dm.groupChat": "Group chat",
