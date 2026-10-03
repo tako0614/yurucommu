@@ -76,6 +76,37 @@ async function issueOwnerSession({ worker, db, origin, issuer, sessionSalt }) {
   };
 }
 
+async function readAuthResponse(response, actorApId) {
+  let body;
+  try {
+    body = await response.json();
+  } catch {
+    body = {};
+  }
+  return {
+    status: response.status(),
+    actorApId: body.actor?.ap_id ?? null,
+    role: body.actor?.role ?? null,
+    expected: body.actor?.ap_id === actorApId && body.actor?.role === "owner",
+  };
+}
+
+function waitForBrowserAuth(page, origin) {
+  const response = page.waitForResponse(
+    (value) => {
+      const url = new URL(value.url());
+      return (
+        value.request().method() === "GET" &&
+        url.origin === origin &&
+        url.pathname === "/api/auth/me"
+      );
+    },
+    { timeout: TIMEOUT },
+  );
+  response.catch(() => {});
+  return response;
+}
+
 async function browserAuth(page, actorApId) {
   return page.evaluate(async (expectedActor) => {
     const response = await fetch("/api/auth/me", { credentials: "include" });
@@ -221,11 +252,15 @@ async function createOwnerPage({
     }
     return route.continue();
   });
+  const initialAuthResponse = waitForBrowserAuth(page, origin);
   await page.goto(`${origin}${path}`, {
     waitUntil: "domcontentloaded",
     timeout: TIMEOUT,
   });
-  const initialAuth = await browserAuth(page, seeded.actorApId);
+  const initialAuth = await readAuthResponse(
+    await initialAuthResponse,
+    seeded.actorApId,
+  );
   need(
     initialAuth.status === 200 && initialAuth.expected,
     `${lane}-authenticated-initial-render`,
@@ -329,6 +364,7 @@ async function waitForFailureAndRetry({ fixture, origin, caller }) {
     (await confirmation.isVisible()) && fixture.logoutAttempt() === 1,
     `${caller}-pending-escape-does-not-dismiss-or-resend`,
   );
+  const failedAuthResponse = waitForBrowserAuth(page, origin);
   fixture.releaseFixed503();
   const response = await firstResponse;
   need(response.status() === 503, `${caller}-fixed-503-response`);
@@ -343,7 +379,16 @@ async function waitForFailureAndRetry({ fixture, origin, caller }) {
   );
   need(await confirmation.isVisible(), `${caller}-confirmation-remains-open`);
   need(await retry.isEnabled(), `${caller}-explicit-retry-available`);
-  const auth = await browserAuth(page, seeded.actorApId);
+  const auth = await readAuthResponse(
+    await failedAuthResponse,
+    seeded.actorApId,
+  );
+  need(
+    (await fixture.context.cookies(origin)).some(
+      (cookie) => cookie.name === "session" && cookie.value === seeded.cookie,
+    ),
+    `${caller}-same-browser-cookie-retained-after-503`,
+  );
   need(
     auth.status === 200 && auth.expected,
     `${caller}-same-owner-retained-after-503`,
@@ -430,6 +475,28 @@ async function waitForFailureAndRetry({ fixture, origin, caller }) {
         JSON.stringify(seeded.seeded.owners),
     },
     observations: { ...observed },
+    authBudget: {
+      limit: Number(oldCookieResponse.headers()["x-ratelimit-limit"]),
+      resetAt: Number(oldCookieResponse.headers()["x-ratelimit-reset"]),
+    },
+  };
+}
+
+async function respectAuthBudgetBetweenCases(budget) {
+  // The independent cases share the native runtime's anonymous IP bucket.
+  // Respect its public reset header; do not erase KV, spoof a client IP, or
+  // accept 429 as anonymous authentication. No logout request is retried here.
+  need(
+    budget.limit > 0 && Number.isFinite(budget.resetAt) && budget.resetAt > 0,
+    "auth-budget-reset-header-required",
+  );
+  const waitMs = Math.max(0, budget.resetAt * 1_000 - Date.now() + 10);
+  need(waitMs <= 60_000, "auth-budget-spacing-deadline");
+  if (waitMs > 0) await new Promise((resolve) => setTimeout(resolve, waitMs));
+  return {
+    ...budget,
+    waitMs,
+    policy: "public-reset-header-between-independent-cases",
   };
 }
 
@@ -586,6 +653,9 @@ export async function qualifyLogoutOutcome({
     await appMenu.context.close();
   }
 
+  const caseSpacing = await respectAuthBudgetBetweenCases(
+    appMenuResult.authBudget,
+  );
   const ackLoss = await qualifyAckLoss({
     browser,
     worker,
@@ -623,6 +693,7 @@ export async function qualifyLogoutOutcome({
     settings: settingsResult,
     appMenu: appMenuResult,
     ackLoss,
+    caseSpacing,
     final: {
       liveSessionCount: final.liveSessionCount,
       ownerRows: final.owners,
