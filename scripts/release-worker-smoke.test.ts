@@ -88,6 +88,15 @@ describe("release Worker smoke", () => {
         "private-media-read-refusal",
         "invalid-media-refusal",
         "unauthenticated-api-refusal",
+        "post-write-refusal",
+        "public-post-persistence",
+        "public-post-readback",
+        "public-post-media-visibility",
+        "followers-post-persistence",
+        "followers-post-readback",
+        "followers-post-media-visibility",
+        "public-post-activitypub",
+        "followers-post-activitypub-refusal",
         "logout-revocation",
       ],
       authentication: { passwordMethods: ["pbkdf2-sha256", "bootstrap"] },
@@ -97,6 +106,93 @@ describe("release Worker smoke", () => {
 
   const fetchAnchor = "    // No origin handling here.";
   for (const [name, injected, error] of [
+    [
+      "post attachment followers ActivityPub leaked",
+      `    if (request.method === "GET" && new URL(request.url).pathname.startsWith("/ap/objects/")) {
+      const row = await env.DB.prepare("SELECT * FROM objects WHERE ap_id = ?").bind(env.APP_URL + new URL(request.url).pathname).first();
+      if (row?.visibility === "followers") {
+        const attachment = JSON.parse(row.attachments_json)[0];
+        return Response.json({ id: row.ap_id, type: "Note", attributedTo: row.attributed_to, content: row.content, attachment: [{ type: "Document", mediaType: attachment.content_type, url: env.APP_URL + attachment.url, name: attachment.name }] }, { headers: { "content-type": "application/activity+json" } });
+      }
+    }
+`,
+      "followers-post-activitypub-refusal exposed",
+    ],
+    [
+      "post attachment success without persistence",
+      `    if (request.method === "POST" && new URL(request.url).pathname === "/api/posts" && request.headers.get("cookie")) {
+      const body = await request.clone().json();
+      const origin = env.APP_URL;
+      return Response.json({ post: { ap_id: origin + "/ap/objects/no-write", type: "Note", author: { ap_id: origin + "/ap/users/release-smoke-sender" }, content: body.content, visibility: body.visibility || "public", attachments: body.attachments } });
+    }
+`,
+      "post-persistence did not persist",
+    ],
+    [
+      "post attachment missing durable fanout",
+      `    if (request.method === "POST" && new URL(request.url).pathname === "/api/posts" && request.headers.get("cookie")) {
+      const response = await backendApp.fetch(request, wrapYurucommuWorkerBindings(env) as Env, ctx);
+      if (response.status === 200) {
+        const body = await response.clone().json();
+        await env.DB.prepare("DELETE FROM delivery_fanouts WHERE activity_ap_id IN (SELECT ap_id FROM activities WHERE object_ap_id = ?)").bind(body.post.ap_id).run();
+      }
+      return response;
+    }
+`,
+      "post-fanout did not persist",
+    ],
+    [
+      "post attachment readback losing attachments",
+      `    if (request.method === "GET" && new URL(request.url).pathname.startsWith("/api/posts/")) {
+      const id = decodeURIComponent(new URL(request.url).pathname.slice("/api/posts/".length));
+      const row = await env.DB.prepare("SELECT * FROM objects WHERE ap_id = ?").bind(id).first();
+      return Response.json({ post: { ap_id: row.ap_id, type: row.type, author: { ap_id: row.attributed_to }, content: row.content, visibility: row.visibility, attachments: [] } });
+    }
+`,
+      "post-readback disagrees",
+    ],
+    [
+      "post attachment public media bytes changed",
+      `    if (request.method === "GET" && new URL(request.url).pathname.startsWith("/media/") && (await env.DB.prepare("SELECT COUNT(*) AS count FROM objects WHERE type = 'Note' AND visibility = 'public' AND instr(attachments_json, ?) > 0").bind(new URL(request.url).pathname).first()).count > 0) {
+      return new Response(new Uint8Array([0]), { headers: { "content-type": "image/png", "cache-control": "public, max-age=31536000" } });
+    }
+`,
+      "public-post-media-readback disagrees",
+    ],
+    [
+      "post attachment followers media leaked",
+      `    if (request.method === "GET" && new URL(request.url).pathname.startsWith("/media/") && !request.headers.get("cookie") && (await env.DB.prepare("SELECT COUNT(*) AS count FROM objects WHERE type = 'Note' AND visibility = 'followers' AND instr(attachments_json, ?) > 0").bind(new URL(request.url).pathname).first()).count > 0) {
+      return new Response(Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mMQCDjxHwADxAIopPp9tgAAAABJRU5ErkJggg=="), (char) => char.charCodeAt(0)), { headers: { "content-type": "image/png", "cache-control": "public, max-age=31536000" } });
+    }
+`,
+      "followers-post-media-refusal exposed",
+    ],
+    [
+      "post attachment ActivityPub internal storage key leaked",
+      `    if (request.method === "GET" && new URL(request.url).pathname.startsWith("/ap/objects/")) {
+      const row = await env.DB.prepare("SELECT * FROM objects WHERE ap_id = ?").bind(env.APP_URL + new URL(request.url).pathname).first();
+      const attachment = JSON.parse(row.attachments_json)[0];
+      return Response.json({ id: row.ap_id, type: "Note", attributedTo: row.attributed_to, content: row.content, attachment: [{ type: "Document", mediaType: attachment.content_type, url: env.APP_URL + attachment.url, name: attachment.name, r2_key: attachment.r2_key }] }, { headers: { "content-type": "application/activity+json" } });
+    }
+`,
+      "post-activitypub disagrees",
+    ],
+    [
+      "post attachment accepted anonymous write",
+      `    if (request.method === "POST" && new URL(request.url).pathname === "/api/posts" && !request.headers.get("cookie")) {
+      return Response.json({ success: true });
+    }
+`,
+      "post-write-refusal accepted",
+    ],
+    [
+      "post attachment accepted revoked write",
+      `    if (request.method === "POST" && new URL(request.url).pathname === "/api/posts" && request.headers.get("cookie") && (await env.DB.prepare("SELECT COUNT(*) AS count FROM sessions").first()).count === 2) {
+      return Response.json({ success: true });
+    }
+`,
+      "logout-revocation accepted a post write",
+    ],
     [
       "private media denial with image bytes",
       `    if (request.method === "GET" && new URL(request.url).pathname.startsWith("/media/") && !request.headers.get("cookie")) {
