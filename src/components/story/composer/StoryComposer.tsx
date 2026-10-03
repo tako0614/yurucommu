@@ -38,6 +38,7 @@ import {
   StoryComposerStickerPanel,
 } from "./StoryComposerPanels.tsx";
 import { StoryComposerBackgroundPanel } from "./StoryComposerBackgroundPanel.tsx";
+import { StoryComposerRecovery } from "./StoryComposerRecovery.tsx";
 import { StoryComposerStatusOverlay } from "./StoryComposerStatusOverlay.tsx";
 import { useStoryBackground } from "./useStoryBackground.ts";
 import { useStoryCanvasRenderer } from "./useStoryCanvasRenderer.ts";
@@ -48,8 +49,9 @@ import { useStoryPost } from "./useStoryPost.ts";
 import { useStoryImageUpload } from "./useStoryImageUpload.ts";
 
 interface StoryComposerProps {
+  actorApId: string;
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess: () => void | Promise<void>;
 }
 
 // File size limits. Must match the backend media-upload cap (media.ts
@@ -147,6 +149,7 @@ export function StoryComposer(props: StoryComposerProps) {
   // / caption) represents minutes of work, so Escape and the header close (X)
   // must not silently throw it away — mirrors TimelinePostModal's dirty gate.
   const [showDiscard, setShowDiscard] = createSignal(false);
+  const [showRecoveryClose, setShowRecoveryClose] = createSignal(false);
 
   // Full-screen editor: trap focus, lock scroll, and dismiss on Escape. Escape
   // first dismisses any open tool/background panel (a forgiving step-back),
@@ -156,6 +159,9 @@ export function StoryComposer(props: StoryComposerProps) {
   let composerRootRef: HTMLDivElement | undefined;
   const [submissionStatus, setSubmissionStatus] =
     createSignal<HTMLDivElement | null>(null);
+  const [recoveryRoot, setRecoveryRoot] = createSignal<HTMLDivElement | null>(
+    null,
+  );
   let submissionReturnFocus: HTMLElement | null = null;
   const handleComposerEscape = () => {
     if (postActions.posting()) return;
@@ -171,11 +177,29 @@ export function StoryComposer(props: StoryComposerProps) {
     requestClose();
   };
   useDialog({
-    isOpen: () => !showDiscard(),
+    isOpen: () => !showDiscard() && !showRecoveryClose(),
     onClose: handleComposerEscape,
     container: () => composerRootRef,
     busyFocus: () => (postActions.posting() ? submissionStatus() : null),
+    // Capture the editor at busy entry. Recovery does not exist at that point;
+    // the separate effect below resolves it after an uncertain write settles.
     busyReturnFocus: () => submissionReturnFocus,
+  });
+
+  createEffect(() => {
+    if (!postActions.posting() && postActions.editingLocked()) {
+      const target = recoveryRoot();
+      // The dialog's busy restoration also runs in a microtask. Resolve the
+      // recovery surface after that restoration, once its editors are inert.
+      queueMicrotask(() => {
+        if (
+          !postActions.posting() &&
+          postActions.editingLocked() &&
+          target?.isConnected
+        )
+          target.focus();
+      });
+    }
   });
 
   // Double-tap detection for text editing
@@ -188,7 +212,7 @@ export function StoryComposer(props: StoryComposerProps) {
       return storyCanvas();
     },
     setUploading: setVideoLoading,
-    canEdit: () => !uploading() && !postActions.posting(),
+    canEdit: () => !uploading() && !postActions.editingLocked(),
     setError: (message) => setError(message),
     maxVideoSize: MAX_VIDEO_SIZE,
     onBackgroundChange: bumpRenderKey,
@@ -217,10 +241,13 @@ export function StoryComposer(props: StoryComposerProps) {
     },
     onUpdate: bumpRenderKey,
     onSnapGuidesChange: setSnapGuides,
-    canEdit: () => !postActions.posting(),
+    canEdit: () => !postActions.editingLocked(),
   });
 
   const postActions = useStoryPost({
+    get actorApId() {
+      return props.actorApId;
+    },
     get storyCanvas() {
       return storyCanvas();
     },
@@ -258,6 +285,7 @@ export function StoryComposer(props: StoryComposerProps) {
       finishInteraction();
       videoTransform.finishInteraction();
     },
+    onResumeEditing: () => queueMicrotask(() => submissionReturnFocus?.focus()),
     get overlays() {
       return overlayState.overlays();
     },
@@ -302,7 +330,7 @@ export function StoryComposer(props: StoryComposerProps) {
     },
     selectLayer,
     setUploading: setImageLoading,
-    canEdit: () => !uploading() && !postActions.posting(),
+    canEdit: () => !uploading() && !postActions.editingLocked(),
     setError: (message) => setError(message),
     onUpdate: () => {
       bumpRenderKey();
@@ -312,7 +340,7 @@ export function StoryComposer(props: StoryComposerProps) {
 
   const videoTransform = useVideoTransform({
     get enabled() {
-      return !!video.videoPreview() && !postActions.posting();
+      return !!video.videoPreview() && !postActions.editingLocked();
     },
     get scale() {
       return video.videoScale();
@@ -544,6 +572,12 @@ export function StoryComposer(props: StoryComposerProps) {
   // straight away. Used by Escape (handleComposerEscape) and the header X.
   const requestClose = () => {
     if (postActions.posting()) return;
+    if (postActions.editingLocked()) {
+      if (postActions.recovery().failed || !postActions.recovery().record)
+        setShowRecoveryClose(true);
+      else postActions.keepRecoveryAndClose();
+      return;
+    }
     if (isDirty()) {
       setShowDiscard(true);
       return;
@@ -580,8 +614,8 @@ export function StoryComposer(props: StoryComposerProps) {
         {/* All draft editors, including nested panels, freeze together. */}
         <fieldset
           class="contents"
-          disabled={postActions.posting()}
-          inert={postActions.posting()}
+          disabled={postActions.editingLocked()}
+          inert={postActions.editingLocked()}
           aria-busy={postActions.posting()}
         >
           <StoryComposerCanvas
@@ -613,7 +647,7 @@ export function StoryComposer(props: StoryComposerProps) {
 
           {/* Interactive overlay layer (poll / note / link) over the canvas. */}
           <StoryComposerOverlayLayer
-            disabled={postActions.posting()}
+            disabled={postActions.editingLocked()}
             items={overlayState.items()}
             selectedId={overlayState.selectedId()}
             onSelect={overlayState.setSelectedId}
@@ -770,6 +804,33 @@ export function StoryComposer(props: StoryComposerProps) {
             onCancel={() => setShowDiscard(false)}
           />
         </fieldset>
+        <Show when={!postActions.posting() && postActions.editingLocked()}>
+          <StoryComposerRecovery
+            snapshot={postActions.recovery()}
+            identityChanged={postActions.identityChanged()}
+            fallbackCaption={caption()}
+            fallbackOverlays={overlayState.overlays()}
+            onRetry={postActions.retry}
+            onDiscard={postActions.discardRecovery}
+            canResumeEditing={postActions.canResumeEditing()}
+            onResumeEditing={postActions.resumeEditing}
+            onClose={postActions.keepRecoveryAndClose}
+            ref={setRecoveryRoot}
+          />
+        </Show>
+        <ConfirmSheet
+          open={showRecoveryClose()}
+          zIndex={53}
+          title={t("story.recoveryCloseUnsaved")}
+          body={t("story.recoveryStorageFailed")}
+          confirmLabel={t("story.recoveryCloseUnsaved")}
+          cancelLabel={t("posts.keepEditing")}
+          onConfirm={() => {
+            setShowRecoveryClose(false);
+            postActions.keepRecoveryAndClose();
+          }}
+          onCancel={() => setShowRecoveryClose(false)}
+        />
         <StoryComposerStatusOverlay
           ffmpegLoading={video.ffmpegLoading()}
           posting={postActions.posting()}

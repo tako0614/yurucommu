@@ -12,6 +12,7 @@ import { useAtomValue, useSetAtom } from "solid-jotai";
 import { useRequiredActor } from "../hooks/useRequiredActor.ts";
 import { StoryBar } from "../components/story/StoryBar.tsx";
 import { ScopeHeader } from "../components/scope/ScopeHeader.tsx";
+import { actorAtom } from "../atoms/auth.ts";
 import { createScopeOpenAtom } from "../atoms/shell.ts";
 import { showScopeSwitcherAtom } from "../atoms/timeline.ts";
 import { inhabitedScopeAtom } from "../atoms/scope.ts";
@@ -45,6 +46,7 @@ const FEED_TABS: {
 
 export function TimelinePage() {
   const actor = useRequiredActor();
+  const currentActor = useAtomValue(actorAtom);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const state = useTimelineState();
@@ -130,6 +132,7 @@ export function TimelinePage() {
       <Show when={state.showStoryComposer()}>
         <Suspense fallback={<LoadingSpinner fullScreen={true} />}>
           <StoryComposer
+            actorApId={currentActor()?.ap_id ?? ""}
             onClose={() => state.setShowStoryComposer(false)}
             onSuccess={state.handleStorySuccess}
           />
