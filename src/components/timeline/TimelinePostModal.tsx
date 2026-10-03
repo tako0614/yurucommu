@@ -53,6 +53,7 @@ interface TimelinePostModalProps {
   onMediaAltChange: (index: number, alt: string) => void;
   uploading: boolean;
   uploadError: string | null;
+  submitError: string | null;
 }
 
 // Composer visibility options. "direct" is intentionally absent: a DM is not a
@@ -262,6 +263,11 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
 
           {/* Modal Content */}
           <div class="p-4">
+            <Show when={props.submitError}>
+              <p role="alert" class="mb-3 text-sm text-red-400">
+                {props.submitError}
+              </p>
+            </Show>
             {/* The post goes to your reach. This control only NARROWS who can
                 see it (public / unlisted / followers); a post is not filed into
                 a community — that's a separate, deliberate action. */}

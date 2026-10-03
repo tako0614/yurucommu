@@ -14,6 +14,7 @@ import { qualifyBrowserFeed } from "./release-browser-feed.mjs";
 import { qualifySearchFollowing } from "./release-browser-follow.mjs";
 import { qualifyBrowserDM } from "./release-browser-dm.mjs";
 import { qualifyBrowserNotifications } from "./release-browser-notifications.mjs";
+import { qualifyBrowserPostOutcome } from "./release-browser-post-outcome.mjs";
 import { createManagedNativeRuntime } from "./native-runtime-stdio.mjs";
 import {
   createBrowserOidcErrorIssuer,
@@ -632,6 +633,13 @@ async function runBrowserSmoke(artifactPath, artifactDigest, browser) {
     );
     checks.push("feed-scope-single-live-owner-no-member-seed");
 
+    const postOutcomeMetadata = await qualifyBrowserPostOutcome({
+      page,
+      db,
+      origin,
+      actorApId,
+      checks,
+    });
     const followMetadata = await qualifySearchFollowing({
       page,
       db,
@@ -712,6 +720,7 @@ async function runBrowserSmoke(artifactPath, artifactDigest, browser) {
         "one self-created root owner and two API-created own personas; synthetic remote Like/Announce and one cache/inbox peer fixture; no local actor/session seed or public TLS/deploy/federation qualification",
       checks,
       feed: feedMetadata,
+      postOutcome: postOutcomeMetadata,
       follow: followMetadata,
       dm: dmMetadata,
       notifications: notificationMetadata,
