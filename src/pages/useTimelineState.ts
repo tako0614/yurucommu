@@ -7,7 +7,9 @@ import {
   actorStoriesAtom,
   applyNewPostsAtom,
   checkNewPostsAtom,
+  deleteTimelinePostAtom,
   followingHasMoreAtom,
+  followingCursorAtom,
   followingLoadedAtAtom,
   followingLoadErrorAtom,
   followingLoadingAtom,
@@ -27,6 +29,7 @@ import {
   storiesLoadingAtom,
   storyViewerActorIndexAtom,
   timelineHasMoreAtom,
+  timelineCursorAtom,
   timelineLoadedAtAtom,
   timelineLoadErrorAtom,
   timelineLoadingAtom,
@@ -36,7 +39,7 @@ import {
   type HomeFeedTab,
 } from "../atoms/timeline.ts";
 import { toggleBookmark, toggleLike, toggleRepost } from "../atoms/posts.ts";
-import { deletePost, editPost } from "../lib/api/posts.ts";
+import { editPost } from "../lib/api/posts.ts";
 import { blockUser, muteUser } from "../lib/api/actors.ts";
 import { reportContent } from "../lib/api/moderation.ts";
 import type { ActorStories, Post } from "../types/index.ts";
@@ -60,6 +63,7 @@ export function useTimelineState() {
   const allLoading = useAtomValue(timelineLoadingAtom);
   const allLoadingMore = useAtomValue(timelineLoadingMoreAtom);
   const allHasMore = useAtomValue(timelineHasMoreAtom);
+  const allCursor = useAtomValue(timelineCursorAtom);
   const allLoadError = useAtomValue(timelineLoadErrorAtom);
 
   // State atoms — following feed (independent page/cursor/scroll state)
@@ -67,6 +71,7 @@ export function useTimelineState() {
   const followingLoading = useAtomValue(followingLoadingAtom);
   const followingLoadingMore = useAtomValue(followingLoadingMoreAtom);
   const followingHasMore = useAtomValue(followingHasMoreAtom);
+  const followingCursor = useAtomValue(followingCursorAtom);
   const followingLoadError = useAtomValue(followingLoadErrorAtom);
   const followingLoadedAt = useAtomValue(followingLoadedAtAtom);
   const [savedFollowingScrollTop, setSavedFollowingScrollTop] = useAtom(
@@ -115,6 +120,7 @@ export function useTimelineState() {
 
   // Actions
   const loadTimeline = useSetAtom(loadTimelineAtom);
+  const deleteTimelinePost = useSetAtom(deleteTimelinePostAtom);
   const loadMoreAll = useSetAtom(loadMoreTimelineAtom);
   const loadFollowing = useSetAtom(loadFollowingTimelineAtom);
   const loadMoreFollowing = useSetAtom(loadMoreFollowingTimelineAtom);
@@ -145,8 +151,12 @@ export function useTimelineState() {
     const list = tab === "following" ? followingPosts() : allPosts();
     const loadedAt =
       tab === "following" ? followingLoadedAt() : timelineLoadedAt();
+    const olderPage =
+      tab === "following"
+        ? followingHasMore() && followingCursor() !== null
+        : allHasMore() && allCursor() !== null;
     return (
-      list.length > 0 &&
+      (list.length > 0 || olderPage) &&
       loadedAt !== null &&
       Date.now() - loadedAt < TIMELINE_FRESH_MS
     );
@@ -366,8 +376,7 @@ export function useTimelineState() {
   // entries of the deleted post (they share the original's ap_id).
   const handleDelete = async (post: Post) => {
     try {
-      await deletePost(post.ap_id);
-      setBothFeeds((prev) => prev.filter((p) => p.ap_id !== post.ap_id));
+      await deleteTimelinePost(post.ap_id);
       pushToast(setToasts, t()("feedback.postDeleted"), { kind: "success" });
     } catch (e) {
       console.error("Failed to delete post:", e);

@@ -272,31 +272,33 @@ export function TimelinePage() {
             <Show
               when={state.posts().length > 0}
               fallback={
-                <Show
-                  when={state.feedTab() === "following"}
-                  fallback={
-                    <FirstFeedEmptyState
-                      communityScope={communityScope()}
-                      onCreateStory={state.handleAddStory}
-                      onCreateCommunity={() => openCreateScope(true)}
-                      onDiscoverCommunities={() => navigate("/search")}
-                    />
-                  }
-                >
-                  {/* Following-only empty state: the community/story CTAs of
+                <Show when={!state.hasMore()}>
+                  <Show
+                    when={state.feedTab() === "following"}
+                    fallback={
+                      <FirstFeedEmptyState
+                        communityScope={communityScope()}
+                        onCreateStory={state.handleAddStory}
+                        onCreateCommunity={() => openCreateScope(true)}
+                        onDiscoverCommunities={() => navigate("/search")}
+                      />
+                    }
+                  >
+                    {/* Following-only empty state: the community/story CTAs of
                       the first-feed empty state don't apply here. */}
-                  <div class="flex min-h-[50vh] flex-col items-center justify-center p-8 text-center">
-                    <p class="max-w-xs text-sm text-neutral-400">
-                      {state.t()("timeline.followingEmpty")}
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => navigate("/search")}
-                      class="mt-6 rounded-full border border-neutral-700 px-5 py-3 text-sm font-medium text-neutral-200 transition-colors hover:bg-neutral-800"
-                    >
-                      {state.t()("timeline.findPeople")}
-                    </button>
-                  </div>
+                    <div class="flex min-h-[50vh] flex-col items-center justify-center p-8 text-center">
+                      <p class="max-w-xs text-sm text-neutral-400">
+                        {state.t()("timeline.followingEmpty")}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => navigate("/search")}
+                        class="mt-6 rounded-full border border-neutral-700 px-5 py-3 text-sm font-medium text-neutral-200 transition-colors hover:bg-neutral-800"
+                      >
+                        {state.t()("timeline.findPeople")}
+                      </button>
+                    </div>
+                  </Show>
                 </Show>
               }
             >
@@ -339,40 +341,32 @@ export function TimelinePage() {
                 class="h-px w-full"
                 aria-hidden="true"
               />
-              {/* Keyboard/SR-reachable equivalent of the scroll sentinel: the
-                  IntersectionObserver only fires on scroll, leaving keyboard and
-                  screen-reader users with no way to page. loadMore() self-guards
-                  on loadingMore/hasMore. */}
-              <Show
-                when={
-                  state.hasMore() &&
-                  !state.loadingMore() &&
-                  state.posts().length > 0
-                }
-              >
-                <div class="flex justify-center py-4">
-                  <button
-                    onClick={() => state.loadMore()}
-                    class="px-4 py-2 text-sm text-neutral-400 hover:text-white rounded-full border border-neutral-800 hover:bg-neutral-800/50 transition-colors"
-                  >
-                    {state.t()("common.loadMore")}
-                  </button>
-                </div>
-              </Show>
-              <Show when={state.loadingMore()}>
-                <div
-                  class="flex justify-center py-4"
-                  role="status"
-                  aria-label={state.t()("common.loading")}
-                >
-                  <div class="w-6 h-6 border-2 border-neutral-700 border-t-neutral-400 rounded-full animate-spin" />
-                </div>
-              </Show>
               <Show when={!state.hasMore() && state.posts().length > 0}>
                 <div class="p-4 text-center text-neutral-600 text-sm">
                   {state.t()("timeline.noMorePosts")}
                 </div>
               </Show>
+            </Show>
+            {/* Keep manual paging reachable when a delayed page contains
+                only deleted rows; do not automatically drain empty pages. */}
+            <Show when={state.hasMore() && !state.loadingMore()}>
+              <div class="flex justify-center py-4">
+                <button
+                  onClick={() => state.loadMore()}
+                  class="px-4 py-2 text-sm text-neutral-400 hover:text-white rounded-full border border-neutral-800 hover:bg-neutral-800/50 transition-colors"
+                >
+                  {state.t()("common.loadMore")}
+                </button>
+              </div>
+            </Show>
+            <Show when={state.loadingMore()}>
+              <div
+                class="flex justify-center py-4"
+                role="status"
+                aria-label={state.t()("common.loading")}
+              >
+                <div class="w-6 h-6 border-2 border-neutral-700 border-t-neutral-400 rounded-full animate-spin" />
+              </div>
             </Show>
           </Show>
         </Show>
