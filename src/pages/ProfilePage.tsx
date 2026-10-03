@@ -1,4 +1,12 @@
-import { createEffect, createSignal, lazy, on, Show, Suspense } from "solid-js";
+import {
+  createEffect,
+  createSignal,
+  lazy,
+  on,
+  onCleanup,
+  Show,
+  Suspense,
+} from "solid-js";
 import { useParams } from "@solidjs/router";
 import { decodeApIdParam } from "../lib/routeApId.ts";
 import { useRequiredActor } from "../hooks/useRequiredActor.ts";
@@ -129,6 +137,9 @@ export function ProfilePage() {
   // prior load overwrite the new one, and the id is captured ONCE so the actor
   // and its posts can't come from two different profiles (split-await mismatch).
   let profileLoadGen = 0;
+  onCleanup(() => {
+    profileLoadGen += 1;
+  });
   const loadProfile = async () => {
     const id = targetActorId();
     const gen = ++profileLoadGen;
@@ -274,7 +285,7 @@ export function ProfilePage() {
 
   const openEditModal = () => {
     const p = profile();
-    if (p) {
+    if (p && isOwnProfile() && !saving()) {
       setEditName(p.name || "");
       setEditSummary(p.summary || "");
       setEditIsPrivate(p.is_private || false);
@@ -286,7 +297,16 @@ export function ProfilePage() {
   };
 
   const handleSaveProfile = async () => {
-    if (saving()) return;
+    const currentProfile = profile();
+    if (
+      saving() ||
+      !showEditModal() ||
+      !isOwnProfile() ||
+      currentProfile?.ap_id !== actor.ap_id
+    )
+      return;
+    const gen = profileLoadGen;
+    const target = targetActorId();
     setSaving(true);
     // Keep only fully-populated label/value pairs; the backend replaces the
     // stored set with this array and caps it at 4.
@@ -294,40 +314,37 @@ export function ProfilePage() {
       .map((f) => ({ name: f.name.trim(), value: f.value.trim() }))
       .filter((f) => f.name && f.value)
       .slice(0, 4);
+    // Use the same snapshot for the request and its acknowledged UI state.
+    // A late response must not re-read a newer editor or another profile.
+    const submitted = {
+      name: editName().trim(),
+      summary: editSummary().trim(),
+      icon_url: editIconUrl() || undefined,
+      header_url: editHeaderUrl() || undefined,
+      is_private: editIsPrivate(),
+      fields: cleanFields,
+    };
     try {
-      await updateProfile({
-        // Same verbatim-send rationale as `summary` below: `|| undefined`
-        // meant CLEARING the display name never persisted (the backend skips
-        // absent fields) — it fell back to the username in the UI but the old
-        // name reappeared on reload. An empty string clears it server-side.
-        name: editName().trim(),
-        // Send the (possibly empty) bio verbatim so CLEARING it actually
-        // persists: `"" || undefined` would send `undefined`, which the backend
-        // skips (PUT /me only updates `summary` when it is present) — the bio
-        // would optimistically vanish from the UI but reappear on reload. An
-        // empty string makes the backend store null (clears it).
-        summary: editSummary().trim(),
-        icon_url: editIconUrl() || undefined,
-        header_url: editHeaderUrl() || undefined,
-        is_private: editIsPrivate(),
-        fields: cleanFields,
-      });
+      // Empty name/bio are deliberate clears; keep them in the payload.
+      await updateProfile(submitted);
+      if (gen !== profileLoadGen || targetActorId() !== target) return;
       setProfile((prev) =>
-        prev
+        prev?.ap_id === currentProfile.ap_id
           ? {
               ...prev,
-              name: editName().trim() || prev.preferred_username,
-              summary: editSummary().trim(),
-              icon_url: editIconUrl() ?? prev.icon_url,
-              header_url: editHeaderUrl() ?? prev.header_url,
-              is_private: editIsPrivate(),
-              fields: cleanFields,
+              name: submitted.name || prev.preferred_username,
+              summary: submitted.summary,
+              icon_url: submitted.icon_url ?? prev.icon_url,
+              header_url: submitted.header_url ?? prev.header_url,
+              is_private: submitted.is_private,
+              fields: submitted.fields,
             }
-          : null,
+          : prev,
       );
       setShowEditModal(false);
       pushToast(setToasts, t("feedback.settingsSaved"), { kind: "success" });
     } catch (e) {
+      if (gen !== profileLoadGen || targetActorId() !== target) return;
       console.error("Failed to update profile:", e);
       pushToast(setToasts, t("feedback.settingsFailed"), { kind: "error" });
     } finally {
@@ -505,7 +522,9 @@ export function ProfilePage() {
           editHeaderUrl={editHeaderUrl()}
           editFields={editFields()}
           saving={saving()}
-          onClose={() => setShowEditModal(false)}
+          onClose={() => {
+            if (!saving()) setShowEditModal(false);
+          }}
           onSave={handleSaveProfile}
           onChangeName={(event) => setEditName(event.currentTarget.value)}
           onChangeSummary={(event) => setEditSummary(event.currentTarget.value)}
