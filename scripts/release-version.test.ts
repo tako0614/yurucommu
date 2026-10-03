@@ -295,7 +295,8 @@ exit 1
 
 describe("release version", () => {
   test("records the stable fresh-install release while retaining authoritative rollback pins", () => {
-    expect(packageVersion).toBe("2.2.0");
+    expect(packageVersion).toBe("2.3.0");
+    expect(changelogSource).toContain("## 2.3.0 - 2026-10-03");
     expect(changelogSource).toContain("## 2.2.0 - 2026-09-29");
     expect(changelogSource).toContain("## 2.2.0-rc.3 - 2026-09-06");
     expect(changelogSource).toContain("## 2.2.0-rc.2 - 2026-09-06");
@@ -381,7 +382,7 @@ describe("release version", () => {
       artifactUrl,
     );
     expect(deploymentDefault(moduleSource, "worker_bundle_sha256")).toBe(
-      "sha256:b0d1d40893a664b8030ddd9a2a003beb350f0394d1d705814b1ada88c2a391dc",
+      "sha256:a453e0746cf4ae33bb18f04fd949ef06f70d0d2f70dcc6479c11a6123773b386",
     );
     expect(takoformModuleSource).not.toContain('variable "worker_release_tag"');
     expect(takoformModuleSource).not.toContain('variable "worker_bundle_url"');

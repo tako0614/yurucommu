@@ -253,7 +253,7 @@ variable "worker_bundle_path" {
 variable "worker_release_tag" {
   description = "Immutable GitHub release identity for the Worker artifact. With no explicit worker_bundle_url it selects the append-only release.lock.json entry; with an explicit URL the URL must select this exact tag. Set both empty to use worker_bundle_path."
   type        = string
-  default     = "v2.2.0"
+  default     = "v2.3.0"
 
   validation {
     condition     = trimspace(var.worker_release_tag) == "" || can(regex("^v[0-9]+\\.[0-9]+\\.[0-9]+([-+][0-9A-Za-z.-]+)?$", trimspace(var.worker_release_tag)))
@@ -264,7 +264,7 @@ variable "worker_release_tag" {
 variable "worker_bundle_url" {
   description = "Optional HTTPS URL for a prebuilt Worker module JS artifact. When set, OpenTofu downloads this artifact and verifies worker_bundle_sha256 before upload."
   type        = string
-  default     = "https://github.com/tako0614/yurucommu/releases/download/v2.2.0/yurucommu-worker.js"
+  default     = "https://github.com/tako0614/yurucommu/releases/download/v2.3.0/yurucommu-worker.js"
 
   validation {
     condition     = trimspace(var.worker_bundle_url) == "" || can(regex("^https://[^[:space:]]+$", trimspace(var.worker_bundle_url)))
@@ -275,7 +275,7 @@ variable "worker_bundle_url" {
 variable "worker_bundle_sha256" {
   description = "Expected SHA-256 assertion for an explicit worker_bundle_url or local worker_bundle_path. Accepts lowercase hex or sha256:<hex>. When worker_bundle_url is empty and worker_release_tag selects release.lock.json, a supplied value must equal that pin."
   type        = string
-  default     = "sha256:b0d1d40893a664b8030ddd9a2a003beb350f0394d1d705814b1ada88c2a391dc"
+  default     = "sha256:a453e0746cf4ae33bb18f04fd949ef06f70d0d2f70dcc6479c11a6123773b386"
 
   validation {
     condition     = trimspace(var.worker_bundle_sha256) == "" || can(regex("^(sha256:)?[a-f0-9]{64}$", trimspace(var.worker_bundle_sha256)))
