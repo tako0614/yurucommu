@@ -43,6 +43,8 @@ interface TimelinePostModalProps {
   submitLabel: string;
   submittingLabel: string;
   onClose: () => void;
+  // True means the acknowledged composition can safely close. A successful
+  // earlier post may leave a newer observed draft open instead.
   onSubmit: () => Promise<boolean>;
   posting: boolean;
   onFileSelect: (
@@ -121,13 +123,14 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
     () =>
       (props.postContent.trim().length > 0 || props.uploadedMedia.length > 0) &&
       !props.posting &&
+      !props.uploading &&
       !overLimit(),
   );
 
   // Close request: confirm first when there is unsent content, otherwise close
   // straight away. Used by Escape, the backdrop, and the header close button.
   const requestClose = () => {
-    if (props.posting) return;
+    if (props.posting || props.uploading) return;
     if (isDirty()) {
       setShowDiscard(true);
       return;
@@ -136,6 +139,7 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
   };
 
   const confirmDiscard = () => {
+    if (props.posting || props.uploading) return;
     setShowDiscard(false);
     props.onClose();
   };
@@ -192,6 +196,7 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
 
   // Insert an emoji at the current caret position in the post textarea.
   const insertEmoji = (emoji: string) => {
+    if (props.posting) return;
     const el = textareaRef;
     const current = props.postContent;
     if (!el) {
@@ -222,6 +227,7 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
           ref={dialogRef}
           role="dialog"
           aria-modal="true"
+          aria-busy={props.posting || props.uploading}
           aria-label={props.placeholder}
           class="bg-neutral-900 w-full max-w-lg max-h-[calc(100dvh-3rem)] overflow-y-auto rounded-2xl border border-neutral-800"
         >
@@ -229,6 +235,7 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
           <div class="flex items-center justify-between px-4 py-3 border-b border-neutral-800">
             <button
               onClick={requestClose}
+              disabled={props.posting || props.uploading}
               aria-label={t("common.close")}
               class="text-white hover:text-neutral-400 transition-colors"
             >
@@ -248,8 +255,9 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
               </span>
               <button
                 onClick={async () => {
-                  const success = await props.onSubmit();
-                  if (success) {
+                  if (!canSubmit()) return;
+                  const canClose = await props.onSubmit();
+                  if (canClose) {
                     props.onClose();
                   }
                 }}
@@ -261,226 +269,231 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
             </div>
           </div>
 
-          {/* Modal Content */}
-          <div class="p-4">
-            <Show when={props.submitError}>
-              <p role="alert" class="mb-3 text-sm text-red-400">
-                {props.submitError}
-              </p>
-            </Show>
-            {/* The post goes to your reach. This control only NARROWS who can
+          {/* Native disabled descendants cover even an already-open emoji panel. */}
+          <fieldset disabled={props.posting} class="contents">
+            {/* Modal Content */}
+            <div class="p-4">
+              <Show when={props.submitError}>
+                <p role="alert" class="mb-3 text-sm text-red-400">
+                  {props.submitError}
+                </p>
+              </Show>
+              {/* The post goes to your reach. This control only NARROWS who can
                 see it (public / unlisted / followers); a post is not filed into
                 a community — that's a separate, deliberate action. */}
-            <div class="mb-3 flex flex-wrap items-center gap-2">
-              <label class="sr-only" for="post-visibility">
-                {t("posts.visibility")}
-              </label>
-              <select
-                id="post-visibility"
-                value={props.postVisibility}
-                onChange={(e) =>
-                  props.onPostVisibilityChange(
-                    e.currentTarget.value as PostVisibility,
-                  )
-                }
-                class="bg-neutral-800 text-white text-sm rounded-full px-3 py-1.5 outline-none border border-neutral-700 focus:border-accent transition-colors"
-              >
-                <For each={VISIBILITY_OPTIONS}>
-                  {(opt) => (
-                    <option value={opt.value}>{t(opt.labelKey)}</option>
-                  )}
-                </For>
-              </select>
-            </div>
-
-            {/* Read-only reach line reflecting the chosen visibility. */}
-            <p class="mb-3 px-1 text-xs text-neutral-500">{reach()}</p>
-
-            {/* Content warning input */}
-            <Show when={showCw()}>
-              <div class="mb-3">
-                <input
-                  ref={cwInputRef}
-                  type="text"
-                  value={props.postSummary}
-                  onInput={(e) =>
-                    props.onPostSummaryChange(e.currentTarget.value)
+              <div class="mb-3 flex flex-wrap items-center gap-2">
+                <label class="sr-only" for="post-visibility">
+                  {t("posts.visibility")}
+                </label>
+                <select
+                  id="post-visibility"
+                  value={props.postVisibility}
+                  onChange={(e) =>
+                    props.onPostVisibilityChange(
+                      e.currentTarget.value as PostVisibility,
+                    )
                   }
-                  placeholder={t("posts.cwPlaceholder")}
-                  class={`w-full bg-neutral-800 text-white placeholder-neutral-500 rounded-lg px-3 py-2 text-sm outline-none border transition-colors focus:border-accent ${
-                    summaryOverLimit() ? "border-red-500" : "border-neutral-700"
-                  }`}
-                />
-                <div class="mt-1 flex items-center justify-end gap-2 px-1">
-                  <Show when={summaryOverLimit()}>
-                    <span class="text-xs text-red-500">
-                      {t("compose.cwTooLong")}
-                    </span>
-                  </Show>
-                  <span
-                    class={`text-xs tabular-nums ${
-                      summaryOverLimit() ? "text-red-500" : "text-neutral-500"
-                    }`}
-                  >
-                    {t("posts.charCount")
-                      .replace("{count}", String(summaryLength()))
-                      .replace("{max}", String(MAX_SUMMARY_LENGTH))}
-                  </span>
-                </div>
+                  class="bg-neutral-800 text-white text-sm rounded-full px-3 py-1.5 outline-none border border-neutral-700 focus:border-accent transition-colors"
+                >
+                  <For each={VISIBILITY_OPTIONS}>
+                    {(opt) => (
+                      <option value={opt.value}>{t(opt.labelKey)}</option>
+                    )}
+                  </For>
+                </select>
               </div>
-            </Show>
 
-            <div class="flex gap-3">
-              <UserAvatar
-                avatarUrl={props.actor.icon_url}
-                name={props.actor.name || props.actor.username}
-                size={48}
-              />
-              <div class="flex-1">
-                <textarea
-                  ref={textareaRef}
-                  value={props.postContent}
-                  onInput={(e) =>
-                    props.onPostContentChange(e.currentTarget.value)
-                  }
-                  placeholder={props.placeholder}
-                  class="w-full bg-transparent text-white placeholder-neutral-500 resize-none outline-none text-lg min-h-[120px]"
-                  autofocus
+              {/* Read-only reach line reflecting the chosen visibility. */}
+              <p class="mb-3 px-1 text-xs text-neutral-500">{reach()}</p>
+
+              {/* Content warning input */}
+              <Show when={showCw()}>
+                <div class="mb-3">
+                  <input
+                    ref={cwInputRef}
+                    type="text"
+                    value={props.postSummary}
+                    onInput={(e) =>
+                      props.onPostSummaryChange(e.currentTarget.value)
+                    }
+                    placeholder={t("posts.cwPlaceholder")}
+                    class={`w-full bg-neutral-800 text-white placeholder-neutral-500 rounded-lg px-3 py-2 text-sm outline-none border transition-colors focus:border-accent ${
+                      summaryOverLimit()
+                        ? "border-red-500"
+                        : "border-neutral-700"
+                    }`}
+                  />
+                  <div class="mt-1 flex items-center justify-end gap-2 px-1">
+                    <Show when={summaryOverLimit()}>
+                      <span class="text-xs text-red-500">
+                        {t("compose.cwTooLong")}
+                      </span>
+                    </Show>
+                    <span
+                      class={`text-xs tabular-nums ${
+                        summaryOverLimit() ? "text-red-500" : "text-neutral-500"
+                      }`}
+                    >
+                      {t("posts.charCount")
+                        .replace("{count}", String(summaryLength()))
+                        .replace("{max}", String(MAX_SUMMARY_LENGTH))}
+                    </span>
+                  </div>
+                </div>
+              </Show>
+
+              <div class="flex gap-3">
+                <UserAvatar
+                  avatarUrl={props.actor.icon_url}
+                  name={props.actor.name || props.actor.username}
+                  size={48}
                 />
-                <Show when={props.uploadedMedia.length > 0}>
-                  <div class="flex flex-col gap-3 mt-2">
-                    {/* Index (not For): the alt-text inputs are editable and
+                <div class="flex-1">
+                  <textarea
+                    ref={textareaRef}
+                    value={props.postContent}
+                    onInput={(e) =>
+                      props.onPostContentChange(e.currentTarget.value)
+                    }
+                    placeholder={props.placeholder}
+                    class="w-full bg-transparent text-white placeholder-neutral-500 resize-none outline-none text-lg min-h-[120px]"
+                    autofocus
+                  />
+                  <Show when={props.uploadedMedia.length > 0}>
+                    <div class="flex flex-col gap-3 mt-2">
+                      {/* Index (not For): the alt-text inputs are editable and
                         onMediaAltChange rebuilds the array with a NEW object per
                         edited row — <For> keys by reference, so it would recreate
                         the <input> on every keystroke and drop focus. */}
-                    <Index each={props.uploadedMedia}>
-                      {(media, idx) => (
-                        <div class="flex gap-2 items-start">
-                          <div class="relative shrink-0">
-                            {/* Staged videos preview as a muted first-frame
+                      <Index each={props.uploadedMedia}>
+                        {(media, idx) => (
+                          <div class="flex gap-2 items-start">
+                            <div class="relative shrink-0">
+                              {/* Staged videos preview as a muted first-frame
                                 <video>; images keep the <img> path. */}
-                            <Show
-                              when={media().content_type.startsWith("video/")}
-                              fallback={
-                                <img
-                                  src={media().preview}
-                                  alt={media().name || ""}
-                                  class="w-20 h-20 object-cover rounded-lg"
-                                />
-                              }
-                            >
-                              <video
-                                src={media().preview}
-                                muted
-                                playsinline
-                                preload="metadata"
-                                aria-label={
-                                  media().name || t("compose.videoPreview")
+                              <Show
+                                when={media().content_type.startsWith("video/")}
+                                fallback={
+                                  <img
+                                    src={media().preview}
+                                    alt={media().name || ""}
+                                    class="w-20 h-20 object-cover rounded-lg"
+                                  />
                                 }
-                                class="w-20 h-20 object-cover rounded-lg bg-black"
+                              >
+                                <video
+                                  src={media().preview}
+                                  muted
+                                  playsinline
+                                  preload="metadata"
+                                  aria-label={
+                                    media().name || t("compose.videoPreview")
+                                  }
+                                  class="w-20 h-20 object-cover rounded-lg bg-black"
+                                />
+                              </Show>
+                              <button
+                                onClick={() => props.onRemoveMedia(idx)}
+                                aria-label={t("compose.removeMedia")}
+                                class="absolute -top-1 -right-1 bg-black/70 rounded-full p-0.5 hover:bg-neutral-900"
+                              >
+                                <CloseIcon />
+                              </button>
+                            </div>
+                            <div class="flex-1">
+                              <label class="sr-only" for={`media-alt-${idx}`}>
+                                {t("posts.altLabel")}
+                              </label>
+                              <input
+                                id={`media-alt-${idx}`}
+                                type="text"
+                                value={media().name || ""}
+                                onInput={(e) =>
+                                  props.onMediaAltChange(
+                                    idx,
+                                    e.currentTarget.value,
+                                  )
+                                }
+                                placeholder={t("posts.altPlaceholder")}
+                                class="w-full bg-neutral-800 text-white placeholder-neutral-500 rounded-lg px-3 py-2 text-sm outline-none border border-neutral-700 focus:border-accent transition-colors"
                               />
-                            </Show>
-                            <button
-                              onClick={() => props.onRemoveMedia(idx)}
-                              aria-label={t("compose.removeMedia")}
-                              class="absolute -top-1 -right-1 bg-black/70 rounded-full p-0.5 hover:bg-neutral-900"
-                            >
-                              <CloseIcon />
-                            </button>
+                            </div>
                           </div>
-                          <div class="flex-1">
-                            <label class="sr-only" for={`media-alt-${idx}`}>
-                              {t("posts.altLabel")}
-                            </label>
-                            <input
-                              id={`media-alt-${idx}`}
-                              type="text"
-                              value={media().name || ""}
-                              onInput={(e) =>
-                                props.onMediaAltChange(
-                                  idx,
-                                  e.currentTarget.value,
-                                )
-                              }
-                              placeholder={t("posts.altPlaceholder")}
-                              class="w-full bg-neutral-800 text-white placeholder-neutral-500 rounded-lg px-3 py-2 text-sm outline-none border border-neutral-700 focus:border-accent transition-colors"
-                            />
-                          </div>
-                        </div>
-                      )}
-                    </Index>
-                  </div>
-                </Show>
+                        )}
+                      </Index>
+                    </div>
+                  </Show>
+                </div>
               </div>
+
+              {/* Emoji picker */}
+              <Show when={showEmoji()}>
+                <div
+                  ref={emojiPanelRef}
+                  class="mt-3 rounded-xl border border-neutral-800 bg-neutral-900 p-2"
+                >
+                  <EmojiPicker onSelect={insertEmoji} />
+                </div>
+              </Show>
             </div>
 
-            {/* Emoji picker */}
-            <Show when={showEmoji()}>
-              <div
-                ref={emojiPanelRef}
-                class="mt-3 rounded-xl border border-neutral-800 bg-neutral-900 p-2"
-              >
-                <EmojiPicker onSelect={insertEmoji} />
-              </div>
-            </Show>
-          </div>
-
-          {/* Modal Footer */}
-          <div class="flex items-center gap-2 px-4 py-3 border-t border-neutral-800">
-            {/* The server accepts JPEG/PNG/GIF/WebP images and MP4/WebM
+            {/* Modal Footer */}
+            <div class="flex items-center gap-2 px-4 py-3 border-t border-neutral-800">
+              {/* The server accepts JPEG/PNG/GIF/WebP images and MP4/WebM
                 videos; `accept` is advisory, so uploadMediaAtom re-validates
                 type and per-kind size with specific error messages. */}
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*,video/*"
-              multiple
-              onInput={props.onFileSelect}
-              class="hidden"
-            />
-            <button
-              onClick={() => fileInputRef?.click()}
-              disabled={props.uploading || props.uploadedMedia.length >= 4}
-              aria-label={t("compose.addMedia")}
-              class="p-2 text-accent hover:bg-[var(--accent)]/10 rounded-full disabled:opacity-50 transition-colors"
-            >
-              <ImageIcon />
-            </button>
-            <button
-              onClick={() => setShowEmoji((v) => !v)}
-              aria-label={t("posts.addEmoji")}
-              aria-pressed={showEmoji()}
-              class={`p-2 rounded-full transition-colors ${
-                showEmoji()
-                  ? "text-accent bg-accent-soft"
-                  : "text-accent hover:bg-[var(--accent)]/10"
-              }`}
-            >
-              <span class="text-lg leading-none">{"\u{1F642}"}</span>
-            </button>
-            <button
-              onClick={() => setShowCw((v) => !v)}
-              aria-label={t("posts.cwToggle")}
-              aria-pressed={showCw()}
-              class={`px-2 py-1 rounded-full text-sm font-bold transition-colors ${
-                showCw()
-                  ? "text-accent bg-accent-soft"
-                  : "text-accent hover:bg-[var(--accent)]/10"
-              }`}
-            >
-              CW
-            </button>
-            <Show when={props.uploading}>
-              <span class="text-sm text-neutral-500">
-                {t("common.uploading")}
-              </span>
-            </Show>
-            <Show when={props.uploadError}>
-              <span role="alert" class="text-sm text-red-500">
-                {props.uploadError}
-              </span>
-            </Show>
-          </div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*,video/*"
+                multiple
+                onInput={props.onFileSelect}
+                class="hidden"
+              />
+              <button
+                onClick={() => fileInputRef?.click()}
+                disabled={props.uploading || props.uploadedMedia.length >= 4}
+                aria-label={t("compose.addMedia")}
+                class="p-2 text-accent hover:bg-[var(--accent)]/10 rounded-full disabled:opacity-50 transition-colors"
+              >
+                <ImageIcon />
+              </button>
+              <button
+                onClick={() => setShowEmoji((v) => !v)}
+                aria-label={t("posts.addEmoji")}
+                aria-pressed={showEmoji()}
+                class={`p-2 rounded-full transition-colors ${
+                  showEmoji()
+                    ? "text-accent bg-accent-soft"
+                    : "text-accent hover:bg-[var(--accent)]/10"
+                }`}
+              >
+                <span class="text-lg leading-none">{"\u{1F642}"}</span>
+              </button>
+              <button
+                onClick={() => setShowCw((v) => !v)}
+                aria-label={t("posts.cwToggle")}
+                aria-pressed={showCw()}
+                class={`px-2 py-1 rounded-full text-sm font-bold transition-colors ${
+                  showCw()
+                    ? "text-accent bg-accent-soft"
+                    : "text-accent hover:bg-[var(--accent)]/10"
+                }`}
+              >
+                CW
+              </button>
+              <Show when={props.uploading}>
+                <span class="text-sm text-neutral-500">
+                  {t("common.uploading")}
+                </span>
+              </Show>
+              <Show when={props.uploadError}>
+                <span role="alert" class="text-sm text-red-500">
+                  {props.uploadError}
+                </span>
+              </Show>
+            </div>
+          </fieldset>
         </div>
       </div>
       {/* Discard confirm — layered above the composer; cancel keeps editing. */}

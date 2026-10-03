@@ -20,6 +20,7 @@ import {
   uploadedMediaAtom,
   uploadErrorAtom,
   uploadingAtom,
+  uploadSelectionsPendingAtom,
   uploadMediaAtom,
 } from "../../atoms/timeline.ts";
 import { TimelinePostModal } from "../timeline/TimelinePostModal.tsx";
@@ -49,6 +50,10 @@ export function GlobalPostComposer() {
   const posting = useAtomValue(postingAtom);
   const uploadedMedia = useAtomValue(uploadedMediaAtom);
   const uploading = useAtomValue(uploadingAtom);
+  const [pendingSelections, setPendingSelections] = useAtom(
+    uploadSelectionsPendingAtom,
+  );
+  const uploadsPending = () => uploading() || pendingSelections() > 0;
   const uploadError = useAtomValue(uploadErrorAtom);
   const submitError = useAtomValue(postSubmitErrorAtom);
 
@@ -70,12 +75,21 @@ export function GlobalPostComposer() {
     e: InputEvent & { currentTarget: HTMLInputElement },
   ) => {
     const input = e.currentTarget;
+    if (posting() || uploadsPending()) {
+      input.value = "";
+      return;
+    }
     const files = input.files;
     if (!files || files.length === 0) return;
-    for (const file of Array.from(files)) {
-      await doUploadMedia(file);
+    setPendingSelections((count) => count + 1);
+    try {
+      for (const file of Array.from(files)) {
+        await doUploadMedia(file);
+      }
+    } finally {
+      input.value = "";
+      setPendingSelections((count) => count - 1);
     }
-    input.value = "";
   };
 
   const handlePost = (): Promise<boolean> => {
@@ -102,11 +116,17 @@ export function GlobalPostComposer() {
             actor={currentActor()}
             scope={PERSONAL_SCOPE}
             postContent={postContent()}
-            onPostContentChange={setPostContent}
+            onPostContentChange={(value) => {
+              if (!posting()) setPostContent(value);
+            }}
             postSummary={postSummary()}
-            onPostSummaryChange={setPostSummary}
+            onPostSummaryChange={(value) => {
+              if (!posting()) setPostSummary(value);
+            }}
             postVisibility={postVisibility()}
-            onPostVisibilityChange={setPostVisibility}
+            onPostVisibilityChange={(value) => {
+              if (!posting()) setPostVisibility(value);
+            }}
             placeholder={t()("posts.placeholder")}
             submitLabel={t()("posts.post")}
             submittingLabel={t()("posts.posting")}
@@ -117,7 +137,7 @@ export function GlobalPostComposer() {
             uploadedMedia={uploadedMedia()}
             onRemoveMedia={doRemoveMedia}
             onMediaAltChange={(index, alt) => doSetMediaAlt({ index, alt })}
-            uploading={uploading()}
+            uploading={uploadsPending()}
             uploadError={uploadError()}
             submitError={submitError()}
           />

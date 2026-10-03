@@ -119,6 +119,9 @@ export const postingAtom = atom(false);
 export const postSubmitErrorAtom = atom<string | null>(null);
 export const uploadedMediaAtom = atom<UploadedMedia[]>([]);
 export const uploadingAtom = atom(false);
+// A selection may upload several files sequentially. Keep the whole batch busy,
+// including the intervals in which the per-file uploading flag is false.
+export const uploadSelectionsPendingAtom = atom(0);
 export const uploadErrorAtom = atom<string | null>(null);
 export const showPostModalAtom = atom(false);
 // Whether the shell-level ScopeSwitcherSheet is open. It is mounted once (in
@@ -421,7 +424,12 @@ export const createPostAtom = atom(
     const { content } = options;
     const submittingActorApId = get(actorAtom)?.ap_id;
     const media = get(uploadedMediaAtom);
-    if ((!content.trim() && media.length === 0) || get(postingAtom)) {
+    if (
+      (!content.trim() && media.length === 0) ||
+      get(postingAtom) ||
+      get(uploadingAtom) ||
+      get(uploadSelectionsPendingAtom) > 0
+    ) {
       return false;
     }
 
@@ -488,13 +496,24 @@ export const createPostAtom = atom(
         ) {
           set(followingPostsAtom, (prev) => [newPost, ...prev]);
         }
-        set(postContentAtom, "");
-        media.forEach((m) => m.preview && URL.revokeObjectURL(m.preview));
-        set(uploadedMediaAtom, []);
+        // Another mounted tab can change these stored atoms despite this
+        // composer's UI lock. Preserve changes already observed before this
+        // ACK; false means keep the modal, even though this post succeeded.
+        // This is not an atomic compare-and-swap across browser tabs.
+        const canClearSubmittedDraft =
+          get(postContentAtom) === content &&
+          get(postSummaryAtom) === (options.summary ?? "") &&
+          get(postVisibilityAtom) === (options.visibility ?? "public") &&
+          get(uploadedMediaAtom) === media;
+        if (canClearSubmittedDraft) {
+          set(postContentAtom, "");
+          media.forEach((m) => m.preview && URL.revokeObjectURL(m.preview));
+          set(uploadedMediaAtom, []);
+        }
         pushToast(toastWriter(set), get(tAtom)("feedback.postCreated"), {
           kind: "success",
         });
-        return true;
+        return canClearSubmittedDraft;
       }
       // A missing acknowledgement cannot establish that the server did not
       // persist the post. Keep the draft and describe the outcome honestly.
@@ -536,6 +555,7 @@ export const createPostAtom = atom(
 );
 
 export const uploadMediaAtom = atom(null, async (get, set, file: File) => {
+  if (get(postingAtom) || get(uploadingAtom)) return;
   if (get(uploadedMediaAtom).length >= 4) {
     // Selecting more than 4 files at once lands here for the excess — surface
     // the limit instead of silently dropping them.
@@ -586,7 +606,8 @@ export const uploadMediaAtom = atom(null, async (get, set, file: File) => {
   }
 });
 
-export const removeMediaAtom = atom(null, (_get, set, index: number) => {
+export const removeMediaAtom = atom(null, (get, set, index: number) => {
+  if (get(postingAtom)) return;
   set(uploadedMediaAtom, (prev) => {
     const media = prev[index];
     if (media?.preview) URL.revokeObjectURL(media.preview);
@@ -597,7 +618,8 @@ export const removeMediaAtom = atom(null, (_get, set, index: number) => {
 // Update the alt text (`name`) of an uploaded attachment. Client-only.
 export const setMediaAltAtom = atom(
   null,
-  (_get, set, payload: { index: number; alt: string }) => {
+  (get, set, payload: { index: number; alt: string }) => {
+    if (get(postingAtom)) return;
     set(uploadedMediaAtom, (prev) =>
       prev.map((m, i) =>
         i === payload.index ? { ...m, name: payload.alt } : m,
@@ -640,7 +662,13 @@ export const createAccountAtom = atom(
   },
 );
 
-export const closePostModalAtom = atom(null, (_get, set) => {
+export const closePostModalAtom = atom(null, (get, set) => {
+  if (
+    get(postingAtom) ||
+    get(uploadingAtom) ||
+    get(uploadSelectionsPendingAtom) > 0
+  )
+    return;
   set(showPostModalAtom, false);
   set(postContentAtom, "");
   set(postSummaryAtom, "");
