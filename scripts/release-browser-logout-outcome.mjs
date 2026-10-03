@@ -273,7 +273,7 @@ async function createOwnerPage({
     page,
     seeded,
     observed,
-    fixed503Entered,
+    fixed503Entered: fixed503Request,
     releaseFixed503,
     logoutAttempt: () => logoutAttempt,
     committedResponse: () => committedResponse,

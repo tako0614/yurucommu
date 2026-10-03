@@ -4,6 +4,14 @@ During v2.3.0 preparation, PR79 CI37136350111 passed the complete owner gate
 but failed the AppMenu pending-Escape browser assertion. The immutable-v2.2.0
 update step was not run. Publication and merge stayed stopped.
 
+The canonical local browser then recorded a still-visible, disabled confirmation
+but zero intercepted POSTs after Escape. The fixture had returned the
+`fixed503Entered` resolver function instead of its `fixed503Request` Promise.
+`Promise.race` therefore advanced before the route was entered. The return
+value now exposes the Promise, so the pending assertions wait for actual POST
+interception. The original CI's combined assertion did not record which
+predicate failed, so its exact cause remains unmeasured.
+
 The release edits did not change the Worker bytes. A focused diagnostic of the
 same local artifact passed normally. Injecting a 16-second driver delay after
 observing disabled confirmation buttons reproduced the same assertion failure
