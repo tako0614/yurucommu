@@ -89,7 +89,7 @@ function validateAndDecodeContactId(
 
 interface RequestItemProps {
   request: DMRequest;
-  onAccept: () => void;
+  onOpen: () => void;
   onReject: () => void;
 }
 
@@ -117,12 +117,13 @@ function RequestItem(props: RequestItemProps) {
         <p class="text-sm text-neutral-400 mt-1 line-clamp-2">
           {props.request.content}
         </p>
+        <p class="text-xs text-neutral-500 mt-2">{t("dm.requestReplyHint")}</p>
         <div class="flex gap-2 mt-3">
           <button
-            onClick={props.onAccept}
+            onClick={props.onOpen}
             class="px-4 py-1.5 bg-accent text-white text-sm font-medium rounded-full transition-colors"
           >
-            {t("dm.accept")}
+            {t("dm.openRequest")}
           </button>
           <button
             onClick={props.onReject}
@@ -176,6 +177,19 @@ export function DMPage() {
   );
   let tabContainerRef!: HTMLDivElement;
   const { t } = useI18n();
+  let disposed = false;
+  let contactsRead = 0;
+  let requestsRead = 0;
+  // A post-ACK refresh retires older reads before they can restore a pending
+  // row/count. Each finalizer also belongs to its exact read, not the page.
+  const invalidateListReads = () => {
+    contactsRead++;
+    requestsRead++;
+  };
+  onCleanup(() => {
+    disposed = true;
+    invalidateListReads();
+  });
 
   // Validate and decode the open-conversation id. The canonical form is the
   // `?c=` query param: an ActivityPub id is a full URL, and a path segment
@@ -202,35 +216,45 @@ export function DMPage() {
 
   // Load contacts - no dependencies on contactId to prevent reloading
   const loadContacts = async () => {
+    if (disposed) return null;
+    const ticket = ++contactsRead;
+    const isCurrent = () => !disposed && ticket === contactsRead;
     // Only show loading if no cached data
     if (contacts().length === 0 && communities().length === 0) setLoading(true);
     setListError(null);
     try {
       const data = await fetchDMContacts();
+      if (!isCurrent()) return null;
       setContacts(data.mutual_followers);
       setCommunities(data.communities);
       setRequestCount(data.request_count);
       return data;
     } catch (e) {
+      if (!isCurrent()) return null;
       console.error("Failed to load contacts:", e);
       setListError(errorMessage());
       return null;
     } finally {
-      setLoading(false);
+      if (isCurrent()) setLoading(false);
     }
   };
 
   const loadRequests = async () => {
+    if (disposed) return;
+    const ticket = ++requestsRead;
+    const isCurrent = () => !disposed && ticket === requestsRead;
     setListError(null);
     setLoadingRequests(true);
     try {
       const data = await fetchDMRequests();
+      if (!isCurrent()) return;
       setRequests(data);
     } catch (e) {
+      if (!isCurrent()) return;
       console.error("Failed to load requests:", e);
       setListError(errorMessage());
     } finally {
-      setLoadingRequests(false);
+      if (isCurrent()) setLoadingRequests(false);
     }
   };
 
@@ -338,12 +362,16 @@ export function DMPage() {
     }
   });
 
-  // Load requests when tab changes to requests
-  createEffect(() => {
-    if (activeTab() === "requests") {
-      loadRequests();
-    }
-  });
+  // Query-only Back keeps this page and the selected tab. Refresh on returning
+  // to the list as well as entering the tab; opening does not accept a request.
+  createEffect(
+    on(
+      () => [activeTab(), validContactId()] as const,
+      ([tab, contactId]) => {
+        if (tab === "requests" && !contactId) void loadRequests();
+      },
+    ),
+  );
 
   const handleSelectContact = (contact: DMContact) => {
     setNotFound(false);
@@ -357,23 +385,15 @@ export function DMPage() {
     setNotFound(false);
     setResolving(false);
     navigate("/dm");
+    void loadContacts();
   };
 
-  const handleAcceptRequest = (request: DMRequest) => {
+  const handleOpenRequest = (request: DMRequest) => {
     // AP-native DM model: a conversation stays a "request" until the
     // recipient replies — replying is what accepts it; there is no separate
     // accepted state to persist (see the /api/dm/requests/accept route).
-    // So "Accept" opens the conversation with the sender, where sending a
+    // Opening shows the conversation with the sender, where sending a
     // reply moves it out of the request list and creates the contact.
-    // Optimistically drop it from the Requests list + badge so the tab and the
-    // red count don't stay stale after acceptance (the badge is a separate signal
-    // that loadContacts/reject update, and nothing re-ran it on accept). On a
-    // reload before a reply the server still returns it as pending — replying
-    // clears it server-side.
-    setRequests((prev) =>
-      prev.filter((r) => r.sender.ap_id !== request.sender.ap_id),
-    );
-    setRequestCount((prev) => Math.max(0, prev - 1));
     handleSelectContact({
       type: "user",
       ap_id: request.sender.ap_id,
@@ -386,12 +406,25 @@ export function DMPage() {
     });
   };
 
+  const handleUserMessageSent = () => {
+    if (disposed) return;
+    invalidateListReads();
+    // The contacts endpoint owns the count; the bounded Requests list does not.
+    void loadContacts();
+    if (activeTab() === "requests") void loadRequests();
+  };
+
   const handleRejectRequest = async (senderApId: string) => {
     try {
       await rejectDMRequest(senderApId);
+      if (disposed) return;
+      invalidateListReads();
       setRequests((prev) => prev.filter((r) => r.sender.ap_id !== senderApId));
       setRequestCount((prev) => Math.max(0, prev - 1));
+      void loadContacts();
+      if (activeTab() === "requests") void loadRequests();
     } catch (e) {
+      if (disposed) return;
       console.error("Failed to reject request:", e);
       setListError(errorMessage());
     }
@@ -800,7 +833,10 @@ export function DMPage() {
                   <div class="px-4 py-2 flex items-center justify-between gap-3 text-sm text-red-400 bg-red-500/10">
                     <span>{listError()}</span>
                     <button
-                      onClick={() => loadContacts()}
+                      onClick={() => {
+                        void loadContacts();
+                        if (activeTab() === "requests") void loadRequests();
+                      }}
                       class="shrink-0 px-3 py-1 rounded-full bg-red-500/20 text-red-200 hover:bg-red-500/30 transition-colors text-xs"
                     >
                       {t("common.retry")}
@@ -834,7 +870,7 @@ export function DMPage() {
                           {(request) => (
                             <RequestItem
                               request={request}
-                              onAccept={() => handleAcceptRequest(request)}
+                              onOpen={() => handleOpenRequest(request)}
                               onReject={() =>
                                 handleRejectRequest(request.sender.ap_id)
                               }
@@ -957,6 +993,7 @@ export function DMPage() {
           actor={actor}
           onBack={handleBack}
           onRead={handleRead}
+          onUserMessageSent={handleUserMessageSent}
         />
       </Show>
     </div>
