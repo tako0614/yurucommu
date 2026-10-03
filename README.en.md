@@ -253,7 +253,10 @@ Set `BROWSER_SMOKE_CHROME` to select the executable. No browser is downloaded an
 the check is never skipped. CI requires it after `check`. Disposable local HTTP
 and native bindings qualify actual UI login from an empty DB as one owner,
 posts, image attachments, generated Stories and profile images against DB/R2/HTTP
-readback. Public self-deployment, OIDC, concurrent first claim, external
+readback. It also checks pending/accepted Follow state in Search against the DB,
+using personas belonging to the same owner. Pending display survives searches in
+that mounted page; restoring it after reopening needs a shared API state contract.
+Public self-deployment, OIDC, concurrent first claim, external
 communication and update/recovery need separate evidence.
 
 Check a running server with `GET /healthz`. A partially configured runtime can
