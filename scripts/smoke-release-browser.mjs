@@ -35,6 +35,7 @@ import {
   createSettingsSignoutIssuer,
   qualifySettingsSignout,
 } from "./release-browser-settings-signout.mjs";
+import { qualifyLogoutOutcome } from "./release-browser-logout-outcome.mjs";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const PASSWORD = " release-browser-owner ";
@@ -311,7 +312,12 @@ async function runOidcRecoverySmoke(artifactPath, artifactDigest, browser) {
   return result;
 }
 
-async function runSettingsSignoutSmoke(artifactPath, artifactDigest, browser) {
+async function runSettingsSignoutSmoke(
+  artifactPath,
+  artifactDigest,
+  browser,
+  qualify = qualifySettingsSignout,
+) {
   const config = unstable_readConfig(
     { config: resolve(repo, "wrangler.jsonc") },
     { hideWarnings: true },
@@ -352,7 +358,7 @@ async function runSettingsSignoutSmoke(artifactPath, artifactDigest, browser) {
       managed.worker,
     );
     const checks = [];
-    const qualification = await qualifySettingsSignout({
+    const qualification = await qualify({
       browser,
       worker: managed.worker,
       db,
@@ -1106,9 +1112,16 @@ async function main() {
       artifactDigest,
       browser,
     );
+    const logoutOutcome = await runSettingsSignoutSmoke(
+      artifactPath,
+      artifactDigest,
+      browser,
+      qualifyLogoutOutcome,
+    );
     result = await runBrowserSmoke(artifactPath, artifactDigest, browser);
     result.oidcRecovery = oidcRecovery;
     result.settingsSignout = settingsSignout;
+    result.logoutOutcome = logoutOutcome;
     result.checks.push(
       ...oidcRecovery.checks,
       ...result.storySubmit.checks,
@@ -1121,6 +1134,7 @@ async function main() {
       ...result.pagerRefresh.checks,
       ...result.feedAck.checks,
       ...settingsSignout.checks,
+      ...logoutOutcome.checks,
     );
   } catch (error) {
     primaryError = error;

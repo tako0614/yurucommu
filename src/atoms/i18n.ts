@@ -613,6 +613,8 @@ const translations = {
     "auth.oauthLoginFailed":
       "外部アカウントでのログインに失敗しました。もう一度お試しください。",
     "auth.logoutFailed": "ログアウトに失敗しました",
+    "auth.logoutUnknown":
+      "ログアウトできたか確認できません。もう一度お試しください。",
     "auth.networkError": "ネットワークエラーが発生しました",
     "auth.passwordRequired": "パスワードを入力してください",
     "auth.loginFailed": "ログインに失敗しました",
@@ -1371,6 +1373,7 @@ const translations = {
     "auth.oauthLoginFailed":
       "External account sign-in failed. Please try again.",
     "auth.logoutFailed": "Failed to log out",
+    "auth.logoutUnknown": "Sign-out could not be confirmed. Please try again.",
     "auth.networkError": "Network error",
     "auth.passwordRequired": "Password required",
     "auth.loginFailed": "Login failed",

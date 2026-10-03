@@ -112,7 +112,10 @@ function LoginScreen(props: {
   );
 }
 
-function AuthErrorScreen(props: { onRetry: () => void }) {
+function AuthErrorScreen(props: {
+  onRetry: () => void;
+  reason?: string | null;
+}) {
   const t = useAtomValue(tAtom);
   return (
     <div class="flex min-h-screen flex-col items-center justify-center bg-neutral-950 p-6 text-neutral-100">
@@ -132,7 +135,9 @@ function AuthErrorScreen(props: { onRetry: () => void }) {
             />
           </svg>
         </div>
-        <p class="text-sm text-neutral-400">{t()("auth.checkFailed")}</p>
+        <p role="alert" class="text-sm text-neutral-400">
+          {props.reason ?? t()("auth.checkFailed")}
+        </p>
         <button
           type="button"
           onClick={() => props.onRetry()}
@@ -232,7 +237,7 @@ function AppContent() {
       </Match>
 
       <Match when={authError() && !actor()}>
-        <AuthErrorScreen onRetry={refreshAuth} />
+        <AuthErrorScreen onRetry={refreshAuth} reason={authError()} />
       </Match>
 
       <Match when={needsSetup()}>

@@ -129,7 +129,14 @@ class DefaultSelfHostedStrategy implements AuthStrategy {
     });
     if (res.ok) {
       const data = (await res.json()) as { actor?: Actor };
-      return { ...EMPTY_RESULT, actor: data.actor ?? null };
+      if (
+        !data.actor ||
+        typeof data.actor.ap_id !== "string" ||
+        !data.actor.ap_id
+      ) {
+        throw new Error("auth check returned no identifiable actor");
+      }
+      return { ...EMPTY_RESULT, actor: data.actor };
     }
     // A genuine 401/403 means "not signed in" → fall through to LoginScreen.
     if (res.status === 401 || res.status === 403) {
@@ -164,15 +171,28 @@ class DefaultSelfHostedStrategy implements AuthStrategy {
   }
 
   async logout(): Promise<void> {
-    await fetchWithTimeout("/api/auth/logout", {
+    const response = await fetchWithTimeout("/api/auth/logout", {
       method: "POST",
       credentials: "include",
     });
+    if (!response.ok) {
+      throw new Error(
+        `logout acknowledgement failed (status ${response.status})`,
+      );
+    }
   }
 
   extractTokenFromUrl(): boolean {
     return false;
   }
+}
+
+// Product-internal: custom plugins retain their existing logout contract.
+// Their mode alone does not make an absent actor proof of local sign-out.
+export function isDefaultSelfHostedAuthStrategy(
+  strategy: AuthStrategy,
+): boolean {
+  return strategy instanceof DefaultSelfHostedStrategy;
 }
 
 class DefaultSelfHostedTransport implements ApiTransport {

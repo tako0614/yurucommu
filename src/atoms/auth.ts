@@ -1,8 +1,9 @@
-import { atom } from "jotai/vanilla";
+import { atom, type Setter } from "jotai/vanilla";
 import type { Actor } from "../types/index.ts";
 import { tAtom } from "./i18n.ts";
 import {
   getAuthStrategy,
+  isDefaultSelfHostedAuthStrategy,
   type HostedInstance,
   type HostedUserInfo,
   type InstanceHealth,
@@ -39,10 +40,40 @@ export const hostedUserAtom = atom<HostedUserInfo | null>(null);
 export const instancesAtom = atom<HostedInstance[]>([]);
 export const selectedInstanceIdAtom = atom<string | null>(null);
 export const instancesLoadingAtom = atom(false);
+export const logoutBusyAtom = atom(false);
+export const logoutErrorAtom = atom<string | null>(null);
+
+// Store-scoped fences: a delayed pre-sign-out check cannot restore identity.
+const authGenerationAtom = atom(0);
+const authCheckTicketAtom = atom(0);
+
+function clearAuthIdentity(set: Setter) {
+  set(actorAtom, null);
+  set(hostedUserAtom, null);
+  set(needsSetupAtom, false);
+  set(instancePendingAtom, false);
+  set(instanceMissingAtom, false);
+  set(instanceBlockedAtom, false);
+  set(instanceHealthAtom, null);
+  set(instancesAtom, []);
+  set(selectedInstanceIdAtom, null);
+  set(authLoadingAtom, false);
+  set(instancesLoadingAtom, false);
+  set(resetScopeAtom);
+}
 
 // --- Action atoms ---
 export const checkAuthAtom = atom(null, async (get, set) => {
+  if (get(logoutBusyAtom)) return;
   const authStrategy = getAuthStrategy();
+  const generation = get(authGenerationAtom);
+  const ticket = get(authCheckTicketAtom) + 1;
+  set(authCheckTicketAtom, ticket);
+  const current = () =>
+    generation === get(authGenerationAtom) &&
+    ticket === get(authCheckTicketAtom) &&
+    authStrategy === getAuthStrategy() &&
+    !get(logoutBusyAtom);
   // Surface an OAuth/OIDC login failure that the callback relayed as
   // `/?error=<code>` (e.g. id_token_invalid / token_exchange_failed /
   // csrf_check_failed). The server logs the technical detail; the user just
@@ -69,6 +100,7 @@ export const checkAuthAtom = atom(null, async (get, set) => {
     set(instancesLoadingAtom, true);
     set(authErrorAtom, null);
     const result = await authStrategy.checkAuth();
+    if (!current()) return;
     set(actorAtom, result.actor);
     set(hostedUserAtom, result.hostedUser);
     set(needsSetupAtom, result.needsSetup);
@@ -79,20 +111,30 @@ export const checkAuthAtom = atom(null, async (get, set) => {
     set(instancesAtom, result.instances);
     set(selectedInstanceIdAtom, result.selectedInstanceId);
   } catch (e) {
+    if (!current()) return;
     console.error("Auth check failed:", e);
     set(actorAtom, null);
     set(authErrorAtom, get(tAtom)("auth.checkFailed"));
   } finally {
-    set(authLoadingAtom, false);
-    set(instancesLoadingAtom, false);
+    if (current()) {
+      set(authLoadingAtom, false);
+      set(instancesLoadingAtom, false);
+    }
   }
 });
 
 export const loginAtom = atom(null, async (get, set, password?: string) => {
+  if (get(logoutBusyAtom)) return false;
   const authStrategy = getAuthStrategy();
+  const generation = get(authGenerationAtom) + 1;
+  set(authGenerationAtom, generation);
+  const current = () =>
+    generation === get(authGenerationAtom) &&
+    authStrategy === getAuthStrategy();
   set(loginErrorAtom, null);
   try {
     const result = await authStrategy.login(password);
+    if (!current()) return false;
     if (result.redirect) {
       window.location.href = result.redirect;
       return false;
@@ -107,6 +149,7 @@ export const loginAtom = atom(null, async (get, set, password?: string) => {
     }
     return false;
   } catch (e) {
+    if (!current()) return false;
     console.error("Login error:", e);
     set(loginErrorAtom, get(tAtom)("auth.networkError"));
     return false;
@@ -114,52 +157,120 @@ export const loginAtom = atom(null, async (get, set, password?: string) => {
 });
 
 export const logoutAtom = atom(null, async (get, set) => {
+  if (get(logoutBusyAtom)) return false;
   const authStrategy = getAuthStrategy();
+  const actor = get(actorAtom);
+  const hostedUser = get(hostedUserAtom);
+  const instance = get(selectedInstanceIdAtom);
+  const generation = get(authGenerationAtom) + 1;
+  set(authGenerationAtom, generation);
+  set(logoutBusyAtom, true);
+  set(logoutErrorAtom, null);
+  set(authLoadingAtom, false);
+  set(instancesLoadingAtom, false);
+  const current = () =>
+    generation === get(authGenerationAtom) &&
+    authStrategy === getAuthStrategy() &&
+    actor === get(actorAtom) &&
+    hostedUser === get(hostedUserAtom) &&
+    instance === get(selectedInstanceIdAtom);
   // Before anything can re-render the login screen: the Takosumi session
   // outlives ours, so an unsuppressed auto-start would redirect and sign the
   // user straight back in — signing out would look like it did nothing.
   suppressTakosumiOidcAutoStart();
   try {
     await clearYurucommuBrowserPushBeforeSignOut();
-    await authStrategy.logout();
-  } catch (e) {
-    console.error("Logout error:", e);
-    set(authErrorAtom, get(tAtom)("auth.logoutFailed"));
+    if (!current()) return false;
+    let acknowledged = false;
+    try {
+      await authStrategy.logout();
+      acknowledged = true;
+    } catch (e) {
+      console.error("Logout acknowledgement unavailable:", e);
+    }
+    if (!current()) return false;
+
+    if (isDefaultSelfHostedAuthStrategy(authStrategy)) {
+      // Reconcile even a 200: it is not itself proof of cookie/session removal.
+      // This observes browser authentication, not the HttpOnly session generation
+      // or durable revocation of an old credential held elsewhere.
+      try {
+        const observed = await authStrategy.checkAuth();
+        if (!current()) return false;
+        if (!observed.actor) {
+          clearAuthIdentity(set);
+          set(authErrorAtom, null);
+          return true;
+        }
+        if (observed.actor.ap_id === actor?.ap_id) {
+          set(resetScopeAtom);
+          set(logoutErrorAtom, get(tAtom)("auth.logoutUnknown"));
+          return false;
+        }
+      } catch (e) {
+        console.error("Sign-out authentication observation unavailable:", e);
+        if (!current()) return false;
+      }
+    } else if (acknowledged) {
+      // A fulfilled custom/hosted strategy keeps its existing void contract.
+      // Its revocation remains the embedder's responsibility and evidence.
+      clearAuthIdentity(set);
+      set(authErrorAtom, null);
+      return true;
+    }
+    // Unknown or changed observed principal: hide stale identity and offer a
+    // read-only auth refresh. Never automatically resend the logout POST.
+    clearAuthIdentity(set);
+    set(authErrorAtom, get(tAtom)("auth.logoutUnknown"));
+    return false;
   } finally {
-    set(actorAtom, null);
-    // Reset the observation scope so a switched account never inherits the
-    // previous owner's community lens.
-    set(resetScopeAtom);
+    set(logoutBusyAtom, false);
   }
 });
 
 export const completeSetupAtom = atom(
   null,
-  async (_get, set, username: string) => {
+  async (get, set, username: string) => {
+    if (get(logoutBusyAtom)) return false;
     const authStrategy = getAuthStrategy();
+    const generation = get(authGenerationAtom);
+    const current = () =>
+      generation === get(authGenerationAtom) &&
+      authStrategy === getAuthStrategy() &&
+      !get(logoutBusyAtom);
     if (authStrategy.mode !== "hosted" || !authStrategy.completeSetup) {
       return false;
     }
     const success = await authStrategy.completeSetup(username);
+    if (!current()) return false;
     if (success) await set(checkAuthAtom);
-    return success;
+    return current() ? success : false;
   },
 );
 
 export const selectInstanceAtom = atom(
   null,
   async (get, set, instanceId: string) => {
+    if (get(logoutBusyAtom)) return;
     const authStrategy = getAuthStrategy();
+    const generation = get(authGenerationAtom);
+    const current = () =>
+      generation === get(authGenerationAtom) &&
+      authStrategy === getAuthStrategy() &&
+      !get(logoutBusyAtom);
     if (authStrategy.mode !== "hosted" || !authStrategy.selectInstance) return;
     set(instancesLoadingAtom, true);
     try {
       await authStrategy.selectInstance(instanceId);
     } catch (e) {
+      if (!current()) return;
       console.error("Failed to select instance:", e);
       set(authErrorAtom, get(tAtom)("auth.instanceSelectFailed"));
     } finally {
-      await set(checkAuthAtom);
-      set(instancesLoadingAtom, false);
+      if (current()) {
+        await set(checkAuthAtom);
+        if (current()) set(instancesLoadingAtom, false);
+      }
     }
   },
 );
@@ -167,21 +278,31 @@ export const selectInstanceAtom = atom(
 export const rebuildInstanceAtom = atom(
   null,
   async (get, set, instanceId: string) => {
+    if (get(logoutBusyAtom)) return false;
     const authStrategy = getAuthStrategy();
+    const generation = get(authGenerationAtom);
+    const current = () =>
+      generation === get(authGenerationAtom) &&
+      authStrategy === getAuthStrategy() &&
+      !get(logoutBusyAtom);
     if (authStrategy.mode !== "hosted" || !authStrategy.rebuildInstance) {
       return false;
     }
     set(instancesLoadingAtom, true);
+    let success = false;
     try {
-      return await authStrategy.rebuildInstance(instanceId);
+      success = await authStrategy.rebuildInstance(instanceId);
     } catch (e) {
+      if (!current()) return false;
       console.error("Failed to rebuild instance:", e);
       set(authErrorAtom, get(tAtom)("auth.instanceRebuildFailed"));
-      return false;
     } finally {
-      await set(checkAuthAtom);
-      set(instancesLoadingAtom, false);
+      if (current()) {
+        await set(checkAuthAtom);
+        if (current()) set(instancesLoadingAtom, false);
+      }
     }
+    return current() ? success : false;
   },
 );
 
