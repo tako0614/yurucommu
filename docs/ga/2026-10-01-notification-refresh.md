@@ -1,0 +1,13 @@
+# Notification refresh versus archive — 2026-10-01
+
+Task: `GA-20261001-yuru-notification-refresh`, Yurucommu only, after #57. Parent owns `src/pages/NotificationPage.tsx`, new `scripts/release-browser-notifications.mjs`, the browser driver invocation and this ledger. Preserve the separate Yurumeet worktree and original dirty work. No shared Core/schema/credential/deploy changes or real-data operation.
+
+GA condition: after a successful notification archive, an older in-flight notification-list GET must not bring the archived row back. Fresh native inbox projection and displayed state must agree. Existing per-row archive/error/reload and archive-all behavior remain intact; a focus refresh during a mutation must not read a pre-commit snapshot.
+
+Immutable #57 actual native/browser red: archive POST200/archived_count1, D1 notification_archived marker present, fresh active inbox omits the activity, while delayed unchanged pre-archive GET reinserts one DOM row. The fixture creates a genuine owner post via the API and explicitly seeds one synthetic remote actor_cache/Like/inbox (already read), with local actor/root-owner/session counts unchanged. This is not a new owner, permission or remote federation qualification. Focus is an explicitly dispatched browser event; route interception only delays the actual native response without changing its body. An earlier operator hashbang parse failure is excluded from product regression proof.
+
+Product fix: invalidate in-place refreshes across list reset/disposal and archive/unarchive/archive-all start; skip starting them while a mutation is pending. Check the same version again after an awaited mark-read before applying local read flags. Preserve existing browser checks and add authoritative archive marker, stale snapshot refusal, fresh focus positive control and owner-boundary confirmations. A distinct synthetic Announce added after archive must appear through an ordinary focus refresh without navigation, so disabling all refreshes cannot satisfy the regression.
+
+Qualify frozen source and exact artifact through mandatory `bun run check`, fresh tracked browser, exact-tree CI, and independent evidence review. Heavy local build/test/browser uses fresh free /proc slots, with no foreign process stopped. Preserve old red and failed operator controls separately; no deadline inflation.
+
+Remaining GA dependencies: principal/Core atomic owner paths, per-intent delivery and reference-safe upload lifecycle; real OIDC/Takos use/refresh and secret custody; published install/update/rollback/restore/monitor and federation/Queue/Cron. The source audit separately identifies a create-post lost-ACK outcome candidate; this unit does not close that pending candidate or full family GA.
