@@ -45,6 +45,16 @@ export type WorkerProvider = {
   domains(): Promise<WorkerDomain[]>;
   activeDeployment(): Promise<WorkerDeployment>;
   version(input: { versionId: string }): Promise<WorkerVersion>;
+  assertVersionCode(input: {
+    versionId: string;
+    bundleDigest: `sha256:${string}`;
+    bundleByteLength: number;
+  }): Promise<{
+    kind: "yurucommu.worker-version-code@v1";
+    versionId: string;
+    sha256: `sha256:${string}`;
+    size: number;
+  }>;
   assertMediaDeletionSchema(input: { databaseId: string }): Promise<{
     kind: "yurucommu.core-media-deletion-schema@v1";
     table: "media_blob_deletion_jobs";
@@ -127,7 +137,7 @@ export type WorkerReleaseResult = {
   previousVersionId: string;
   deploymentId: string;
   versionId: string;
-  providerReadback: "EXACT_ACTIVE_DEPLOYMENT_AND_VERSION_IDENTITY";
+  providerReadback: "EXACT_ACTIVE_DEPLOYMENT_VERSION_METADATA_AND_CODE_BYTES";
   smoke: { status: "passed"; [key: string]: unknown };
   status: "PUBLISHED";
 };

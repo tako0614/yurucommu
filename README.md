@@ -349,15 +349,25 @@ link やより広い権限は拒否されます。
 commit / bundle / config digest の annotation と、active Version の bindings、vars、
 compatibility/runtime settings、limits などの非コード closure を authoritative readback
 で照合してから、その Version だけを Cloudflare Deployments API で 100% へ deploy します。各
-inherit binding には pre-upload の active Version ID を明示し、Version Detail の
-`resources.script.etag` が upload bytes の SHA-256 と一致することも確認します。
+inherit binding には pre-upload の active Version ID を明示します。Version Detail の
+`resources.script.etag` は不透明な変更検知値として扱い、upload bytes の SHA-256 とは
+比較しません。upload 前に exact Version code の読取り能力を必須とし、upload 後、
+Deployment promotion の直前、smoke 後に、その Version の raw module を時間・サイズを
+制限して読みます。`cf-entrypoint` と唯一の ESM `worker.mjs` part を検査し、byte length と
+SHA-256 が最初に読んだ bundle と一致しない場合は公開処理を止めます。
 現在配信中の戻し先は Version 一覧ではなく pre-upload の active Deployment から読みます。
 deploy 後は active Deployment、Version、hostname/service/environment を絞った custom domain の
 bounded pagination と安定再読を確認して実 request smoke を実行し、
-その後も route と active Deployment を再読してからだけ `PUBLISHED` を返します。smoke が
+その後も route、active Deployment、Version metadata と code bytes を再読してからだけ
+`PUBLISHED` を返します。smoke が
 失敗しても Cloudflare には read と write をまたぐ CAS がないため自動 rollback はせず、観測した
 active Deployment と正確な predecessor Version を `INDETERMINATE` と manual reversal の
 対象として報告します。
+
+Version 指定の `content/v2?version=UUID` と JSON text の metadata field は、固定した
+公式 Wrangler 4.107.0 の実装に従います。公開 Content API 文書にはこの query の記載が
+ないため、source・mock・CI の検証と、live API の互換性・既存 token の読取り権限は
+別の証拠です。追加権限は付与せず、読取り不能・応答不正なら到達済みの phase で停止します。
 
 upload 前には、現在配信中の predecessor Version が持つ具体的な D1 `DB` binding を
 同じ target account で読み取り検査します。固定の D1 Query API SELECT で migration

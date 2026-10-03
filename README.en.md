@@ -358,20 +358,31 @@ permissions are rejected.
 
 This code-only surface sends exactly one multipart POST to Cloudflare's Version
 Upload API, pins every inherited binding to the pre-upload active Version ID,
-verifies the source commit / bundle / config annotation, the authoritative
-`resources.script.etag` against the uploaded bundle bytes, and the non-code
+verifies the source commit / bundle / config annotation and the non-code
 Version closure (bindings, vars, compatibility/runtime settings, limits, and
 lifecycle fields), and then creates exactly one
-Cloudflare Deployment at 100% for that Version. It reads the predecessor from
+Cloudflare Deployment at 100% for that Version. `resources.script.etag` is an
+opaque drift marker, not an assumed SHA-256 of the uploaded bytes. Exact Version
+code readback is required before upload. After upload, immediately before
+Deployment promotion, and after smoke, a bounded timed raw module read must
+contain exactly one ESM `worker.mjs` part with the correct `cf-entrypoint`, byte
+length and SHA-256 equal to the original bundle. It reads the predecessor from
 the pre-upload active Deployment, not Version-list order. After deployment it
 re-reads the active Deployment, Version, and exact hostname/service/environment
 custom-domain inventory across bounded stable pages, runs the real
-request smoke, then re-reads the route and active Deployment before reporting
+request smoke, then re-reads the route, active Deployment, Version metadata and
+code bytes before reporting
 `PUBLISHED`. A failed smoke is never rolled back automatically: Cloudflare has
 no compare-and-swap across the read → write boundary, so the exact predecessor
 and observed active Deployment are reported as `INDETERMINATE` for manual
 reversal. A lost upload/deploy acknowledgement is `INDETERMINATE` and is never
 retried automatically.
+
+The version-specific `content/v2?version=UUID` query and JSON text metadata field
+follow pinned official Wrangler 4.107.0 source. Public Content API documentation
+does not specify this query, so source/mock/CI evidence is separate from live API
+compatibility and the existing token's read permission. No permission is granted;
+unavailable or malformed content stops at the phase already reached.
 
 Before upload, the publisher reads the concrete D1 `DB` binding from that exact
 active predecessor Version and queries it in the validated target account. A

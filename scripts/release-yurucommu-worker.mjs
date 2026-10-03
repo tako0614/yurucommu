@@ -27,6 +27,8 @@ const PUBLIC_ORIGIN = "https://test.yurucommu.com";
 const BUNDLE = "dist/yurucommu-worker.js";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
 const CLOUDFLARE_API = "https://api.cloudflare.com/client/v4";
+const VERSION_CONTENT_TIMEOUT_MS = 15_000;
+const VERSION_CONTENT_OVERHEAD = 64 * 1024;
 const DOMAIN_PAGE_SIZE = 100;
 const MAX_DOMAIN_PAGES = 8;
 const SESSION_HASH_SALT_BINDING = "YURUCOMMU_SESSION_HASH_SALT";
@@ -466,10 +468,6 @@ function digest(bytes) {
   return `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
 }
 
-function scriptEtag(bytes) {
-  return createHash("sha256").update(bytes).digest("hex");
-}
-
 function deployment(value, label) {
   if (
     typeof value !== "object" ||
@@ -618,12 +616,37 @@ function assertVersionIdentity(value, versionId, message, expectedScriptEtag) {
   }
   const actualScriptEtag = value.resources?.script?.etag;
   if (
-    typeof expectedScriptEtag !== "string" ||
     typeof actualScriptEtag !== "string" ||
-    actualScriptEtag !== expectedScriptEtag
+    actualScriptEtag.length === 0 ||
+    actualScriptEtag.length > 256 ||
+    (expectedScriptEtag !== undefined &&
+      actualScriptEtag !== expectedScriptEtag)
   ) {
     throw new Error(
-      `Worker Version ${versionId} authoritative script etag (resources.script.etag) does not match the uploaded script bytes`,
+      `Worker Version ${versionId} lacks a stable bounded opaque script etag (resources.script.etag)`,
+    );
+  }
+  return actualScriptEtag;
+}
+
+function assertVersionCodeProof(
+  proof,
+  versionId,
+  bundleDigest,
+  bundleByteLength,
+) {
+  if (
+    typeof proof !== "object" ||
+    proof === null ||
+    Array.isArray(proof) ||
+    Object.keys(proof).sort().join(",") !== "kind,sha256,size,versionId" ||
+    proof.kind !== "yurucommu.worker-version-code@v1" ||
+    proof.versionId !== versionId ||
+    proof.sha256 !== bundleDigest ||
+    proof.size !== bundleByteLength
+  ) {
+    throw new Error(
+      `Worker Version ${versionId} code readback did not prove the selected bundle bytes`,
     );
   }
 }
@@ -1116,6 +1139,187 @@ export function createCloudflareWorkerProvider({
     return responseBody;
   }
 
+  async function assertVersionContent({
+    versionId,
+    bundleDigest,
+    bundleByteLength,
+  }) {
+    if (
+      typeof versionId !== "string" ||
+      !UUID.test(versionId) ||
+      typeof bundleDigest !== "string" ||
+      !SHA256.test(bundleDigest) ||
+      !Number.isSafeInteger(bundleByteLength) ||
+      bundleByteLength < 1 ||
+      bundleByteLength > Number.MAX_SAFE_INTEGER - VERSION_CONTENT_OVERHEAD
+    ) {
+      throw new Error("invalid Worker Version code readback input");
+    }
+    const path = `/accounts/${account}/workers/scripts/${worker}/content/v2?version=${versionId}`;
+    const maximumBytes = bundleByteLength + VERSION_CONTENT_OVERHEAD;
+    const controller = new AbortController();
+    let timer;
+    const timedOut = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        reject(providerError("Worker Version content readback timed out"));
+      }, VERSION_CONTENT_TIMEOUT_MS);
+    });
+    const read = async () => {
+      let response;
+      try {
+        response = await fetcher(`${CLOUDFLARE_API}${path}`, {
+          method: "GET",
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
+          redirect: "manual",
+          signal: controller.signal,
+        });
+      } catch {
+        throw providerError("Worker Version content readback request failed");
+      }
+      if (
+        !response ||
+        response.status !== 200 ||
+        response.redirected ||
+        response.headers?.get("location")
+      ) {
+        throw providerError(
+          `Worker Version content readback returned HTTP ${response?.status ?? "unknown"} or a redirect`,
+        );
+      }
+      const contentType = response.headers?.get("content-type");
+      const boundaryMatch =
+        typeof contentType === "string"
+          ? /^multipart\/form-data;\s*boundary=(?:"([^"\r\n]+)"|([^;\s\r\n]+))$/iu.exec(
+              contentType,
+            )
+          : null;
+      if (
+        !boundaryMatch ||
+        response.headers.get("cf-entrypoint") !== "worker.mjs"
+      ) {
+        throw providerError(
+          "Worker Version content readback lacks the reviewed multipart entrypoint",
+        );
+      }
+      const boundary = boundaryMatch[1] ?? boundaryMatch[2];
+      if (boundary.length > 200) {
+        throw providerError(
+          "Worker Version content multipart boundary is too long",
+        );
+      }
+      const declaredLength = response.headers.get("content-length");
+      if (
+        declaredLength !== null &&
+        (!/^\d+$/u.test(declaredLength) ||
+          Number(declaredLength) > maximumBytes)
+      ) {
+        throw providerError(
+          "Worker Version content readback exceeds the size bound",
+        );
+      }
+      let raw;
+      try {
+        const reader = response.body?.getReader();
+        if (!reader) throw new Error("missing response body");
+        const chunks = [];
+        let size = 0;
+        for (;;) {
+          const chunk = await reader.read();
+          if (chunk.done) break;
+          size += chunk.value.byteLength;
+          if (size > maximumBytes) {
+            void reader.cancel().catch(() => {});
+            throw new Error("oversize response body");
+          }
+          chunks.push(Buffer.from(chunk.value));
+        }
+        raw = Buffer.concat(chunks, size);
+      } catch {
+        throw providerError(
+          "Worker Version content response body is unavailable or exceeds the size bound",
+        );
+      }
+      const opening = Buffer.from(`--${boundary}\r\n`);
+      const closing = Buffer.from(`\r\n--${boundary}--\r\n`);
+      const headerEnd = raw.indexOf("\r\n\r\n", opening.length);
+      if (
+        !raw.subarray(0, opening.length).equals(opening) ||
+        !raw.subarray(-closing.length).equals(closing) ||
+        headerEnd < opening.length ||
+        headerEnd - opening.length > 8192
+      ) {
+        throw providerError(
+          "Worker Version content multipart headers are malformed",
+        );
+      }
+      const partHeaders = raw
+        .subarray(opening.length, headerEnd)
+        .toString("utf8")
+        .split("\r\n");
+      if (
+        partHeaders.length !== 2 ||
+        !partHeaders.some((line) =>
+          /^content-disposition: form-data; name="worker\.mjs"; filename="worker\.mjs"$/iu.test(
+            line,
+          ),
+        ) ||
+        !partHeaders.some((line) =>
+          /^content-type: application\/javascript\+module$/iu.test(line),
+        )
+      ) {
+        throw providerError(
+          "Worker Version content main module has an unexpected disposition or media type",
+        );
+      }
+      let form;
+      try {
+        form = await new Response(raw, {
+          headers: { "Content-Type": contentType },
+        }).formData();
+      } catch {
+        throw providerError(
+          "Worker Version content readback is malformed multipart data",
+        );
+      }
+      const parts = [...form.entries()];
+      if (
+        parts.length !== 1 ||
+        parts[0][0] !== "worker.mjs" ||
+        !(parts[0][1] instanceof Blob) ||
+        parts[0][1].name !== "worker.mjs"
+      ) {
+        throw providerError(
+          "Worker Version content contains unexpected module parts",
+        );
+      }
+      const moduleBytes = new Uint8Array(await parts[0][1].arrayBuffer());
+      if (
+        moduleBytes.byteLength !== bundleByteLength ||
+        digest(moduleBytes) !== bundleDigest
+      ) {
+        throw providerError(
+          "Worker Version content differs from the reviewed Worker bundle bytes",
+        );
+      }
+      return {
+        kind: "yurucommu.worker-version-code@v1",
+        versionId,
+        sha256: bundleDigest,
+        size: bundleByteLength,
+      };
+    };
+    try {
+      return await Promise.race([read(), timedOut]);
+    } catch (error) {
+      if (error instanceof ProviderFailure) throw error;
+      throw providerError("Worker Version content readback failed");
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   return {
     async domains() {
       const basePath = `/accounts/${account}/workers/domains`;
@@ -1214,6 +1418,8 @@ export function createCloudflareWorkerProvider({
       return body.result;
     },
 
+    assertVersionCode: assertVersionContent,
+
     async assertMediaDeletionSchema({ databaseId }) {
       if (typeof databaseId !== "string" || !UUID.test(databaseId)) {
         throw new Error("invalid active Worker D1 database id");
@@ -1267,11 +1473,7 @@ export function createCloudflareWorkerProvider({
       const bindingNames = bindingNamesForInheritance(previousVersion);
       if (bindingNames.length > 0) metadata.bindings = bindingNames;
       const form = new FormData();
-      form.append(
-        "metadata",
-        new Blob([JSON.stringify(metadata)], { type: "application/json" }),
-        "metadata.json",
-      );
+      form.set("metadata", JSON.stringify(metadata));
       form.append(
         "worker.mjs",
         new Blob([bundleBytes], { type: "application/javascript+module" }),
@@ -1399,7 +1601,7 @@ export async function deployYurucommuWorker({
   let source = null;
   let selectedTarget = null;
   let bundleDigest = null;
-  let bundleEtag = null;
+  let bundleByteLength = null;
   let previous = null;
   let versionId = null;
   let deploymentId = null;
@@ -1426,7 +1628,7 @@ export async function deployYurucommuWorker({
     }
     const bundleBytes = readFileSync(bundlePath);
     bundleDigest = digest(bundleBytes);
-    bundleEtag = scriptEtag(bundleBytes);
+    bundleByteLength = bundleBytes.byteLength;
     assertPrivateFile(selectedTarget.config.path, "deploy target config", {
       repo,
     });
@@ -1440,6 +1642,25 @@ export async function deployYurucommuWorker({
       bundleDigest,
       selectedTarget.config.sha256,
     ].join(":");
+
+    if (typeof releaseProvider.assertVersionCode !== "function") {
+      throw new Error(
+        "Worker provider is missing the required exact Version code readback",
+      );
+    }
+    const proveSelectedCode = async (selectedVersionId) => {
+      const proof = await releaseProvider.assertVersionCode({
+        versionId: selectedVersionId,
+        bundleDigest,
+        bundleByteLength,
+      });
+      assertVersionCodeProof(
+        proof,
+        selectedVersionId,
+        bundleDigest,
+        bundleByteLength,
+      );
+    };
 
     assertDomains(
       await releaseProvider.domains(),
@@ -1489,14 +1710,28 @@ export async function deployYurucommuWorker({
     });
     versionId = acknowledged(upload, "versionId", "Worker Version upload");
     const uploadedVersion = await releaseProvider.version({ versionId });
-    assertVersionIdentity(uploadedVersion, versionId, identity, bundleEtag);
+    const uploadedEtag = assertVersionIdentity(
+      uploadedVersion,
+      versionId,
+      identity,
+    );
     assertCodeOnlyVersion(previousVersion, uploadedVersion);
+    await proveSelectedCode(versionId);
 
     const beforeDeploy = deployment(
       await releaseProvider.activeDeployment(),
       "pre-deploy active Deployment",
     );
     assertSameDeployment(previous, beforeDeploy, "active Deployment");
+    const candidateBeforeDeploy = await releaseProvider.version({ versionId });
+    assertVersionIdentity(
+      candidateBeforeDeploy,
+      versionId,
+      identity,
+      uploadedEtag,
+    );
+    assertCodeOnlyVersion(previousVersion, candidateBeforeDeploy);
+    await proveSelectedCode(versionId);
 
     const deploymentMessage = `${identity}:previous:${previous.id}:${previous.versionId}`;
     phase = "POST_DEPLOY_INDETERMINATE";
@@ -1521,7 +1756,7 @@ export async function deployYurucommuWorker({
       );
     }
     const postDeployVersion = await releaseProvider.version({ versionId });
-    assertVersionIdentity(postDeployVersion, versionId, identity, bundleEtag);
+    assertVersionIdentity(postDeployVersion, versionId, identity, uploadedEtag);
     assertCodeOnlyVersion(previousVersion, postDeployVersion);
     assertDomains(
       await releaseProvider.domains(),
@@ -1595,6 +1830,10 @@ export async function deployYurucommuWorker({
         "active Deployment changed concurrently during smoke; the selected Version is not the final serving Deployment",
       );
     }
+    const finalVersion = await releaseProvider.version({ versionId });
+    assertVersionIdentity(finalVersion, versionId, identity, uploadedEtag);
+    assertCodeOnlyVersion(previousVersion, finalVersion);
+    await proveSelectedCode(versionId);
     return {
       kind: "takos.deploy-result@v1",
       surface: "yurucommu-worker",
@@ -1612,7 +1851,8 @@ export async function deployYurucommuWorker({
       previousVersionId: previous.versionId,
       deploymentId,
       versionId,
-      providerReadback: "EXACT_ACTIVE_DEPLOYMENT_AND_VERSION_IDENTITY",
+      providerReadback:
+        "EXACT_ACTIVE_DEPLOYMENT_VERSION_METADATA_AND_CODE_BYTES",
       smoke,
       status: "PUBLISHED",
     };

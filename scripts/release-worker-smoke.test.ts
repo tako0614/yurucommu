@@ -41,8 +41,21 @@ async function buildGeneratedFixture(transform = (source: string) => source) {
   return artifactPath;
 }
 
+function requireSmokeProcessExit(
+  result: Bun.ReadableSyncSubprocess,
+  elapsedMs: number,
+) {
+  if (result.exitCode === null || result.signalCode != null) {
+    throw new Error(
+      `Native smoke child did not complete after ${elapsedMs}ms: exit=${result.exitCode}, signal=${result.signalCode ?? "none"}; ${result.stderr.toString()}`,
+    );
+  }
+  return result;
+}
+
 function runSmoke(artifactPath: string) {
-  return Bun.spawnSync(
+  const started = performance.now();
+  const result = Bun.spawnSync(
     ["bun", "scripts/smoke-release-worker.mjs", artifactPath],
     {
       cwd: repo,
@@ -50,6 +63,10 @@ function runSmoke(artifactPath: string) {
       stderr: "pipe",
       timeout: 20_000,
     },
+  );
+  return requireSmokeProcessExit(
+    result,
+    Math.round(performance.now() - started),
   );
 }
 
@@ -62,6 +79,22 @@ afterEach(async () => {
 });
 
 describe("release Worker smoke", () => {
+  test("refuses a signaled child even if it printed the expected refusal marker", () => {
+    const result = Bun.spawnSync(
+      [
+        "bun",
+        "-e",
+        'process.stderr.write("first-owner-persona-switch\\n"); process.kill(process.pid, "SIGTERM");',
+      ],
+      { cwd: repo, stdout: "pipe", stderr: "pipe", timeout: 20_000 },
+    );
+    expect(result.signalCode).toBe("SIGTERM");
+    expect(result.stderr.toString()).toContain("first-owner-persona-switch");
+    expect(() => requireSmokeProcessExit(result, 0)).toThrow(
+      "Native smoke child did not complete",
+    );
+  });
+
   test("verifies the generated artifact's native queue/DLQ and story/media retention", async () => {
     const artifactPath = await buildGeneratedFixture();
     const result = runSmoke(artifactPath);
