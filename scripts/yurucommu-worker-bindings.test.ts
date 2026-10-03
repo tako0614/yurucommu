@@ -138,6 +138,7 @@ function cloudflareBindings(
     DB: nativeD1(),
     KV: kvBinding(),
     APP_URL: "https://yurucommu.example.test",
+    YURUCOMMU_SESSION_HASH_SALT: "synthetic-test-session-salt",
     ...overrides,
   } as unknown as YurucommuCloudflareBindings;
 }
@@ -150,6 +151,7 @@ function portableBindings(
     DB: edgeSql(),
     KV: kvBinding(),
     APP_URL: "https://yurucommu.example.test",
+    YURUCOMMU_SESSION_HASH_SALT: "synthetic-test-session-salt",
     ...overrides,
   } as unknown as YurucommuPortableBindings;
 }
@@ -206,6 +208,65 @@ describe("runtime lane declaration", () => {
     expect(() =>
       wrapYurucommuWorkerBindings(portableBindings({ DB: nativeD1() })),
     ).toThrow(/D1Database/);
+  });
+
+  test("preserves lane validation precedence when the session salt is invalid", () => {
+    expect(() =>
+      wrapYurucommuWorkerBindings(
+        cloudflareBindings({
+          YURUCOMMU_RUNTIME_LANE: "takoform-v1",
+          YURUCOMMU_SESSION_HASH_SALT: undefined,
+        }),
+      ),
+    ).toThrow("YURUCOMMU_RUNTIME_LANE");
+  });
+
+  test("refuses missing, non-string, blank, and known development salts on both lanes without echoing them", () => {
+    const knownPublicSalt = "yurucommu:dev-only-session-hash-salt";
+    const invalidSalts: unknown[] = [
+      undefined,
+      42,
+      "",
+      " \t\n ",
+      knownPublicSalt,
+    ];
+
+    for (const lane of ["cloudflare", "portable"] as const) {
+      for (const salt of invalidSalts) {
+        const bindings =
+          lane === "cloudflare"
+            ? cloudflareBindings({ YURUCOMMU_SESSION_HASH_SALT: salt })
+            : portableBindings({ YURUCOMMU_SESSION_HASH_SALT: salt });
+        let failure: unknown;
+        try {
+          wrapYurucommuWorkerBindings(bindings);
+        } catch (error) {
+          failure = error;
+        }
+
+        expect(failure).toBeInstanceOf(Error);
+        expect((failure as Error).message).toBe(
+          "YURUCOMMU_SESSION_HASH_SALT must be configured with a non-development value",
+        );
+        if (typeof salt === "string" && salt.length > 0) {
+          expect((failure as Error).message).not.toContain(salt);
+        }
+      }
+    }
+  });
+
+  test("passes accepted session salt bytes through unchanged on both lanes", () => {
+    const exactSalt = "  owner-supplied bytes stay exact  ";
+    expect(
+      wrapYurucommuWorkerBindings(
+        cloudflareBindings({ YURUCOMMU_SESSION_HASH_SALT: exactSalt }),
+      ).YURUCOMMU_SESSION_HASH_SALT,
+    ).toBe(exactSalt);
+    expect(
+      wrapYurucommuWorkerBindings(
+        portableBindings({ YURUCOMMU_SESSION_HASH_SALT: exactSalt }),
+      ).YURUCOMMU_SESSION_HASH_SALT,
+    ).toBe(exactSalt);
   });
 
   // core@4.1.1: `edge.objects@1.0.0` is R2's method set on purpose — the same

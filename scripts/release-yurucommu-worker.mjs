@@ -29,6 +29,9 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
 const CLOUDFLARE_API = "https://api.cloudflare.com/client/v4";
 const DOMAIN_PAGE_SIZE = 100;
 const MAX_DOMAIN_PAGES = 8;
+const SESSION_HASH_SALT_BINDING = "YURUCOMMU_SESSION_HASH_SALT";
+const SESSION_HASH_SALT_REQUIRED_ERROR =
+  "active predecessor Version must expose exactly one YURUCOMMU_SESSION_HASH_SALT secret_text binding; stop and have the operator review existing secret custody before retrying. If no salt was previously configured, adding the first one changes session hashes and existing users will need to log in again.";
 
 const asText = (value) =>
   typeof value === "string" ? value : Buffer.from(value ?? "").toString("utf8");
@@ -756,6 +759,52 @@ function activeDatabaseId(version) {
   return database.id;
 }
 
+function assertActiveSessionHashSaltBinding(version) {
+  const bindings = versionRuntime(version).bindings;
+  let saltBindings;
+  if (Array.isArray(bindings)) {
+    if (
+      bindings.some(
+        (binding) =>
+          typeof binding !== "object" ||
+          binding === null ||
+          Array.isArray(binding) ||
+          typeof binding.name !== "string" ||
+          binding.name.length === 0,
+      )
+    ) {
+      throw new Error(SESSION_HASH_SALT_REQUIRED_ERROR);
+    }
+    saltBindings = bindings.filter(
+      (binding) => binding.name === SESSION_HASH_SALT_BINDING,
+    );
+  } else if (typeof bindings === "object" && bindings !== null) {
+    if (!Object.hasOwn(bindings, SESSION_HASH_SALT_BINDING)) {
+      throw new Error(SESSION_HASH_SALT_REQUIRED_ERROR);
+    }
+    const salt = bindings[SESSION_HASH_SALT_BINDING];
+    if (
+      typeof salt !== "object" ||
+      salt === null ||
+      Array.isArray(salt) ||
+      (salt.name !== undefined && salt.name !== SESSION_HASH_SALT_BINDING)
+    ) {
+      throw new Error(SESSION_HASH_SALT_REQUIRED_ERROR);
+    }
+    saltBindings = [{ name: SESSION_HASH_SALT_BINDING, type: salt.type }];
+  } else {
+    throw new Error(SESSION_HASH_SALT_REQUIRED_ERROR);
+  }
+
+  if (
+    saltBindings.length !== 1 ||
+    saltBindings[0]?.name !== SESSION_HASH_SALT_BINDING ||
+    saltBindings[0]?.type !== "secret_text"
+  ) {
+    throw new Error(SESSION_HASH_SALT_REQUIRED_ERROR);
+  }
+}
+
 function versionRuntime(value) {
   const resources =
     typeof value?.resources === "object" && value.resources !== null
@@ -1416,6 +1465,7 @@ export async function deployYurucommuWorker({
       "selected Wrangler config",
     );
 
+    assertActiveSessionHashSaltBinding(previousVersion);
     const databaseId = activeDatabaseId(previousVersion);
     if (typeof releaseProvider.assertMediaDeletionSchema !== "function") {
       throw new Error(
