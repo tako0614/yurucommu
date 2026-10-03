@@ -352,7 +352,10 @@ async function waitForFailureAndRetry({ fixture, origin, caller }) {
   const retry = confirmation.getByRole("button", { name: "ログアウト" });
   const cancel = confirmation.getByRole("button", { name: "キャンセル" });
   let pending;
-  await page.clock.pauseAt(new Date());
+  // The CDP call executes after the driver samples time. Use a bounded
+  // future browser-clock target instead of racing a past wall-clock value.
+  const pauseAt = await page.evaluate(() => Date.now() + 1_000);
+  await page.clock.pauseAt(pauseAt);
   try {
     // Advance rendering while preserving plenty of the pending deadline.
     await page.clock.runFor(100);

@@ -23,7 +23,10 @@ a harness mechanism, not the unrecorded timing of the original CI failure.
 
 The held-503 browser cases now install Playwright's clock before application
 timers exist, pause it after observing the intercepted logout request, and
-advance only 200ms while asserting pending Escape behavior. DOM observation
+pause at a browser-clock target one second ahead and advance another 200ms
+while asserting pending Escape behavior. A driver-sampled current timestamp
+can be in the past by the time CDP executes; the bounded future target avoids
+that clock-control error. DOM observation
 uses bounded driver-side polling because browser rAF/timers are paused. The
 assertion still requires a visible confirmation, exactly one POST and disabled
 confirm/cancel controls after a real Escape key. Clock resume runs in `finally`;
