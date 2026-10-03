@@ -1,4 +1,12 @@
-import { createEffect, createSignal, For, on, onCleanup, Show } from "solid-js";
+import {
+  batch,
+  createEffect,
+  createSignal,
+  For,
+  on,
+  onCleanup,
+  Show,
+} from "solid-js";
 import { A } from "@solidjs/router";
 import { Actor, DMMessage } from "../../types/index.ts";
 import {
@@ -16,6 +24,7 @@ import {
 } from "../../lib/api.ts";
 import { ApiError } from "../../lib/api/fetch.ts";
 import { classifyWriteFailure } from "../../lib/write-outcome.ts";
+import { createDMHistory, type DMHistoryToken } from "../../lib/dm-history.ts";
 import { formatTime } from "../../lib/datetime.ts";
 import { useI18n } from "../../lib/i18n.tsx";
 import { ConfirmSheet } from "../ConfirmSheet.tsx";
@@ -34,33 +43,6 @@ type ChatMessage = DMMessage | CommunityMessage;
 // Poll interval for re-fetching incoming messages on the open conversation.
 const MESSAGE_POLL_MS = 4000;
 
-/**
- * Merge a freshly-fetched message list into the existing list, deduplicating
- * by message id. The server-ordered `fetched` list is authoritative; any
- * existing message not yet present in it (e.g. an optimistic send the server
- * has not indexed yet) is appended at the end so it does not flicker out.
- */
-function mergeMessagesById(
-  existing: ChatMessage[],
-  fetched: ChatMessage[],
-): ChatMessage[] {
-  const fetchedIds = new Set(fetched.map((m) => m.id));
-  const pending = existing.filter((m) => !fetchedIds.has(m.id));
-  const merged = pending.length > 0 ? [...fetched, ...pending] : fetched;
-
-  // No-op guard: if the merged id-sequence is identical to the existing one,
-  // return the PREVIOUS array reference so the `messages` signal does not
-  // change identity on a poll that fetched nothing new. This stops the
-  // scroll-to-bottom effect from re-firing every poll interval.
-  if (
-    merged.length === existing.length &&
-    merged.every((m, i) => m.id === existing[i].id)
-  ) {
-    return existing;
-  }
-  return merged;
-}
-
 export function DMChatPanel(props: DMChatPanelProps) {
   const [messages, setMessages] = createSignal<ChatMessage[]>([]);
   const [loading, setLoading] = createSignal(true);
@@ -71,13 +53,21 @@ export function DMChatPanel(props: DMChatPanelProps) {
   >({});
   const [isTyping, setIsTyping] = createSignal(false);
   const [errorMessage, setErrorMessage] = createSignal<string | null>(null);
-  // Whether an OLDER page of messages exists before the oldest one currently
-  // shown (DM threads only; the community thread doesn't paginate yet). Set from
-  // the initial load + each "load older" fetch — NOT from polls (a poll re-reads
-  // the newest page, which always reports older messages exist, and would wrongly
-  // resurrect the button after the user has scrolled all the way back).
+  const [historyError, setHistoryError] = createSignal<
+    "initial" | "older" | null
+  >(null);
   const [hasMoreOlder, setHasMoreOlder] = createSignal(false);
   const [loadingOlder, setLoadingOlder] = createSignal(false);
+  let activation: DMHistoryToken | null = null;
+  const history = createDMHistory<ChatMessage>((snapshot) => {
+    batch(() => {
+      setMessages(snapshot.messages);
+      setLoading(snapshot.loading);
+      setHasMoreOlder(snapshot.hasMore);
+      setLoadingOlder(snapshot.loadingOlder);
+      setHistoryError(snapshot.error);
+    });
+  });
   let messagesEndRef!: HTMLDivElement;
   let scrollContainerRef!: HTMLDivElement;
   let lastTypingSent = 0;
@@ -94,146 +84,81 @@ export function DMChatPanel(props: DMChatPanelProps) {
   // only — DM edit/delete isn't surfaced yet). On success the bubble is removed.
   // The bare tap stages the message behind the shared ConfirmSheet — the tiny
   // inline delete affordance is too easy to hit for an unrecoverable action.
-  const [pendingDeleteMessage, setPendingDeleteMessage] =
-    createSignal<ChatMessage | null>(null);
-  const handleDeleteCommunityMessage = async (msg: ChatMessage) => {
-    if (props.contact.type !== "community" || deletingMessage()[msg.id]) return;
+  const [pendingDeleteMessage, setPendingDeleteMessage] = createSignal<{
+    message: ChatMessage;
+    token: DMHistoryToken;
+  } | null>(null);
+  const handleDeleteCommunityMessage = async (
+    msg: ChatMessage,
+    token: DMHistoryToken,
+  ) => {
+    if (
+      !history.owns(token) ||
+      props.contact.type !== "community" ||
+      deletingMessage()[msg.id]
+    )
+      return;
+    const contactApId = props.contact.ap_id;
     setDeletingMessage((prev) => ({ ...prev, [msg.id]: true }));
     try {
-      await deleteCommunityMessage(props.contact.ap_id, msg.id);
-      setMessages((prev) => prev.filter((m) => m.id !== msg.id));
+      await deleteCommunityMessage(contactApId, msg.id);
+      history.remove(token, msg.id);
     } catch (e) {
-      console.error("Failed to delete message:", e);
-      setErrorMessage(t("common.error"));
+      if (history.owns(token)) {
+        console.error("Failed to delete message:", e);
+        setErrorMessage(t("common.error"));
+      }
     } finally {
-      setDeletingMessage((prev) => ({ ...prev, [msg.id]: false }));
+      if (history.owns(token))
+        setDeletingMessage((prev) => ({ ...prev, [msg.id]: false }));
     }
   };
 
-  // Fetch the latest messages for the open conversation. On `initial` load we
-  // show the spinner and replace state; on poll refreshes we merge by id so
-  // optimistic sends are not lost and there is no flicker.
   const refreshMessages = async (
+    token: DMHistoryToken,
     contactApId: string,
     contactType: DMContact["type"],
     mode: "initial" | "poll",
-    isCancelled: () => boolean,
   ) => {
-    if (mode === "initial") {
-      setErrorMessage(null);
-      setLoading(true);
-    }
+    const result = await history.readNewest(token, mode, () =>
+      contactType === "community"
+        ? fetchCommunityMessages(contactApId)
+        : fetchUserDMMessages(contactApId),
+    );
+    if (
+      !history.owns(token) ||
+      !result.applied ||
+      (mode !== "initial" && !result.changed)
+    )
+      return;
     try {
-      if (contactType === "community") {
-        const { messages: data, hasMore } =
-          await fetchCommunityMessages(contactApId);
-        if (isCancelled()) return;
-        if (mode === "initial") setHasMoreOlder(hasMore);
-        let changed = false;
-        setMessages((prev) => {
-          const next =
-            mode === "initial" ? data : mergeMessagesById(prev, data);
-          changed = next !== prev;
-          return next;
-        });
-        // Only POST mark-as-read on the initial load or when genuinely new
-        // content arrived; otherwise every poll triggers a redundant write.
-        if (mode === "initial" || changed) {
-          try {
-            await markCommunityAsRead(contactApId);
-            if (!isCancelled()) props.onRead?.();
-          } catch {
-            // Ignore read marking errors.
-          }
-        }
-      } else {
-        const { messages: loadedMessages, hasMore } =
-          await fetchUserDMMessages(contactApId);
-        if (isCancelled()) return;
-        // Only the initial (newest-page) load seeds the older-page indicator;
-        // see the hasMoreOlder comment. loadOlder updates it thereafter.
-        if (mode === "initial") setHasMoreOlder(hasMore);
-        let changed = false;
-        setMessages((prev) => {
-          const next =
-            mode === "initial"
-              ? loadedMessages
-              : mergeMessagesById(prev, loadedMessages);
-          changed = next !== prev;
-          return next;
-        });
-        if (mode === "initial" || changed) {
-          try {
-            await markDMAsRead(contactApId);
-            if (!isCancelled()) props.onRead?.();
-          } catch {
-            // Ignore read marking errors.
-          }
-        }
-      }
-    } catch (e) {
-      if (!isCancelled() && mode === "initial") {
-        console.error("Failed to load messages:", e);
-        setErrorMessage(t("common.error"));
-      }
-      // Poll failures are transient; keep the last good state silently.
-    } finally {
-      if (!isCancelled() && mode === "initial") {
-        setLoading(false);
-      }
+      if (contactType === "community") await markCommunityAsRead(contactApId);
+      else await markDMAsRead(contactApId);
+      if (history.owns(token)) props.onRead?.();
+    } catch {
+      // Read marking does not change the accepted history.
     }
   };
 
-  // Load the page of messages OLDER than the oldest one currently shown and
-  // prepend it, preserving the reader's scroll position (anchor on the height
-  // added above). The `before` cursor is the oldest shown message's composite
-  // "<published> <apId>" key; the server returns rows older than that tuple.
+  // The oldest canonical (published, apId) tuple owns the older-page cursor.
   const loadOlder = async () => {
-    if (loadingOlder()) return;
-    const current = messages();
-    if (current.length === 0) return;
-    const oldest = current[0]; // messages render oldest-first
-    if (!oldest.created_at) return;
-    // Bind to the conversation we are loading for: the panel is NOT remounted on
-    // a thread switch (persistent <Show>), so a switch A→B mid-await would
-    // otherwise prepend A's older page into B's list.
-    const sentApId = props.contact.ap_id;
-    const sentType = props.contact.type;
-    setLoadingOlder(true);
+    const token = activation;
+    if (!token || !history.owns(token)) return;
+    const contactApId = props.contact.ap_id;
+    const contactType = props.contact.type;
     const el = scrollContainerRef;
     const prevHeight = el?.scrollHeight ?? 0;
-    try {
-      // Composite cursor "<published> <apId>" so a same-millisecond message at
-      // the boundary isn't skipped (server falls back to a legacy bare-published
-      // cursor if no space is present). `oldest.id` is the message apId.
-      const cursor = `${oldest.created_at} ${oldest.id}`;
-      const { messages: older, hasMore } =
-        sentType === "community"
-          ? await fetchCommunityMessages(sentApId, { before: cursor })
-          : await fetchUserDMMessages(sentApId, { before: cursor });
-      if (props.contact.ap_id !== sentApId || props.contact.type !== sentType) {
-        return; // switched conversations mid-flight
+    const applied = await history.readOlder(token, (cursor) =>
+      contactType === "community"
+        ? fetchCommunityMessages(contactApId, { before: cursor })
+        : fetchUserDMMessages(contactApId, { before: cursor }),
+    );
+    if (!applied) return;
+    queueMicrotask(() => {
+      if (applied.isCurrent() && el && el === scrollContainerRef) {
+        el.scrollTop += el.scrollHeight - prevHeight;
       }
-      setMessages((prev) => {
-        const ids = new Set(prev.map((m) => m.id));
-        const fresh = older.filter((m) => !ids.has(m.id));
-        return fresh.length > 0 ? [...fresh, ...prev] : prev;
-      });
-      setHasMoreOlder(hasMore);
-      // Keep the message the user was reading in place after the prepend.
-      queueMicrotask(() => {
-        if (el) el.scrollTop += el.scrollHeight - prevHeight;
-      });
-    } catch (e) {
-      console.error("Failed to load older messages:", e);
-      // Surface the failure (guarded against a mid-flight thread switch) instead
-      // of a silent revert that looks like "end of history".
-      if (props.contact.ap_id === sentApId && props.contact.type === sentType) {
-        setErrorMessage(t("common.error"));
-      }
-    } finally {
-      setLoadingOlder(false);
-    }
+    });
   };
 
   // Key the (re)load strictly on the conversation IDENTITY (ap_id + type), NOT
@@ -244,22 +169,20 @@ export function DMChatPanel(props: DMChatPanelProps) {
   // clear `loading()` — leaving the panel stuck on "Loading..." forever.
   createEffect(
     on(
-      () => [props.contact.ap_id, props.contact.type] as const,
+      () =>
+        [props.contact.ap_id, props.contact.type, props.actor.ap_id] as const,
       ([contactApId, contactType]) => {
-        let cancelled = false;
-        const isCancelled = () => cancelled;
+        const token = history.activate();
+        activation = token;
+        setDeletingMessage({});
+        setPendingDeleteMessage(null);
+        setErrorMessage(null);
 
         // Reset scroll tracking so the new conversation jumps to its bottom once.
         prevLastId = null;
         prevCount = 0;
         didInitialScroll = false;
-        // Clear the previous thread's messages immediately — otherwise, if the
-        // new conversation's fetch fails, conversation A's bubbles render under
-        // B's header + the error line.
-        setMessages([]);
-        setHasMoreOlder(false);
-
-        void refreshMessages(contactApId, contactType, "initial", isCancelled);
+        void refreshMessages(token, contactApId, contactType, "initial");
 
         // Re-fetch incoming messages while the conversation is open so messages
         // sent by the other side appear without leaving and re-entering the thread.
@@ -267,11 +190,11 @@ export function DMChatPanel(props: DMChatPanelProps) {
           // Skip polling while the tab is backgrounded (wasted requests); the
           // contact-change / focus path refreshes when the user returns.
           if (document.hidden) return;
-          void refreshMessages(contactApId, contactType, "poll", isCancelled);
+          void refreshMessages(token, contactApId, contactType, "poll");
         }, MESSAGE_POLL_MS);
 
         onCleanup(() => {
-          cancelled = true;
+          history.invalidate(token);
           window.clearInterval(intervalId);
         });
       },
@@ -355,7 +278,8 @@ export function DMChatPanel(props: DMChatPanelProps) {
   const handleSend = async (e: SubmitEvent) => {
     e.preventDefault();
     const text = input().trim();
-    if (!text || sending()) return;
+    const token = activation;
+    if (!text || sending() || !token || !history.owns(token)) return;
 
     setSending(true);
     setErrorMessage(null);
@@ -369,24 +293,19 @@ export function DMChatPanel(props: DMChatPanelProps) {
     const sentType = props.contact.type;
     const notifyUserMessageSent = props.onUserMessageSent;
     let userMessageSent = false;
-    const stillOnConversation = () =>
-      props.contact.ap_id === sentApId && props.contact.type === sentType;
+    const stillOnConversation = () => history.owns(token);
     try {
       if (sentType === "community") {
         const newMsg = await sendCommunityMessage(sentApId, text);
         // Dedupe by id: a concurrent poll may have already merged this message.
         if (stillOnConversation()) {
-          setMessages((prev) =>
-            prev.some((m) => m.id === newMsg.id) ? prev : [...prev, newMsg],
-          );
+          history.acknowledge(token, newMsg);
         }
       } else {
         const { message } = await sendUserDMMessage(sentApId, text);
         userMessageSent = true;
         if (stillOnConversation()) {
-          setMessages((prev) =>
-            prev.some((m) => m.id === message.id) ? prev : [...prev, message],
-          );
+          history.acknowledge(token, message);
         }
       }
     } catch (e) {
@@ -620,7 +539,13 @@ export function DMChatPanel(props: DMChatPanelProps) {
                         >
                           <button
                             type="button"
-                            onClick={() => setPendingDeleteMessage(msg)}
+                            onClick={() => {
+                              if (activation)
+                                setPendingDeleteMessage({
+                                  message: msg,
+                                  token: activation,
+                                });
+                            }}
                             disabled={deletingMessage()[msg.id]}
                             class="ml-2 text-rose-400 hover:text-rose-300 disabled:opacity-50"
                           >
@@ -642,12 +567,12 @@ export function DMChatPanel(props: DMChatPanelProps) {
       </div>
 
       <form onSubmit={handleSend} class="p-4 border-t border-neutral-900">
-        <Show when={errorMessage()}>
+        <Show when={errorMessage() || historyError()}>
           <div
             role="alert"
             class="mb-3 text-center text-red-400 text-sm break-words"
           >
-            {errorMessage()}
+            {errorMessage() || t("common.error")}
           </div>
         </Show>
         <div class="flex gap-2">
@@ -680,9 +605,10 @@ export function DMChatPanel(props: DMChatPanelProps) {
         confirmLabel={t("common.delete")}
         destructive
         onConfirm={() => {
-          const msg = pendingDeleteMessage();
+          const pending = pendingDeleteMessage();
           setPendingDeleteMessage(null);
-          if (msg) void handleDeleteCommunityMessage(msg);
+          if (pending)
+            void handleDeleteCommunityMessage(pending.message, pending.token);
         }}
         onCancel={() => setPendingDeleteMessage(null)}
       />
