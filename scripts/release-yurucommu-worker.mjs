@@ -12,6 +12,10 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  MEDIA_DELETION_SCHEMA_QUERY,
+  validateMediaDeletionQueryResults,
+} from "./media-deletion-schema.mjs";
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const COMMIT = /^[0-9a-f]{40}$/u;
@@ -715,6 +719,43 @@ function assertVersionClosure(value, label) {
   return closure;
 }
 
+function activeDatabaseId(version) {
+  const bindings = versionRuntime(version).bindings;
+  let databaseBindings;
+  if (Array.isArray(bindings)) {
+    databaseBindings = bindings.filter(
+      (binding) =>
+        typeof binding === "object" &&
+        binding !== null &&
+        !Array.isArray(binding) &&
+        binding.name === "DB",
+    );
+  } else if (typeof bindings === "object" && bindings !== null) {
+    databaseBindings = Object.hasOwn(bindings, "DB") ? [bindings.DB] : [];
+  } else {
+    databaseBindings = [];
+  }
+  if (databaseBindings.length !== 1) {
+    throw new Error(
+      "active predecessor Version must expose exactly one DB binding",
+    );
+  }
+  const database = databaseBindings[0];
+  if (
+    typeof database !== "object" ||
+    database === null ||
+    Array.isArray(database) ||
+    database.type !== "d1" ||
+    typeof database.id !== "string" ||
+    !UUID.test(database.id)
+  ) {
+    throw new Error(
+      "active predecessor Version DB binding must be one D1 binding with a UUID database id",
+    );
+  }
+  return database.id;
+}
+
 function versionRuntime(value) {
   const resources =
     typeof value?.resources === "object" && value.resources !== null
@@ -883,8 +924,37 @@ function writePrivate(path, value) {
   writeFileSync(path, value, { mode: 0o600, flag: "wx" });
 }
 
-function cloudflareApiError(message, output = {}) {
-  return new ProviderFailure(message, output);
+function cloudflareApiError(message, output = {}, secrets = []) {
+  const safeText = (value) =>
+    redactProviderText(value, secrets).slice(0, 4_000);
+  return new ProviderFailure(safeText(message), {
+    ...output,
+    stdout: safeText(output.stdout ?? ""),
+    stderr: safeText(output.stderr ?? ""),
+    cause: redactProviderCause(output.cause, safeText),
+  });
+}
+
+function redactProviderText(value, secrets) {
+  let text = asText(value);
+  const candidates = secrets
+    .filter((secret) => typeof secret === "string" && secret.length > 0)
+    .flatMap((secret) => [secret, JSON.stringify(secret).slice(1, -1)])
+    .filter((candidate) => candidate.length > 0);
+  for (const candidate of [...new Set(candidates)].sort(
+    (left, right) => right.length - left.length,
+  )) {
+    text = text.replaceAll(candidate, "[REDACTED]");
+  }
+  return text;
+}
+
+function redactProviderCause(cause, safeText, depth = 0) {
+  if (!(cause instanceof Error) || depth >= 5) return undefined;
+  const safeCause = new Error(safeText(cause.message));
+  safeCause.name = safeText(cause.name);
+  safeCause.cause = redactProviderCause(cause.cause, safeText, depth + 1);
+  return safeCause;
 }
 
 function bindingNamesForInheritance(previousVersion) {
@@ -942,6 +1012,8 @@ export function createCloudflareWorkerProvider({
   const selectedTarget = validateTarget(target, "production", { repo });
   const account = encodeURIComponent(selectedTarget.accountId);
   const worker = encodeURIComponent(selectedTarget.workerName);
+  const providerError = (message, output = {}) =>
+    cloudflareApiError(message, output, [token, smokePassword]);
 
   async function request(path, { method = "GET", body, headers = {} } = {}) {
     let response;
@@ -958,30 +1030,38 @@ export function createCloudflareWorkerProvider({
         redirect: "error",
       });
     } catch (error) {
-      throw cloudflareApiError(
+      throw providerError(
         error instanceof Error
           ? `Cloudflare readback failed: ${error.message}`
           : "Cloudflare readback failed",
         { cause: error instanceof Error ? error : undefined },
       );
     }
-    const text = await response.text();
+    let text;
+    try {
+      text = await response.text();
+    } catch (error) {
+      throw providerError(
+        `Cloudflare readback response body could not be read: ${error instanceof Error ? error.message : "unknown body-read error"}`,
+        { cause: error instanceof Error ? error : undefined },
+      );
+    }
     let responseBody;
     try {
       responseBody = JSON.parse(text);
     } catch (error) {
-      throw cloudflareApiError(
+      throw providerError(
         `Cloudflare readback returned non-JSON HTTP ${response.status}`,
         {
-          stderr: text.slice(0, 4_000),
+          stderr: text,
           cause: error instanceof Error ? error : undefined,
         },
       );
     }
     if (!response.ok || responseBody?.success !== true) {
-      throw cloudflareApiError(
+      throw providerError(
         `Cloudflare readback returned HTTP ${response.status}`,
-        { stderr: text.slice(0, 4_000) },
+        { stderr: text },
       );
     }
     return responseBody;
@@ -1004,14 +1084,14 @@ export function createCloudflareWorkerProvider({
           });
           const body = await request(`${basePath}?${query}`);
           if (!Array.isArray(body.result)) {
-            throw cloudflareApiError(
+            throw providerError(
               "Cloudflare custom-domain readback did not return result[]",
             );
           }
           const info = body.result_info;
           if (info === undefined) {
             if (page !== 1 || body.result.length >= DOMAIN_PAGE_SIZE) {
-              throw cloudflareApiError(
+              throw providerError(
                 "Cloudflare custom-domain readback omitted bounded pagination metadata",
               );
             }
@@ -1025,19 +1105,19 @@ export function createCloudflareWorkerProvider({
               !Number.isInteger(info.total_pages) ||
               info.total_pages < 1
             ) {
-              throw cloudflareApiError(
+              throw providerError(
                 "Cloudflare custom-domain readback returned invalid pagination metadata",
               );
             }
             if (page === 1) {
               totalPages = info.total_pages;
               if (totalPages > MAX_DOMAIN_PAGES) {
-                throw cloudflareApiError(
+                throw providerError(
                   `Cloudflare custom-domain readback exceeds the ${MAX_DOMAIN_PAGES}-page stability bound`,
                 );
               }
             } else if (info.total_pages !== totalPages) {
-              throw cloudflareApiError(
+              throw providerError(
                 "Cloudflare custom-domain pagination changed while reading",
               );
             }
@@ -1053,7 +1133,7 @@ export function createCloudflareWorkerProvider({
         JSON.stringify(canonicalDomainSnapshot(first)) !==
         JSON.stringify(canonicalDomainSnapshot(second))
       ) {
-        throw cloudflareApiError(
+        throw providerError(
           "Cloudflare custom-domain inventory changed between stable readbacks",
         );
       }
@@ -1070,7 +1150,7 @@ export function createCloudflareWorkerProvider({
         !Array.isArray(body.result.deployments) ||
         body.result.deployments.length === 0
       ) {
-        throw cloudflareApiError(
+        throw providerError(
           "Cloudflare active Deployment readback did not return result.deployments[0]",
         );
       }
@@ -1083,6 +1163,33 @@ export function createCloudflareWorkerProvider({
         `/accounts/${account}/workers/scripts/${worker}/versions/${encodeURIComponent(versionId)}`,
       );
       return body.result;
+    },
+
+    async assertMediaDeletionSchema({ databaseId }) {
+      if (typeof databaseId !== "string" || !UUID.test(databaseId)) {
+        throw new Error("invalid active Worker D1 database id");
+      }
+      const body = await request(
+        `/accounts/${account}/d1/database/${encodeURIComponent(databaseId)}/query`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sql: MEDIA_DELETION_SCHEMA_QUERY }),
+        },
+      );
+      try {
+        return validateMediaDeletionQueryResults(body?.result);
+      } catch (error) {
+        throw providerError(
+          error instanceof Error
+            ? error.message
+            : "Cloudflare D1 migration 0030 metadata response was invalid",
+          {
+            stderr: JSON.stringify(body),
+            cause: error instanceof Error ? error : undefined,
+          },
+        );
+      }
     },
 
     async upload({ bundleBytes, configBytes, message, previousVersion }) {
@@ -1130,7 +1237,7 @@ export function createCloudflareWorkerProvider({
       );
       const versionId = body?.result?.id;
       if (typeof versionId !== "string" || !UUID.test(versionId)) {
-        throw cloudflareApiError(
+        throw providerError(
           "Cloudflare Version upload acknowledgement names no valid Version",
         );
       }
@@ -1164,7 +1271,7 @@ export function createCloudflareWorkerProvider({
         body.result.versions[0]?.version_id !== versionId ||
         body.result.versions[0]?.percentage !== 100
       ) {
-        throw cloudflareApiError(
+        throw providerError(
           "Cloudflare Deployment acknowledgement does not bind the selected Version at 100 percent",
         );
       }
@@ -1308,6 +1415,14 @@ export async function deployYurucommuWorker({
       previousVersion,
       "selected Wrangler config",
     );
+
+    const databaseId = activeDatabaseId(previousVersion);
+    if (typeof releaseProvider.assertMediaDeletionSchema !== "function") {
+      throw new Error(
+        "Worker provider is missing the required read-only migration 0030 D1 preflight",
+      );
+    }
+    await releaseProvider.assertMediaDeletionSchema({ databaseId });
 
     phase = "POST_UPLOAD_INDETERMINATE";
     const upload = await releaseProvider.upload({
