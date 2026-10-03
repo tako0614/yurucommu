@@ -43,6 +43,12 @@ interface TimelinePostModalProps {
   submitLabel: string;
   submittingLabel: string;
   onClose: () => void;
+  onSubmitSuccess: () => void;
+  draftNotice: string | null;
+  draftRecoveryNeeded: boolean;
+  onRecoverDraft: () => void;
+  onSaveRecoveryDraft: () => void;
+  onKeepDraftAndClose: () => void;
   // True means the acknowledged composition can safely close. A successful
   // earlier post may leave a newer observed draft open instead.
   onSubmit: () => Promise<boolean>;
@@ -124,13 +130,14 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
       (props.postContent.trim().length > 0 || props.uploadedMedia.length > 0) &&
       !props.posting &&
       !props.uploading &&
+      !props.draftRecoveryNeeded &&
       !overLimit(),
   );
 
   // Close request: confirm first when there is unsent content, otherwise close
   // straight away. Used by Escape, the backdrop, and the header close button.
   const requestClose = () => {
-    if (props.posting || props.uploading) return;
+    if (props.posting || props.uploading || props.draftRecoveryNeeded) return;
     if (isDirty()) {
       setShowDiscard(true);
       return;
@@ -139,7 +146,7 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
   };
 
   const confirmDiscard = () => {
-    if (props.posting || props.uploading) return;
+    if (props.posting || props.uploading || props.draftRecoveryNeeded) return;
     setShowDiscard(false);
     props.onClose();
   };
@@ -235,7 +242,9 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
           <div class="flex items-center justify-between px-4 py-3 border-b border-neutral-800">
             <button
               onClick={requestClose}
-              disabled={props.posting || props.uploading}
+              disabled={
+                props.posting || props.uploading || props.draftRecoveryNeeded
+              }
               aria-label={t("common.close")}
               class="text-white hover:text-neutral-400 transition-colors"
             >
@@ -258,7 +267,7 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
                   if (!canSubmit()) return;
                   const canClose = await props.onSubmit();
                   if (canClose) {
-                    props.onClose();
+                    props.onSubmitSuccess();
                   }
                 }}
                 disabled={!canSubmit()}
@@ -269,8 +278,62 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
             </div>
           </div>
 
+          <Show when={props.draftNotice}>
+            <div class="px-4 pt-4">
+              <p role="status" class="text-sm text-amber-300">
+                {props.draftNotice}
+              </p>
+              <Show when={props.draftRecoveryNeeded}>
+                <div class="mt-3 space-y-2">
+                  <label class="block text-sm text-neutral-300">
+                    {t("compose.retainedContent")}
+                    <textarea
+                      readonly
+                      value={props.postContent}
+                      class="mt-1 w-full rounded bg-neutral-950 p-2 text-white"
+                    />
+                  </label>
+                  <label class="block text-sm text-neutral-300">
+                    {t("compose.retainedSummary")}
+                    <textarea
+                      readonly
+                      value={props.postSummary}
+                      class="mt-1 w-full rounded bg-neutral-950 p-2 text-white"
+                    />
+                  </label>
+                  <p class="text-sm text-neutral-300">
+                    {t("compose.saveRecoveryHint")}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={props.onSaveRecoveryDraft}
+                    class="mr-4 text-sm text-accent hover:underline"
+                  >
+                    {t("compose.saveRecoveryDraft")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={props.onRecoverDraft}
+                    class="mr-4 text-sm text-accent hover:underline"
+                  >
+                    {t("compose.reloadDraft")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={props.onKeepDraftAndClose}
+                    class="text-sm text-accent hover:underline"
+                  >
+                    {t("compose.keepDraftAndClose")}
+                  </button>
+                </div>
+              </Show>
+            </div>
+          </Show>
           {/* Native disabled descendants cover even an already-open emoji panel. */}
-          <fieldset disabled={props.posting} class="contents">
+          <fieldset
+            disabled={props.posting || props.draftRecoveryNeeded}
+            class="contents"
+          >
             {/* Modal Content */}
             <div class="p-4">
               <Show when={props.submitError}>

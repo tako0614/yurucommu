@@ -444,6 +444,18 @@ const translations = {
     "common.search": "検索",
     "common.noResults": "結果がありません",
     "feedback.postCreated": "投稿しました",
+    "feedback.postDraftKept":
+      "投稿は送信済みです。下書きが変わったか、保存状態を確認できないため残しています。続ける前に送信済みの投稿を確認してください。",
+    "compose.reloadDraft": "下書きを再読込",
+    "compose.draftSaveFailed":
+      "下書きの保存状態を確認できないため、破棄せずに残しています。本文と注釈をコピーできます。",
+    "compose.retainedContent": "保持している本文（コピーできます）",
+    "compose.retainedSummary": "保持している注釈（コピーできます）",
+    "compose.keepDraftAndClose":
+      "未保存のまま閉じる（再読込で失われる可能性があります）",
+    "compose.saveRecoveryDraft": "この下書きを保存して続ける",
+    "compose.saveRecoveryHint":
+      "この画面の下書きは再読込やタブを閉じると失われる可能性があります。本文と注釈をコピーできます。保存を選ぶと保存済みの本文を置き換えます。注釈や公開範囲が一致しない場合は保存を止めます。",
     "feedback.postDeleted": "投稿を削除しました",
     "feedback.postEdited": "投稿を編集しました",
     "feedback.noteSaved": "ノートを保存しました",
@@ -1158,6 +1170,18 @@ const translations = {
     "common.search": "Search",
     "common.noResults": "No results found",
     "feedback.postCreated": "Posted",
+    "feedback.postDraftKept":
+      "Your post was sent. The draft changed or its saved state could not be checked, so it has been kept. Check the sent post before continuing.",
+    "compose.reloadDraft": "Reload draft",
+    "compose.draftSaveFailed":
+      "The saved draft could not be checked, so it has been kept instead of discarded. You can copy its text and content warning.",
+    "compose.retainedContent": "Retained text (you can copy it)",
+    "compose.retainedSummary": "Retained content warning (you can copy it)",
+    "compose.keepDraftAndClose":
+      "Close without saving (draft may be lost on reload)",
+    "compose.saveRecoveryDraft": "Save this draft and continue",
+    "compose.saveRecoveryHint":
+      "This draft may be lost when you reload or close the tab. You can copy its text and content warning. Saving replaces the saved text. It is blocked if the saved content warning or audience differs.",
     "feedback.postDeleted": "Post deleted",
     "feedback.postEdited": "Post updated",
     "feedback.noteSaved": "Note saved",

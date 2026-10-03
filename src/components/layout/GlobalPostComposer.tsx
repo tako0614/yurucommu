@@ -2,11 +2,18 @@ import { Show } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import { useAtom, useAtomValue, useSetAtom } from "solid-jotai";
 import { actorAtom } from "../../atoms/auth.ts";
+import { postDraftWriteFailedAtom } from "../../atoms/post-draft.ts";
 import { tAtom } from "../../atoms/i18n.ts";
 import { createScopeOpenAtom } from "../../atoms/shell.ts";
 import { PERSONAL_SCOPE } from "../../atoms/scope.ts";
 import {
   closePostModalAtom,
+  closeSubmittedPostModalAtom,
+  recoverPostDraftAtom,
+  saveRecoveryPostDraftAtom,
+  hideRetainedPostModalAtom,
+  postDraftNoticeAtom,
+  postDraftRecoveryNeededAtom,
   createPostAtom,
   postContentAtom,
   postSummaryAtom,
@@ -48,6 +55,12 @@ export function GlobalPostComposer() {
   const [postSummary, setPostSummary] = useAtom(postSummaryAtom);
   const [postVisibility, setPostVisibility] = useAtom(postVisibilityAtom);
   const posting = useAtomValue(postingAtom);
+  const draftRecoveryNeeded = useAtomValue(postDraftRecoveryNeededAtom);
+  const explicitDraftNotice = useAtomValue(postDraftNoticeAtom);
+  const draftWriteFailed = useAtomValue(postDraftWriteFailedAtom);
+  const draftNotice = () =>
+    explicitDraftNotice() ??
+    (draftWriteFailed() ? t()("compose.draftSaveFailed") : null);
   const uploadedMedia = useAtomValue(uploadedMediaAtom);
   const uploading = useAtomValue(uploadingAtom);
   const [pendingSelections, setPendingSelections] = useAtom(
@@ -70,12 +83,16 @@ export function GlobalPostComposer() {
   const doRemoveMedia = useSetAtom(removeMediaAtom);
   const doSetMediaAlt = useSetAtom(setMediaAltAtom);
   const doClosePostModal = useSetAtom(closePostModalAtom);
+  const doCloseSubmittedPostModal = useSetAtom(closeSubmittedPostModalAtom);
+  const doRecoverPostDraft = useSetAtom(recoverPostDraftAtom);
+  const doSaveRecoveryDraft = useSetAtom(saveRecoveryPostDraftAtom);
+  const doHideRetainedPostModal = useSetAtom(hideRetainedPostModalAtom);
 
   const handleFileSelect = async (
     e: InputEvent & { currentTarget: HTMLInputElement },
   ) => {
     const input = e.currentTarget;
-    if (posting() || uploadsPending()) {
+    if (posting() || uploadsPending() || draftRecoveryNeeded()) {
       input.value = "";
       return;
     }
@@ -117,20 +134,27 @@ export function GlobalPostComposer() {
             scope={PERSONAL_SCOPE}
             postContent={postContent()}
             onPostContentChange={(value) => {
-              if (!posting()) setPostContent(value);
+              if (!posting() && !draftRecoveryNeeded()) setPostContent(value);
             }}
             postSummary={postSummary()}
             onPostSummaryChange={(value) => {
-              if (!posting()) setPostSummary(value);
+              if (!posting() && !draftRecoveryNeeded()) setPostSummary(value);
             }}
             postVisibility={postVisibility()}
             onPostVisibilityChange={(value) => {
-              if (!posting()) setPostVisibility(value);
+              if (!posting() && !draftRecoveryNeeded())
+                setPostVisibility(value);
             }}
             placeholder={t()("posts.placeholder")}
             submitLabel={t()("posts.post")}
             submittingLabel={t()("posts.posting")}
             onClose={handleClose}
+            onSubmitSuccess={doCloseSubmittedPostModal}
+            draftNotice={draftNotice()}
+            draftRecoveryNeeded={draftRecoveryNeeded()}
+            onRecoverDraft={doRecoverPostDraft}
+            onSaveRecoveryDraft={doSaveRecoveryDraft}
+            onKeepDraftAndClose={doHideRetainedPostModal}
             onSubmit={handlePost}
             posting={posting()}
             onFileSelect={handleFileSelect}
