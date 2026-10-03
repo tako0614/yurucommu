@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { Miniflare } from "miniflare";
 import { unstable_readConfig, unstable_splitSqlQuery } from "wrangler";
 import { qualifyProductJourneys } from "./release-product-journeys.mjs";
+import { qualifyOwnerOnboarding } from "./release-owner-onboarding.mjs";
 
 const MAX_RESPONSE_BYTES = 1024 * 1024;
 const TEST_PASSWORD = "release-smoke-only";
@@ -25,7 +26,7 @@ const DELIVERY_QUEUE = "yurucommu-delivery";
 const DELIVERY_DLQ = "yurucommu-delivery-dlq";
 const SESSION_SALT = "release-smoke-only-session-salt";
 
-async function qualifyBackgroundEvents(worker) {
+async function applyProductSchema(worker) {
   const schemaBytes = readFileSync(
     resolve(repo, "deploy/takoform/migrations/schema-bundle.json"),
   );
@@ -52,6 +53,15 @@ async function qualifyBackgroundEvents(worker) {
       unstable_splitSqlQuery(entry.sql).map((sql) => db.prepare(sql)),
     );
   }
+  return {
+    db,
+    schemaSha256: `sha256:${sha256(schemaBytes)}`,
+    migrationCount: schema.entries.length,
+  };
+}
+
+async function qualifyBackgroundEvents(worker) {
+  const { db, schemaSha256, migrationCount } = await applyProductSchema(worker);
 
   const author = `${APP_ORIGIN}/ap/users/smoke`;
   await db
@@ -202,8 +212,8 @@ async function qualifyBackgroundEvents(worker) {
     }
   }
   return {
-    schemaSha256: `sha256:${sha256(schemaBytes)}`,
-    migrationCount: schema.entries.length,
+    schemaSha256,
+    migrationCount,
   };
 }
 
@@ -250,11 +260,7 @@ async function requireJson(response, label) {
   }
 }
 
-async function smokeNativeWorker(
-  artifactPath,
-  artifactDigest,
-  passwordFixture,
-) {
+function nativeWorker(artifactPath, passwordFixture) {
   const sourceConfig = unstable_readConfig(
     { config: resolve(repo, "wrangler.jsonc") },
     { hideWarnings: true },
@@ -262,7 +268,7 @@ async function smokeNativeWorker(
   if (!sourceConfig.compatibility_date) {
     throw new Error("wrangler.jsonc must declare compatibility_date");
   }
-  const worker = new Miniflare({
+  return new Miniflare({
     rootPath: dirname(artifactPath),
     modules: [{ type: "ESModule", path: artifactPath }],
     modulesRoot: dirname(artifactPath),
@@ -287,6 +293,37 @@ async function smokeNativeWorker(
       stderr.pipe(process.stderr, { end: false });
     },
   });
+}
+
+async function smokeFreshOwner(artifactPath, passwordFixture, firstTransport) {
+  const worker = nativeWorker(artifactPath, passwordFixture);
+  try {
+    await worker.ready;
+    // Separate disposable bindings; this lane never seeds an actor or session.
+    const { db: _db, ...schema } = await applyProductSchema(worker);
+    const onboarding = await qualifyOwnerOnboarding(worker, {
+      origin: APP_ORIGIN,
+      password: TEST_PASSWORD,
+      sessionSalt: SESSION_SALT,
+      readJson: requireJson,
+      firstTransport,
+    });
+    return { passwordMethod: passwordFixture.method, ...schema, ...onboarding };
+  } finally {
+    await worker.dispose();
+  }
+}
+
+async function smokeNativeWorker(
+  artifactPath,
+  artifactDigest,
+  passwordFixture,
+) {
+  const worker = nativeWorker(artifactPath, passwordFixture);
+  const sourceConfig = unstable_readConfig(
+    { config: resolve(repo, "wrangler.jsonc") },
+    { hideWarnings: true },
+  );
 
   try {
     await worker.ready;
@@ -401,6 +438,14 @@ async function main() {
       await smokeNativeWorker(artifactPath, artifactDigest, fixture),
     );
   }
+  const onboarding = [];
+  for (const fixture of PASSWORD_FIXTURES) {
+    for (const firstTransport of ["browser", "mobile"]) {
+      onboarding.push(
+        await smokeFreshOwner(artifactPath, fixture, firstTransport),
+      );
+    }
+  }
   process.stdout.write(
     `${JSON.stringify({
       ...results[0],
@@ -408,6 +453,10 @@ async function main() {
         passwordMethods: PASSWORD_FIXTURES.map((fixture) => fixture.method),
         actor: "preexisting-fixture-owner",
         revocation: "salted SQL disappearance and replay refusal",
+      },
+      onboarding: {
+        substrate: "fresh-native-bindings",
+        cases: onboarding,
       },
     })}\n`,
   );

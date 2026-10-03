@@ -40,8 +40,15 @@ DB・ObjectBucket の運用責任と、投稿/アップロードの actor attrib
 5. 更新・復旧後も同じowner、所属、データ、秘密値の対応が保持される。
 
 sourceで確認できるのは通常のowner/subaccount/member/remoteの区別です。
-現在のnative artifact journeyは既存ownerと合成member sessionをseedするため、
-初回導入や実際の外部参加の証拠にはしません。公開Core 4.1.11のOIDC初回claimは
+DM・mediaのnative artifact journeyは既存ownerと合成member sessionをseedするため、
+初回導入や実際の外部参加の証拠にはしません。別の初回owner検証では、migrationのみを
+適用した空のnative DBから、PBKDF2/初回tokenとbrowser cookie/mobile Bearerの
+4条件で実際のパスワード認証APIを通し、1人のowner、再ログイン、同じownerの
+memberプロフィール、cookieでの所属内切替を確認します。これはworkerd上のartifact
+検証であり、公開環境への自己導入、ネイティブUI、OIDC、同時初回claim、実際の外部通信、
+更新/復旧の証拠とは区別します。
+
+公開Core 4.1.11のOIDC初回claimは
 actor数の確認とowner insertが別操作で、pinのない異なるsubjectが競合して複数ownerに
 なり得るsource上の不足があります。実環境での発生を確認したものではありません。
 共通Coreの原子的なowner slot取得と、既存データへの対処は主担当へ提案し、公開contract
