@@ -452,6 +452,9 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
       ...RUNTIME_INPUT_NAMES,
     ]);
     expect(material.values.ENCRYPTION_KEY).toMatch(/^[a-f0-9]{64}$/u);
+    expect(material.values.YURUCOMMU_SESSION_HASH_SALT).toMatch(
+      /^[a-f0-9]{64}$/u,
+    );
     const providerConfig = renderRuntimeInputProviderConfig(material.nonce);
     expect(providerConfig).toContain("ephemeral = true");
     expect(providerConfig).toContain(
@@ -489,6 +492,12 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
         ENCRYPTION_KEY: material.values.ENCRYPTION_KEY,
       }),
     ).toThrow("did not match required_sensitive_vars");
+    const { YURUCOMMU_SESSION_HASH_SALT: salt, ...withoutSalt } =
+      material.values;
+    expect(salt).toBeDefined();
+    expect(() => renderRuntimeInputVariableFileBody(withoutSalt)).toThrow(
+      "did not match required_sensitive_vars",
+    );
   });
 
   test("delivers runtime values through a FIFO and removes it afterwards", async () => {
@@ -1658,15 +1667,17 @@ describe("Takoform stable-v1 full lifecycle E2E helpers", () => {
     }
   });
 
-  test("builds a nonce-rotated OIDC update while preserving ENCRYPTION_KEY", () => {
+  test("builds a nonce-rotated OIDC update preserving encryption and session salt", () => {
     const material = createNormalOidcRuntimeInputMaterial(
       "run-abc",
       "https://accounts.yuru.test",
       "https://worker-123.apps.yuru.test/",
       "a".repeat(64),
+      "b".repeat(64),
     );
     expect(material.nonce).toMatch(/^[A-Za-z0-9_-]{22}$/u);
     expect(material.values.ENCRYPTION_KEY).toBe("a".repeat(64));
+    expect(material.values.YURUCOMMU_SESSION_HASH_SALT).toBe("b".repeat(64));
     expect(material.values.TAKOSUMI_ACCOUNTS_REDIRECT_URI).toBe(
       "https://worker-123.apps.yuru.test/api/auth/callback/takos",
     );

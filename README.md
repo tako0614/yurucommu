@@ -130,11 +130,19 @@ Push gateway token は受け付けません。認証不要の Push gateway は U
 - Cloudflare の account ID
 - 公開する Worker 名と URL
 - 64文字の16進数で表した暗号化キー
+- 高エントロピーの session salt（機密入力 `session_hash_salt`）
 - 初期パスワード、または OIDC の設定
 
 秘密値はリポジトリや通常の環境変数設定へ書かず、OpenTofu の機密入力または
 Cloudflare の Secret として渡してください。`tofu plan` でデータベース、ストレージ、
 キュー、Worker、公開 URL を確認してから適用します。
+
+`session_hash_salt` は Worker を公開する場合に必須で、値をそのまま
+`YURUCOMMU_SESSION_HASH_SALT` Secret に渡します。新規環境では安全な場所で
+`openssl rand -hex 32` などにより生成し、既存環境の更新では現在の値を保持して
+ください。汎用 `env` の同名キーは拒否します。値の変更は既存 session の照合を
+変え、再ログインが必要になり得ます。Takosumi の direct install へ渡す sealed
+入力経路は未検証で、通常の入力欄に秘密値を書いて代用しません。
 
 [`wrangler.jsonc`](wrangler.jsonc) は、すでに用意した Cloudflare リソースへ Worker
 を直接つなぐ場合の設定です。D1、R2、KV、2本の Queue の実在する ID や名前、

@@ -1,5 +1,15 @@
 # Yurucommu
 
+Production Workers require a high-entropy `YURUCOMMU_SESSION_HASH_SALT` secret.
+The direct OpenTofu adapter requires the sensitive `session_hash_salt` input
+when it publishes a Worker and rejects that key in plaintext `env`. Generate
+a fresh value securely (for example, `openssl rand -hex 32`) and preserve the
+exact existing value on update; changing it can require users to log in again.
+Direct managed install's sealed input delivery remains unqualified. The portable
+manifest declares a generated-secret binding for fresh installs. Updating an
+existing Capsule requires separate platform custody/migration evidence because
+a changed generated-secret profile may also regenerate its encryption key.
+
 日本語: [README.md](README.md)
 
 Yurucommu is a self-hostable social network for feeds, stories, profiles,

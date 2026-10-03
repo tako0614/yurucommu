@@ -89,6 +89,16 @@ const expectedManagedRuntimeRequirements = [
     encoding: "hex",
     deliver: {
       bindings: {
+        value: "YURUCOMMU_SESSION_HASH_SALT",
+      },
+    },
+  },
+  {
+    kind: "secret.generated",
+    bytes: 32,
+    encoding: "hex",
+    deliver: {
+      bindings: {
         value: "ENCRYPTION_KEY",
       },
     },
