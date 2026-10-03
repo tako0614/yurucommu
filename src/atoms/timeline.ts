@@ -54,6 +54,7 @@ import { pushToast, toastWriter } from "./toast.ts";
 import { toggleBookmark } from "./posts.ts";
 import { scopeQueryAtom } from "./scope.ts";
 import {
+  type BookmarkRead,
   acknowledgeBookmarkReadAtom,
   beginBookmarkRead,
   finishBookmarkRead,
@@ -337,7 +338,11 @@ export const checkNewPostsAtom = atom(null, async (get, set) => {
   const gen = get(timelineRequestsAtom).generation;
   const community = get(scopeQueryAtom)?.community;
 
-  const bookmarkRead = beginBookmarkRead(get, set);
+  const bookmarkRead = beginFeedBookmarkRead(
+    get,
+    set,
+    unifiedBookmarkReadsAtom,
+  );
   try {
     const { posts: serverHead } = await fetchTimeline({
       limit: 20,
@@ -390,7 +395,7 @@ export const checkNewPostsAtom = atom(null, async (get, set) => {
     if (!ownsBookmarkRead(get, bookmarkRead)) return;
     console.error("Failed to check for new posts:", e);
   } finally {
-    finishBookmarkRead(get, set, bookmarkRead);
+    finishFeedBookmarkRead(get, set, unifiedBookmarkReadsAtom, bookmarkRead);
   }
 });
 
@@ -439,6 +444,48 @@ const followingRequestsAtom = atom<FeedRequests>({
   generation: 0,
   pager: null,
 });
+// These store-local sets own only this feed's GET windows. Concurrent polls
+// remain independent, while a full reload retires every prior GET immediately.
+const unifiedBookmarkReadsAtom = atom<ReadonlySet<BookmarkRead>>(
+  new Set<BookmarkRead>(),
+);
+const followingBookmarkReadsAtom = atom<ReadonlySet<BookmarkRead>>(
+  new Set<BookmarkRead>(),
+);
+type FeedBookmarkReadsAtom = typeof unifiedBookmarkReadsAtom;
+
+function beginFeedBookmarkRead(
+  get: Getter,
+  set: Setter,
+  readsAtom: FeedBookmarkReadsAtom,
+): BookmarkRead {
+  const read = beginBookmarkRead(get, set);
+  set(readsAtom, new Set(get(readsAtom)).add(read));
+  return read;
+}
+
+function finishFeedBookmarkRead(
+  get: Getter,
+  set: Setter,
+  readsAtom: FeedBookmarkReadsAtom,
+  read: BookmarkRead,
+): void {
+  finishBookmarkRead(get, set, read);
+  const reads = get(readsAtom);
+  if (!reads.has(read)) return;
+  const next = new Set(reads);
+  next.delete(read);
+  set(readsAtom, next);
+}
+
+function retireFeedBookmarkReads(
+  get: Getter,
+  set: Setter,
+  readsAtom: FeedBookmarkReadsAtom,
+): void {
+  for (const read of get(readsAtom)) finishBookmarkRead(get, set, read);
+  set(readsAtom, new Set<BookmarkRead>());
+}
 type HeadAcknowledgement = { post: Post; shown: boolean };
 type HeadWindow = {
   ticket: object;
@@ -538,6 +585,7 @@ function reconcileHeadAcknowledgements(
 let storiesLoadGen = 0;
 
 export const loadTimelineAtom = atom(null, async (get, set) => {
+  retireFeedBookmarkReads(get, set, unifiedBookmarkReadsAtom);
   const gen = get(timelineRequestsAtom).generation + 1;
   const community = get(scopeQueryAtom)?.community;
   const actorApId = get(actorAtom)?.ap_id;
@@ -562,7 +610,11 @@ export const loadTimelineAtom = atom(null, async (get, set) => {
     get(timelineHeadWindowAtom)?.ticket === ticket &&
     actorApId === get(actorAtom)?.ap_id &&
     community === get(scopeQueryAtom)?.community;
-  const bookmarkRead = beginBookmarkRead(get, set);
+  const bookmarkRead = beginFeedBookmarkRead(
+    get,
+    set,
+    unifiedBookmarkReadsAtom,
+  );
   try {
     const page = await fetchTimeline({
       limit: 20,
@@ -601,7 +653,7 @@ export const loadTimelineAtom = atom(null, async (get, set) => {
     console.error("Failed to load timeline:", e);
     set(timelineLoadErrorAtom, get(tAtom)("common.loadFailed"));
   } finally {
-    finishBookmarkRead(get, set, bookmarkRead);
+    finishFeedBookmarkRead(get, set, unifiedBookmarkReadsAtom, bookmarkRead);
     if (get(timelineHeadWindowAtom)?.ticket === ticket)
       set(timelineHeadWindowAtom, null);
     if (gen === get(timelineRequestsAtom).generation)
@@ -632,7 +684,11 @@ export const loadMoreTimelineAtom = atom(null, async (get, set) => {
     const active = get(timelineRequestsAtom);
     return active.generation === gen && active.pager === ticket;
   };
-  const bookmarkRead = beginBookmarkRead(get, set);
+  const bookmarkRead = beginFeedBookmarkRead(
+    get,
+    set,
+    unifiedBookmarkReadsAtom,
+  );
   try {
     const page = await fetchTimeline({
       limit: 20,
@@ -691,7 +747,7 @@ export const loadMoreTimelineAtom = atom(null, async (get, set) => {
       kind: "error",
     });
   } finally {
-    finishBookmarkRead(get, set, bookmarkRead);
+    finishFeedBookmarkRead(get, set, unifiedBookmarkReadsAtom, bookmarkRead);
     if (ownsPager()) {
       set(timelineRequestsAtom, { generation: gen, pager: null });
       set(timelineLoadingMoreAtom, false);
@@ -703,6 +759,7 @@ export const loadMoreTimelineAtom = atom(null, async (get, set) => {
 // Full (re)load of the following-only feed. Mirrors loadTimelineAtom minus the
 // pieces that are unified-home-only (scope filter, staged new-posts buffer).
 export const loadFollowingTimelineAtom = atom(null, async (get, set) => {
+  retireFeedBookmarkReads(get, set, followingBookmarkReadsAtom);
   const gen = get(followingRequestsAtom).generation + 1;
   const actorApId = get(actorAtom)?.ap_id;
   const ticket = {};
@@ -717,7 +774,11 @@ export const loadFollowingTimelineAtom = atom(null, async (get, set) => {
   if (get(followingPostsAtom).length === 0) set(followingLoadingAtom, true);
   set(followingLoadErrorAtom, null);
   set(followingHasMoreAtom, true);
-  const bookmarkRead = beginBookmarkRead(get, set);
+  const bookmarkRead = beginFeedBookmarkRead(
+    get,
+    set,
+    followingBookmarkReadsAtom,
+  );
   try {
     const page = await fetchFollowingTimeline({ limit: 20 });
     if (
@@ -752,7 +813,7 @@ export const loadFollowingTimelineAtom = atom(null, async (get, set) => {
     console.error("Failed to load following timeline:", e);
     set(followingLoadErrorAtom, get(tAtom)("common.loadFailed"));
   } finally {
-    finishBookmarkRead(get, set, bookmarkRead);
+    finishFeedBookmarkRead(get, set, followingBookmarkReadsAtom, bookmarkRead);
     if (get(followingHeadWindowAtom)?.ticket === ticket)
       set(followingHeadWindowAtom, null);
     if (gen === get(followingRequestsAtom).generation)
@@ -782,7 +843,11 @@ export const loadMoreFollowingTimelineAtom = atom(null, async (get, set) => {
     const active = get(followingRequestsAtom);
     return active.generation === gen && active.pager === ticket;
   };
-  const bookmarkRead = beginBookmarkRead(get, set);
+  const bookmarkRead = beginFeedBookmarkRead(
+    get,
+    set,
+    followingBookmarkReadsAtom,
+  );
   try {
     const page = await fetchFollowingTimeline({ limit: 20, before: cursor });
     // A full reload happened mid-flight → do not append a stale older page.
@@ -824,7 +889,7 @@ export const loadMoreFollowingTimelineAtom = atom(null, async (get, set) => {
       kind: "error",
     });
   } finally {
-    finishBookmarkRead(get, set, bookmarkRead);
+    finishFeedBookmarkRead(get, set, followingBookmarkReadsAtom, bookmarkRead);
     if (ownsPager()) {
       set(followingRequestsAtom, { generation: gen, pager: null });
       set(followingLoadingMoreAtom, false);
