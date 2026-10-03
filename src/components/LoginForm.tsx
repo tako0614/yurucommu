@@ -64,30 +64,30 @@ export function LoginForm(props: LoginFormProps) {
   const [submitting, setSubmitting] = createSignal(false);
   const [authConfig, setAuthConfig] = createSignal<AuthConfig | null>(null);
   const [loading, setLoading] = createSignal(true);
+  const [authConfigError, setAuthConfigError] = createSignal(false);
 
-  onMount(() => {
-    apiFetch("/api/auth/providers")
-      .then(async (res) => {
-        if (!res.ok) {
-          throw new Error(`Failed to load auth providers: ${res.status}`);
-        }
-        return (await res.json()) as AuthConfig;
-      })
-      .then((data) => {
-        if (shouldAutoStartTakosumiOidc(data) && claimTakosumiOidcAutoStart()) {
-          window.location.assign("/api/auth/login/takos");
-          return;
-        }
-        setAuthConfig(data);
-        setLoading(false);
-      })
-      .catch((err) => {
-        console.error("Failed to load auth providers:", err);
-        // Fallback to password only
-        setAuthConfig({ providers: [], password_enabled: true });
-        setLoading(false);
-      });
-  });
+  const loadAuthConfig = async () => {
+    setLoading(true);
+    setAuthConfigError(false);
+    try {
+      const res = await apiFetch("/api/auth/providers");
+      if (!res.ok) {
+        throw new Error(`Failed to load auth providers: ${res.status}`);
+      }
+      const data = (await res.json()) as AuthConfig;
+      if (shouldAutoStartTakosumiOidc(data) && claimTakosumiOidcAutoStart()) {
+        window.location.assign("/api/auth/login/takos");
+        return;
+      }
+      setAuthConfig(data);
+    } catch (err) {
+      console.error("Failed to load auth providers:", err);
+      setAuthConfig(null);
+      setAuthConfigError(true);
+    }
+    setLoading(false);
+  };
+  onMount(() => void loadAuthConfig());
 
   const handleSubmit = async (e: SubmitEvent) => {
     e.preventDefault();
@@ -113,95 +113,110 @@ export function LoginForm(props: LoginFormProps) {
         </div>
       }
     >
-      <Show
-        when={hasOAuth() || hasPassword()}
-        fallback={
-          <div class="w-full max-w-sm text-center text-neutral-400">
-            <p>{t("auth.noAuthMethods")}</p>
-            <p class="text-sm mt-2">{t("auth.checkServerSettings")}</p>
+      <div class="w-full max-w-sm space-y-6">
+        <Show when={authConfigError() || props.error}>
+          <div
+            role="alert"
+            aria-live="assertive"
+            class="text-red-400 text-sm bg-red-900/30 border border-red-800 rounded-md px-3 py-2"
+          >
+            {authConfigError() ? t("auth.methodsLoadFailed") : props.error}
           </div>
-        }
-      >
-        <div class="w-full max-w-sm space-y-6">
-          {/* OAuth Providers */}
-          <Show when={hasOAuth()}>
-            <div class="space-y-3">
-              <For each={authConfig()!.providers}>
-                {(provider) => (
-                  <a
-                    href={`/api/auth/login/${provider.id}`}
-                    class="w-full flex items-center justify-center gap-3 px-4 py-3 bg-neutral-800 border border-neutral-700 rounded-md text-neutral-100 hover:bg-neutral-700 transition-colors"
-                  >
-                    {ProviderIcons[provider.id] || (
-                      <span class="w-5 h-5 bg-neutral-600 rounded-full" />
+        </Show>
+        <Show when={authConfigError()}>
+          <button
+            type="button"
+            onClick={() => void loadAuthConfig()}
+            class="w-full bg-accent text-white px-6 py-3 rounded-md font-medium"
+          >
+            {t("common.retry")}
+          </button>
+        </Show>
+        <Show when={!authConfigError()}>
+          <Show
+            when={hasOAuth() || hasPassword()}
+            fallback={
+              <div class="w-full max-w-sm text-center text-neutral-400">
+                <p>{t("auth.noAuthMethods")}</p>
+                <p class="text-sm mt-2">{t("auth.checkServerSettings")}</p>
+              </div>
+            }
+          >
+            <div class="w-full max-w-sm space-y-6">
+              {/* OAuth Providers */}
+              <Show when={hasOAuth()}>
+                <div class="space-y-3">
+                  <For each={authConfig()!.providers}>
+                    {(provider) => (
+                      <a
+                        href={`/api/auth/login/${provider.id}`}
+                        class="w-full flex items-center justify-center gap-3 px-4 py-3 bg-neutral-800 border border-neutral-700 rounded-md text-neutral-100 hover:bg-neutral-700 transition-colors"
+                      >
+                        {ProviderIcons[provider.id] || (
+                          <span class="w-5 h-5 bg-neutral-600 rounded-full" />
+                        )}
+                        <span>
+                          {t("auth.loginWith").replace(
+                            "{provider}",
+                            provider.name,
+                          )}
+                        </span>
+                      </a>
                     )}
-                    <span>
-                      {t("auth.loginWith").replace("{provider}", provider.name)}
+                  </For>
+                </div>
+              </Show>
+
+              {/* Divider */}
+              <Show when={hasOAuth() && hasPassword()}>
+                <div class="relative">
+                  <div class="absolute inset-0 flex items-center">
+                    <div class="w-full border-t border-neutral-700" />
+                  </div>
+                  <div class="relative flex justify-center text-sm">
+                    <span class="px-2 bg-neutral-900 text-neutral-500">
+                      {t("auth.or")}
                     </span>
-                  </a>
-                )}
-              </For>
+                  </div>
+                </div>
+              </Show>
+
+              {/* Password Form */}
+              <Show when={hasPassword()}>
+                <form onSubmit={handleSubmit} class="space-y-4">
+                  <div>
+                    <label
+                      for="password"
+                      class="block text-sm font-medium text-neutral-300 mb-1"
+                    >
+                      {t("auth.password")}
+                    </label>
+                    <input
+                      id="password"
+                      type="password"
+                      value={password()}
+                      onInput={(e) => setPassword(e.currentTarget.value)}
+                      class="w-full px-4 py-2 bg-neutral-800 border border-neutral-700 rounded-md text-neutral-100 focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:border-transparent"
+                      placeholder={t("auth.passwordPlaceholder")}
+                      disabled={submitting()}
+                      autocomplete="current-password"
+                      autofocus={!hasOAuth()}
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={submitting() || !password()}
+                    class="w-full bg-accent text-white px-6 py-3 rounded-md font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {submitting() ? t("auth.loggingIn") : t("auth.login")}
+                  </button>
+                </form>
+              </Show>
             </div>
           </Show>
-
-          <Show when={props.error}>
-            <div
-              role="alert"
-              aria-live="assertive"
-              class="text-red-400 text-sm bg-red-900/30 border border-red-800 rounded-md px-3 py-2"
-            >
-              {props.error}
-            </div>
-          </Show>
-
-          {/* Divider */}
-          <Show when={hasOAuth() && hasPassword()}>
-            <div class="relative">
-              <div class="absolute inset-0 flex items-center">
-                <div class="w-full border-t border-neutral-700" />
-              </div>
-              <div class="relative flex justify-center text-sm">
-                <span class="px-2 bg-neutral-900 text-neutral-500">
-                  {t("auth.or")}
-                </span>
-              </div>
-            </div>
-          </Show>
-
-          {/* Password Form */}
-          <Show when={hasPassword()}>
-            <form onSubmit={handleSubmit} class="space-y-4">
-              <div>
-                <label
-                  for="password"
-                  class="block text-sm font-medium text-neutral-300 mb-1"
-                >
-                  {t("auth.password")}
-                </label>
-                <input
-                  id="password"
-                  type="password"
-                  value={password()}
-                  onInput={(e) => setPassword(e.currentTarget.value)}
-                  class="w-full px-4 py-2 bg-neutral-800 border border-neutral-700 rounded-md text-neutral-100 focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:border-transparent"
-                  placeholder={t("auth.passwordPlaceholder")}
-                  disabled={submitting()}
-                  autocomplete="current-password"
-                  autofocus={!hasOAuth()}
-                />
-              </div>
-
-              <button
-                type="submit"
-                disabled={submitting() || !password()}
-                class="w-full bg-accent text-white px-6 py-3 rounded-md font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {submitting() ? t("auth.loggingIn") : t("auth.login")}
-              </button>
-            </form>
-          </Show>
-        </div>
-      </Show>
+        </Show>
+      </div>
     </Show>
   );
 }

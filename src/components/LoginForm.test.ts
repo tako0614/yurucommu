@@ -48,11 +48,9 @@ describe("LoginForm authentication errors", () => {
 
     expect(authMethodsIndex).toBeGreaterThanOrEqual(0);
     expect(alertIndex).toBeGreaterThanOrEqual(0);
-    expect(alertIndex).toBeGreaterThan(authMethodsIndex);
+    expect(alertIndex).toBeLessThan(authMethodsIndex);
     expect(passwordSectionIndex).toBeGreaterThan(alertIndex);
-    expect(source.slice(alertIndex, passwordSectionIndex)).toContain(
-      "{props.error}",
-    );
+    expect(source.slice(0, authMethodsIndex)).toContain("props.error");
     expect(source.match(/role="alert"/g)).toHaveLength(1);
   });
 });
@@ -86,7 +84,7 @@ describe("Takosumi OIDC auto-start breaker", () => {
     expect(claimTakosumiOidcAutoStart(storage)).toBe(false);
   });
 
-  test("a browser that refuses sessionStorage still reaches sign-in", () => {
+  test("a browser that refuses sessionStorage keeps manual sign-in without auto-start", () => {
     const refusing = {
       getItem: () => {
         throw new Error("denied");
@@ -95,8 +93,8 @@ describe("Takosumi OIDC auto-start breaker", () => {
         throw new Error("denied");
       },
     } as unknown as Storage;
-    expect(claimTakosumiOidcAutoStart(refusing)).toBe(true);
+    expect(claimTakosumiOidcAutoStart(refusing)).toBe(false);
     expect(() => suppressTakosumiOidcAutoStart(refusing)).not.toThrow();
-    expect(claimTakosumiOidcAutoStart(undefined)).toBe(true);
+    expect(claimTakosumiOidcAutoStart(undefined)).toBe(false);
   });
 });

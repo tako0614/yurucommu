@@ -5,6 +5,7 @@ import { accessSync, constants, readFileSync, statSync } from "node:fs";
 import { createServer } from "node:net";
 import { basename, dirname, resolve } from "node:path";
 import process from "node:process";
+import { Writable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
 import { Miniflare } from "miniflare";
@@ -13,6 +14,10 @@ import { qualifyBrowserFeed } from "./release-browser-feed.mjs";
 import { qualifySearchFollowing } from "./release-browser-follow.mjs";
 import { qualifyBrowserDM } from "./release-browser-dm.mjs";
 import { createManagedNativeRuntime } from "./native-runtime-stdio.mjs";
+import {
+  createBrowserOidcErrorIssuer,
+  qualifyBrowserOidcRecovery,
+} from "./release-browser-oidc.mjs";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const PASSWORD = " release-browser-owner ";
@@ -155,7 +160,16 @@ async function ownerIdentity(page, origin) {
   }, origin);
 }
 
-function nativeWorker(artifactPath, origin, wranglerConfig) {
+function nativeWorker(
+  artifactPath,
+  origin,
+  wranglerConfig,
+  {
+    authBindings = { AUTH_PASSWORD_HASH: PASSWORD },
+    outboundService,
+    destination,
+  } = {},
+) {
   return createManagedNativeRuntime(
     (handleRuntimeStdio) =>
       new Miniflare({
@@ -169,7 +183,7 @@ function nativeWorker(artifactPath, origin, wranglerConfig) {
         cf: false,
         bindings: {
           APP_URL: origin,
-          AUTH_PASSWORD_HASH: PASSWORD,
+          ...authBindings,
           YURUCOMMU_SESSION_HASH_SALT: SESSION_SALT,
           DELIVERY_QUEUE_NAME: "yurucommu-browser-smoke-delivery",
           DELIVERY_DLQ_NAME: "yurucommu-browser-smoke-dlq",
@@ -180,12 +194,107 @@ function nativeWorker(artifactPath, origin, wranglerConfig) {
         r2Buckets: ["MEDIA"],
         queueProducers: ["DELIVERY_QUEUE", "DELIVERY_DLQ"],
         handleRuntimeStdio,
+        ...(outboundService ? { outboundService } : {}),
       }),
+    destination ? { destination } : undefined,
   );
 }
 
-async function runBrowserSmoke(artifactPath, artifactDigest) {
-  const chromePath = chromeExecutable();
+async function runOidcRecoverySmoke(artifactPath, artifactDigest, browser) {
+  const config = unstable_readConfig(
+    { config: resolve(repo, "wrangler.jsonc") },
+    { hideWarnings: true },
+  );
+  const origin = `http://127.0.0.1:${await freeLoopbackPort()}`;
+  let diagnosticBytes = 0;
+  let outboundRequests = 0;
+  const destination = new Writable({
+    write(chunk, _encoding, callback) {
+      diagnosticBytes = Math.min(
+        Number.MAX_SAFE_INTEGER,
+        diagnosticBytes + chunk.length,
+      );
+      callback();
+    },
+  });
+  let managed;
+  let issuer;
+  let primaryError;
+  let result;
+  const cleanupFailures = [];
+  try {
+    issuer = await createBrowserOidcErrorIssuer({ origin });
+    managed = nativeWorker(artifactPath, origin, config, {
+      authBindings: issuer.bindings,
+      destination,
+      outboundService: async () => {
+        outboundRequests += 1;
+        return new Response(null, { status: 502 });
+      },
+    });
+    await managed.worker.ready;
+    const { db, schemaSha256, migrationCount } = await applyProductSchema(
+      managed.worker,
+    );
+    const checks = [];
+    const recovery = await qualifyBrowserOidcRecovery({
+      browser,
+      worker: managed.worker,
+      db,
+      origin,
+      checks,
+      issuer,
+    });
+    requireEffect(
+      outboundRequests === 0,
+      "OIDC error fixture attempted a Worker external fetch",
+    );
+    result = {
+      ...recovery,
+      sha256: `sha256:${artifactDigest}`,
+      schemaSha256,
+      migrationCount,
+      browser: browser.version(),
+      substrate:
+        "fresh-local-http-native-d1-kv-r2-queues-and-local-authorize-error-server",
+      runtimeDiagnostics: {
+        policy: "discard-raw-output",
+        observedBytes: diagnosticBytes,
+      },
+      externalWorkerFetches: {
+        policy: "denied-locally",
+        attempted: outboundRequests,
+      },
+      status: "PASSED",
+    };
+  } catch (error) {
+    primaryError = error;
+  } finally {
+    for (const [label, close] of [
+      ["worker", () => managed?.dispose()],
+      ["issuer", () => issuer?.close()],
+    ]) {
+      try {
+        await close();
+      } catch {
+        cleanupFailures.push(label);
+      }
+    }
+    destination.destroy();
+  }
+  if (primaryError) {
+    if (cleanupFailures.length)
+      process.stderr.write("release-browser oidc-secondary-cleanup-failure\n");
+    throw primaryError;
+  }
+  requireEffect(
+    cleanupFailures.length === 0,
+    "OIDC recovery runtime cleanup failed",
+  );
+  return result;
+}
+
+async function runBrowserSmoke(artifactPath, artifactDigest, browser) {
   const wranglerConfig = unstable_readConfig(
     { config: resolve(repo, "wrangler.jsonc") },
     { hideWarnings: true },
@@ -202,7 +311,6 @@ async function runBrowserSmoke(artifactPath, artifactDigest) {
     origin,
     wranglerConfig,
   );
-  let browser;
   let context;
   let primaryError;
   let result;
@@ -210,6 +318,7 @@ async function runBrowserSmoke(artifactPath, artifactDigest) {
   const pageErrors = [];
   const serverErrors = [];
   const checks = [];
+  let providerRequests = 0;
 
   try {
     await worker.ready;
@@ -217,11 +326,6 @@ async function runBrowserSmoke(artifactPath, artifactDigest) {
       await applyProductSchema(worker);
     checks.push("native-migrations-applied-to-empty-actors-and-sessions");
 
-    browser = await chromium.launch({
-      executablePath: chromePath,
-      headless: true,
-      args: ["--no-sandbox", "--disable-dev-shm-usage"],
-    });
     context = await browser.newContext({
       locale: "ja-JP",
       viewport: { width: 1280, height: 900 },
@@ -230,7 +334,14 @@ async function runBrowserSmoke(artifactPath, artifactDigest) {
     const page = await context.newPage();
     page.on("pageerror", () => pageErrors.push("pageerror"));
     page.on("response", (response) => {
-      if (response.status() >= 500) {
+      if (
+        response.status() >= 500 &&
+        !(
+          new URL(response.url()).pathname === "/api/auth/providers" &&
+          response.status() === 503 &&
+          providerRequests === 1
+        )
+      ) {
         try {
           serverErrors.push({
             path: new URL(response.url()).pathname,
@@ -252,10 +363,82 @@ async function runBrowserSmoke(artifactPath, artifactDigest) {
       }
       return route.abort("blockedbyclient");
     });
+    await context.route(`${origin}/api/auth/providers`, (route) => {
+      providerRequests += 1;
+      if (providerRequests === 1) {
+        return route.fulfill({
+          status: 503,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "synthetic provider-read failure" }),
+        });
+      }
+      return route.continue();
+    });
 
     await page.goto(origin, { waitUntil: "domcontentloaded", timeout: 20000 });
     const passwordInput = page.locator('input[type="password"]');
     const submit = page.locator('form button[type="submit"]');
+    const methodsRetry = page.getByRole("button", {
+      name: "再試行",
+      exact: true,
+    });
+    // Give the failed provider read time to settle without waiting for polling
+    // or reloading away the product-owned recovery UI.
+    await page
+      .locator('[role="alert"], input[type="password"]')
+      .first()
+      .waitFor({ state: "visible", timeout: 5000 });
+    const providerFailureView = {
+      passwordVisible: await passwordInput.isVisible(),
+      retryVisible: await methodsRetry.isVisible(),
+      alertCount: await page.getByRole("alert").count(),
+      providerRequests,
+    };
+    if (
+      providerFailureView.passwordVisible ||
+      !providerFailureView.retryVisible
+    ) {
+      process.stderr.write(
+        `release-browser provider-failure-view=${JSON.stringify(providerFailureView)}\n`,
+      );
+      requireEffect(
+        false,
+        "provider-read failure invented an auth method or lacks manual recovery",
+      );
+    }
+    requireEffect(
+      (await page.getByRole("alert").innerText()) ===
+        "ログイン方法を読み込めませんでした。再試行してください。" &&
+        (await methodsRetry.isVisible()) &&
+        !(await passwordInput.isVisible()) &&
+        providerRequests === 1,
+      "provider-read failure invented an auth method or lacks manual recovery",
+    );
+    const failedProviderCounts = await dbCounts(db);
+    requireEffect(
+      failedProviderCounts.actors === 0 && failedProviderCounts.sessions === 0,
+      "provider-read failure created an identity or session",
+    );
+    checks.push(
+      "browser-auth-method-read-failure-visible-without-invented-password",
+    );
+    const [providersResponse] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.url() === `${origin}/api/auth/providers` &&
+          response.status() === 200,
+        { timeout: 10000 },
+      ),
+      methodsRetry.click(),
+    ]);
+    const providerConfig = await providersResponse.json();
+    requireEffect(
+      providerConfig.password_enabled === true &&
+        providerConfig.providers.length === 0 &&
+        providerRequests === 2,
+      "auth-method retry did not read the actual native providers config exactly once",
+    );
+    checks.push("browser-auth-method-manual-retry-loads-native-config");
     await passwordInput.waitFor({ state: "visible", timeout: 15000 });
     const labels = await passwordInput.evaluate((input) =>
       Array.from(input.labels ?? [])
@@ -313,9 +496,12 @@ async function runBrowserSmoke(artifactPath, artifactDigest) {
     const alertCount = await page.getByRole("alert").count();
     const errorIsInLoginForm = await error.evaluate((node) => {
       const input = document.querySelector('input[type="password"]');
+      const form = input?.closest("form");
       return (
         node.getAttribute("role") === "alert" &&
-        node.parentElement === input?.closest("form")?.parentElement
+        // The shared alert sits directly in the login container, outside the
+        // inner auth-method group that contains the actual password form.
+        node.parentElement === form?.parentElement?.parentElement
       );
     });
     requireEffect(
@@ -527,7 +713,6 @@ async function runBrowserSmoke(artifactPath, artifactDigest) {
   } finally {
     for (const [label, close] of [
       ["context", () => context?.close()],
-      ["browser", () => browser?.close()],
       ["worker", () => dispose()],
     ]) {
       try {
@@ -575,7 +760,42 @@ async function main() {
     );
   }
 
-  const result = await runBrowserSmoke(artifactPath, artifactDigest);
+  const chromePath = chromeExecutable();
+  let browser;
+  let primaryError;
+  let result;
+  const cleanupFailures = [];
+  try {
+    browser = await chromium.launch({
+      executablePath: chromePath,
+      headless: true,
+      args: ["--no-sandbox", "--disable-dev-shm-usage"],
+    });
+    const oidcRecovery = await runOidcRecoverySmoke(
+      artifactPath,
+      artifactDigest,
+      browser,
+    );
+    result = await runBrowserSmoke(artifactPath, artifactDigest, browser);
+    result.oidcRecovery = oidcRecovery;
+    result.checks.push(...oidcRecovery.checks);
+  } catch (error) {
+    primaryError = error;
+  } finally {
+    try {
+      await browser?.close();
+    } catch {
+      cleanupFailures.push("browser");
+    }
+  }
+  if (primaryError) {
+    if (cleanupFailures.length)
+      process.stderr.write(
+        "release-browser secondary-browser-cleanup-failure\n",
+      );
+    throw primaryError;
+  }
+  requireEffect(cleanupFailures.length === 0, "browser cleanup failed");
   process.stdout.write(`${JSON.stringify(result)}\n`);
 }
 
