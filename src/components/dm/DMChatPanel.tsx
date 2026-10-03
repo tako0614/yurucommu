@@ -26,6 +26,7 @@ interface DMChatPanelProps {
   actor: Actor;
   onBack: () => void;
   onRead?: () => void;
+  onUserMessageSent?: () => void;
 }
 
 type ChatMessage = DMMessage | CommunityMessage;
@@ -366,6 +367,8 @@ export function DMChatPanel(props: DMChatPanelProps) {
     // switch, so an A→B switch mid-send must not inject A's bubble into B.
     const sentApId = props.contact.ap_id;
     const sentType = props.contact.type;
+    const notifyUserMessageSent = props.onUserMessageSent;
+    let userMessageSent = false;
     const stillOnConversation = () =>
       props.contact.ap_id === sentApId && props.contact.type === sentType;
     try {
@@ -379,6 +382,7 @@ export function DMChatPanel(props: DMChatPanelProps) {
         }
       } else {
         const { message } = await sendUserDMMessage(sentApId, text);
+        userMessageSent = true;
         if (stillOnConversation()) {
           setMessages((prev) =>
             prev.some((m) => m.id === message.id) ? prev : [...prev, message],
@@ -406,6 +410,17 @@ export function DMChatPanel(props: DMChatPanelProps) {
       }
     } finally {
       setSending(false);
+    }
+    // Acceptance belongs to the acknowledged DM, even if its panel was closed
+    // or another conversation is now visible. Parent cleanup fences its reads.
+    // A UI refresh exception must never turn this successful send into a
+    // rejected/unconfirmed send or restore the sent draft.
+    if (userMessageSent) {
+      try {
+        notifyUserMessageSent?.();
+      } catch (e) {
+        console.error("Failed to refresh DM requests after sending:", e);
+      }
     }
   };
 
