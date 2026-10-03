@@ -224,7 +224,8 @@ export const deleteTimelinePostAtom = atom(
 // BookmarksPage removes a saved row, but the same Note can remain in both
 // fresh Home caches and the staged head. Reflect only a confirmed unsave and
 // retain every feed entry, cursor and reading position. This fences observed
-// actor changes, not silent HttpOnly session changes or stale server snapshots.
+// actor changes, not silent HttpOnly session changes. An in-flight full head
+// records this ACK so its earlier bookmark snapshot cannot reverse it.
 export const unbookmarkTimelinePostAtom = atom(
   null,
   async (get, set, apId: string): Promise<boolean> => {
@@ -232,6 +233,17 @@ export const unbookmarkTimelinePostAtom = atom(
     if (!actorApId) return false;
     await unbookmarkPost(apId);
     if (get(actorAtom)?.ap_id !== actorApId) return false;
+    for (const windowAtom of [
+      timelineHeadWindowAtom,
+      followingHeadWindowAtom,
+    ]) {
+      const window = get(windowAtom);
+      if (window?.actorApId !== actorApId) continue;
+      set(windowAtom, {
+        ...window,
+        unsavedIds: new Set([...window.unsavedIds, apId]),
+      });
+    }
     for (const feed of [
       timelinePostsAtom,
       followingPostsAtom,
@@ -380,7 +392,9 @@ type HeadAcknowledgement = { post: Post; shown: boolean };
 type HeadWindow = {
   ticket: object;
   community?: string;
+  actorApId?: string;
   acknowledged: HeadAcknowledgement[];
+  unsavedIds: ReadonlySet<string>;
 };
 // Only ACKs received during this full request may supplement its earlier
 // snapshot. The next full request starts empty; no persistent overlay is kept.
@@ -469,15 +483,35 @@ function reconcileHeadAcknowledgements(
     const position = merged.findIndex((row) => postKey(row) < postKey(post));
     merged.splice(position < 0 ? merged.length : position, 0, post);
   }
-  return merged.slice(0, MAX_TIMELINE_POSTS);
+  // Bookmark removal is reversible. Fence only this earlier full-head read;
+  // the next read starts empty and observes the server normally. Prefer the
+  // latest displayed flag if another local interaction changed it after ACK.
+  // This also covers a saved object absent from the currently displayed head.
+  const currentBookmarks = new Map(
+    current.map((post) => [post.ap_id, post.bookmarked]),
+  );
+  return merged
+    .slice(0, MAX_TIMELINE_POSTS)
+    .map((post) =>
+      window.unsavedIds.has(post.ap_id)
+        ? { ...post, bookmarked: currentBookmarks.get(post.ap_id) ?? false }
+        : post,
+    );
 }
 let storiesLoadGen = 0;
 
 export const loadTimelineAtom = atom(null, async (get, set) => {
   const gen = get(timelineRequestsAtom).generation + 1;
   const community = get(scopeQueryAtom)?.community;
+  const actorApId = get(actorAtom)?.ap_id;
   const ticket = {};
-  set(timelineHeadWindowAtom, { ticket, community, acknowledged: [] });
+  set(timelineHeadWindowAtom, {
+    ticket,
+    community,
+    actorApId,
+    acknowledged: [],
+    unsavedIds: new Set<string>(),
+  });
   set(timelineRequestsAtom, { generation: gen, pager: null });
   set(timelineCursorAtom, null);
   set(timelineLoadingMoreAtom, false);
@@ -490,6 +524,7 @@ export const loadTimelineAtom = atom(null, async (get, set) => {
   const ownsHead = () =>
     gen === get(timelineRequestsAtom).generation &&
     get(timelineHeadWindowAtom)?.ticket === ticket &&
+    actorApId === get(actorAtom)?.ap_id &&
     community === get(scopeQueryAtom)?.community;
   try {
     const page = await fetchTimeline({
@@ -606,8 +641,14 @@ export const loadMoreTimelineAtom = atom(null, async (get, set) => {
 // pieces that are unified-home-only (scope filter, staged new-posts buffer).
 export const loadFollowingTimelineAtom = atom(null, async (get, set) => {
   const gen = get(followingRequestsAtom).generation + 1;
+  const actorApId = get(actorAtom)?.ap_id;
   const ticket = {};
-  set(followingHeadWindowAtom, { ticket, acknowledged: [] });
+  set(followingHeadWindowAtom, {
+    ticket,
+    actorApId,
+    acknowledged: [],
+    unsavedIds: new Set<string>(),
+  });
   set(followingRequestsAtom, { generation: gen, pager: null });
   set(followingCursorAtom, null);
   set(followingLoadingMoreAtom, false);
@@ -618,6 +659,7 @@ export const loadFollowingTimelineAtom = atom(null, async (get, set) => {
     const page = await fetchFollowingTimeline({ limit: 20 });
     if (
       gen !== get(followingRequestsAtom).generation ||
+      actorApId !== get(actorAtom)?.ap_id ||
       get(followingHeadWindowAtom)?.ticket !== ticket
     )
       return;
@@ -634,7 +676,11 @@ export const loadFollowingTimelineAtom = atom(null, async (get, set) => {
     set(followingHasMoreAtom, page.hasMore);
     set(followingLoadedAtAtom, Date.now());
   } catch (e) {
-    if (gen !== get(followingRequestsAtom).generation) return;
+    if (
+      gen !== get(followingRequestsAtom).generation ||
+      actorApId !== get(actorAtom)?.ap_id
+    )
+      return;
     console.error("Failed to load following timeline:", e);
     set(followingLoadErrorAtom, get(tAtom)("common.loadFailed"));
   } finally {

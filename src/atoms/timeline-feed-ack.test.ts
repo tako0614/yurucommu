@@ -86,6 +86,7 @@ type Harness = {
   store: ReturnType<typeof createStore>;
   heads: HeldResponse[];
   setPostResponder(responder: () => Promise<Response>): void;
+  setDeleteResponder(responder: () => Promise<Response>): void;
   waitForHeads(count: number): Promise<void>;
   cleanup(): Promise<void>;
 };
@@ -99,6 +100,7 @@ async function fixture(): Promise<Harness> {
   const heads: HeldResponse[] = [];
   const pending: Promise<Response>[] = [];
   let postResponder: (() => Promise<Response>) | null = null;
+  let deleteResponder = async () => new Response(null);
 
   Object.defineProperty(globalThis, "localStorage", {
     configurable: true,
@@ -148,7 +150,11 @@ async function fixture(): Promise<Harness> {
         pending.push(request.promise);
         return request.promise;
       }
-      if (method === "DELETE") return Promise.resolve(new Response(null));
+      if (method === "DELETE") {
+        const response = deleteResponder();
+        pending.push(response);
+        return response;
+      }
       throw new Error(`Unexpected test request: ${method} ${url}`);
     }) as typeof fetch,
   });
@@ -160,6 +166,8 @@ async function fixture(): Promise<Harness> {
       import("./scope.ts"),
     ]);
     const store = createStore();
+    // Home's real call sites are authenticated before they start a read.
+    store.set(auth.actorAtom, actor());
     return {
       atoms,
       auth,
@@ -168,6 +176,9 @@ async function fixture(): Promise<Harness> {
       heads,
       setPostResponder: (responder) => {
         postResponder = responder;
+      },
+      setDeleteResponder: (responder) => {
+        deleteResponder = responder;
       },
       waitForHeads: async (count) => {
         for (let i = 0; i < 30 && heads.length < count; i++)
@@ -231,6 +242,146 @@ async function acknowledge(
 }
 
 for (const kind of ["unified", "following"] as const) {
+  test(`${kind} pre-unsave head cannot restore a confirmed bookmark flag`, async () => {
+    const h = await fixture();
+    const f = lane(h, kind);
+    const target = post("unsaved-during-head", 10, { bookmarked: true });
+    const other = post("unrelated-save", 9, { bookmarked: true });
+    try {
+      h.store.set(h.auth.actorAtom, actor());
+      h.store.set(f.posts, [target, other]);
+      const loading = h.store.set(f.load);
+      await h.waitForHeads(1);
+      expect(
+        await h.store.set(h.atoms.unbookmarkTimelinePostAtom, target.ap_id),
+      ).toBe(true);
+      expect(h.store.get(f.posts)[0]!.bookmarked).toBe(false);
+      h.heads[0]!.resolve(page([target, other], "older-saved-cursor", true));
+      await loading;
+      expect(
+        h.store.get(f.posts).map((row) => [row.ap_id, row.bookmarked]),
+      ).toEqual([
+        [target.ap_id, false],
+        [other.ap_id, true],
+      ]);
+      expect(h.store.get(f.cursor)).toBe("older-saved-cursor");
+      expect(h.store.get(f.hasMore)).toBe(true);
+      // A later server read is authoritative: a reversible bookmark must not
+      // inherit the permanent canonical-object deletion fence.
+      const later = h.store.set(f.load);
+      await h.waitForHeads(2);
+      h.heads[1]!.resolve(page([target, other], "later-cursor", false));
+      await later;
+      expect(h.store.get(f.posts)[0]!.bookmarked).toBe(true);
+      expect(h.store.get(f.cursor)).toBe("later-cursor");
+    } finally {
+      await h.cleanup();
+    }
+  });
+
+  test(`${kind} unsave fences an absent object and its boost only within this head`, async () => {
+    const h = await fixture();
+    const f = lane(h, kind);
+    const target = post("absent-unsave", 10, { bookmarked: true });
+    const boost: PostWithRepost = {
+      ...target,
+      repost_ap_id: objectId("absent-boost"),
+      reposted_by: actor(),
+      repost_published: "2026-01-11T00:00:00.000Z",
+    };
+    const other = post("server-authoritative-unrelated", 9, {
+      bookmarked: true,
+      liked: true,
+    });
+    try {
+      h.store.set(f.posts, [other]);
+      const loading = h.store.set(f.load);
+      await h.waitForHeads(1);
+      await h.store.set(h.atoms.unbookmarkTimelinePostAtom, target.ap_id);
+      h.heads[0]!.resolve(
+        page(
+          [boost, target, { ...other, liked: false }],
+          "absent-cursor",
+          true,
+        ),
+      );
+      await loading;
+      expect(
+        h.store.get(f.posts).map((row) => [feedItemKey(row), row.bookmarked]),
+      ).toEqual([
+        [feedItemKey(boost), false],
+        [feedItemKey(target), false],
+        [feedItemKey(other), true],
+      ]);
+      expect(h.store.get(f.posts)[2]!.liked).toBe(false);
+      expect(h.store.get(f.cursor)).toBe("absent-cursor");
+      const later = h.store.set(f.load);
+      await h.waitForHeads(2);
+      await h.store.set(h.atoms.unbookmarkTimelinePostAtom, target.ap_id);
+      // Respect a later local bookmark change rather than a permanent false
+      // overlay. This is field reconciliation, not server mutation ordering.
+      h.store.set(f.posts, (rows) =>
+        rows.map((row) => ({ ...row, bookmarked: true })),
+      );
+      h.heads[1]!.resolve(page([boost, target, other], "latest-cursor", false));
+      await later;
+      expect(h.store.get(f.posts).every((row) => row.bookmarked)).toBe(true);
+    } finally {
+      await h.cleanup();
+    }
+  });
+
+  for (const outcome of ["503", "ack-loss"] as const) {
+    test(`${kind} unconfirmed unsave ${outcome} adds no head fence`, async () => {
+      const h = await fixture();
+      const f = lane(h, kind);
+      const target = post("refused-unsave", 10, { bookmarked: true });
+      try {
+        h.store.set(f.posts, [target]);
+        const loading = h.store.set(f.load);
+        await h.waitForHeads(1);
+        h.setDeleteResponder(async () => {
+          if (outcome === "ack-loss") throw new TypeError("lost ACK");
+          return new Response("refused", { status: 503 });
+        });
+        await expect(
+          h.store.set(h.atoms.unbookmarkTimelinePostAtom, target.ap_id),
+        ).rejects.toThrow();
+        expect(h.store.get(f.posts)[0]!.bookmarked).toBe(true);
+        h.heads[0]!.resolve(page([target], "refused-cursor", false));
+        await loading;
+        expect(h.store.get(f.posts)[0]!.bookmarked).toBe(true);
+        expect(h.store.get(f.cursor)).toBe("refused-cursor");
+      } finally {
+        await h.cleanup();
+      }
+    });
+  }
+
+  test(`${kind} late full head cannot publish across an observed actor change`, async () => {
+    const h = await fixture();
+    const f = lane(h, kind);
+    const target = post("old-actor-head", 10, { bookmarked: true });
+    const next = post("new-actor-view", 9);
+    try {
+      h.store.set(f.posts, [target]);
+      const loading = h.store.set(f.load);
+      await h.waitForHeads(1);
+      await h.store.set(h.atoms.unbookmarkTimelinePostAtom, target.ap_id);
+      h.store.set(h.auth.actorAtom, {
+        ...actor(),
+        ap_id: `${origin}/ap/users/persona`,
+      });
+      h.store.set(f.posts, [next]);
+      h.heads[0]!.resolve(page([target], "old-actor-cursor", true));
+      await loading;
+      expect(h.store.get(f.posts)).toEqual([next]);
+      expect(h.store.get(f.cursor)).toBeNull();
+    } finally {
+      await h.cleanup();
+    }
+  });
+
   test(`${kind} ACK after a completed head retains its server position without duplication`, async () => {
     const h = await fixture();
     const f = lane(h, kind);
