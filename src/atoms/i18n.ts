@@ -550,7 +550,7 @@ const translations = {
     "app.taglineHint":
       "fediverse 上のあなたの居場所。届く範囲はあなたのつながりの中にとどまります。",
     "auth.noAuthMethods": "認証方法が設定されていません。",
-    "auth.contactAdmin": "管理者に連絡してください。",
+    "auth.checkServerSettings": "自分のサーバーの認証設定を確認してください。",
     "auth.loginWith": "{provider}でログイン",
     "auth.or": "または",
     "auth.password": "パスワード",
@@ -569,6 +569,8 @@ const translations = {
     "settings.switchAccount": "アカウント切り替え",
     "settings.createNewAccount": "新しいアカウントを作成",
     "settings.newAccount": "新しいアカウント",
+    "settings.accountOwnershipHint":
+      "あなた自身の用途別プロフィールを追加します。他の人を所有者として登録する操作ではありません。",
     "settings.usernameLabel": "ユーザー名 *",
     "settings.usernameHint": "英数字とアンダースコアのみ",
     "settings.usernameRequired": "ユーザー名を入力してください",
@@ -1254,7 +1256,8 @@ const translations = {
     "app.taglineHint":
       "Your own corner of the fediverse — reach stays within your circle.",
     "auth.noAuthMethods": "No authentication method is configured.",
-    "auth.contactAdmin": "Please contact the administrator.",
+    "auth.checkServerSettings":
+      "Check the authentication settings for your server.",
     "auth.loginWith": "Sign in with {provider}",
     "auth.or": "or",
     "auth.password": "Password",
@@ -1273,6 +1276,8 @@ const translations = {
     "settings.switchAccount": "Switch account",
     "settings.createNewAccount": "Create a new account",
     "settings.newAccount": "New account",
+    "settings.accountOwnershipHint":
+      "Add another profile for your own use. This does not register another owner.",
     "settings.usernameLabel": "Username *",
     "settings.usernameHint": "Letters, numbers, and underscores only",
     "settings.usernameRequired": "Username is required",

@@ -118,7 +118,7 @@ export function LoginForm(props: LoginFormProps) {
         fallback={
           <div class="w-full max-w-sm text-center text-neutral-400">
             <p>{t("auth.noAuthMethods")}</p>
-            <p class="text-sm mt-2">{t("auth.contactAdmin")}</p>
+            <p class="text-sm mt-2">{t("auth.checkServerSettings")}</p>
           </div>
         }
       >

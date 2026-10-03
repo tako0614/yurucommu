@@ -40,3 +40,11 @@ the read-only gate. This result paragraph is the only source addition afterward.
 Independent read-only review is complete; initial fake-login/logout and
 private-byte denial mutants reproduced the old false green before correction.
 Exact-head CI and live qualification are separate evidence.
+
+Yurucommu product premise: one self-deploying human owner per instance. The
+seeded recipient/unrelated local member sessions are synthetic adversarial
+authorization fixtures, not a supported multi-owner hosting model or proof of
+real external delivery. They are neither root owners nor that owner's personas.
+Actual remote actors live in actor_cache and do not gain local sessions merely
+by communicating. This fixture must not qualify real remote participation or
+first-owner provisioning; see ../product/single-owner.md for those conditions.
