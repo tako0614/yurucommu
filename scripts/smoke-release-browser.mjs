@@ -1,0 +1,522 @@
+#!/usr/bin/env bun
+
+import { createHash } from "node:crypto";
+import { accessSync, constants, readFileSync, statSync } from "node:fs";
+import { createServer } from "node:net";
+import { basename, dirname, resolve } from "node:path";
+import process from "node:process";
+import { fileURLToPath } from "node:url";
+import { chromium } from "playwright-core";
+import { Miniflare } from "miniflare";
+import { unstable_readConfig, unstable_splitSqlQuery } from "wrangler";
+import { qualifyBrowserFeed } from "./release-browser-feed.mjs";
+
+const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const PASSWORD = " release-browser-owner ";
+const SESSION_SALT = "release-browser-session-salt-fixture";
+const ENCRYPTION_KEY = "00".repeat(32);
+const HOME_TITLE = "ここがあなたの居場所のはじまり";
+
+function sha256(value) {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function requireEffect(condition, message) {
+  if (!condition) throw new Error(`release-browser ${message}`);
+}
+
+function chromeExecutable() {
+  if (process.env.BROWSER_SMOKE_CHROME !== undefined) {
+    const configured = process.env.BROWSER_SMOKE_CHROME;
+    try {
+      requireEffect(
+        Boolean(configured) && statSync(configured).isFile(),
+        "BROWSER_SMOKE_CHROME is not an executable file",
+      );
+      accessSync(configured, constants.X_OK);
+      return configured;
+    } catch {
+      throw new Error(
+        "release-browser BROWSER_SMOKE_CHROME override is invalid",
+      );
+    }
+  }
+
+  for (const candidate of [
+    "/usr/bin/google-chrome",
+    "/usr/bin/google-chrome-stable",
+    "/usr/bin/chromium",
+    "/usr/bin/chromium-browser",
+    "/snap/bin/chromium",
+    "/opt/google/chrome/chrome",
+  ]) {
+    try {
+      if (statSync(candidate).isFile()) {
+        accessSync(candidate, constants.X_OK);
+        return candidate;
+      }
+    } catch {
+      // Continue through already installed system Chrome paths.
+    }
+  }
+  throw new Error(
+    "release-browser requires installed Chrome; set BROWSER_SMOKE_CHROME",
+  );
+}
+
+async function freeLoopbackPort() {
+  const server = createServer();
+  await new Promise((resolveListen, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolveListen);
+  });
+  const address = server.address();
+  requireEffect(
+    address && typeof address === "object",
+    "could not allocate a loopback port",
+  );
+  await new Promise((resolveClose, reject) => {
+    server.close((error) => (error ? reject(error) : resolveClose()));
+  });
+  return address.port;
+}
+
+async function applyProductSchema(worker) {
+  const schemaBytes = readFileSync(
+    resolve(repo, "deploy/takoform/migrations/schema-bundle.json"),
+  );
+  const schema = JSON.parse(schemaBytes.toString("utf8"));
+  requireEffect(
+    schema.apiVersion === "takosumi.resource-migrations/v1" &&
+      schema.engine === "sqlite" &&
+      Array.isArray(schema.entries) &&
+      schema.entries.length > 0,
+    "requires a non-empty SQLite product migration bundle",
+  );
+
+  const db = await worker.getD1Database("DB");
+  for (const entry of schema.entries) {
+    requireEffect(
+      typeof entry.sql === "string" &&
+        entry.sha256 === `sha256:${sha256(Buffer.from(entry.sql, "utf8"))}`,
+      `migration digest mismatch: ${entry.name}`,
+    );
+    const statements = unstable_splitSqlQuery(entry.sql);
+    requireEffect(statements.length > 0, `migration has no SQL: ${entry.name}`);
+    await db.batch(statements.map((sql) => db.prepare(sql)));
+  }
+
+  const actors = await db
+    .prepare("SELECT COUNT(*) AS count FROM actors")
+    .first();
+  const sessions = await db
+    .prepare("SELECT COUNT(*) AS count FROM sessions")
+    .first();
+  requireEffect(
+    actors?.count === 0 && sessions?.count === 0,
+    "migrations did not leave actors and sessions empty",
+  );
+  return {
+    db,
+    schemaSha256: `sha256:${sha256(schemaBytes)}`,
+    migrationCount: schema.entries.length,
+  };
+}
+
+async function dbCounts(db) {
+  const actors = await db
+    .prepare("SELECT COUNT(*) AS count FROM actors")
+    .first();
+  const sessions = await db
+    .prepare("SELECT COUNT(*) AS count FROM sessions")
+    .first();
+  return { actors: actors?.count, sessions: sessions?.count };
+}
+
+async function ownerIdentity(page, origin) {
+  return page.evaluate(async (baseOrigin) => {
+    const response = await fetch(`${baseOrigin}/api/auth/me`, {
+      credentials: "include",
+    });
+    let actor;
+    try {
+      actor = (await response.json()).actor;
+    } catch {
+      return { status: response.status, apId: null, role: null };
+    }
+    return {
+      status: response.status,
+      apId: actor?.ap_id ?? null,
+      role: actor?.role ?? null,
+    };
+  }, origin);
+}
+
+function nativeWorker(artifactPath, origin, wranglerConfig) {
+  return new Miniflare({
+    rootPath: dirname(artifactPath),
+    modules: [{ type: "ESModule", path: artifactPath }],
+    modulesRoot: dirname(artifactPath),
+    compatibilityDate: wranglerConfig.compatibility_date,
+    compatibilityFlags: wranglerConfig.compatibility_flags,
+    host: "127.0.0.1",
+    port: Number(new URL(origin).port),
+    cf: false,
+    bindings: {
+      APP_URL: origin,
+      AUTH_PASSWORD_HASH: PASSWORD,
+      YURUCOMMU_SESSION_HASH_SALT: SESSION_SALT,
+      DELIVERY_QUEUE_NAME: "yurucommu-browser-smoke-delivery",
+      DELIVERY_DLQ_NAME: "yurucommu-browser-smoke-dlq",
+      ENCRYPTION_KEY: ENCRYPTION_KEY,
+    },
+    d1Databases: ["DB"],
+    kvNamespaces: ["KV"],
+    r2Buckets: ["MEDIA"],
+    queueProducers: ["DELIVERY_QUEUE", "DELIVERY_DLQ"],
+    handleRuntimeStdio(stdout, stderr) {
+      stdout.pipe(process.stderr, { end: false });
+      stderr.pipe(process.stderr, { end: false });
+    },
+  });
+}
+
+async function runBrowserSmoke(artifactPath, artifactDigest) {
+  const chromePath = chromeExecutable();
+  const wranglerConfig = unstable_readConfig(
+    { config: resolve(repo, "wrangler.jsonc") },
+    { hideWarnings: true },
+  );
+  requireEffect(
+    Boolean(wranglerConfig.compatibility_date),
+    "wrangler.jsonc lacks compatibility_date",
+  );
+
+  const port = await freeLoopbackPort();
+  const origin = `http://127.0.0.1:${port}`;
+  const worker = nativeWorker(artifactPath, origin, wranglerConfig);
+  let browser;
+  let context;
+  let primaryError;
+  let result;
+  const cleanupFailures = [];
+  const pageErrors = [];
+  const serverErrors = [];
+  const checks = [];
+
+  try {
+    await worker.ready;
+    const { db, schemaSha256, migrationCount } =
+      await applyProductSchema(worker);
+    checks.push("native-migrations-applied-to-empty-actors-and-sessions");
+
+    browser = await chromium.launch({
+      executablePath: chromePath,
+      headless: true,
+      args: ["--no-sandbox", "--disable-dev-shm-usage"],
+    });
+    context = await browser.newContext({
+      locale: "ja-JP",
+      viewport: { width: 1280, height: 900 },
+      serviceWorkers: "block",
+    });
+    const page = await context.newPage();
+    page.on("pageerror", () => pageErrors.push("pageerror"));
+    page.on("response", (response) => {
+      if (response.status() >= 500) {
+        try {
+          serverErrors.push({
+            path: new URL(response.url()).pathname,
+            status: response.status(),
+          });
+        } catch {
+          serverErrors.push({ path: "invalid-response-url", status: 500 });
+        }
+      }
+    });
+    await context.route("**/*", (route) => {
+      const requestUrl = new URL(route.request().url());
+      if (
+        requestUrl.protocol === "data:" ||
+        requestUrl.protocol === "blob:" ||
+        requestUrl.origin === origin
+      ) {
+        return route.continue();
+      }
+      return route.abort("blockedbyclient");
+    });
+
+    await page.goto(origin, { waitUntil: "domcontentloaded", timeout: 20000 });
+    const passwordInput = page.locator('input[type="password"]');
+    const submit = page.locator('form button[type="submit"]');
+    await passwordInput.waitFor({ state: "visible", timeout: 15000 });
+    const labels = await passwordInput.evaluate((input) =>
+      Array.from(input.labels ?? [])
+        .filter((label) => {
+          const style = getComputedStyle(label);
+          return (
+            label.getClientRects().length > 0 &&
+            style.visibility !== "hidden" &&
+            style.display !== "none"
+          );
+        })
+        .map((label) => label.textContent?.trim() ?? ""),
+    );
+    requireEffect(
+      labels.length === 1 && labels[0] === "パスワード",
+      "password input lacks one visible パスワード label",
+    );
+    checks.push("browser-password-input-visible-associated-label");
+    requireEffect(
+      await submit.isDisabled(),
+      "empty password submit was not disabled",
+    );
+    checks.push("browser-empty-password-submit-disabled");
+
+    const emptyBeforeAttempt = await dbCounts(db);
+    requireEffect(
+      emptyBeforeAttempt.actors === 0 && emptyBeforeAttempt.sessions === 0,
+      "initial page created an actor or session",
+    );
+    await passwordInput.fill(`${PASSWORD}wrong`);
+    const wrongResponsePromise = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === "/api/auth/login" &&
+        response.request().method() === "POST",
+      { timeout: 15000 },
+    );
+    await submit.click();
+    const wrongResponse = await wrongResponsePromise;
+    requireEffect(
+      wrongResponse.status() === 401,
+      "wrong browser password was not refused with 401",
+    );
+    const wrongBody = await wrongResponse.json();
+    requireEffect(
+      typeof wrongBody.error === "string" && wrongBody.error.length > 0,
+      "wrong password did not provide the expected displayable refusal",
+    );
+    const emptyAfterAttempt = await dbCounts(db);
+    requireEffect(
+      emptyAfterAttempt.actors === 0 && emptyAfterAttempt.sessions === 0,
+      "wrong password persisted an actor or session",
+    );
+    const error = page.getByText(wrongBody.error, { exact: true });
+    await error.waitFor({ state: "visible", timeout: 10000 });
+    const alertCount = await page.getByRole("alert").count();
+    const errorIsInLoginForm = await error.evaluate((node) => {
+      const input = document.querySelector('input[type="password"]');
+      return (
+        node.getAttribute("role") === "alert" &&
+        node.parentElement === input?.closest("form")?.parentElement
+      );
+    });
+    requireEffect(
+      alertCount === 1 && errorIsInLoginForm,
+      "wrong password did not display its refusal alert beside the actual login form",
+    );
+    checks.push("browser-invalid-password-refused-without-owner-or-session");
+    checks.push("browser-invalid-password-visible-error-alert");
+
+    await passwordInput.fill(PASSWORD);
+    const loginResponsePromise = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === "/api/auth/login" &&
+        response.request().method() === "POST",
+      { timeout: 15000 },
+    );
+    await submit.click();
+    const loginResponse = await loginResponsePromise;
+    const passwordUnchangedOnWire =
+      loginResponse.request().postDataJSON()?.password === PASSWORD;
+    requireEffect(
+      loginResponse.status() === 200 && passwordUnchangedOnWire,
+      "valid login failed or changed the opaque password on the wire",
+    );
+    checks.push("browser-password-login-preserves-padded-wire-value");
+
+    const actorApId = `${origin}/ap/users/tako`;
+    await page
+      .getByText(HOME_TITLE, { exact: true })
+      .waitFor({ state: "visible", timeout: 20000 });
+    const firstIdentity = await ownerIdentity(page, origin);
+    const ownerRows = (
+      await db
+        .prepare(
+          "SELECT ap_id, preferred_username, takos_user_id, role, owner_actor_ap_id, deleted_at FROM actors ORDER BY ap_id",
+        )
+        .all()
+    ).results;
+    const countsAfterLogin = await dbCounts(db);
+    const browserCookies = await context.cookies(origin);
+    const sessionCookie = browserCookies.find(
+      (cookie) => cookie.name === "session",
+    );
+    requireEffect(
+      Boolean(sessionCookie?.value),
+      "browser login did not persist a session cookie",
+    );
+    const expectedSessionId = `sha256:${sha256(`${SESSION_SALT}:${sessionCookie.value}`)}`;
+    const session = await db
+      .prepare(
+        "SELECT id, member_id, access_token, expires_at, provider, provider_access_token, provider_refresh_token, provider_token_expires_at FROM sessions WHERE id = ?",
+      )
+      .bind(expectedSessionId)
+      .first();
+    const root = ownerRows[0];
+    requireEffect(
+      firstIdentity.status === 200 &&
+        firstIdentity.apId === actorApId &&
+        firstIdentity.role === "owner" &&
+        countsAfterLogin.actors === 1 &&
+        countsAfterLogin.sessions === 1 &&
+        ownerRows.length === 1 &&
+        root?.ap_id === actorApId &&
+        root.preferred_username === "tako" &&
+        root.takos_user_id === "password:owner" &&
+        root.role === "owner" &&
+        root.owner_actor_ap_id === null &&
+        root.deleted_at === null &&
+        session?.id === expectedSessionId &&
+        session.member_id === actorApId &&
+        session.access_token === expectedSessionId &&
+        Number.isFinite(Date.parse(session.expires_at)) &&
+        Date.parse(session.expires_at) > Date.now() &&
+        session.provider === null &&
+        session.provider_access_token === null &&
+        session.provider_refresh_token === null &&
+        session.provider_token_expires_at === null,
+      "browser login did not persist the single live root owner and salted session",
+    );
+    checks.push("browser-first-owner-and-salted-session-persisted");
+    checks.push("browser-authenticated-home-feed-visible");
+
+    await page.reload({ waitUntil: "domcontentloaded", timeout: 20000 });
+    await page
+      .getByText(HOME_TITLE, { exact: true })
+      .waitFor({ state: "visible", timeout: 20000 });
+    const refreshedIdentity = await ownerIdentity(page, origin);
+    requireEffect(
+      refreshedIdentity.status === 200 &&
+        refreshedIdentity.apId === actorApId &&
+        refreshedIdentity.role === "owner" &&
+        !(await passwordInput.isVisible()),
+      "page refresh lost the browser's persisted root owner session",
+    );
+    checks.push("browser-refresh-retains-root-owner");
+
+    const feedMetadata = await qualifyBrowserFeed({
+      page,
+      worker,
+      db,
+      origin,
+      actorApId,
+      checks,
+    });
+    requireEffect(
+      feedMetadata && typeof feedMetadata === "object",
+      "browser feed qualification returned no metadata",
+    );
+
+    const finalActors = (
+      await db
+        .prepare(
+          "SELECT ap_id, role, owner_actor_ap_id, deleted_at FROM actors ORDER BY ap_id",
+        )
+        .all()
+    ).results;
+    const finalSessionCounts = await dbCounts(db);
+    requireEffect(
+      finalActors.length === 1 &&
+        finalActors[0]?.ap_id === actorApId &&
+        finalActors[0]?.role === "owner" &&
+        finalActors[0]?.owner_actor_ap_id === null &&
+        finalActors[0]?.deleted_at === null &&
+        finalSessionCounts.actors === 1 &&
+        finalSessionCounts.sessions === 1,
+      "feed qualification changed the final scope beyond the single live owner",
+    );
+    checks.push("final-scope-single-live-owner-no-member-seed");
+    requireEffect(
+      pageErrors.length === 0,
+      "browser raised a page runtime error",
+    );
+    requireEffect(
+      serverErrors.length === 0,
+      "artifact returned an unexpected HTTP 5xx response",
+    );
+    checks.push("browser-no-page-errors-or-http-5xx");
+
+    result = {
+      kind: "yurucommu.release-browser-smoke@v1",
+      artifact: basename(artifactPath),
+      sha256: `sha256:${artifactDigest}`,
+      browser: browser.version(),
+      runtime: "workerd",
+      substrate: "local-http-native-d1-kv-r2-queues",
+      schemaSha256,
+      migrationCount,
+      scope:
+        "one self-created root owner; no seeded actors/sessions or external member; no public TLS/deploy/federation qualification",
+      checks,
+      feed: feedMetadata,
+      status: "PASSED",
+    };
+  } catch (error) {
+    primaryError = error;
+  } finally {
+    for (const [label, close] of [
+      ["context", () => context?.close()],
+      ["browser", () => browser?.close()],
+      ["worker", () => worker.dispose()],
+    ]) {
+      try {
+        await close();
+      } catch {
+        cleanupFailures.push(label);
+      }
+    }
+  }
+
+  if (primaryError) {
+    if (cleanupFailures.length)
+      process.stderr.write(
+        `release-browser cleanup also failed for ${cleanupFailures.join(",")}\n`,
+      );
+    throw primaryError;
+  }
+  requireEffect(
+    cleanupFailures.length === 0,
+    `cleanup failed for ${cleanupFailures.join(",")}`,
+  );
+  return result;
+}
+
+async function main() {
+  const [artifactArgument, expectedDigest] = process.argv.slice(2);
+  if (!artifactArgument || process.argv.length > 4) {
+    throw new Error(
+      "usage: bun scripts/smoke-release-browser.mjs <artifact.js> [sha256:<digest>]",
+    );
+  }
+  const artifactPath = resolve(process.cwd(), artifactArgument);
+  let artifactBytes;
+  try {
+    requireEffect(statSync(artifactPath).isFile(), "artifact is not a file");
+    artifactBytes = readFileSync(artifactPath);
+  } catch {
+    throw new Error("release-browser artifact is missing or unreadable");
+  }
+  const artifactDigest = sha256(artifactBytes);
+  if (expectedDigest !== undefined) {
+    requireEffect(
+      expectedDigest === `sha256:${artifactDigest}`,
+      "artifact digest does not match expected sha256",
+    );
+  }
+
+  const result = await runBrowserSmoke(artifactPath, artifactDigest);
+  process.stdout.write(`${JSON.stringify(result)}\n`);
+}
+
+await main();

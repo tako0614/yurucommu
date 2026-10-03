@@ -23,8 +23,8 @@ import {
   revokeCommunityInvite,
   updateCommunityMemberRole,
   updateCommunitySettings,
-  uploadMedia,
 } from "../lib/api.ts";
+import { uploadProductMedia } from "../lib/media-upload.ts";
 import { useI18n } from "../lib/i18n.tsx";
 import { useSetAtom } from "solid-jotai";
 import { pushToast, toastsAtom } from "../atoms/toast.ts";
@@ -472,7 +472,7 @@ export function CommunityProfilePage() {
 
     setUploadingIcon(true);
     try {
-      const result = await uploadMedia(file);
+      const result = await uploadProductMedia(file);
       setSettingsForm((prev) => ({ ...prev, icon_url: result.url }));
       // Revoke old ObjectURL before creating a new one
       const oldPreview = iconPreview();

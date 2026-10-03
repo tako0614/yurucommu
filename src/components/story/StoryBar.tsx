@@ -107,6 +107,7 @@ export function StoryBar(props: StoryBarProps) {
                 <button
                   onClick={props.onAddStory}
                   class="flex flex-col items-center gap-1 flex-shrink-0 group"
+                  aria-label={t("story.addStory")}
                 >
                   <div class="relative">
                     <div class="w-16 h-16 rounded-full ring-2 ring-neutral-700 flex items-center justify-center">
