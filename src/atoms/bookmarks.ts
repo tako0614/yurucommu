@@ -4,6 +4,7 @@ import { fetchBookmarks } from "../lib/api.ts";
 import { actorAtom } from "./auth.ts";
 import { tAtom } from "./i18n.ts";
 import {
+  type BookmarkRead,
   beginBookmarkRead,
   finishBookmarkRead,
   ownsBookmarkRead,
@@ -13,7 +14,9 @@ import {
 type Requests = {
   generation: number;
   ticket: object | null;
+  fullRead: BookmarkRead | null;
   pager: object | null;
+  pagerRead: BookmarkRead | null;
   disposed: boolean;
 };
 
@@ -28,7 +31,9 @@ export function createBookmarksState() {
   const requests = atom<Requests>({
     generation: 0,
     ticket: null,
+    fullRead: null,
     pager: null,
+    pagerRead: null,
     disposed: false,
   });
 
@@ -38,13 +43,22 @@ export function createBookmarksState() {
     const generation = prior.generation + 1;
     const ticket = {};
     const actorApId = get(actorAtom)?.ap_id;
-    set(requests, { generation, ticket, pager: null, disposed: false });
+    if (prior.fullRead) finishBookmarkRead(get, set, prior.fullRead);
+    if (prior.pagerRead) finishBookmarkRead(get, set, prior.pagerRead);
+    const read = beginBookmarkRead(get, set);
+    set(requests, {
+      generation,
+      ticket,
+      fullRead: read,
+      pager: null,
+      pagerRead: null,
+      disposed: false,
+    });
     if (get(posts).length === 0) set(loading, true);
     set(loadingMore, false);
     set(cursor, null);
     set(hasMore, false);
     set(loadError, null);
-    const read = beginBookmarkRead(get, set);
     try {
       const page = await fetchBookmarks();
       const active = get(requests);
@@ -79,6 +93,7 @@ export function createBookmarksState() {
       finishBookmarkRead(get, set, read);
       const active = get(requests);
       if (active.generation === generation && active.ticket === ticket) {
+        set(requests, { ...active, fullRead: null });
         set(loading, false);
       }
     }
@@ -99,9 +114,9 @@ export function createBookmarksState() {
     const ticket = state.ticket;
     const pager = {};
     const actorApId = get(actorAtom)?.ap_id;
-    set(requests, { ...state, pager });
-    set(loadingMore, true);
     const read = beginBookmarkRead(get, set);
+    set(requests, { ...state, pager, pagerRead: read });
+    set(loadingMore, true);
     const ownsPager = () => {
       const active = get(requests);
       return (
@@ -142,7 +157,7 @@ export function createBookmarksState() {
         active.ticket === ticket &&
         active.pager === pager
       ) {
-        set(requests, { ...active, pager: null });
+        set(requests, { ...active, pager: null, pagerRead: null });
         set(loadingMore, false);
       }
     }
@@ -151,10 +166,14 @@ export function createBookmarksState() {
   const dispose = atom(null, (get, set) => {
     const state = get(requests);
     if (state.disposed) return;
+    if (state.fullRead) finishBookmarkRead(get, set, state.fullRead);
+    if (state.pagerRead) finishBookmarkRead(get, set, state.pagerRead);
     set(requests, {
       generation: state.generation + 1,
       ticket: null,
+      fullRead: null,
       pager: null,
+      pagerRead: null,
       disposed: true,
     });
   });

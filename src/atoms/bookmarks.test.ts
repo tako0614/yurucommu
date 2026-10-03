@@ -104,6 +104,7 @@ async function fixture() {
   const plugin = await import("../lib/plugin.ts");
   plugin.clearYurucommuFrontendPlugin();
   const bookmarksModule = await import("./bookmarks.ts");
+  const bookmarkReads = await import("./bookmark-reads.ts");
   const timeline = await import("./timeline.ts");
   const auth = await import("./auth.ts");
   const store = createStore();
@@ -112,6 +113,8 @@ async function fixture() {
   return {
     store,
     state,
+    bookmarksModule,
+    bookmarkReads,
     timeline,
     auth,
     requests,
@@ -142,6 +145,25 @@ async function waitForRequest(
   }
   expect(h.requests).toHaveLength(count);
   return h.requests[count - 1]!;
+}
+
+function activeReadCount(h: Awaited<ReturnType<typeof fixture>>) {
+  return h.store.get(h.bookmarkReads.activeBookmarkReadCountAtom);
+}
+
+async function finishFixtureRequests(
+  h: Awaited<ReturnType<typeof fixture>>,
+  work: Promise<unknown>[],
+) {
+  for (const request of h.requests) {
+    request.pending.resolve(
+      request.method === "DELETE"
+        ? new Response(JSON.stringify({ success: true }))
+        : response([], null, false),
+    );
+  }
+  await Promise.allSettled(work);
+  h.cleanup();
 }
 
 test("initial saved-list read reconciles an acknowledged unbookmark before publishing", async () => {
@@ -324,5 +346,162 @@ test("superseded, actor-changed, and disposed reads cannot publish rows, cursors
     expect(h.store.get(h.state.loadError)).toBeNull();
   } finally {
     h.cleanup();
+  }
+});
+
+test("a superseded full saved-list read retires its window before its SDK fetch settles", async () => {
+  const h = await fixture();
+  const work: Promise<unknown>[] = [];
+  const saved = post("superseded-full");
+  try {
+    const oldLoad = h.store.set(h.state.load);
+    work.push(oldLoad);
+    const oldRequest = await waitForRequest(h, 1);
+    expect(activeReadCount(h)).toBe(1);
+
+    const newLoad = h.store.set(h.state.load);
+    work.push(newLoad);
+    const newRequest = await waitForRequest(h, 2);
+    expect(activeReadCount(h)).toBe(1);
+
+    oldRequest.pending.resolve(response([post("obsolete")], "obsolete", true));
+    await oldLoad;
+    expect(activeReadCount(h)).toBe(1);
+
+    const unsaving = h.store.set(
+      h.timeline.unbookmarkTimelinePostAtom,
+      saved.ap_id,
+    );
+    work.push(unsaving);
+    const deletion = await waitForRequest(h, 3);
+    expect(deletion.method).toBe("DELETE");
+    deletion.pending.resolve(new Response(JSON.stringify({ success: true })));
+    expect(await unsaving).toBe(true);
+    newRequest.pending.resolve(response([saved], null, false));
+    await newLoad;
+    expect(h.store.get(h.state.posts)).toEqual([]);
+    expect(activeReadCount(h)).toBe(0);
+  } finally {
+    await finishFixtureRequests(h, work);
+  }
+});
+
+test("a full reload retires an in-flight older-page window before that fetch settles", async () => {
+  const h = await fixture();
+  const work: Promise<unknown>[] = [];
+  const first = post("pager-first");
+  const fresh = post("pager-fresh");
+  try {
+    const initialLoad = h.store.set(h.state.load);
+    work.push(initialLoad);
+    (await waitForRequest(h, 1)).pending.resolve(
+      response([first], "older-page", true),
+    );
+    await initialLoad;
+    expect(activeReadCount(h)).toBe(0);
+
+    const paging = h.store.set(h.state.loadMore);
+    work.push(paging);
+    const oldPage = await waitForRequest(h, 2);
+    expect(oldPage.path).toBe("/api/bookmarks?before=older-page");
+    expect(activeReadCount(h)).toBe(1);
+
+    const reloading = h.store.set(h.state.load);
+    work.push(reloading);
+    const newRequest = await waitForRequest(h, 3);
+    expect(activeReadCount(h)).toBe(1);
+
+    oldPage.pending.resolve(
+      response([post("obsolete-page")], "obsolete", true),
+    );
+    await paging;
+    expect(activeReadCount(h)).toBe(1);
+    newRequest.pending.resolve(response([fresh], null, false));
+    await reloading;
+    expect(h.store.get(h.state.posts)).toEqual([fresh]);
+    expect(activeReadCount(h)).toBe(0);
+  } finally {
+    await finishFixtureRequests(h, work);
+  }
+});
+
+for (const pendingKind of ["full", "pager"] as const) {
+  test(`disposing a saved-list state retires its pending ${pendingKind} window immediately and only once`, async () => {
+    const h = await fixture();
+    const work: Promise<unknown>[] = [];
+    try {
+      if (pendingKind === "pager") {
+        const initialLoad = h.store.set(h.state.load);
+        work.push(initialLoad);
+        (await waitForRequest(h, 1)).pending.resolve(
+          response([post("first")], "older-page", true),
+        );
+        await initialLoad;
+      }
+      const pendingLoad = h.store.set(
+        pendingKind === "full" ? h.state.load : h.state.loadMore,
+      );
+      work.push(pendingLoad);
+      const pendingRequest = await waitForRequest(
+        h,
+        pendingKind === "full" ? 1 : 2,
+      );
+      expect(activeReadCount(h)).toBe(1);
+      h.store.set(h.state.dispose);
+      expect(activeReadCount(h)).toBe(0);
+      h.store.set(h.state.dispose);
+      expect(activeReadCount(h)).toBe(0);
+      pendingRequest.pending.resolve(response([post("late")], "late", true));
+      await pendingLoad;
+      expect(activeReadCount(h)).toBe(0);
+    } finally {
+      await finishFixtureRequests(h, work);
+    }
+  });
+}
+
+test("disposing one saved-list state preserves another state and an unrelated timeline window", async () => {
+  const h = await fixture();
+  const work: Promise<unknown>[] = [];
+  const second = h.bookmarksModule.createBookmarksState();
+  const saved = post("shared-store");
+  try {
+    const firstLoad = h.store.set(h.state.load);
+    work.push(firstLoad);
+    const firstRequest = await waitForRequest(h, 1);
+    const secondLoad = h.store.set(second.load);
+    work.push(secondLoad);
+    const secondRequest = await waitForRequest(h, 2);
+    const timelineLoad = h.store.set(h.timeline.loadTimelineAtom);
+    work.push(timelineLoad);
+    const timelineRequest = await waitForRequest(h, 3);
+    expect(timelineRequest.path.startsWith("/api/timeline")).toBe(true);
+    expect(activeReadCount(h)).toBe(3);
+
+    h.store.set(h.state.dispose);
+    h.store.set(h.state.dispose);
+    expect(activeReadCount(h)).toBe(2);
+    firstRequest.pending.resolve(response([post("retired")], null, false));
+    await firstLoad;
+    expect(activeReadCount(h)).toBe(2);
+
+    const unsaving = h.store.set(
+      h.timeline.unbookmarkTimelinePostAtom,
+      saved.ap_id,
+    );
+    work.push(unsaving);
+    const deletion = await waitForRequest(h, 4);
+    deletion.pending.resolve(new Response(JSON.stringify({ success: true })));
+    expect(await unsaving).toBe(true);
+    secondRequest.pending.resolve(response([saved], null, false));
+    timelineRequest.pending.resolve(response([saved], null, false));
+    await Promise.all([secondLoad, timelineLoad]);
+    expect(h.store.get(second.posts)).toEqual([]);
+    expect(h.store.get(h.timeline.timelinePostsAtom)[0]?.bookmarked).toBe(
+      false,
+    );
+    expect(activeReadCount(h)).toBe(0);
+  } finally {
+    await finishFixtureRequests(h, work);
   }
 });
