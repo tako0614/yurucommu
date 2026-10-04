@@ -136,3 +136,34 @@ test("the published SDK rejects an unadapted Unicode filename before fetch", asy
   expect(error).toMatchObject({ code: "INVALID_FILENAME" });
   expect(fetchCalls).toHaveLength(0);
 });
+
+test("only valid advertised upload expiry is forwarded without inventing a deadline", async () => {
+  const cases = [
+    "2026-10-11T20:00:00.000Z",
+    undefined,
+    null,
+    1234,
+    "not-a-date",
+  ];
+  for (const expiresAt of cases) {
+    interceptUploads();
+    globalThis.fetch = Object.assign(
+      async () =>
+        Response.json({
+          url: "/media/fixture.png",
+          r2_key: "posts/fixture.png",
+          content_type: "image/png",
+          expires_at: expiresAt,
+        }),
+      { preconnect: nativeFetch.preconnect },
+    );
+    const result = await uploadProductMedia(
+      new File(["bytes"], "file.png", { type: "image/png" }),
+    );
+    expect(result.expires_at).toBe(
+      typeof expiresAt === "string" && Number.isFinite(Date.parse(expiresAt))
+        ? expiresAt
+        : undefined,
+    );
+  }
+});

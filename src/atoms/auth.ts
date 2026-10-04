@@ -45,6 +45,8 @@ export const logoutErrorAtom = atom<string | null>(null);
 
 // Store-scoped fences: a delayed pre-sign-out check cannot restore identity.
 const authGenerationAtom = atom(0);
+// Read-only fence for product async work across login/sign-out of the same actor.
+export const authSessionEpochAtom = atom((get) => get(authGenerationAtom));
 const authCheckTicketAtom = atom(0);
 
 function clearAuthIdentity(set: Setter) {
