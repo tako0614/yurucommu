@@ -137,12 +137,27 @@ export function ProfilePage() {
   // prior load overwrite the new one, and the id is captured ONCE so the actor
   // and its posts can't come from two different profiles (split-await mismatch).
   let profileLoadGen = 0;
+  // A modal opening owns both its first page and pagination. Closing, retrying
+  // or reloading the profile retires that ownership even if the actor/type is
+  // the same when an old request eventually settles.
+  let followModalGen = 0;
+  const closeFollowModal = () => {
+    followModalGen += 1;
+    setShowFollowModal(null);
+    setFollowModalActors([]);
+    setFollowModalHasMore(false);
+    setFollowModalLoading(false);
+    setFollowModalLoadingMore(false);
+    setFollowModalError(null);
+  };
   onCleanup(() => {
     profileLoadGen += 1;
+    followModalGen += 1;
   });
   const loadProfile = async () => {
     const id = targetActorId();
     const gen = ++profileLoadGen;
+    closeFollowModal();
     // Reset transient UI for every (re)load. The state-clearing effect only
     // runs when targetActorId() changes, so a manual Retry (same id) would
     // otherwise leave the dismissible top error banner stuck above the
@@ -353,26 +368,37 @@ export function ProfilePage() {
   };
 
   const openFollowModal = async (type: "followers" | "following") => {
+    const target = targetActorId();
+    const profileGen = profileLoadGen;
+    const gen = ++followModalGen;
+    const isCurrent = () =>
+      gen === followModalGen &&
+      profileGen === profileLoadGen &&
+      target === targetActorId() &&
+      type === showFollowModal();
     setShowFollowModal(type);
     setFollowModalLoading(true);
+    setFollowModalLoadingMore(false);
     setFollowModalActors([]);
     setFollowModalHasMore(false);
     setFollowModalError(null);
     try {
       const fetcher = type === "followers" ? fetchFollowers : fetchFollowing;
-      const data = await fetcher(targetActorId(), {
+      const data = await fetcher(target, {
         limit: FOLLOW_MODAL_PAGE,
         offset: 0,
       });
+      if (!isCurrent()) return;
       setFollowModalActors(data.actors);
       setFollowModalHasMore(data.hasMore);
     } catch (e) {
+      if (!isCurrent()) return;
       console.error(`Failed to load ${type}:`, e);
       // Surface the failure instead of letting the modal show a false
       // "no followers yet" empty state.
       setFollowModalError(t("common.loadFailed"));
     } finally {
-      setFollowModalLoading(false);
+      if (isCurrent()) setFollowModalLoading(false);
     }
   };
 
@@ -380,24 +406,40 @@ export function ProfilePage() {
   // deduping by ap_id so the >50 entries are reachable, not just the first page.
   const loadMoreFollowModal = async () => {
     const type = showFollowModal();
-    if (!type || followModalLoadingMore() || !followModalHasMore()) return;
+    if (
+      !type ||
+      followModalLoading() ||
+      followModalLoadingMore() ||
+      !followModalHasMore()
+    )
+      return;
+    const target = targetActorId();
+    const profileGen = profileLoadGen;
+    const gen = ++followModalGen;
+    const isCurrent = () =>
+      gen === followModalGen &&
+      profileGen === profileLoadGen &&
+      target === targetActorId() &&
+      type === showFollowModal();
     setFollowModalLoadingMore(true);
     try {
       const fetcher = type === "followers" ? fetchFollowers : fetchFollowing;
-      const data = await fetcher(targetActorId(), {
+      const data = await fetcher(target, {
         limit: FOLLOW_MODAL_PAGE,
         offset: followModalActors().length,
       });
+      if (!isCurrent()) return;
       setFollowModalActors((prev) => {
         const seen = new Set(prev.map((a) => a.ap_id));
         return [...prev, ...data.actors.filter((a) => !seen.has(a.ap_id))];
       });
       setFollowModalHasMore(data.hasMore);
     } catch (e) {
+      if (!isCurrent()) return;
       console.error(`Failed to load more ${type}:`, e);
       setFollowModalError(t("common.loadFailed"));
     } finally {
-      setFollowModalLoadingMore(false);
+      if (isCurrent()) setFollowModalLoadingMore(false);
     }
   };
 
@@ -546,7 +588,7 @@ export function ProfilePage() {
             const tp = showFollowModal();
             if (tp) void openFollowModal(tp);
           }}
-          onClose={() => setShowFollowModal(null)}
+          onClose={closeFollowModal}
           t={t}
         />
       </Show>
