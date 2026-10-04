@@ -158,6 +158,10 @@ export function ProfilePage() {
     const id = targetActorId();
     const gen = ++profileLoadGen;
     closeFollowModal();
+    // A new visit or Retry owns a new follow window. An earlier request may
+    // still commit remotely, but must not keep this profile's button busy.
+    setFollowBusy(false);
+    setFollowPending(false);
     // Reset transient UI for every (re)load. The state-clearing effect only
     // runs when targetActorId() changes, so a manual Retry (same id) would
     // otherwise leave the dismissible top error banner stuck above the
@@ -239,16 +243,24 @@ export function ProfilePage() {
   );
 
   const handleFollow = async () => {
-    if (!profile()) return;
+    const target = profile();
+    if (!target) return;
     // A follow request that is awaiting approval should not be re-issued.
     if (followPending()) return;
     // In-flight guard: a rapid double-tap would otherwise fire duplicate
     // follow/unfollow requests and drift the optimistic follower_count.
     if (followBusy()) return;
+    const gen = profileLoadGen;
+    const routeId = targetActorId();
+    const isCurrent = () =>
+      gen === profileLoadGen &&
+      routeId === targetActorId() &&
+      profile()?.ap_id === target.ap_id;
     setFollowBusy(true);
     try {
       if (isFollowing()) {
-        await unfollow(profile()!.ap_id);
+        await unfollow(target.ap_id);
+        if (!isCurrent()) return;
         setIsFollowing(false);
         setFollowPending(false);
         setProfile((prev) =>
@@ -256,7 +268,8 @@ export function ProfilePage() {
         );
         pushToast(setToasts, t("feedback.unfollowed"), { kind: "success" });
       } else {
-        const { status } = await follow(profile()!.ap_id);
+        const { status } = await follow(target.ap_id);
+        if (!isCurrent()) return;
         // A private/remote follow may land as a pending request that the target
         // still has to approve. Only reflect an accepted follow in the UI; for a
         // pending request keep the follow affordance and do NOT bump the count.
@@ -275,10 +288,11 @@ export function ProfilePage() {
         }
       }
     } catch (e) {
+      if (!isCurrent()) return;
       console.error("Failed to toggle follow:", e);
       pushToast(setToasts, t("feedback.followFailed"), { kind: "error" });
     } finally {
-      setFollowBusy(false);
+      if (isCurrent()) setFollowBusy(false);
     }
   };
 
@@ -530,6 +544,7 @@ export function ProfilePage() {
             isOwnProfile={isOwnProfile()}
             isFollowing={isFollowing()}
             followPending={followPending()}
+            followBusy={followBusy()}
             showMenu={showMenu()}
             onToggleMenu={() => setShowMenu(!showMenu())}
             onCloseMenu={() => setShowMenu(false)}
