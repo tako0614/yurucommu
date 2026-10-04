@@ -213,6 +213,7 @@ export function StoryComposer(props: StoryComposerProps) {
     },
     setUploading: setVideoLoading,
     canEdit: () => !uploading() && !postActions.editingLocked(),
+    canApply: () => !postActions.editingLocked(),
     setError: (message) => setError(message),
     maxVideoSize: MAX_VIDEO_SIZE,
     onBackgroundChange: bumpRenderKey,
@@ -630,7 +631,9 @@ export function StoryComposer(props: StoryComposerProps) {
             }}
             displayDimensions={displayDims()}
             videoPreview={video.videoPreview()}
-            videoRef={video.videoRef}
+            onVideoRef={(element) => {
+              video.videoRef = element;
+            }}
             videoPosition={video.videoPosition()}
             videoScale={video.videoScale()}
             videoRotation={video.videoRotation()}
