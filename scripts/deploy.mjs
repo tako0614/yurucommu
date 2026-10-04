@@ -72,7 +72,7 @@ const CONTRACT = {
         "scripts/media-deletion-schema.mjs",
       ],
       requiresScripts: ["check", "build:worker", "smoke:postdeploy"],
-      requiresTools: ["git", "bun", "tofu"],
+      requiresTools: ["git", "bun", "node", "tofu"],
       requiresEnv: [
         "CLOUDFLARE_API_TOKEN",
         "TAKOSUMI_CAPSULE_OUTPUTS_FILE",
@@ -109,7 +109,7 @@ const CONTRACT = {
         "scripts/yurucommu-worker-bindings.ts",
       ],
       requiresScripts: ["check", "build:worker", R.smokeScript],
-      requiresTools: ["git", "bun", "gh"],
+      requiresTools: ["git", "bun", "node", "gh"],
       requiresEnv: [],
       triggers: ["published-identity", "authority"],
       obligations: {

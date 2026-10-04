@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 import { createHash, pbkdf2Sync, randomUUID } from "node:crypto";
 import {
   cpSync,
@@ -14,7 +14,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import { Miniflare } from "miniflare";
+import { FormData, Miniflare } from "miniflare";
 import { unstable_readConfig, unstable_splitSqlQuery } from "wrangler";
 import { createSyntheticUpdateIssuer } from "./release-update-oidc.mjs";
 

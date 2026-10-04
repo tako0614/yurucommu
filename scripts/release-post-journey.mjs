@@ -1,3 +1,5 @@
+import { FormData } from "miniflare";
+
 // Product-owned qualification against disposable native stores and locked Core.
 const PUBLIC = "https://www.w3.org/ns/activitystreams#Public";
 

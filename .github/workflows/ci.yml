@@ -47,8 +47,8 @@ jobs:
             ${{ runner.os }}-bun-yurucommu-
 
       - run: bun install --frozen-lockfile
-      - run: bun run check
       - run: node --version
+      - run: bun run check
       - run: bun run smoke:release-browser -- dist/yurucommu-worker.js
       - name: Qualify immutable v2.2.0 password and synthetic OIDC update and restore
         shell: bash

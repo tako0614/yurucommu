@@ -453,6 +453,7 @@ describe("release surface status", () => {
     expect(worker?.obligations["independent-review"]).toContain("exact commit");
     expect(worker?.requiresTools).not.toContain("wrangler");
     expect(worker?.requiresTools).toContain("tofu");
+    expect(worker?.requiresTools).toContain("node");
     expect(worker?.obligations.provenance).toContain(
       "--environment=production",
     );
@@ -576,6 +577,7 @@ describe("release surface status", () => {
         triggers: string[];
         covers: string[];
         requiresScripts: string[];
+        requiresTools: string[];
         obligations: Record<string, string>;
       }>;
     };
@@ -602,6 +604,7 @@ describe("release surface status", () => {
     );
     expect(release?.obligations.provenance).toContain("sourceBuild");
     expect(release?.requiresScripts).toContain("smoke:release-artifact");
+    expect(release?.requiresTools).toContain("node");
     expect(release?.obligations["post-conditions"]).toContain(
       "downloaded Worker in workerd",
     );
@@ -646,7 +649,7 @@ describe("release surface status", () => {
       "bun run smoke:release-artifact",
     );
     expect(packageJson.scripts["smoke:release-artifact"]).toBe(
-      "bun scripts/smoke-release-worker.mjs",
+      "node scripts/smoke-release-worker.mjs",
     );
     expect(Object.values(packageJson.scripts).join("\n")).not.toContain(
       "scripts/release-safety/",

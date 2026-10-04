@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 
 import { createHash, pbkdf2Sync } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
@@ -501,7 +501,7 @@ async function main() {
   const [artifactArgument, expectedDigestArgument] = process.argv.slice(2);
   if (!artifactArgument || process.argv.length > 4) {
     throw new Error(
-      "usage: bun scripts/smoke-release-worker.mjs <worker.js> [sha256:<digest>]",
+      "usage: node scripts/smoke-release-worker.mjs <worker.js> [sha256:<digest>]",
     );
   }
   const artifactPath = resolve(process.cwd(), artifactArgument);
