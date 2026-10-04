@@ -31,6 +31,12 @@ export interface StoryIntentRecord {
   status: "ready" | "pending" | "unconfirmed" | "rejected" | "confirmed";
   payload: StoryCreatePayload;
   serverId?: string;
+  /** Local intent IDs are not server idempotency keys. Uncertainty is monotonic. */
+  writeHistory?: "no-unknown" | "has-unknown";
+  /** Only a definitely rejected attempt may advertise safe expiry recovery. */
+  failureCode?: "MEDIA_EXPIRED";
+  /** Optional server-advertised deadline, never a client-invented TTL. */
+  mediaExpiresAt?: string;
 }
 
 export interface StoryIntentSnapshot {
@@ -182,6 +188,9 @@ function validRecord(
       "status",
       "payload",
       "serverId",
+      "writeHistory",
+      "failureCode",
+      "mediaExpiresAt",
     ]) &&
     typeof record.intentId === "string" &&
     /^[0-9a-f-]{36}$/.test(record.intentId) &&
@@ -192,6 +201,15 @@ function validRecord(
       record.status || "",
     ) &&
     validPayload(record.payload) &&
+    (record.writeHistory === undefined ||
+      ["no-unknown", "has-unknown"].includes(record.writeHistory)) &&
+    !(record.status === "ready" && record.writeHistory === "has-unknown") &&
+    (record.failureCode === undefined ||
+      (record.failureCode === "MEDIA_EXPIRED" &&
+        record.status === "rejected" &&
+        record.writeHistory === "no-unknown")) &&
+    (record.mediaExpiresAt === undefined ||
+      validMediaDeadline(record.mediaExpiresAt)) &&
     (record.payload.community_ap_id === undefined ||
       localCommunityId(record.payload.community_ap_id, scope.origin)) &&
     (record.status === "confirmed"
@@ -258,10 +276,51 @@ export function acknowledgesStory(
   }
 }
 
+function validMediaDeadline(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length <= 256 &&
+    Number.isFinite(Date.parse(value))
+  );
+}
+
+export function isExpiredStoryMedia(error: unknown): boolean {
+  return (
+    error instanceof ApiError &&
+    error.status === 409 &&
+    error.code === "MEDIA_EXPIRED"
+  );
+}
+
+export function storyMediaExpired(
+  record: StoryIntentRecord | null,
+  now: number = Date.now(),
+): boolean {
+  return (
+    !!record &&
+    (record.failureCode === "MEDIA_EXPIRED" ||
+      (validMediaDeadline(record.mediaExpiresAt) &&
+        Date.parse(record.mediaExpiresAt) <= now))
+  );
+}
+
+export function canRenewStoryMedia(
+  record: StoryIntentRecord | null,
+  now: number = Date.now(),
+): boolean {
+  return (
+    !!record &&
+    record.writeHistory === "no-unknown" &&
+    ["ready", "rejected"].includes(record.status) &&
+    storyMediaExpired(record, now)
+  );
+}
+
 /** Only documented, received pre-write Story rejections establish non-creation. */
 function storyFailure(error: unknown): "rejected" | "unconfirmed" {
-  return error instanceof ApiError &&
-    [400, 401, 403, 404, 429].includes(error.status)
+  return isExpiredStoryMedia(error) ||
+    (error instanceof ApiError &&
+      [400, 401, 403, 404, 429].includes(error.status))
     ? "rejected"
     : "unconfirmed";
 }
@@ -379,8 +438,27 @@ export function createStoryIntentCoordinator(
       if (validRecord(parsed, resolvedScope)) {
         record =
           parsed.status === "pending"
-            ? { ...parsed, status: "unconfirmed" }
-            : parsed;
+            ? {
+                ...parsed,
+                status: "unconfirmed",
+                writeHistory: "has-unknown",
+              }
+            : parsed.status === "ready"
+              ? { ...parsed, writeHistory: parsed.writeHistory ?? "no-unknown" }
+              : parsed.status === "rejected" &&
+                  parsed.writeHistory !== "no-unknown"
+                ? {
+                    ...parsed,
+                    status: "unconfirmed",
+                    writeHistory: "has-unknown",
+                  }
+                : {
+                    ...parsed,
+                    writeHistory:
+                      parsed.status === "unconfirmed"
+                        ? "has-unknown"
+                        : (parsed.writeHistory ?? "has-unknown"),
+                  };
       } else {
         failed = true;
         corrupt = true;
@@ -395,7 +473,10 @@ export function createStoryIntentCoordinator(
     if (!failed) unchanged();
     return snapshot();
   };
-  const stage = (payload: StoryCreatePayload): StoryIntentSnapshot => {
+  const stage = (
+    payload: StoryCreatePayload,
+    mediaExpiresAt?: string,
+  ): StoryIntentSnapshot => {
     if (busy || (record && record.status !== "ready") || (record && !failed))
       return snapshot();
     if (!failed && !unchanged() && conflict) return snapshot();
@@ -417,6 +498,7 @@ export function createStoryIntentCoordinator(
       ) as StoryCreatePayload;
       if (
         !validPayload(captured) ||
+        (mediaExpiresAt !== undefined && !validMediaDeadline(mediaExpiresAt)) ||
         (captured.community_ap_id !== undefined &&
           !localCommunityId(captured.community_ap_id, scope.origin)) ||
         JSON.stringify(captured).length > 131072
@@ -434,6 +516,8 @@ export function createStoryIntentCoordinator(
       endpoint,
       status: "ready",
       payload: captured,
+      writeHistory: "no-unknown",
+      ...(validMediaDeadline(mediaExpiresAt) ? { mediaExpiresAt } : {}),
     };
     if (failed) {
       if (!record) {
@@ -448,7 +532,8 @@ export function createStoryIntentCoordinator(
       if (
         conflict ||
         !stageRecoverable ||
-        canonical(record.payload) !== canonical(next.payload)
+        canonical(record.payload) !== canonical(next.payload) ||
+        record.mediaExpiresAt !== next.mediaExpiresAt
       )
         return snapshot();
       const saved = current();
@@ -478,13 +563,61 @@ export function createStoryIntentCoordinator(
     ...snapshot(),
     kind: "blocked",
   });
+
+  const replaceExpiredAttachment = (
+    expected: StoryIntentRecord,
+    attachment: StoryCreatePayload["attachment"],
+    mediaExpiresAt?: string,
+    now: number = Date.now(),
+  ): StoryIntentSnapshot => {
+    if (
+      busy ||
+      failed ||
+      !record ||
+      !unchanged() ||
+      canonical(record) !== canonical(expected) ||
+      !canRenewStoryMedia(record, now) ||
+      attachment.r2_key === record.payload.attachment.r2_key
+    )
+      return snapshot();
+    const payload: StoryCreatePayload = {
+      ...structuredClone(record.payload),
+      attachment: {
+        url: attachment.url,
+        r2_key: attachment.r2_key,
+        content_type: attachment.content_type,
+      },
+    };
+    if (
+      !validPayload(payload) ||
+      (mediaExpiresAt !== undefined && !validMediaDeadline(mediaExpiresAt)) ||
+      (mediaExpiresAt !== undefined && Date.parse(mediaExpiresAt) <= now)
+    )
+      return snapshot();
+    const renewed: StoryIntentRecord = {
+      version: 1,
+      intentId: crypto.randomUUID(),
+      origin: record.origin,
+      principal: record.principal,
+      endpoint: record.endpoint,
+      status: "ready",
+      payload,
+      writeHistory: "no-unknown",
+      ...(mediaExpiresAt === undefined ? {} : { mediaExpiresAt }),
+    };
+    // Upload has already completed; one guarded storage write adopts refs.
+    // No Story POST occurs here. Failed persistence keeps the old record locked.
+    save(renewed);
+    return snapshot();
+  };
   // `create` must be the direct Story SDK write. Post-ACK UI work belongs
   // outside this callback so an unrelated ApiError cannot be a rejection.
   const attempt = async (
     create: (payload: StoryCreatePayload) => Promise<unknown>,
     retry: boolean,
   ): Promise<StoryIntentOutcome> => {
-    if (busy || failed || !record || !unchanged()) return blocked();
+    if (busy || failed || !record || !unchanged() || storyMediaExpired(record))
+      return blocked();
     if (
       retry
         ? !["unconfirmed", "rejected"].includes(record.status)
@@ -494,22 +627,50 @@ export function createStoryIntentCoordinator(
     }
     busy = true;
     try {
-      const pending: StoryIntentRecord = { ...record, status: "pending" };
+      const hadUnknown =
+        record.writeHistory === "has-unknown" ||
+        record.status === "unconfirmed" ||
+        (record.writeHistory === undefined && record.status !== "ready");
+      const pending: StoryIntentRecord = {
+        ...record,
+        status: "pending",
+        writeHistory: hadUnknown ? "has-unknown" : "no-unknown",
+      };
       if (!save(pending)) {
-        record = { ...pending, status: "unconfirmed" };
+        record = {
+          ...pending,
+          status: "unconfirmed",
+          writeHistory: "has-unknown",
+        };
         return blocked();
       }
       let response: unknown;
       try {
         response = await create(structuredClone(pending.payload));
       } catch (error) {
-        const kind = storyFailure(error);
-        const next: StoryIntentRecord = { ...pending, status: kind };
-        if (!save(next)) record = { ...pending, status: "unconfirmed" };
+        const kind = hadUnknown ? "unconfirmed" : storyFailure(error);
+        const next: StoryIntentRecord = {
+          ...pending,
+          status: kind,
+          writeHistory: kind === "unconfirmed" ? "has-unknown" : "no-unknown",
+          ...(kind === "rejected" && isExpiredStoryMedia(error)
+            ? { failureCode: "MEDIA_EXPIRED" as const }
+            : {}),
+        };
+        if (!save(next))
+          record = {
+            ...pending,
+            status: "unconfirmed",
+            writeHistory: "has-unknown",
+          };
         return { ...snapshot(), kind: failed ? "unconfirmed" : kind, error };
       }
       if (!acknowledgesStory(response, scope, pending.payload)) {
-        const next: StoryIntentRecord = { ...pending, status: "unconfirmed" };
+        const next: StoryIntentRecord = {
+          ...pending,
+          status: "unconfirmed",
+          writeHistory: "has-unknown",
+        };
         if (!save(next)) record = next;
         return { ...snapshot(), kind: "unconfirmed" };
       }
@@ -552,6 +713,7 @@ export function createStoryIntentCoordinator(
     key,
     read,
     stage,
+    replaceExpiredAttachment,
     submit: (create: (payload: StoryCreatePayload) => Promise<unknown>) =>
       attempt(create, false),
     retry: (create: (payload: StoryCreatePayload) => Promise<unknown>) =>

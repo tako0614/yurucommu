@@ -402,6 +402,21 @@ const translations = {
       "アップロード済みの画像・動画と本文・投票内容は、このタブで再読込後も復旧できます。元の編集画面は復元されません。",
     "story.recoverySend": "保持した内容を投稿",
     "story.recoveryRetry": "保持した内容を再送",
+    "story.recoveryMediaExpired":
+      "保持した画像・動画のアップロード期限が切れています。この内容はそのまま投稿・再送できません。",
+    "story.recoveryRenewUnsafe":
+      "投稿済みか不明な履歴があるため、画像・動画を更新できません。あなたのストーリーを確認してください。",
+    "story.recoveryRenewExplanation":
+      "完成済みの画像・動画を再アップロードして投稿記録を更新します。元のキャンバス・背景・描画は復元されず、キャプション・投票・表示時間は保持します。更新だけでは投稿されません。本文やリンク内のメディア参照が原因の場合は、画像・動画の更新だけでは解消しません。",
+    "story.recoverySelectReplacement": "完成済みのJPEG画像またはMP4動画を選択",
+    "story.recoveryInvalidReplacement":
+      "20MB以下のJPEG画像、または40MB以下のMP4動画を選択してください。",
+    "story.recoveryRenew": "画像・動画を更新",
+    "story.recoveryRenewBody":
+      "保持した完成済みメディア、または選択した完成済みJPEG/MP4を再アップロードします。投稿は作成しません。更新後に別途「保持した内容を投稿」を押してください。",
+    "story.recoveryRenewFailed": "画像・動画の更新に失敗しました: {message}",
+    "story.recoveryRenewConflict":
+      "別の操作で投稿記録が変わりました。更新を採用できませんでした。",
     "story.recoveryClose": "記録を残して閉じる",
     "story.recoveryCloseUnsaved":
       "未保存の内容が失われる可能性を理解して閉じる",
@@ -1175,6 +1190,23 @@ const translations = {
       "The uploaded image or video, caption and poll content can be recovered after reloading this tab. The original editor is not restored.",
     "story.recoverySend": "Publish retained content",
     "story.recoveryRetry": "Send retained content again",
+    "story.recoveryMediaExpired":
+      "The retained image or video upload has expired. This content cannot be published or resent as it is.",
+    "story.recoveryRenewUnsafe":
+      "A previous Story write may have succeeded, so this media cannot be renewed. Check your stories.",
+    "story.recoveryRenewExplanation":
+      "Reupload the complete image or video to renew this publication record. The original canvas, background and drawing cannot be restored; the caption, polls and duration are retained. Renewal does not publish a Story. If a media reference in the caption or links caused the refusal, replacing the image or video alone will not resolve it.",
+    "story.recoverySelectReplacement":
+      "Select a complete JPEG image or MP4 video",
+    "story.recoveryInvalidReplacement":
+      "Select a JPEG image up to 20 MB or an MP4 video up to 40 MB.",
+    "story.recoveryRenew": "Renew image or video",
+    "story.recoveryRenewBody":
+      "Reupload the retained complete media, or the selected complete JPEG/MP4. This does not create a Story. Press “Publish retained content” separately after renewal.",
+    "story.recoveryRenewFailed":
+      "Could not renew the image or video: {message}",
+    "story.recoveryRenewConflict":
+      "The publication record changed during renewal, so the new upload was not adopted.",
     "story.recoveryClose": "Keep record and close",
     "story.recoveryCloseUnsaved":
       "Close accepting that unsaved content may be lost",

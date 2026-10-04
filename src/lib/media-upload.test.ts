@@ -137,14 +137,8 @@ test("the published SDK rejects an unadapted Unicode filename before fetch", asy
   expect(fetchCalls).toHaveLength(0);
 });
 
-test("only valid advertised upload expiry is forwarded without inventing a deadline", async () => {
-  const cases = [
-    "2026-10-11T20:00:00.000Z",
-    undefined,
-    null,
-    1234,
-    "not-a-date",
-  ];
+test("valid or absent advertised upload expiry never invents a deadline", async () => {
+  const cases = ["2026-10-11T20:00:00.000Z", undefined];
   for (const expiresAt of cases) {
     interceptUploads();
     globalThis.fetch = Object.assign(
@@ -165,5 +159,25 @@ test("only valid advertised upload expiry is forwarded without inventing a deadl
         ? expiresAt
         : undefined,
     );
+  }
+});
+
+test("a malformed advertised deadline refuses uploaded references instead of erasing expiry", async () => {
+  for (const expiresAt of [null, 1234, "not-a-date", ""]) {
+    globalThis.fetch = Object.assign(
+      async () =>
+        Response.json({
+          url: "/media/fixture.png",
+          r2_key: "posts/fixture.png",
+          content_type: "image/png",
+          expires_at: expiresAt,
+        }),
+      { preconnect: nativeFetch.preconnect },
+    );
+    await expect(
+      uploadProductMedia(
+        new File(["bytes"], "file.png", { type: "image/png" }),
+      ),
+    ).rejects.toThrow("Invalid media expiry");
   }
 });

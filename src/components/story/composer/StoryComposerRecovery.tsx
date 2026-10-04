@@ -10,6 +10,11 @@ interface StoryComposerRecoveryProps {
   fallbackCaption: string;
   fallbackOverlays: StoryOverlay[];
   onRetry: () => void;
+  expired: boolean;
+  canRenew: boolean;
+  hasRetainedFile: boolean;
+  renewError: string | null;
+  onRenew: (replacement?: File) => void;
   onDiscard: () => void;
   canResumeEditing: boolean;
   onResumeEditing: () => void;
@@ -19,7 +24,10 @@ interface StoryComposerRecoveryProps {
 
 export function StoryComposerRecovery(props: StoryComposerRecoveryProps) {
   const { t } = useI18n();
-  const [confirm, setConfirm] = createSignal<"retry" | "discard" | null>(null);
+  const [confirm, setConfirm] = createSignal<
+    "retry" | "renew" | "discard" | null
+  >(null);
+  const [replacement, setReplacement] = createSignal<File | null>(null);
   const record = () => props.snapshot.record;
   const confirmed = () => record()?.status === "confirmed";
   const ready = () => record()?.status === "ready";
@@ -27,6 +35,7 @@ export function StoryComposerRecovery(props: StoryComposerRecoveryProps) {
     !!record() &&
     !props.identityChanged &&
     !confirmed() &&
+    !props.expired &&
     (!props.snapshot.failed || ready());
   const message = () =>
     confirmed()
@@ -44,7 +53,7 @@ export function StoryComposerRecovery(props: StoryComposerRecoveryProps) {
       tabindex="-1"
       role="region"
       aria-label={t("story.recoveryTitle")}
-      class="absolute inset-0 z-40 overflow-y-auto bg-neutral-950 p-6 text-white flex flex-col gap-4"
+      class="absolute inset-y-0 left-1/2 z-40 flex w-full max-w-xl -translate-x-1/2 flex-col gap-4 overflow-y-auto bg-neutral-950 p-6 text-white [&>*]:shrink-0"
     >
       <h2 class="text-lg font-semibold">{t("story.recoveryTitle")}</h2>
       <div role="alert" class="space-y-2">
@@ -59,6 +68,22 @@ export function StoryComposerRecovery(props: StoryComposerRecoveryProps) {
           <Show when={confirmed()}>
             <p>{t("story.recoveryConfirmedUnsaved")}</p>
           </Show>
+        </Show>
+        <Show when={props.expired}>
+          <p>{t("story.recoveryMediaExpired")}</p>
+          <Show
+            when={
+              !props.canRenew &&
+              !props.identityChanged &&
+              !props.snapshot.failed &&
+              !confirmed()
+            }
+          >
+            <p>{t("story.recoveryRenewUnsafe")}</p>
+          </Show>
+        </Show>
+        <Show when={props.renewError}>
+          <p>{props.renewError}</p>
         </Show>
       </div>
       <Show when={!record()}>
@@ -114,7 +139,9 @@ export function StoryComposerRecovery(props: StoryComposerRecoveryProps) {
                 class="w-full rounded-lg bg-white/10 p-3 min-h-20"
               />
             </Show>
-            <Show when={!props.snapshot.failed && !confirmed()}>
+            <Show
+              when={!props.snapshot.failed && !confirmed() && !props.expired}
+            >
               <p class="text-sm text-white/70">{t("story.recoverySaved")}</p>
             </Show>
             <Show when={confirmed()}>
@@ -139,6 +166,35 @@ export function StoryComposerRecovery(props: StoryComposerRecoveryProps) {
           {retryLabel()}
         </button>
       </Show>
+      <Show when={props.canRenew}>
+        <p class="text-sm text-white/70">
+          {t("story.recoveryRenewExplanation")}
+        </p>
+        <Show when={!props.hasRetainedFile || !!props.renewError}>
+          <label class="text-sm" for="story-recovery-replacement">
+            {t("story.recoverySelectReplacement")}
+          </label>
+          <input
+            id="story-recovery-replacement"
+            type="file"
+            accept="image/jpeg,video/mp4"
+            class="block w-full text-sm text-white"
+            onChange={(event) =>
+              setReplacement(event.currentTarget.files?.[0] ?? null)
+            }
+          />
+          <Show when={replacement()}>
+            <p class="text-sm break-all">{replacement()?.name}</p>
+          </Show>
+        </Show>
+        <button
+          class="rounded-full border border-white/40 px-4 py-3 disabled:opacity-50"
+          disabled={!props.hasRetainedFile && !replacement()}
+          onClick={() => setConfirm("renew")}
+        >
+          {t("story.recoveryRenew")}
+        </button>
+      </Show>
       <button
         class="rounded-full border border-white/40 px-4 py-3"
         onClick={props.onClose}
@@ -159,17 +215,27 @@ export function StoryComposerRecovery(props: StoryComposerRecoveryProps) {
         open={confirm() !== null}
         zIndex={53}
         title={
-          confirm() === "retry" ? retryLabel() : t("story.recoveryDiscard")
+          confirm() === "retry"
+            ? retryLabel()
+            : confirm() === "renew"
+              ? t("story.recoveryRenew")
+              : t("story.recoveryDiscard")
         }
         body={
           confirm() === "retry"
             ? ready()
               ? t("story.recoverySendBody")
               : t("story.recoveryRetryBody")
-            : t("story.recoveryDiscardBody")
+            : confirm() === "renew"
+              ? t("story.recoveryRenewBody")
+              : t("story.recoveryDiscardBody")
         }
         confirmLabel={
-          confirm() === "retry" ? retryLabel() : t("story.recoveryDiscard")
+          confirm() === "retry"
+            ? retryLabel()
+            : confirm() === "renew"
+              ? t("story.recoveryRenew")
+              : t("story.recoveryDiscard")
         }
         cancelLabel={t("posts.keepEditing")}
         destructive={confirm() === "discard"}
@@ -177,6 +243,8 @@ export function StoryComposerRecovery(props: StoryComposerRecoveryProps) {
           const action = confirm();
           setConfirm(null);
           if (action === "retry") props.onRetry();
+          else if (action === "renew")
+            props.onRenew(replacement() ?? undefined);
           else props.onDiscard();
         }}
         onCancel={() => setConfirm(null)}

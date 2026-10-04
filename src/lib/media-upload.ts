@@ -43,6 +43,11 @@ export async function uploadProductMedia(
   // Accept only an advertised valid deadline; older servers have no deadline.
   const expiresAt = (result as typeof result & { expires_at?: unknown })
     .expires_at;
+  if (
+    expiresAt !== undefined &&
+    (typeof expiresAt !== "string" || !Number.isFinite(Date.parse(expiresAt)))
+  )
+    throw new Error("Invalid media expiry");
   return {
     ...result,
     expires_at:
