@@ -160,7 +160,6 @@ direct の code-only 更新も、現在配信中の Version に同名の `secret
 新しい salt は更新後と code rollback 時にも同じ値を保持します。
 ローカルの更新・復元検証と公開環境での custody 確認は別です。
 
-
 root `main.tf` の機密入力 `auth_password_hash` は、正規の PBKDF2 hash または
 bootstrap token を `AUTH_PASSWORD_HASH` Secret に渡します。非空値は OpenTofu が
 受け取った文字列のまま渡し、空値・HCL または Core が空白だけと判定する値は省略します。
@@ -250,6 +249,9 @@ bun run smoke:release-browser -- dist/yurucommu-worker.js
 ```
 
 Chrome の場所は `BROWSER_SMOKE_CHROME` で指定できます。自動取得や検証の省略はしません。
+artifact・browser・update の native smoke は Node で Miniflare を動かすため、
+`bun run check` にも Node 22 以上が必要です。CI は Node 24.21.0 を使用します。
+Bun はインストール・型チェック・テスト・ビルドに使います。
 CI でも `check` の後に必須実行します。使い捨てのローカル HTTP と native bindings 上で、
 空 DB から1人の所有者として実画面でログインし、投稿・画像添付・生成ストーリー・
 プロフィール画像を DB/R2/HTTP の保存内容と照合します。同じ所有者の用途別プロフィールへの
@@ -389,7 +391,7 @@ Deployment API は
 [D1 Query API](https://developers.cloudflare.com/api/resources/d1/subresources/database/methods/query/)、
 を正本 (正とする情報) とします。
 必要条件は `bun run deploy -- --contract` で副作用なしに確認できます。
-Worker surface の実行環境には `git`、`bun`、`tofu` と、上記の operator-private env が必要です。
+Worker surface の実行環境には `git`、`bun`、`node`、`tofu` と、上記の operator-private env が必要です。
 
 ## リポジトリ内の案内
 

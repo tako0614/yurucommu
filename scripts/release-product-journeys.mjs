@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { FormData } from "miniflare";
 import { qualifyPostAttachments } from "./release-post-journey.mjs";
 import {
   loginProductSession,

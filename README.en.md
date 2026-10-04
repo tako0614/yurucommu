@@ -172,7 +172,6 @@ key, owner, personas and data, and keep the new salt on subsequent updates and
 code rollback. Local update/restore qualification does not prove public secret
 custody or the platform's sealed-input preservation.
 
-
 The sensitive root `main.tf` input `auth_password_hash` projects a canonical
 PBKDF2 hash or unambiguous bootstrap token into the `AUTH_PASSWORD_HASH` Secret.
 Nonblank values retain the string OpenTofu receives. Values considered blank
@@ -269,7 +268,10 @@ bun run smoke:release-browser -- dist/yurucommu-worker.js
 ```
 
 Set `BROWSER_SMOKE_CHROME` to select the executable. No browser is downloaded and
-the check is never skipped. CI requires it after `check`. Disposable local HTTP
+the check is never skipped. Artifact, browser and update native smoke run
+Miniflare under Node, so `bun run check` also requires Node 22 or newer; CI uses
+Node 24.21.0. Bun installs, type-checks, runs the tests and builds.
+CI requires the browser check after `check`. Disposable local HTTP
 and native bindings qualify actual UI login from an empty DB as one owner,
 posts, image attachments, generated Stories and profile images against DB/R2/HTTP
 readback. It also checks pending/accepted Follow state in Search against the DB,
@@ -398,7 +400,7 @@ It does not run `wrangler deploy`, trigger deployment, D1 migrations, or secret
 updates. Route, cron/queue consumer, schema/data, and secret changes remain
 separate operations. Inspect all requirements without side effects with
 `bun run deploy -- --contract`.
-The Worker surface requires `git`, `bun`, and `tofu` in addition to the
+The Worker surface requires `git`, `bun`, `node`, and `tofu` in addition to the
 operator-private environment above.
 
 The readback contract follows Cloudflare's primary
