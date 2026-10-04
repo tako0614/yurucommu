@@ -600,7 +600,7 @@ export function StoryComposer(props: StoryComposerProps) {
       aria-label={t("story.composerAriaLabel")}
       class="fixed inset-0 z-[51] flex items-center justify-center bg-black"
     >
-      {/* Portrait 9:16 stage. Every overlay control anchors to THIS card (not
+      {/* Portrait 9:16 stage. Editor controls anchor to THIS card (not
           the viewport), so the editor reads correctly at any width: a centered
           phone-shaped column on desktop, full-bleed on mobile. */}
       <div
@@ -804,20 +804,6 @@ export function StoryComposer(props: StoryComposerProps) {
             onCancel={() => setShowDiscard(false)}
           />
         </fieldset>
-        <Show when={!postActions.posting() && postActions.editingLocked()}>
-          <StoryComposerRecovery
-            snapshot={postActions.recovery()}
-            identityChanged={postActions.identityChanged()}
-            fallbackCaption={caption()}
-            fallbackOverlays={overlayState.overlays()}
-            onRetry={postActions.retry}
-            onDiscard={postActions.discardRecovery}
-            canResumeEditing={postActions.canResumeEditing()}
-            onResumeEditing={postActions.resumeEditing}
-            onClose={postActions.keepRecoveryAndClose}
-            ref={setRecoveryRoot}
-          />
-        </Show>
         <ConfirmSheet
           open={showRecoveryClose()}
           zIndex={53}
@@ -838,6 +824,26 @@ export function StoryComposer(props: StoryComposerProps) {
           postingRef={setSubmissionStatus}
         />
       </div>
+      {/* Recovery is a scrollable document, independent of the portrait canvas. */}
+      <Show when={!postActions.posting() && postActions.editingLocked()}>
+        <StoryComposerRecovery
+          snapshot={postActions.recovery()}
+          identityChanged={postActions.identityChanged()}
+          fallbackCaption={caption()}
+          fallbackOverlays={overlayState.overlays()}
+          onRetry={postActions.retry}
+          expired={postActions.expired()}
+          canRenew={postActions.canRenew()}
+          hasRetainedFile={postActions.hasRetainedFile()}
+          renewError={postActions.renewError()}
+          onRenew={postActions.renewMedia}
+          onDiscard={postActions.discardRecovery}
+          canResumeEditing={postActions.canResumeEditing()}
+          onResumeEditing={postActions.resumeEditing}
+          onClose={postActions.keepRecoveryAndClose}
+          ref={setRecoveryRoot}
+        />
+      </Show>
     </div>
   );
 }
