@@ -44,6 +44,7 @@ import {
 import { qualifyBookmarkReadOrder } from "./release-browser-bookmark-read-order.mjs";
 import { qualifyDMRequests } from "./release-browser-dm-requests.mjs";
 import { qualifyDMHistoryOrder } from "./release-browser-dm-history-order.mjs";
+import { qualifyFollowModalScope } from "./release-browser-follow-modal-scope.mjs";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const PASSWORD = " release-browser-owner ";
@@ -1260,6 +1261,14 @@ async function main() {
     );
     result.dmHistoryOrder = dmHistoryOrder;
     result.checks.push(...dmHistoryOrder.checks);
+    const followModalScope = await runBookmarkCacheSmoke(
+      artifactPath,
+      artifactDigest,
+      browser,
+      qualifyFollowModalScope,
+    );
+    result.followModalScope = followModalScope;
+    result.checks.push(...followModalScope.checks);
   } catch (error) {
     primaryError = error;
   } finally {
