@@ -137,6 +137,8 @@ export function ProfilePage() {
   // prior load overwrite the new one, and the id is captured ONCE so the actor
   // and its posts can't come from two different profiles (split-await mismatch).
   let profileLoadGen = 0;
+  // Keep the requested route separate from the returned canonical Actor ID.
+  let loadedProfileRouteId: string | null = null;
   // A modal opening owns both its first page and pagination. Closing, retrying
   // or reloading the profile retires that ownership even if the actor/type is
   // the same when an old request eventually settles.
@@ -157,7 +159,9 @@ export function ProfilePage() {
   const loadProfile = async () => {
     const id = targetActorId();
     const gen = ++profileLoadGen;
+    loadedProfileRouteId = null;
     closeFollowModal();
+    setPendingModeration(null);
     // A new visit or Retry owns a new follow window. An earlier request may
     // still commit remotely, but must not keep this profile's button busy.
     setFollowBusy(false);
@@ -171,6 +175,7 @@ export function ProfilePage() {
     try {
       const profileData = await fetchActor(id);
       if (gen !== profileLoadGen) return;
+      loadedProfileRouteId = id;
       setProfile(profileData);
       setIsFollowing(profileData.is_following || false);
       const postsData = await fetchActorPosts(id, {
@@ -462,20 +467,31 @@ export function ProfilePage() {
     const p = profile();
     setPendingModeration(null);
     if (!action || !p) return;
+    const gen = profileLoadGen;
+    const routeId = targetActorId();
+    const isCurrent = () =>
+      gen === profileLoadGen &&
+      loadedProfileRouteId === routeId &&
+      routeId === targetActorId() &&
+      profile()?.ap_id === p.ap_id;
+    if (!isCurrent()) return;
     try {
       if (action === "block") {
         await blockUser(p.ap_id);
         // Blocking severs the follow edge server-side and hides their content;
         // reflect that here instead of leaving the page looking untouched
         // (follow button still "Following", posts still visible).
-        setIsFollowing(false);
-        setFollowPending(false);
-        setPosts([]);
-        setPostsHasMore(false);
-        pushToast(setToasts, t("feedback.blocked"), { kind: "success" });
+        if (isCurrent()) {
+          setIsFollowing(false);
+          setFollowPending(false);
+          setPosts([]);
+          setPostsHasMore(false);
+          pushToast(setToasts, t("feedback.blocked"), { kind: "success" });
+        }
       } else {
         await muteUser(p.ap_id);
-        pushToast(setToasts, t("feedback.muted"), { kind: "success" });
+        if (isCurrent())
+          pushToast(setToasts, t("feedback.muted"), { kind: "success" });
       }
       // Both block and mute hide the target's posts from the home feeds. Those
       // feed atoms persist across navigation and are reused within a ~60s
@@ -483,12 +499,15 @@ export function ProfilePage() {
       // otherwise returning to the feed keeps showing the just-blocked/muted
       // user until a refetch (a block/mute-not-applied-to-cached-data leak).
       // Mirrors dropAuthorPosts() in useTimelineState (both feeds + staged head).
+      // Acknowledged moderation still updates these shared caches when its
+      // profile visit has ended; only the captured author's posts are removed.
       const dropAuthor = (list: Post[]) =>
         list.filter((post) => post.author.ap_id !== p.ap_id);
       setTimelinePosts(dropAuthor);
       setFollowingPosts(dropAuthor);
       setPendingNewPosts(dropAuthor);
     } catch (e) {
+      if (!isCurrent()) return;
       console.error(`Failed to ${action} user:`, e);
       pushToast(
         setToasts,
