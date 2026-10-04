@@ -732,6 +732,16 @@ const translations = {
     "compose.addMedia": "画像・動画を追加",
     "compose.videoPreview": "動画プレビュー",
     "compose.removeMedia": "メディアを削除",
+    "compose.mediaDeadline": "投稿前のアップロード期限: {date}",
+    "compose.mediaExpired":
+      "添付の期限が切れています。添付を再アップロードするか削除してから投稿してください。",
+    "compose.mediaRenewRequired": "この添付を再アップロードしてください。",
+    "compose.mediaReupload": "再アップロード",
+    "compose.mediaReselect": "添付を削除してファイルを選び直してください。",
+    "compose.mediaScopeChanged":
+      "ログイン状態が変わりました。添付を削除してファイルを選び直してください。",
+    "compose.mediaMemoryOnly":
+      "添付ファイルは再読み込みすると失われます。本文・CW・公開範囲は下書きに保存されます。",
     "compose.reachPublic": "誰でも見られます（公開）",
     "compose.reachUnlisted": "リンクを知っている人が見られます（未収載）",
     "compose.reachFollowers": "フォロワーが見られます",
@@ -1493,6 +1503,16 @@ const translations = {
     "compose.addMedia": "Add photos or videos",
     "compose.videoPreview": "Video preview",
     "compose.removeMedia": "Remove media",
+    "compose.mediaDeadline": "Upload expires before posting: {date}",
+    "compose.mediaExpired":
+      "An attachment has expired. Re-upload or remove the attachments before posting.",
+    "compose.mediaRenewRequired": "Re-upload this attachment before posting.",
+    "compose.mediaReupload": "Re-upload",
+    "compose.mediaReselect": "Remove the attachment and select the file again.",
+    "compose.mediaScopeChanged":
+      "Your sign-in changed. Remove the attachments and select the files again.",
+    "compose.mediaMemoryOnly":
+      "Attachments are lost on reload. Text, content warning and audience are saved in the draft.",
     "compose.reachPublic": "Anyone can see this (public)",
     "compose.reachUnlisted": "Visible to anyone with the link (unlisted)",
     "compose.reachFollowers": "Visible to your followers",

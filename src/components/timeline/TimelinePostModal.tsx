@@ -2,6 +2,7 @@ import {
   createEffect,
   createMemo,
   createSignal,
+  onCleanup,
   For,
   Index,
   Show,
@@ -16,6 +17,7 @@ import { EmojiPicker } from "../story/EmojiPicker.tsx";
 import { ConfirmSheet } from "../ConfirmSheet.tsx";
 import { useDialog } from "../../lib/useDialog.ts";
 import { useI18n } from "../../lib/i18n.tsx";
+import { mediaNeedsReupload } from "../../lib/staged-media.ts";
 
 // Mirrors the backend MAX_POST_CONTENT_LENGTH (posts/transformers.ts). The
 // server stays the authority; this only powers the counter + a local submit
@@ -58,6 +60,7 @@ interface TimelinePostModalProps {
   ) => void;
   uploadedMedia: UploadedMedia[];
   onRemoveMedia: (index: number) => void;
+  onReuploadMedia: (index: number) => void;
   onMediaAltChange: (index: number, alt: string) => void;
   uploading: boolean;
   uploadError: string | null;
@@ -101,6 +104,18 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
   const { t } = useI18n();
   const [showCw, setShowCw] = createSignal(false);
   const [showEmoji, setShowEmoji] = createSignal(false);
+  const [now, setNow] = createSignal(Date.now());
+  // The deadline may pass while the modal stays open. The atom repeats this
+  // check at click time, independently of this display refresh.
+  createEffect(() => {
+    if (!props.isOpen || !props.uploadedMedia.some((item) => item.expires_at))
+      return;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    onCleanup(() => clearInterval(timer));
+  });
+  const requiresReupload = (media: UploadedMedia) =>
+    mediaNeedsReupload(media, now());
   // Discard-confirm gate: shown when a dirty composer is closed via Escape /
   // backdrop / the header close button, so an in-progress draft is never lost
   // on a stray tap.
@@ -131,6 +146,7 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
       !props.posting &&
       !props.uploading &&
       !props.draftRecoveryNeeded &&
+      !props.uploadedMedia.some(requiresReupload) &&
       !overLimit(),
   );
 
@@ -480,6 +496,41 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
                                 placeholder={t("posts.altPlaceholder")}
                                 class="w-full bg-neutral-800 text-white placeholder-neutral-500 rounded-lg px-3 py-2 text-sm outline-none border border-neutral-700 focus:border-accent transition-colors"
                               />
+                              <Show
+                                when={
+                                  media().expires_at &&
+                                  !requiresReupload(media())
+                                }
+                              >
+                                <p class="mt-1 text-xs text-neutral-400">
+                                  {t("compose.mediaDeadline").replace(
+                                    "{date}",
+                                    new Date(
+                                      media().expires_at!,
+                                    ).toLocaleString(),
+                                  )}
+                                </p>
+                              </Show>
+                              <Show when={requiresReupload(media())}>
+                                <p
+                                  role="status"
+                                  class="mt-1 text-xs text-amber-300"
+                                >
+                                  {media().sourceFile
+                                    ? t("compose.mediaRenewRequired")
+                                    : t("compose.mediaReselect")}
+                                </p>
+                                <Show when={media().sourceFile}>
+                                  <button
+                                    type="button"
+                                    disabled={props.uploading}
+                                    onClick={() => props.onReuploadMedia(idx)}
+                                    class="mt-1 text-sm text-accent hover:underline disabled:opacity-50"
+                                  >
+                                    {t("compose.mediaReupload")}
+                                  </button>
+                                </Show>
+                              </Show>
                             </div>
                           </div>
                         )}
@@ -553,6 +604,11 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
               <Show when={props.uploadError}>
                 <span role="alert" class="text-sm text-red-500">
                   {props.uploadError}
+                </span>
+              </Show>
+              <Show when={props.uploadedMedia.length > 0}>
+                <span class="text-xs text-neutral-500">
+                  {t("compose.mediaMemoryOnly")}
                 </span>
               </Show>
             </div>

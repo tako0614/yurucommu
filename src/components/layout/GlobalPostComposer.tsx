@@ -1,7 +1,12 @@
-import { Show } from "solid-js";
+import { createEffect, Show } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import { useAtom, useAtomValue, useSetAtom } from "solid-jotai";
-import { actorAtom } from "../../atoms/auth.ts";
+import {
+  actorAtom,
+  authSessionEpochAtom,
+  hostedUserAtom,
+  selectedInstanceIdAtom,
+} from "../../atoms/auth.ts";
 import { postDraftWriteFailedAtom } from "../../atoms/post-draft.ts";
 import { tAtom } from "../../atoms/i18n.ts";
 import { createScopeOpenAtom } from "../../atoms/shell.ts";
@@ -15,12 +20,14 @@ import {
   postDraftNoticeAtom,
   postDraftRecoveryNeededAtom,
   createPostAtom,
+  discardForeignMediaAtom,
   postContentAtom,
   postSummaryAtom,
   postSubmitErrorAtom,
   postVisibilityAtom,
   postingAtom,
   removeMediaAtom,
+  reuploadMediaAtom,
   setMediaAltAtom,
   showPostModalAtom,
   showScopeSwitcherAtom,
@@ -81,12 +88,24 @@ export function GlobalPostComposer() {
   const doCreatePost = useSetAtom(createPostAtom);
   const doUploadMedia = useSetAtom(uploadMediaAtom);
   const doRemoveMedia = useSetAtom(removeMediaAtom);
+  const doReuploadMedia = useSetAtom(reuploadMediaAtom);
   const doSetMediaAlt = useSetAtom(setMediaAltAtom);
   const doClosePostModal = useSetAtom(closePostModalAtom);
   const doCloseSubmittedPostModal = useSetAtom(closeSubmittedPostModalAtom);
   const doRecoverPostDraft = useSetAtom(recoverPostDraftAtom);
   const doSaveRecoveryDraft = useSetAtom(saveRecoveryPostDraftAtom);
   const doHideRetainedPostModal = useSetAtom(hideRetainedPostModalAtom);
+  const doDiscardForeignMedia = useSetAtom(discardForeignMediaAtom);
+  const authEpoch = useAtomValue(authSessionEpochAtom);
+  const hostedUser = useAtomValue(hostedUserAtom);
+  const instanceId = useAtomValue(selectedInstanceIdAtom);
+  createEffect(() => {
+    actor();
+    authEpoch();
+    hostedUser();
+    instanceId();
+    doDiscardForeignMedia();
+  });
 
   const handleFileSelect = async (
     e: InputEvent & { currentTarget: HTMLInputElement },
@@ -160,6 +179,7 @@ export function GlobalPostComposer() {
             onFileSelect={handleFileSelect}
             uploadedMedia={uploadedMedia()}
             onRemoveMedia={doRemoveMedia}
+            onReuploadMedia={doReuploadMedia}
             onMediaAltChange={(index, alt) => doSetMediaAlt({ index, alt })}
             uploading={uploadsPending()}
             uploadError={uploadError()}

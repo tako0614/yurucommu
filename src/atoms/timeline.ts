@@ -42,14 +42,26 @@ import {
   maxVideoFileSize,
   switchAccount,
   unbookmarkPost,
+  getYurucommuApiTransport,
 } from "../lib/api.ts";
 import { uploadProductMedia } from "../lib/media-upload.ts";
+import {
+  mediaNeedsReupload,
+  type MediaUploadScope,
+} from "../lib/staged-media.ts";
+import { getAuthStrategy } from "../lib/plugin.ts";
 import { deletePost, fetchFollowingTimeline } from "../lib/api/posts.ts";
 import type { UploadedMedia } from "../components/timeline/types.ts";
 import { ApiError } from "../lib/api/fetch.ts";
 import { classifyWriteFailure } from "../lib/write-outcome.ts";
 import { acknowledgesPost } from "../lib/post-acknowledgement.ts";
-import { actorAtom } from "./auth.ts";
+import {
+  actorAtom,
+  authSessionEpochAtom,
+  hostedUserAtom,
+  selectedInstanceIdAtom,
+  logoutBusyAtom,
+} from "./auth.ts";
 import { pushToast, toastWriter } from "./toast.ts";
 import { toggleBookmark } from "./posts.ts";
 import { scopeQueryAtom } from "./scope.ts";
@@ -193,6 +205,51 @@ export const saveRecoveryPostDraftAtom = atom(null, (_get, set) => {
   if (set(saveRetainedPostDraftAtom)) set(postDraftRecoveryNeededAtom, false);
 });
 export const uploadedMediaAtom = atom<UploadedMedia[]>([]);
+function captureMediaScope(get: Getter): MediaUploadScope | null {
+  const actorApId = get(actorAtom)?.ap_id;
+  if (!actorApId || get(logoutBusyAtom)) return null;
+  const transport = getYurucommuApiTransport();
+  return {
+    actorApId,
+    authEpoch: get(authSessionEpochAtom),
+    instanceId: get(selectedInstanceIdAtom),
+    hostedUserId: get(hostedUserAtom)?.id ?? null,
+    strategy: getAuthStrategy(),
+    transport,
+    uploadUrl: transport.resolveUrl("/api/media/upload"),
+    postUrl: transport.resolveUrl("/api/posts"),
+  };
+}
+
+function ownsMediaScope(get: Getter, scope: MediaUploadScope): boolean {
+  const transport = getYurucommuApiTransport();
+  return (
+    !get(logoutBusyAtom) &&
+    get(actorAtom)?.ap_id === scope.actorApId &&
+    get(authSessionEpochAtom) === scope.authEpoch &&
+    get(selectedInstanceIdAtom) === scope.instanceId &&
+    (get(hostedUserAtom)?.id ?? null) === scope.hostedUserId &&
+    getAuthStrategy() === scope.strategy &&
+    transport === scope.transport &&
+    transport.resolveUrl("/api/media/upload") === scope.uploadUrl &&
+    transport.resolveUrl("/api/posts") === scope.postUrl
+  );
+}
+
+// Sign-out/instance changes discard local File handles and previews from the
+// previous scope. An outstanding upload checks the same fence before adoption.
+export const discardForeignMediaAtom = atom(null, (get, set) => {
+  const items = get(uploadedMediaAtom);
+  const foreign = items.filter(
+    (item) => item.uploadScope && !ownsMediaScope(get, item.uploadScope),
+  );
+  if (!foreign.length) return;
+  foreign.forEach((item) => item.preview && URL.revokeObjectURL(item.preview));
+  set(
+    uploadedMediaAtom,
+    items.filter((item) => !foreign.includes(item)),
+  );
+});
 export const uploadingAtom = atom(false);
 // A selection may upload several files sequentially. Keep the whole batch busy,
 // including the intervals in which the per-file uploading flag is false.
@@ -923,6 +980,8 @@ export const createPostAtom = atom(
     const { content } = options;
     const submittingActorApId = get(actorAtom)?.ap_id;
     const media = get(uploadedMediaAtom);
+    const scope = captureMediaScope(get);
+    const current = () => !scope || ownsMediaScope(get, scope);
     if (
       (!content.trim() && media.length === 0) ||
       get(postingAtom) ||
@@ -930,6 +989,19 @@ export const createPostAtom = atom(
       get(postDraftRecoveryNeededAtom) ||
       get(uploadSelectionsPendingAtom) > 0
     ) {
+      return false;
+    }
+
+    if (
+      media.some(
+        (item) => item.uploadScope && !ownsMediaScope(get, item.uploadScope),
+      )
+    ) {
+      set(postSubmitErrorAtom, get(tAtom)("compose.mediaScopeChanged"));
+      return false;
+    }
+    if (media.some((item) => mediaNeedsReupload(item))) {
+      set(postSubmitErrorAtom, get(tAtom)("compose.mediaExpired"));
       return false;
     }
 
@@ -959,6 +1031,7 @@ export const createPostAtom = atom(
               }))
             : undefined,
       });
+      if (!current()) return false;
       if (!acknowledgesPost(newPost, submittingActorApId, content.trim())) {
         throw new Error("Post response did not acknowledge the submitted Note");
       }
@@ -1057,6 +1130,7 @@ export const createPostAtom = atom(
       // persist the post. Keep the draft and describe the outcome honestly.
       throw new Error("Post response did not acknowledge the created post");
     } catch (e) {
+      if (!current()) return false;
       console.error("Failed to create post:", e);
       // Map a server-side length rejection to a specific message so an
       // over-length post is explained rather than a generic failure. A summary
@@ -1069,7 +1143,27 @@ export const createPostAtom = atom(
       const isSummaryRejection =
         isLengthRejection && /summary|content warning/i.test(e.message);
       let message: string;
-      if (classifyWriteFailure(e) === "unconfirmed") {
+      if (
+        e instanceof ApiError &&
+        e.status === 409 &&
+        e.code === "MEDIA_EXPIRED"
+      ) {
+        // The response identifies no key. All submitted references need an
+        // explicit renewal/removal, never a guessed expired row or auto POST.
+        set(uploadedMediaAtom, (current) =>
+          current.map((item) =>
+            media.some((submitted) =>
+              submitted.uploadId
+                ? submitted.uploadId === item.uploadId &&
+                  submitted.r2_key === item.r2_key
+                : submitted === item,
+            )
+              ? { ...item, needsReupload: true }
+              : item,
+          ),
+        );
+        message = get(tAtom)("compose.mediaExpired");
+      } else if (classifyWriteFailure(e) === "unconfirmed") {
         message = get(tAtom)("feedback.postUnconfirmed");
       } else if (isSummaryRejection) {
         message = get(tAtom)("compose.cwTooLong");
@@ -1099,6 +1193,8 @@ export const uploadMediaAtom = atom(null, async (get, set, file: File) => {
     get(postDraftRecoveryNeededAtom)
   )
     return;
+  const scope = captureMediaScope(get);
+  if (!scope) return;
   if (get(uploadedMediaAtom).length >= 4) {
     // Selecting more than 4 files at once lands here for the excess — surface
     // the limit instead of silently dropping them.
@@ -1129,8 +1225,14 @@ export const uploadMediaAtom = atom(null, async (get, set, file: File) => {
 
   set(uploadingAtom, true);
   set(uploadErrorAtom, null);
+  const current = () => ownsMediaScope(get, scope);
   try {
-    const result = await uploadProductMedia(file);
+    const result = await uploadProductMedia(file, current);
+    if (!current()) return;
+    if (get(uploadedMediaAtom).length >= 4) {
+      set(uploadErrorAtom, get(tAtom)("posts.mediaLimit"));
+      return;
+    }
     const preview = URL.createObjectURL(file);
     set(uploadedMediaAtom, (prev) => [
       ...prev,
@@ -1139,11 +1241,76 @@ export const uploadMediaAtom = atom(null, async (get, set, file: File) => {
         r2_key: result.r2_key,
         content_type: result.content_type,
         preview,
+        uploadId: crypto.randomUUID(),
+        sourceFile: file,
+        expires_at: result.expires_at,
+        uploadScope: scope,
       },
     ]);
   } catch (e) {
     console.error("Failed to upload:", e);
-    set(uploadErrorAtom, get(tAtom)("common.uploadFailed"));
+    if (current()) set(uploadErrorAtom, get(tAtom)("common.uploadFailed"));
+  } finally {
+    set(uploadingAtom, false);
+  }
+});
+
+export const reuploadMediaAtom = atom(null, async (get, set, index: number) => {
+  if (
+    get(postingAtom) ||
+    get(uploadingAtom) ||
+    get(postDraftRecoveryNeededAtom) ||
+    get(uploadSelectionsPendingAtom) > 0
+  )
+    return;
+  const item = get(uploadedMediaAtom)[index];
+  if (!item) return;
+  const scope = item.uploadScope;
+  if (!scope || !ownsMediaScope(get, scope)) {
+    set(uploadErrorAtom, get(tAtom)("compose.mediaScopeChanged"));
+    return;
+  }
+  if (!item.sourceFile || !item.uploadId) {
+    set(uploadErrorAtom, get(tAtom)("compose.mediaReselect"));
+    return;
+  }
+  // Identity+key, not index or object reference: removal/replacement must win,
+  // while a newer alt-text edit to this upload survives the await.
+  const sameUpload = (candidate: UploadedMedia) =>
+    candidate.uploadId === item.uploadId &&
+    candidate.r2_key === item.r2_key &&
+    candidate.sourceFile === item.sourceFile &&
+    candidate.uploadScope === scope;
+  const current = () =>
+    ownsMediaScope(get, scope) && get(uploadedMediaAtom).some(sameUpload);
+  set(uploadingAtom, true);
+  set(uploadErrorAtom, null);
+  try {
+    const result = await uploadProductMedia(item.sourceFile, current);
+    if (!current()) return;
+    set(uploadedMediaAtom, (items) =>
+      items.map((candidate) =>
+        sameUpload(candidate)
+          ? {
+              ...candidate,
+              url: result.url,
+              r2_key: result.r2_key,
+              content_type: result.content_type,
+              expires_at: result.expires_at,
+              needsReupload: false,
+            }
+          : candidate,
+      ),
+    );
+    if (
+      !get(uploadedMediaAtom).some((media) => mediaNeedsReupload(media)) &&
+      get(postSubmitErrorAtom) === get(tAtom)("compose.mediaExpired")
+    ) {
+      set(postSubmitErrorAtom, null);
+    }
+  } catch (error) {
+    console.error("Failed to renew media:", error);
+    if (current()) set(uploadErrorAtom, get(tAtom)("common.uploadFailed"));
   } finally {
     set(uploadingAtom, false);
   }
