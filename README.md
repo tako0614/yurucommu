@@ -250,6 +250,8 @@ bun run smoke:release-browser -- dist/yurucommu-worker.js
 ```
 
 Chrome の場所は `BROWSER_SMOKE_CHROME` で指定できます。自動取得や検証の省略はしません。
+このコマンドは Node で Miniflare を動かすため、Node 22 以上も必要です。
+CI は Node 24.21.0 を使用します。Bun は完全チェックとビルドに使います。
 CI でも `check` の後に必須実行します。使い捨てのローカル HTTP と native bindings 上で、
 空 DB から1人の所有者として実画面でログインし、投稿・画像添付・生成ストーリー・
 プロフィール画像を DB/R2/HTTP の保存内容と照合します。同じ所有者の用途別プロフィールへの

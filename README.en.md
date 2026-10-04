@@ -269,7 +269,9 @@ bun run smoke:release-browser -- dist/yurucommu-worker.js
 ```
 
 Set `BROWSER_SMOKE_CHROME` to select the executable. No browser is downloaded and
-the check is never skipped. CI requires it after `check`. Disposable local HTTP
+the check is never skipped. The command runs Miniflare under Node, so Node 22 or
+newer is also required; CI uses Node 24.21.0. Bun runs the complete gate and build.
+CI requires the browser check after `check`. Disposable local HTTP
 and native bindings qualify actual UI login from an empty DB as one owner,
 posts, image attachments, generated Stories and profile images against DB/R2/HTTP
 readback. It also checks pending/accepted Follow state in Search against the DB,

@@ -35,7 +35,7 @@
     "takosumi:release": "bun scripts/takosumi-release.ts",
     "smoke:postdeploy": "bun scripts/post-deploy-smoke.ts",
     "smoke:release-artifact": "bun scripts/smoke-release-worker.mjs",
-    "smoke:release-browser": "bun scripts/smoke-release-browser.mjs",
+    "smoke:release-browser": "node scripts/smoke-release-browser.mjs",
     "smoke:release-update": "bun scripts/smoke-release-update.mjs",
     "lint": "tsc --noEmit",
     "fmt": "bunx prettier --write index.html vite.config.ts public.ts plugin.ts src site site-src shims scripts && tofu fmt main.tf tests/auth-password.tftest.hcl",
