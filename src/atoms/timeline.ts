@@ -445,6 +445,16 @@ export const checkNewPostsAtom = atom(null, async (get, set) => {
         ...fresh.filter((p) => !prevIds.has(feedItemKey(p))),
         ...prev,
       ];
+      // Concurrent polls can return partially different head windows. Keep
+      // their union in server key order even if the older snapshot settles
+      // last; the first applied entry also owns the watermark advancement.
+      merged.sort((left, right) =>
+        postKey(left) > postKey(right)
+          ? -1
+          : postKey(left) < postKey(right)
+            ? 1
+            : 0,
+      );
       // Bound the staged buffer so a busy timeline can't grow it unbounded.
       return merged.slice(0, 100);
     });
