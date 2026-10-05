@@ -23,6 +23,14 @@ closing cancels inspection rather than adopting a late preview into disposed
 state. These controls concern preparation. They do not promise that a timed-out
 video export was cancelled or qualify all codec/device combinations.
 
+Native release-browser qualification exposed a competing focus restoration:
+the result surface received focus, then the dialog restored the now-inert
+editor's fallback root. The shared dialog now resolves the settled result after
+DOM updates and owns that transition. A reopened or hydrated result uses the
+same target; safe return to editing keeps its captured editor. Qualification
+retains the lost-ACK focus assertion and checks reopened/reloaded result focus,
+Tab confinement, Escape from a retry confirmation, and safe editor restoration.
+
 Regression tests exercise the real utility in isolated child processes with
 scaled timers and controlled browser/FFmpeg boundaries. Built-app qualification
 uses actual MP4 decoding and FFmpeg WASM with public pinned package bytes served

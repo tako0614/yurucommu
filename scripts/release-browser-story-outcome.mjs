@@ -90,6 +90,19 @@ async function openComposer(page, dialog) {
   await dialog.waitFor({ state: "visible", timeout: 10_000 });
 }
 
+async function waitForRecoveryFocus(page) {
+  await page.waitForFunction(
+    () => {
+      const recovery = document.querySelector(
+        '[role="region"][aria-label="ストーリーの投稿結果"]',
+      );
+      return recovery?.contains(document.activeElement);
+    },
+    undefined,
+    { timeout: 10_000 },
+  );
+}
+
 function intentKey(origin, actorApId) {
   const endpoint = new URL("/api/stories", origin).href;
   return `yurucommu:story-intent:v1:${encodeURIComponent(origin)}:${encodeURIComponent(actorApId)}:${encodeURIComponent(endpoint)}`;
@@ -420,6 +433,7 @@ export async function qualifyBrowserStoryOutcome({
     await region.waitFor({ state: "hidden", timeout: 10_000 });
     await openComposer(page, dialog);
     await region.waitFor({ state: "visible", timeout: 10_000 });
+    await waitForRecoveryFocus(page);
     requireEffect(
       JSON.stringify((await readIntent(page, key)).record) === identity &&
         requests.length === 1,
@@ -428,6 +442,7 @@ export async function qualifyBrowserStoryOutcome({
     await page.reload({ waitUntil: "domcontentloaded", timeout: 15_000 });
     await openComposer(page, dialog);
     await region.waitFor({ state: "visible", timeout: 15_000 });
+    await waitForRecoveryFocus(page);
     persisted = await readIntent(page, key);
     requireEffect(
       persisted.record?.status === "unconfirmed" &&
@@ -461,6 +476,18 @@ export async function qualifyBrowserStoryOutcome({
     await retryDialog
       .getByText(/重複/)
       .waitFor({ state: "visible", timeout: 10_000 });
+    await page.keyboard.press("Escape");
+    await retryDialog.waitFor({ state: "hidden", timeout: 10_000 });
+    requireEffect(
+      (await dialog.isVisible()) &&
+        (await region.evaluate((element) =>
+          element.contains(document.activeElement),
+        )) &&
+        requests.length === 1,
+      "Escape from retry confirmation lost recovery focus or sent a POST",
+    );
+    await retry.click({ timeout: 10_000 });
+    await retryDialog.waitFor({ state: "visible", timeout: 10_000 });
     await retryDialog
       .getByRole("button", { name: "保持した内容を再送" })
       .click({ timeout: 10_000 });
@@ -680,6 +707,19 @@ export async function qualifyBrowserStoryOutcome({
       .click({ timeout: 10_000 });
     await region.waitFor({ state: "hidden", timeout: 10_000 });
     const restoredCaption = dialog.getByPlaceholder("キャプションを追加...");
+    await page.waitForFunction(
+      () => {
+        const editor = document.querySelector(
+          '[role="dialog"][aria-label="ストーリー作成"] fieldset',
+        );
+        return (
+          editor?.contains(document.activeElement) &&
+          !document.activeElement?.closest("[inert]")
+        );
+      },
+      undefined,
+      { timeout: 10_000 },
+    );
     requireEffect(
       (await restoredCaption.inputValue()) === longCaption &&
         (await restoredCaption.isEditable()),
