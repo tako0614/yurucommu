@@ -3,21 +3,21 @@
 import { dirname, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import {
-  DEFAULT_NATIVE_SMOKE_TIMEOUT_MS,
-  runSupervisedCommand,
-} from "./native-smoke-supervisor.mjs";
+import { runSupervisedCommand } from "./native-smoke-supervisor.mjs";
 
 const child = resolve(
   dirname(fileURLToPath(import.meta.url)),
   "release-federation-smoke-child.mjs",
 );
+// The first endpoint retry is product-scheduled for 60 seconds +/-20% jitter.
+// Leave room for schema migration, the complete journey, and cleanup.
+const FEDERATION_SMOKE_TIMEOUT_MS = 300_000;
 
 try {
   await runSupervisedCommand(
     [process.execPath, child, ...process.argv.slice(2)],
     {
-      timeoutMs: DEFAULT_NATIVE_SMOKE_TIMEOUT_MS,
+      timeoutMs: FEDERATION_SMOKE_TIMEOUT_MS,
     },
   );
 } catch (error) {
