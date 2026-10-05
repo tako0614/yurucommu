@@ -59,6 +59,7 @@ const secrets = [];
 const instances = [];
 let deniedEndpointRetryObserved = false;
 let digestTamperProof = null;
+let actorBindingProof = null;
 let phase = "preflight";
 let runtime;
 let tempRoot;
@@ -126,20 +127,25 @@ function captureDiagnosticChunk(chunk) {
             typeof event.followTarget === "string" ? event.followTarget : null,
           followersOnlyAddressing: Boolean(event.followersOnlyAddressing),
           reason:
-            event.reason === "digest-tamper-refused"
+            event.reason === "actor-binding-refused"
               ? event.reason
-              : event.reason === "fixture-deny-endpoint-retry"
+              : event.reason === "digest-tamper-refused"
                 ? event.reason
-                : event.reason === "first-followers-create-503"
+                : event.reason === "fixture-deny-endpoint-retry"
                   ? event.reason
-                  : event.reason === "fixture-deny-unsigned-peer-key-get"
+                  : event.reason === "first-followers-create-503"
                     ? event.reason
-                    : undefined,
+                    : event.reason === "fixture-deny-unsigned-peer-key-get"
+                      ? event.reason
+                      : undefined,
           atMs: Number.isSafeInteger(event.atMs) ? event.atMs : null,
           originalId:
             typeof event.originalId === "string" ? event.originalId : null,
           mutatedId:
             typeof event.mutatedId === "string" ? event.mutatedId : null,
+          claimedActor:
+            typeof event.claimedActor === "string" ? event.claimedActor : null,
+          onlyClaimedActorChanged: event.onlyClaimedActorChanged === true,
           originalSha256: /^[a-f0-9]{64}$/.test(event.originalSha256)
             ? event.originalSha256
             : null,
@@ -148,21 +154,32 @@ function captureDiagnosticChunk(chunk) {
             : null,
           headersPreserved: event.headersPreserved === true,
           responseError:
-            event.responseError === "Signature verification failed"
+            event.responseError === "Actor mismatch"
               ? event.responseError
-              : null,
+              : event.responseError === "Signature verification failed"
+                ? event.responseError
+                : null,
+          signerKeyIdMatches: event.signerKeyIdMatches === true,
+          freshDigestMatches: event.freshDigestMatches === true,
+          localSignatureVerified: event.localSignatureVerified === true,
           noInboundEffects: event.noInboundEffects === true,
           inboundCounts:
             event.inboundCounts && typeof event.inboundCounts === "object"
               ? Object.fromEntries(
-                  ["activities", "claims", "inbox", "follows", "objects"].map(
-                    (name) => [
-                      name,
-                      Number.isSafeInteger(event.inboundCounts[name])
-                        ? event.inboundCounts[name]
-                        : null,
-                    ],
-                  ),
+                  [
+                    "activities",
+                    "claims",
+                    "inbox",
+                    "follows",
+                    "claimedFollows",
+                    "allFollows",
+                    "objects",
+                  ].map((name) => [
+                    name,
+                    Number.isSafeInteger(event.inboundCounts[name])
+                      ? event.inboundCounts[name]
+                      : null,
+                  ]),
                 )
               : null,
         };
@@ -300,12 +317,15 @@ const peerOrigin = ${JSON.stringify(origins[peerIndex])};
 const dns = ${JSON.stringify(Object.fromEntries(dnsRecords))};
 let followersCreateFault = null;
 let followDigestProbeUsed = false;
-async function inboundCounts(db, actorId, targetId) {
+let actorBindingProbeUsed = false;
+async function inboundCounts(db, actorId, targetId, claimedActorId = actorId) {
   const queries = {
     activities: ["SELECT COUNT(*) AS count FROM activities WHERE direction = 'inbound'", []],
     claims: ["SELECT COUNT(*) AS count FROM inbound_activity_claims", []],
     inbox: ["SELECT COUNT(*) AS count FROM inbox", []],
     follows: ["SELECT COUNT(*) AS count FROM follows WHERE follower_ap_id = ? AND following_ap_id = ?", [actorId, targetId]],
+    claimedFollows: ["SELECT COUNT(*) AS count FROM follows WHERE follower_ap_id = ? AND following_ap_id = ?", [claimedActorId, targetId]],
+    allFollows: ["SELECT COUNT(*) AS count FROM follows", []],
     objects: ["SELECT COUNT(*) AS count FROM objects WHERE is_local = 0", []],
   };
   const counts = {};
@@ -409,6 +429,105 @@ export default {
         noInboundEffects, inboundCounts: counts, atMs: Date.now() }));
       if (negativeResponse.status !== 401 || negativeError !== 'Signature verification failed'
         || !noInboundEffects) throw new Error('tampered Follow was not refused without inbound effects');
+      if (!actorBindingProbeUsed) {
+        actorBindingProbeUsed = true;
+        const claimedActor = selfOrigin + '/ap/users/actor-binding-probe';
+        if (claimedActor === metadata.actorId || new URL(claimedActor).origin !== new URL(metadata.actorId).origin)
+          throw new Error('actor-binding probe requires a distinct same-origin actor');
+        const canonicalActor = (value) => new URL(value).origin.toLowerCase()
+          + new URL(value).pathname.replace(/\\/+$/, '');
+        if (canonicalActor(claimedActor) === canonicalActor(metadata.actorId))
+          throw new Error('actor-binding probe actor normalizes to genuine signer');
+        const claimedActivity = { ...parsed, actor: claimedActor };
+        if (JSON.stringify(parsed) !== originalBody)
+          throw new Error('actor-binding probe requires canonical Follow JSON');
+        const claimedBody = JSON.stringify(claimedActivity);
+        const onlyClaimedActorChanged = JSON.stringify({ ...claimedActivity, actor: parsed.actor })
+          === JSON.stringify(parsed);
+        if (claimedActivity.id !== originalId || claimedActivity.type !== 'Follow'
+          || claimedActivity.object !== metadata.followTarget || !onlyClaimedActorChanged)
+          throw new Error('actor-binding probe changed Follow identity/type/target');
+        const keyRows = await env.SIGNER_DB.prepare(
+          'SELECT ap_id, role, private_key_pem, public_key_pem FROM actors WHERE ap_id = ? AND deleted_at IS NULL',
+        ).bind(metadata.actorId).all();
+        if (keyRows.results?.length !== 1 || keyRows.results[0].ap_id !== metadata.actorId
+          || keyRows.results[0].role !== 'owner')
+          throw new Error('actor-binding probe missing API-created signer');
+        const signer = keyRows.results[0];
+        const originalSignature = request.headers.get('signature') || '';
+        const keyId = originalSignature.match(/(?:^|,)\\s*keyId="([^"]+)"/)?.[1];
+        const signerKeyIdMatches = keyId === metadata.actorId + '#main-key';
+        if (!signerKeyIdMatches) throw new Error('actor-binding probe keyId does not match owner');
+        const base64 = (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes)));
+        const pemBytes = (pem) => Uint8Array.from(atob(pem.replace(/-----[^-]+-----/g, '').replace(/\\s/g, '')),
+          (char) => char.charCodeAt(0));
+        const rsa = { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' };
+        const date = new Date().toUTCString();
+        const digest = 'SHA-256=' + base64(await crypto.subtle.digest('SHA-256',
+          new TextEncoder().encode(claimedBody)));
+        const signedHeaders = '(request-target) host date digest';
+        const signatureString = '(request-target): ' + request.method.toLowerCase()
+          + ' ' + url.pathname + url.search + '\\nhost: ' + url.host
+          + '\\ndate: ' + date + '\\ndigest: ' + digest;
+        const privateKey = await crypto.subtle.importKey('pkcs8',
+          pemBytes(signer.private_key_pem), rsa, false, ['sign']);
+        const publicKey = await crypto.subtle.importKey('spki',
+          pemBytes(signer.public_key_pem), rsa, false, ['verify']);
+        const signedBytes = await crypto.subtle.sign('RSASSA-PKCS1-v1_5',
+          privateKey, new TextEncoder().encode(signatureString));
+        const localSignatureVerified = await crypto.subtle.verify('RSASSA-PKCS1-v1_5',
+          publicKey, signedBytes, new TextEncoder().encode(signatureString));
+        if (!localSignatureVerified) throw new Error('actor-binding probe local signature verification failed');
+        const freshSignature = 'keyId="' + keyId + '",algorithm="rsa-sha256",headers="'
+          + signedHeaders + '",signature="' + base64(signedBytes) + '"';
+        const actorHeaders = new Headers(request.headers);
+        actorHeaders.set('date', date);
+        actorHeaders.set('digest', digest);
+        actorHeaders.set('signature', freshSignature);
+        actorHeaders.set('content-length', String(new TextEncoder().encode(claimedBody).byteLength));
+        const actorNegative = new Request(request.url, {
+          method: request.method, headers: actorHeaders, body: claimedBody,
+        });
+        const outgoingBody = await actorNegative.clone().text();
+        const outgoingDigest = 'SHA-256=' + base64(await crypto.subtle.digest('SHA-256',
+          new TextEncoder().encode(outgoingBody)));
+        const outgoingUrl = new URL(actorNegative.url);
+        const outgoingSignatureString = '(request-target): ' + actorNegative.method.toLowerCase()
+          + ' ' + outgoingUrl.pathname + outgoingUrl.search
+          + '\\nhost: ' + actorNegative.headers.get('host')
+          + '\\ndate: ' + actorNegative.headers.get('date')
+          + '\\ndigest: ' + actorNegative.headers.get('digest');
+        const freshDigestMatches = outgoingBody === claimedBody
+          && actorNegative.headers.get('digest') === outgoingDigest
+          && actorNegative.headers.get('content-length') === String(new TextEncoder().encode(outgoingBody).byteLength);
+        const outgoingSignatureVerified = await crypto.subtle.verify('RSASSA-PKCS1-v1_5',
+          publicKey, signedBytes, new TextEncoder().encode(outgoingSignatureString));
+        if (!freshDigestMatches || !outgoingSignatureVerified
+          || actorNegative.headers.get('signature') !== freshSignature)
+          throw new Error('actor-binding probe outgoing digest/signature mismatch');
+        const actorBefore = await inboundCounts(env.PEER_DB, metadata.actorId, metadata.followTarget, claimedActor);
+        if (!Object.values(actorBefore).every((count) => count === 0))
+          throw new Error('actor-binding probe receiver had preexisting inbound effects');
+        const actorResponse = await env.PEER.fetch(actorNegative);
+        const actorText = await actorResponse.text();
+        let actorError = null;
+        try { actorError = JSON.parse(actorText).error; } catch {}
+        const actorAfter = await inboundCounts(env.PEER_DB, metadata.actorId, metadata.followTarget, claimedActor);
+        const actorNoInboundEffects = Object.values(actorAfter).every((count) => count === 0)
+          && Object.keys(actorAfter).every((name) => actorBefore[name] === actorAfter[name]);
+        console.log('native-peer-route', JSON.stringify({ ...metadata,
+          status: actorResponse.status, reason: 'actor-binding-refused',
+          originalId, claimedActor, originalSha256: await hashHex(originalBody),
+          mutatedSha256: await hashHex(claimedBody), onlyClaimedActorChanged,
+          signerKeyIdMatches, freshDigestMatches,
+          localSignatureVerified: localSignatureVerified && outgoingSignatureVerified,
+          responseError: actorError === 'Actor mismatch' ? actorError : null,
+          noInboundEffects: actorNoInboundEffects, inboundCounts: actorAfter,
+          atMs: Date.now() }));
+        if (actorResponse.status !== 401 || actorError !== 'Actor mismatch'
+          || !actorNoInboundEffects)
+          throw new Error('freshly signed claimed-actor Follow was not refused without inbound effects');
+      }
     }
     const signedFollowersCreate = ${index === 1} && metadata.signaturePresent
       && request.method === 'POST' && url.pathname.endsWith('/inbox')
@@ -705,7 +824,10 @@ try {
             modules: true,
             script: virtualRouterScript(0),
             serviceBindings: { PEER: workerNames[1] },
-            d1Databases: { PEER_DB: workerB.d1Databases.DB },
+            d1Databases: {
+              PEER_DB: workerB.d1Databases.DB,
+              SIGNER_DB: workerA.d1Databases.DB,
+            },
             outboundService: "deny-outbound",
           },
           {
@@ -905,6 +1027,98 @@ try {
       pendingEdgeCount: pendingEdges.length,
     };
     phases.push("tampered-follow-digest-401-zero-effects-then-original-202");
+    phase = "follow-actor-binding-ledger-oracle";
+    const actorMismatch = await poll(
+      "freshly signed Follow with different claimed actor refused",
+      async () =>
+        routeEvents.find((item) => item.reason === "actor-binding-refused"),
+      5_000,
+    );
+    assert.equal(
+      routeEvents.filter((item) => item.reason === "actor-binding-refused")
+        .length,
+      1,
+      "actor-binding probe must run once",
+    );
+    assert.equal(actorMismatch.router, routerNames[0]);
+    assert.equal(actorMismatch.targetHost, "b.yuru-native.invalid");
+    assert.equal(actorMismatch.headerHost, actorMismatch.targetHost);
+    assert.equal(actorMismatch.method, "POST");
+    assert.equal(actorMismatch.activityType, "Follow");
+    assert.equal(actorMismatch.actorId, a.ownerApId);
+    assert.equal(actorMismatch.followTarget, b.ownerApId);
+    assert.equal(actorMismatch.activityId, tamper.originalId);
+    assert.equal(actorMismatch.originalId, tamper.originalId);
+    assert.equal(actorMismatch.status, 401);
+    assert.equal(actorMismatch.responseError, "Actor mismatch");
+    assert.equal(actorMismatch.onlyClaimedActorChanged, true);
+    assert.equal(actorMismatch.signerKeyIdMatches, true);
+    assert.equal(actorMismatch.freshDigestMatches, true);
+    assert.equal(actorMismatch.localSignatureVerified, true);
+    assert.equal(actorMismatch.noInboundEffects, true);
+    assert(
+      Object.values(actorMismatch.inboundCounts).every((count) => count === 0),
+      "claimed-actor Follow created receiver inbound state",
+    );
+    assert.notEqual(actorMismatch.claimedActor, a.ownerApId);
+    assert.equal(new URL(actorMismatch.claimedActor).origin, a.origin);
+    assert.notEqual(actorMismatch.originalSha256, actorMismatch.mutatedSha256);
+    const claimedInboundActivityId = `${b.origin}/ap/activities/inbound-${sha256(
+      Buffer.from(
+        `${actorMismatch.claimedActor}\0${tamper.originalId}`,
+        "utf8",
+      ),
+    )}`;
+    const claimedActivities = await rows(
+      b.schema.db,
+      "SELECT ap_id FROM activities WHERE ap_id = ? OR (direction = 'inbound' AND actor_ap_id = ?)",
+      [claimedInboundActivityId, actorMismatch.claimedActor],
+    );
+    assert.equal(
+      claimedActivities.length,
+      0,
+      "claimed actor created an inbound ledger activity",
+    );
+    const claimedClaims = await rows(
+      b.schema.db,
+      "SELECT activity_ap_id FROM inbound_activity_claims WHERE activity_ap_id = ?",
+      [claimedInboundActivityId],
+    );
+    assert.equal(
+      claimedClaims.length,
+      0,
+      "claimed actor created an inbound dispatch claim",
+    );
+    const claimedEdges = await rows(
+      b.schema.db,
+      "SELECT follower_ap_id FROM follows WHERE follower_ap_id = ? AND following_ap_id = ?",
+      [actorMismatch.claimedActor, b.ownerApId],
+    );
+    assert.equal(claimedEdges.length, 0, "claimed actor created a Follow edge");
+    actorBindingProof = {
+      status: actorMismatch.status,
+      error: actorMismatch.responseError,
+      originalId: actorMismatch.originalId,
+      genuineActor: a.ownerApId,
+      claimedActor: actorMismatch.claimedActor,
+      originalSha256: actorMismatch.originalSha256,
+      claimedSha256: actorMismatch.mutatedSha256,
+      onlyClaimedActorChanged: actorMismatch.onlyClaimedActorChanged,
+      signerKeyIdMatches: actorMismatch.signerKeyIdMatches,
+      freshDigestMatches: actorMismatch.freshDigestMatches,
+      localSignatureVerified: actorMismatch.localSignatureVerified,
+      noInboundEffects: actorMismatch.noInboundEffects,
+      inboundCounts: actorMismatch.inboundCounts,
+      originalFollowStatus: originalForward[0].status,
+      originalReceiverActivityId: inboundActivityId,
+      originalReceiverProcessed: inboundFollows[0].processed,
+      claimedActivityCount: claimedActivities.length,
+      claimedClaimCount: claimedClaims.length,
+      claimedEdgeCount: claimedEdges.length,
+    };
+    phases.push(
+      "freshly-signed-claimed-actor-401-zero-effects-then-original-202",
+    );
   }
   phases.push("signed-follow-queue-to-private-peer-pending");
   phase = "accept-and-return-delivery";
@@ -1602,6 +1816,7 @@ try {
       denyEndpointRetry,
       endpointRetryFaultObserved: faultEvents.length === 1,
       digestTamperProbeEnabled: !denyUnsignedPeerKeyGet,
+      actorBindingProbeEnabled: !denyUnsignedPeerKeyGet,
     },
     artifact: {
       name: basename(artifactPath),
@@ -1650,8 +1865,16 @@ try {
         digestTamperProof?.noInboundEffects === true,
       originalFollowAcceptedAfterTamper:
         digestTamperProof?.originalFollowStatus === 202,
+      actorBindingRefused:
+        actorBindingProof?.status === 401 &&
+        actorBindingProof?.error === "Actor mismatch",
+      actorBindingNoInboundEffects:
+        actorBindingProof?.noInboundEffects === true,
+      originalFollowAcceptedAfterActorMismatch:
+        actorBindingProof?.originalFollowStatus === 202,
     },
     digestTamper: digestTamperProof,
+    actorBinding: actorBindingProof,
     endpointRetry: {
       firstFailure: {
         status: firstFailure.fault.status,
@@ -1740,10 +1963,18 @@ try {
         digestTamperObserved: routeEvents.some(
           (event) => event.reason === "digest-tamper-refused",
         ),
+        actorBindingProbeEnabled: !denyUnsignedPeerKeyGet,
+        actorBindingObserved: routeEvents.some(
+          (event) => event.reason === "actor-binding-refused",
+        ),
       },
       digestTamper:
         digestTamperProof ??
         routeEvents.find((event) => event.reason === "digest-tamper-refused") ??
+        null,
+      actorBinding:
+        actorBindingProof ??
+        routeEvents.find((event) => event.reason === "actor-binding-refused") ??
         null,
       phase,
       error: mainError

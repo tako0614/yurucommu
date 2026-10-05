@@ -34,8 +34,8 @@ separate from this same-product regression gate. This source unit's own gate,
 denial control and CI must qualify its own scripts and freshly rebuilt bytes;
 the earlier cross-product artifact run cannot substitute for them.
 
-Neither fixture proves public DNS/TLS, live federation, signer/actor binding or SSRF negative
-controls, transport retry/DLQ/redrive, real issuer integration or existing operator
+Neither fixture proves public DNS/TLS, live federation, SSRF negative controls,
+transport retry/DLQ/redrive, real issuer integration or existing operator
 data update/restore. Core package publication and consumer adoption remain
 separate dependencies; this change updates no package version or schema.
 
@@ -56,3 +56,11 @@ Before forwarding the first genuine signed A-to-B Follow, the default router tes
 After refusal, the router forwards the untouched original request. It must receive 202 and produce exactly one pending Follow, one processed receiver-local actor-scoped inbound ledger row and one dispatch claim. The row's raw envelope must retain the original wire ID; no ledger row may exist for the altered copy. The manifest records the negative status, preserved-header fact, IDs/body hashes, zero-effect counters and original acceptance. It never logs bodies, signatures, cookies or private keys. Runtime/state cleanup still gates success.
 
 This probe runs in the default and endpoint-retry-denial journeys. It is disabled in `--deny-peer-key-fetch`, which remains a separate denial control. The new witness covers Digest refusal in the current built Worker, not signer/actor binding, valid foreign-wire-ID handling, redirect/private-IP refusal or public transport. Actor mismatch needs its own correctly re-signed negative; a validly signed foreign wire ID is normally accepted and stored under an actor-scoped internal ID. Neither contract should be inferred from this Digest test.
+
+## Correctly signed actor mismatch
+
+After the Digest negative and before forwarding the original Queue-produced Follow, the router constructs a separate negative whose claimed actor is a different path on the same sender origin. It retains the genuine activity ID, type and Follow target. A read-only test binding to A's existing disposable D1 reads the actual API-created sender key; the fixture computes a fresh body Digest and RSA-SHA256 HTTP signature with that same key and key ID, then checks it with the sender public key. The negative has an updated Content-Length. This test-only observer/signing capability is isolated to the local router and introduces no extra owner, product binding or authentication grant.
+
+The receiving product Worker must return HTTP 401 with `Actor mismatch`. Generic signature verification failure does not qualify this witness, because actor binding occurs after signature verification. Native receiver D1 observations require zero inbound activity rows, dispatch claims, inbox entries, follow edges and remote objects before and after refusal, including the impersonated actor. The untouched original request must then return 202 and create the single genuine processed inbound Follow, claim and pending relationship already checked by the Digest journey. Safe IDs, body hashes, counts and verification booleans may appear in the manifest; private keys, signatures, bodies and cookies may not.
+
+The default and endpoint-denial journeys enable both security probes; the peer-key denial disables them and continues to require its original key-fetch failure. This correctly signed same-origin impersonation witness remains distinct from validly signed foreign-wire-ID deduplication, SSRF controls and public DNS/TLS. Its owning gate and CI must qualify the changed source before integration; no live qualification is implied.
