@@ -18,19 +18,26 @@ const configPath = resolve(sourceRoot, "wrangler.jsonc");
 const args = process.argv.slice(2);
 let artifactArgument = "dist/yurucommu-worker.js";
 let denyUnsignedPeerKeyGet = false;
+let denyEndpointRetry = false;
 let artifactProvided = false;
 let argumentError;
 for (const arg of args) {
   if (arg === "--deny-peer-key-fetch" && !denyUnsignedPeerKeyGet) {
     denyUnsignedPeerKeyGet = true;
+  } else if (arg === "--deny-endpoint-retry" && !denyEndpointRetry) {
+    denyEndpointRetry = true;
   } else if (!arg.startsWith("-") && !artifactProvided) {
     artifactArgument = arg;
     artifactProvided = true;
   } else {
     argumentError =
-      "usage: smoke-release-federation.mjs [worker.js] [--deny-peer-key-fetch]";
+      "usage: smoke-release-federation.mjs [worker.js] [--deny-peer-key-fetch | --deny-endpoint-retry]";
     break;
   }
+}
+if (denyUnsignedPeerKeyGet && denyEndpointRetry) {
+  argumentError =
+    "--deny-peer-key-fetch and --deny-endpoint-retry cannot be combined";
 }
 const artifactPath = resolve(sourceRoot, artifactArgument);
 const label = randomBytes(6).toString("hex");
@@ -50,6 +57,7 @@ const diagnostics = { bytes: 0 };
 const routeEvents = [];
 const secrets = [];
 const instances = [];
+let deniedEndpointRetryObserved = false;
 let phase = "preflight";
 let runtime;
 let tempRoot;
@@ -107,14 +115,22 @@ function captureDiagnosticChunk(chunk) {
           headerHost: event.headerHost,
           signaturePresent: Boolean(event.signaturePresent),
           status: event.status,
-          reason:
-            event.reason === "fixture-deny-unsigned-peer-key-get"
-              ? event.reason
-              : undefined,
           activityId:
             typeof event.activityId === "string" ? event.activityId : null,
           activityType:
             typeof event.activityType === "string" ? event.activityType : null,
+          actorId: typeof event.actorId === "string" ? event.actorId : null,
+          objectId: typeof event.objectId === "string" ? event.objectId : null,
+          followersOnlyAddressing: Boolean(event.followersOnlyAddressing),
+          reason:
+            event.reason === "fixture-deny-endpoint-retry"
+              ? event.reason
+              : event.reason === "first-followers-create-503"
+                ? event.reason
+                : event.reason === "fixture-deny-unsigned-peer-key-get"
+                  ? event.reason
+                  : undefined,
+          atMs: Number.isSafeInteger(event.atMs) ? event.atMs : null,
         };
         if (
           !routeEvents.some(
@@ -248,6 +264,7 @@ function virtualRouterScript(index) {
   return `const selfOrigin = ${JSON.stringify(origins[index])};
 const peerOrigin = ${JSON.stringify(origins[peerIndex])};
 const dns = ${JSON.stringify(Object.fromEntries(dnsRecords))};
+let followersCreateFault = null;
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -266,6 +283,14 @@ export default {
       const activity = await request.clone().json().catch(() => null);
       metadata.activityId = typeof activity?.id === 'string' ? activity.id : null;
       metadata.activityType = typeof activity?.type === 'string' ? activity.type : null;
+      metadata.actorId = typeof activity?.actor === 'string' ? activity.actor : null;
+      metadata.objectId = typeof activity?.object?.id === 'string' ? activity.object.id : null;
+      const publicAudience = 'https://www.w3.org/ns/activitystreams#Public';
+      metadata.followersOnlyAddressing = metadata.actorId?.startsWith(selfOrigin + '/ap/users/')
+        && activity?.object?.attributedTo === metadata.actorId
+        && Array.isArray(activity?.object?.to)
+        && activity.object.to.includes(metadata.actorId + '/followers')
+        && ![...(activity.to || []), ...(activity.cc || []), ...(activity.object.to || []), ...(activity.object.cc || [])].includes(publicAudience);
     }
     // Native unsigned public-key GETs need no explicit Host header. The exact
     // URL origin still gates their destination. Signed requests require Host;
@@ -282,10 +307,27 @@ export default {
       console.log('native-peer-route', JSON.stringify({ ...metadata, status: 502, reason: 'fixture-deny-unsigned-peer-key-get' }));
       return new Response(null, { status: 502 });
     }
+    const signedFollowersCreate = ${index === 1} && metadata.signaturePresent
+      && request.method === 'POST' && url.pathname.endsWith('/inbox')
+      && metadata.activityType === 'Create' && metadata.followersOnlyAddressing
+      && metadata.activityId && metadata.objectId;
+    if (signedFollowersCreate && !followersCreateFault) {
+      followersCreateFault = { activityId: metadata.activityId, objectId: metadata.objectId };
+      console.log('native-peer-route', JSON.stringify({ ...metadata, status: 503,
+        reason: 'first-followers-create-503', atMs: Date.now() }));
+      return new Response(null, { status: 503 });
+    }
+    if (${denyEndpointRetry} && signedFollowersCreate
+      && metadata.activityId === followersCreateFault?.activityId
+      && metadata.objectId === followersCreateFault?.objectId) {
+      console.log('native-peer-route', JSON.stringify({ ...metadata, status: 503,
+        reason: 'fixture-deny-endpoint-retry', atMs: Date.now() }));
+      return new Response(null, { status: 503 });
+    }
     // Do not construct another Request or alter Host, URL, body, signature or
     // digest. The peer's own ap-verify performs the authoritative check.
     const response = await env.PEER.fetch(request);
-    console.log('native-peer-route', JSON.stringify({ ...metadata, status: response.status }));
+    console.log('native-peer-route', JSON.stringify({ ...metadata, status: response.status, atMs: Date.now() }));
     return response;
   }
 };`;
@@ -759,6 +801,173 @@ try {
   assert.equal(createdPost.post.content, postText);
   assert.equal(createdPost.post.visibility, "followers");
   const postActivityId = await activityForObject(b, postId);
+  phase = "followers-post-first-endpoint-failure";
+  const firstFailure = await poll(
+    "B followers Create first endpoint 503 and retry_wait",
+    async () => {
+      const fault = routeEvents.find(
+        (item) => item.reason === "first-followers-create-503",
+      );
+      if (!fault) return null;
+      const jobs = await rows(
+        b.schema.db,
+        "SELECT id, activity_ap_id, inbox_url, status, attempts, last_attempt_at, processing_started_at, next_attempt_at, delivered_at, error FROM delivery_queue WHERE activity_ap_id = ?",
+        [postActivityId],
+      );
+      return jobs.length === 1 && jobs[0].status === "retry_wait"
+        ? { fault, job: jobs[0], observedAtMs: Date.now() }
+        : null;
+    },
+    30_000,
+  );
+  const faultEvents = routeEvents.filter(
+    (item) => item.reason === "first-followers-create-503",
+  );
+  assert.equal(
+    faultEvents.length,
+    1,
+    "router must inject exactly one followers Create 503",
+  );
+  assert.equal(firstFailure.fault.router, routerNames[1]);
+  assert.equal(firstFailure.fault.targetHost, "a.yuru-native.invalid");
+  assert.equal(firstFailure.fault.headerHost, firstFailure.fault.targetHost);
+  assert.equal(firstFailure.fault.status, 503);
+  assert.equal(firstFailure.fault.signaturePresent, true);
+  assert.equal(firstFailure.fault.activityType, "Create");
+  assert.equal(firstFailure.fault.actorId, b.ownerApId);
+  assert.equal(firstFailure.fault.activityId, postActivityId);
+  assert.equal(firstFailure.fault.objectId, postId);
+  assert.equal(firstFailure.fault.followersOnlyAddressing, true);
+  assert(
+    Number.isSafeInteger(firstFailure.fault.atMs),
+    "fault timestamp missing",
+  );
+  const firstJob = firstFailure.job;
+  assert.equal(firstJob.activity_ap_id, postActivityId);
+  assert.equal(firstJob.attempts, 1);
+  assert.equal(firstJob.processing_started_at, null);
+  assert.equal(firstJob.delivered_at, null);
+  assert.equal(firstJob.error, "HTTP 503");
+  assert.equal(new URL(firstJob.inbox_url).origin, a.origin);
+  const lastAttemptMs = Date.parse(firstJob.last_attempt_at);
+  const nextAttemptMs = Date.parse(firstJob.next_attempt_at);
+  assert(
+    Number.isFinite(lastAttemptMs) && Number.isFinite(nextAttemptMs),
+    "retry timestamps missing",
+  );
+  const scheduledDelayMs = nextAttemptMs - lastAttemptMs;
+  assert(
+    scheduledDelayMs >= 47_000 && scheduledDelayMs <= 73_000,
+    `first endpoint retry delay outside 60s +/-20%: ${scheduledDelayMs}ms`,
+  );
+  const remainingDelayMs = nextAttemptMs - firstFailure.observedAtMs;
+  assert(
+    remainingDelayMs > 0 && remainingDelayMs <= 73_000,
+    `first endpoint retry was not pending in real time: ${remainingDelayMs}ms`,
+  );
+  assert(
+    lastAttemptMs >= firstFailure.fault.atMs - 5_000,
+    "retry ledger last_attempt_at predates router 503",
+  );
+  const firstCircuitRows = await rows(
+    b.schema.db,
+    "SELECT endpoint, state, consecutive_failures, recent_outcomes_json FROM delivery_circuit WHERE endpoint = ?",
+    [firstJob.inbox_url],
+  );
+  assert.equal(firstCircuitRows.length, 1);
+  assert.equal(firstCircuitRows[0].state, "closed");
+  assert.equal(firstCircuitRows[0].consecutive_failures, 1);
+  assert.equal(JSON.parse(firstCircuitRows[0].recent_outcomes_json).at(-1), 1);
+  const firstRecipientJobs = await rows(
+    b.schema.db,
+    "SELECT delivery_job_id, recipient_actor_ap_id FROM delivery_endpoint_recipients WHERE delivery_job_id = ?",
+    [firstJob.id],
+  );
+  assert.deepEqual(firstRecipientJobs, [
+    { delivery_job_id: firstJob.id, recipient_actor_ap_id: a.ownerApId },
+  ]);
+  const absentBeforeRetry = await rows(
+    a.schema.db,
+    "SELECT ap_id FROM objects WHERE ap_id = ?",
+    [postId],
+  );
+  assert.equal(
+    absentBeforeRetry.length,
+    0,
+    "A received the followers Note before endpoint retry",
+  );
+  phases.push(
+    "first-signed-followers-create-503-native-retry-wait-and-closed-circuit",
+  );
+  phase = "followers-post-native-delayed-retry";
+  if (denyEndpointRetry) {
+    phase = "endpoint-retry-denial-wait";
+    const denied = await poll(
+      "second signed followers Create denied after product retry delay",
+      async () =>
+        routeEvents.find(
+          (item) =>
+            item.reason === "fixture-deny-endpoint-retry" &&
+            item.activityId === postActivityId &&
+            item.objectId === postId,
+        ),
+      95_000,
+    );
+    assert.equal(denied.router, routerNames[1]);
+    assert.equal(denied.targetHost, "a.yuru-native.invalid");
+    assert.equal(denied.headerHost, denied.targetHost);
+    assert.equal(denied.signaturePresent, true);
+    assert.equal(denied.actorId, b.ownerApId);
+    assert.equal(denied.followersOnlyAddressing, true);
+    assert.equal(denied.status, 503);
+    assert(
+      denied.atMs >= nextAttemptMs - 2_000,
+      "denied second POST preceded product next_attempt_at",
+    );
+    assert(
+      denied.atMs <= nextAttemptMs + 15_000,
+      "denied second POST arrived over 15 seconds after product next_attempt_at",
+    );
+    assert(
+      denied.atMs - firstFailure.fault.atMs >= 45_000,
+      "denied second POST did not wait for real delayed delivery",
+    );
+    const secondJob = await poll(
+      "B second endpoint 503 persisted as retry_wait",
+      async () => {
+        const jobs = await rows(
+          b.schema.db,
+          "SELECT id, status, attempts, error FROM delivery_queue WHERE activity_ap_id = ?",
+          [postActivityId],
+        );
+        return jobs.length === 1 &&
+          jobs[0].status === "retry_wait" &&
+          jobs[0].attempts === 2
+          ? jobs[0]
+          : null;
+      },
+      10_000,
+    );
+    assert.equal(secondJob.id, firstJob.id);
+    assert.equal(secondJob.error, "HTTP 503");
+    const deniedCircuit = await rows(
+      b.schema.db,
+      "SELECT state, consecutive_failures FROM delivery_circuit WHERE endpoint = ?",
+      [firstJob.inbox_url],
+    );
+    assert.equal(deniedCircuit.length, 1);
+    assert.equal(deniedCircuit[0].state, "closed");
+    assert.equal(deniedCircuit[0].consecutive_failures, 2);
+    const absentAfterDenial = await rows(
+      a.schema.db,
+      "SELECT ap_id FROM objects WHERE ap_id = ?",
+      [postId],
+    );
+    assert.equal(absentAfterDenial.length, 0);
+    deniedEndpointRetryObserved = true;
+    phase = "endpoint-retry-denied";
+    throw new Error("denial fixture blocked the real delayed endpoint retry");
+  }
   const remotePost = await poll(
     "A received followers post",
     async () => {
@@ -769,7 +978,7 @@ try {
       );
       return found.length === 1 ? found[0] : null;
     },
-    45_000,
+    100_000,
   );
   assert.equal(remotePost.attributed_to, b.ownerApId);
   assert.equal(remotePost.content, postText);
@@ -789,6 +998,87 @@ try {
   );
   assert(postDelivery);
   const postDeliveryProof = await deliveredTo(b, postActivityId, a.ownerApId);
+  assert.equal(
+    postDeliveryProof.attempts,
+    1,
+    "recovered endpoint job should retain one failed attempt",
+  );
+  assert.equal(postDeliveryProof.recipientApId, a.ownerApId);
+  const finalPostJobs = await rows(
+    b.schema.db,
+    "SELECT id, activity_ap_id, inbox_url, status, attempts, last_attempt_at, processing_started_at, next_attempt_at, delivered_at, error FROM delivery_queue WHERE activity_ap_id = ?",
+    [postActivityId],
+  );
+  assert.equal(
+    finalPostJobs.length,
+    1,
+    "endpoint recovery created a second delivery job",
+  );
+  const finalPostJob = finalPostJobs[0];
+  assert.equal(
+    finalPostJob.id,
+    firstJob.id,
+    "endpoint retry changed job identity",
+  );
+  assert.equal(finalPostJob.inbox_url, firstJob.inbox_url);
+  assert.equal(finalPostJob.status, "delivered");
+  assert.equal(finalPostJob.attempts, 1);
+  assert(
+    finalPostJob.delivered_at,
+    "recovered endpoint job missing delivered_at",
+  );
+  assert.equal(finalPostJob.error, null);
+  assert.equal(finalPostJob.processing_started_at, null);
+  const finalRecipientJobs = await rows(
+    b.schema.db,
+    "SELECT delivery_job_id, recipient_actor_ap_id FROM delivery_endpoint_recipients WHERE delivery_job_id = ?",
+    [firstJob.id],
+  );
+  assert.deepEqual(finalRecipientJobs, firstRecipientJobs);
+  const successfulCreates = routeEvents.filter(
+    (item) =>
+      item.router === routerNames[1] &&
+      item.method === "POST" &&
+      item.targetHost === "a.yuru-native.invalid" &&
+      item.signaturePresent &&
+      item.activityType === "Create" &&
+      item.activityId === postActivityId &&
+      item.objectId === postId &&
+      item.status === 202,
+  );
+  assert.equal(
+    successfulCreates.length,
+    1,
+    "native retry did not forward one unchanged signed Create for the same post",
+  );
+  assert.equal(successfulCreates[0].actorId, b.ownerApId);
+  assert.equal(successfulCreates[0].followersOnlyAddressing, true);
+  assert(
+    successfulCreates[0].atMs >= nextAttemptMs - 2_000,
+    "second signed POST preceded product next_attempt_at",
+  );
+  assert(
+    successfulCreates[0].atMs <= nextAttemptMs + 15_000,
+    "second signed POST arrived over 15 seconds after product next_attempt_at",
+  );
+  const actualRetryElapsedMs =
+    successfulCreates[0].atMs - firstFailure.fault.atMs;
+  assert(
+    actualRetryElapsedMs >= 45_000,
+    "second signed POST did not wait for real delayed delivery",
+  );
+  const finalCircuitRows = await rows(
+    b.schema.db,
+    "SELECT endpoint, state, consecutive_failures, recent_outcomes_json FROM delivery_circuit WHERE endpoint = ?",
+    [firstJob.inbox_url],
+  );
+  assert.equal(finalCircuitRows.length, 1);
+  assert.equal(finalCircuitRows[0].state, "closed");
+  assert.equal(finalCircuitRows[0].consecutive_failures, 0);
+  assert.equal(JSON.parse(finalCircuitRows[0].recent_outcomes_json).at(-1), 0);
+  phases.push(
+    "same-endpoint-job-delivered-by-native-delayed-retry-and-circuit-reset",
+  );
   const postRows = await rows(
     a.schema.db,
     "SELECT ap_id FROM objects WHERE ap_id = ?",
@@ -1079,11 +1369,19 @@ try {
     !denyUnsignedPeerKeyGet,
     "denial fixture unexpectedly allowed the full federation journey",
   );
+  assert(
+    !denyEndpointRetry,
+    "endpoint retry denial fixture unexpectedly allowed the full federation journey",
+  );
   finalRecord = {
     status: "PASSED",
     kind: "yurucommu.release-federation-smoke@v1",
     scope: "same-product",
-    fixture: { denyUnsignedPeerKeyGet },
+    fixture: {
+      denyUnsignedPeerKeyGet,
+      denyEndpointRetry,
+      endpointRetryFaultObserved: faultEvents.length === 1,
+    },
     artifact: {
       name: basename(artifactPath),
       sha256: `sha256:${artifactHash}`,
@@ -1120,6 +1418,51 @@ try {
         Boolean(anonymousDm && anonymousDmObject) &&
         receivedDm.conversation_id === recipientDm.conversation,
       signedInboxDeliveries: extendedSignedTraffic.length,
+      endpointRetryRecovered:
+        finalPostJob.id === firstJob.id &&
+        finalPostJob.attempts === 1 &&
+        finalPostJob.error === null &&
+        finalCircuitRows[0].consecutive_failures === 0 &&
+        successfulCreates.length === 1,
+    },
+    endpointRetry: {
+      firstFailure: {
+        status: firstFailure.fault.status,
+        atMs: firstFailure.fault.atMs,
+        activityId: firstFailure.fault.activityId,
+        objectId: firstFailure.fault.objectId,
+        actorId: firstFailure.fault.actorId,
+        followersOnlyAddressing: firstFailure.fault.followersOnlyAddressing,
+      },
+      firstJob: {
+        id: firstJob.id,
+        status: firstJob.status,
+        attempts: firstJob.attempts,
+        lastAttemptAt: firstJob.last_attempt_at,
+        nextAttemptAt: firstJob.next_attempt_at,
+        scheduledDelayMs,
+        remainingDelayMs,
+        processingStartedAt: firstJob.processing_started_at,
+        recipientObjectCount: absentBeforeRetry.length,
+        circuit: {
+          state: firstCircuitRows[0].state,
+          consecutiveFailures: firstCircuitRows[0].consecutive_failures,
+        },
+      },
+      recovered: {
+        sameJobId: finalPostJob.id === firstJob.id,
+        status: finalPostJob.status,
+        attempts: finalPostJob.attempts,
+        deliveredAt: finalPostJob.delivered_at,
+        error: finalPostJob.error,
+        secondSignedPostStatus: successfulCreates[0].status,
+        secondSignedPostAtMs: successfulCreates[0].atMs,
+        actualRetryElapsedMs,
+        circuit: {
+          state: finalCircuitRows[0].state,
+          consecutiveFailures: finalCircuitRows[0].consecutive_failures,
+        },
+      },
     },
     phases,
     boundary:
@@ -1159,7 +1502,14 @@ try {
       status: "FAILED",
       kind: "yurucommu.release-federation-smoke@v1",
       scope: "same-product",
-      fixture: { denyUnsignedPeerKeyGet },
+      fixture: {
+        denyUnsignedPeerKeyGet,
+        denyEndpointRetry,
+        deniedEndpointRetryObserved,
+        endpointRetryFaultObserved: routeEvents.some(
+          (event) => event.reason === "first-followers-create-503",
+        ),
+      },
       phase,
       error: mainError
         ? redact(mainError?.message ?? mainError)

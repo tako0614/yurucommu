@@ -35,6 +35,16 @@ denial control and CI must qualify its own scripts and freshly rebuilt bytes;
 the earlier cross-product artifact run cannot substitute for them.
 
 Neither fixture proves public DNS/TLS, live federation, signature/SSRF negative
-controls, failure retry/redrive, real issuer integration or existing operator
+controls, transport retry/DLQ/redrive, real issuer integration or existing operator
 data update/restore. Core package publication and consumer adoption remain
 separate dependencies; this change updates no package version or schema.
+
+## Delayed endpoint recovery
+
+The default smoke now refuses the first genuine signed followers-addressed Create with HTTP 503, before forwarding it to the recipient. It must observe one application job in `retry_wait`, one failed attempt, a closed delivery circuit with one failure, and no recipient Note. The unchanged published Core producer schedules the next native queue wakeup using its real first backoff of about 60 seconds with 20% jitter. The smoke neither changes the clock or ledger nor constructs queue batches.
+
+After the real delay, the same activity, object, recipient and job must deliver with signed inbox HTTP 202. The job retains one failed attempt, clears its error and processing marker, records delivery, and the circuit resets to zero failures. The recipient must contain exactly one Note, with the existing authenticated feed/detail and anonymous denials. Successful delivery does not require clearing `next_attempt_at`; that field is retained by the installed Core success path. The JSON manifest records both scheduled and observed retry delays and `endpointRetryRecovered`. The ledger schedule allows one second of timestamp tolerance around the 48–72 second backoff. Actual arrival is checked separately against that persisted due time: at most two seconds early for timestamp precision and no more than 15 seconds late for local runtime scheduling. Both the success and denial control enforce this bound.
+
+Use `--deny-endpoint-retry` as a strict denial-only control. It refuses the next real retry for that exact activity and object, then requires the same job to remain in `retry_wait` with two failed attempts and no recipient Note. Only after observing that failure does it emit a FAILED record on stderr and exit nonzero, with native runtime/state cleanup. This control cannot be combined with `--deny-peer-key-fetch`; neither control can report a passing journey. The supervisor allows 300 seconds for migration, real delayed delivery, reads and cleanup.
+
+This is an application endpoint-retry regression for the product's built Worker bytes. Native transport retry/DLQ, six-hour reconciliation/redrive, public DNS/TLS and live Queue/Cron/federation remain separate. It does not change published Core pins, schema, account ownership, or deployed state.
