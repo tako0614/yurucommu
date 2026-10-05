@@ -10,7 +10,7 @@ interface StoryComposerCanvasProps {
   displayCanvasRef: (el: HTMLCanvasElement) => void;
   displayDimensions: { width: number; height: number };
   videoPreview: string | null;
-  videoRef: HTMLVideoElement | undefined;
+  onVideoRef: (element: HTMLVideoElement) => void;
   videoPosition: { x: number; y: number };
   videoScale: number;
   videoRotation: number;
@@ -48,7 +48,7 @@ export function StoryComposerCanvas(props: StoryComposerCanvasProps) {
           onTouchEnd={props.onVideoTouchEnd}
         >
           <video
-            ref={props.videoRef}
+            ref={(element) => props.onVideoRef(element)}
             src={props.videoPreview!}
             class="absolute w-full h-full object-cover origin-center"
             style={{

@@ -181,25 +181,13 @@ export function StoryComposer(props: StoryComposerProps) {
     onClose: handleComposerEscape,
     container: () => composerRootRef,
     busyFocus: () => (postActions.posting() ? submissionStatus() : null),
-    // Capture the editor at busy entry. Recovery does not exist at that point;
-    // the separate effect below resolves it after an uncertain write settles.
+    // Capture the editor at busy entry; resolve a retained result separately
+    // at restoration time so the dialog has one owner for settled focus.
     busyReturnFocus: () => submissionReturnFocus,
-  });
-
-  createEffect(() => {
-    if (!postActions.posting() && postActions.editingLocked()) {
-      const target = recoveryRoot();
-      // The dialog's busy restoration also runs in a microtask. Resolve the
-      // recovery surface after that restoration, once its editors are inert.
-      queueMicrotask(() => {
-        if (
-          !postActions.posting() &&
-          postActions.editingLocked() &&
-          target?.isConnected
-        )
-          target.focus();
-      });
-    }
+    settledFocus: () =>
+      !postActions.posting() && postActions.editingLocked()
+        ? recoveryRoot()
+        : null,
   });
 
   // Double-tap detection for text editing
@@ -213,6 +201,7 @@ export function StoryComposer(props: StoryComposerProps) {
     },
     setUploading: setVideoLoading,
     canEdit: () => !uploading() && !postActions.editingLocked(),
+    canApply: () => !postActions.editingLocked(),
     setError: (message) => setError(message),
     maxVideoSize: MAX_VIDEO_SIZE,
     onBackgroundChange: bumpRenderKey,
@@ -630,7 +619,9 @@ export function StoryComposer(props: StoryComposerProps) {
             }}
             displayDimensions={displayDims()}
             videoPreview={video.videoPreview()}
-            videoRef={video.videoRef}
+            onVideoRef={(element) => {
+              video.videoRef = element;
+            }}
             videoPosition={video.videoPosition()}
             videoScale={video.videoScale()}
             videoRotation={video.videoRotation()}

@@ -18,6 +18,7 @@ interface UseStoryVideoOptions {
   maxVideoSize: number;
   onBackgroundChange: () => void;
   canEdit: () => boolean;
+  canApply: () => boolean;
 }
 
 export function useStoryVideo(opts: UseStoryVideoOptions) {
@@ -36,6 +37,8 @@ export function useStoryVideo(opts: UseStoryVideoOptions) {
   let videoInputRef!: HTMLInputElement;
   let videoRef!: HTMLVideoElement;
   let selecting = false;
+  let mounted = true;
+  let inspection: AbortController | null = null;
 
   // Keep ref in sync for cleanup on unmount
   createEffect(() => {
@@ -43,12 +46,13 @@ export function useStoryVideo(opts: UseStoryVideoOptions) {
   });
 
   // Cleanup video preview URL on unmount
+  onCleanup(() => {
+    mounted = false;
+    inspection?.abort();
+    if (videoPreviewRef) URL.revokeObjectURL(videoPreviewRef);
+  });
   createEffect(() => {
-    onCleanup(() => {
-      if (videoPreviewRef) {
-        URL.revokeObjectURL(videoPreviewRef);
-      }
-    });
+    if (!opts.canApply()) inspection?.abort();
   });
 
   createEffect(() => {
@@ -58,10 +62,12 @@ export function useStoryVideo(opts: UseStoryVideoOptions) {
 
     const loadFFmpeg = async () => {
       setFfmpegLoading(true);
+      const current = () => mounted && opts.canApply() && videoFile() === file;
       try {
         await initFFmpeg();
-        setFfmpegReady(true);
+        if (current()) setFfmpegReady(true);
       } catch (e) {
+        if (!current()) return;
         console.error("Failed to load FFmpeg:", e);
         opts.setError(t("story.videoLoadFailed"));
         // FFmpeg can't load → the video can never be processed and the Post
@@ -70,7 +76,7 @@ export function useStoryVideo(opts: UseStoryVideoOptions) {
         // instead of trapping the user.
         clearVideo();
       } finally {
-        setFfmpegLoading(false);
+        if (mounted) setFfmpegLoading(false);
       }
     };
     loadFFmpeg();
@@ -79,9 +85,10 @@ export function useStoryVideo(opts: UseStoryVideoOptions) {
   const handleVideoSelect = async (
     e: Event & { currentTarget: HTMLInputElement },
   ) => {
-    if (selecting || !opts.canEdit()) return;
+    if (!mounted || selecting || !opts.canEdit()) return;
     const file = (e.currentTarget as HTMLInputElement).files?.[0];
-    if (!file || !opts.storyCanvas) return;
+    const canvas = opts.storyCanvas;
+    if (!file || !canvas) return;
 
     if (!isVideoFile(file)) {
       opts.setError(t("story.selectVideoFile"));
@@ -99,22 +106,32 @@ export function useStoryVideo(opts: UseStoryVideoOptions) {
     }
 
     selecting = true;
+    const controller = new AbortController();
+    inspection = controller;
     opts.setUploading(true);
     try {
+      const duration = await getVideoDuration(file, controller.signal);
+      if (
+        !mounted ||
+        controller.signal.aborted ||
+        !opts.canApply() ||
+        opts.storyCanvas !== canvas
+      )
+        return;
       const currentPreview = videoPreview();
       if (currentPreview) {
         URL.revokeObjectURL(currentPreview);
       }
       const preview = URL.createObjectURL(file);
-      const duration = await getVideoDuration(file);
-
-      const bgLayer = opts.storyCanvas
+      const bgLayer = canvas
         .getLayers()
         .find((layer) => layer.type === "background") as
         BackgroundLayer | undefined;
       if (bgLayer) {
-        setSavedBackground(bgLayer.fill);
-        opts.storyCanvas.setBackground({ type: "transparent" });
+        // Replacement previews share the original image/text background. A
+        // later selection must not save the transparent video overlay instead.
+        if (!savedBackground()) setSavedBackground(bgLayer.fill);
+        canvas.setBackground({ type: "transparent" });
         opts.onBackgroundChange();
       }
 
@@ -122,12 +139,16 @@ export function useStoryVideo(opts: UseStoryVideoOptions) {
       setVideoPreview(preview);
       setVideoDuration(duration);
     } catch (err) {
+      if (!mounted || controller.signal.aborted || !opts.canApply()) return;
       console.error("Failed to process video:", err);
       opts.setError(t("story.videoProcessFailed"));
     } finally {
       selecting = false;
-      opts.setUploading(false);
-      if (videoInputRef) videoInputRef.value = "";
+      if (inspection === controller) inspection = null;
+      if (mounted) {
+        opts.setUploading(false);
+        if (videoInputRef) videoInputRef.value = "";
+      }
     }
   };
 

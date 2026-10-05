@@ -8,6 +8,7 @@ const FFMPEG_TIMEOUT = 120000; // 2 min (120s)
 const FFMPEG_INIT_TIMEOUT = 60000; // 1 min (initialization)
 const FFMPEG_DOWNLOAD_CORE_TIMEOUT = 30000; // 30s (core download)
 const FFMPEG_DOWNLOAD_WASM_TIMEOUT = 60000; // 1 min (WASM download)
+const VIDEO_METADATA_TIMEOUT = 15000;
 
 // Timeout utility
 function withTimeout<T>(
@@ -15,16 +16,17 @@ function withTimeout<T>(
   ms: number,
   message: string,
 ): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
-    setTimeout(() => reject(new FFmpegError(message)), ms);
+    timer = setTimeout(() => reject(new FFmpegError(message)), ms);
   });
-  return Promise.race([promise, timeout]);
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
 // Singleton FFmpeg instance
 let ffmpeg: FFmpeg | null = null;
 let loaded = false;
-let loading: Promise<void> | null = null;
+let loading: Promise<FFmpeg> | null = null;
 
 // Custom error class for FFmpeg operations
 export class FFmpegError extends Error {
@@ -41,48 +43,78 @@ export class FFmpegError extends Error {
 export async function initFFmpeg(): Promise<FFmpeg> {
   if (ffmpeg && loaded) return ffmpeg;
 
-  if (loading) {
-    // Time out the wait for in-flight initialization too
-    await withTimeout(
-      loading,
-      FFMPEG_INIT_TIMEOUT,
-      "FFmpeg initialization timed out. Please reload the page.",
-    );
-    return ffmpeg!;
-  }
+  if (loading) return loading;
 
-  ffmpeg = new FFmpeg();
-
-  loading = (async () => {
-    try {
-      const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm";
-
-      // Time out each file download too
-      const [coreURL, wasmURL] = await Promise.all([
-        withTimeout(
-          toBlobURL(`${baseURL}/ffmpeg-core.js`, "text/javascript"),
-          FFMPEG_DOWNLOAD_CORE_TIMEOUT,
-          "FFmpeg core download timed out",
+  const instance = new FFmpeg();
+  ffmpeg = instance;
+  loaded = false;
+  let retired = false;
+  const urls = new Set<string>();
+  const releaseURLs = () => {
+    for (const url of urls) URL.revokeObjectURL(url);
+    urls.clear();
+  };
+  const captureURL = (url: string) => {
+    // A timed-out download can still finish. It cannot start the retired worker
+    // or retain a Blob URL after another initialization has begun.
+    if (retired) {
+      URL.revokeObjectURL(url);
+      throw new FFmpegError("FFmpeg initialization was cancelled");
+    }
+    urls.add(url);
+    return url;
+  };
+  const initialize = async () => {
+    const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm";
+    const [coreURL, wasmURL] = await Promise.all([
+      withTimeout(
+        toBlobURL(`${baseURL}/ffmpeg-core.js`, "text/javascript").then(
+          captureURL,
         ),
-        withTimeout(
-          toBlobURL(`${baseURL}/ffmpeg-core.wasm`, "application/wasm"),
-          FFMPEG_DOWNLOAD_WASM_TIMEOUT,
-          "FFmpeg WASM download timed out",
+        FFMPEG_DOWNLOAD_CORE_TIMEOUT,
+        "FFmpeg core download timed out",
+      ),
+      withTimeout(
+        toBlobURL(`${baseURL}/ffmpeg-core.wasm`, "application/wasm").then(
+          captureURL,
         ),
-      ]);
-
-      await ffmpeg!.load({ coreURL, wasmURL });
+        FFMPEG_DOWNLOAD_WASM_TIMEOUT,
+        "FFmpeg WASM download timed out",
+      ),
+    ]);
+    await instance.load({ coreURL, wasmURL });
+  };
+  // First caller and joiners share the same bounded attempt, including startup.
+  const attempt = withTimeout(
+    initialize(),
+    FFMPEG_INIT_TIMEOUT,
+    "FFmpeg initialization timed out. Please select the video again.",
+  )
+    .then(() => {
       loaded = true;
-    } catch (error) {
-      loading = null;
-      ffmpeg = null;
+      return instance;
+    })
+    .catch((error: unknown) => {
+      retired = true;
+      try {
+        instance.terminate();
+      } catch {
+        /* Preserve the original initialization failure. */
+      }
+      if (ffmpeg === instance) {
+        ffmpeg = null;
+        loaded = false;
+      }
       if (error instanceof FFmpegError) throw error;
       throw new FFmpegError("Failed to initialize FFmpeg", error);
-    }
-  })();
-
-  await loading;
-  return ffmpeg;
+    })
+    .finally(() => {
+      retired = true;
+      releaseURLs();
+      if (loading === attempt) loading = null;
+    });
+  loading = attempt;
+  return attempt;
 }
 
 // Get file extension from MIME type
@@ -99,20 +131,48 @@ function getExtensionFromMimeType(mimeType: string): string {
 }
 
 // Get video duration
-export async function getVideoDuration(file: File): Promise<number> {
-  return new Promise((resolve) => {
+export async function getVideoDuration(
+  file: File,
+  signal?: AbortSignal,
+): Promise<number> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new FFmpegError("Video inspection was cancelled"));
+      return;
+    }
     const video = document.createElement("video");
     const objectUrl = URL.createObjectURL(file);
-    video.src = objectUrl;
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const finish = (duration: number, error?: FFmpegError) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", abort);
+      video.onloadedmetadata = null;
+      video.onerror = null;
+      video.removeAttribute("src");
+      video.load();
+      URL.revokeObjectURL(objectUrl);
+      if (error) reject(error);
+      else resolve(duration);
+    };
+    const abort = () =>
+      finish(5, new FFmpegError("Video inspection was cancelled"));
     video.onloadedmetadata = () => {
       const duration = video.duration;
-      URL.revokeObjectURL(objectUrl);
-      resolve(Math.min(duration, 60));
+      finish(
+        Number.isFinite(duration) && duration > 0 ? Math.min(duration, 60) : 5,
+      );
     };
-    video.onerror = () => {
-      URL.revokeObjectURL(objectUrl);
-      resolve(5);
-    };
+    video.onerror = () => finish(5);
+    signal?.addEventListener("abort", abort, { once: true });
+    timer = setTimeout(
+      () => finish(5, new FFmpegError("Video inspection timed out")),
+      VIDEO_METADATA_TIMEOUT,
+    );
+    video.preload = "metadata";
+    video.src = objectUrl;
   });
 }
 
