@@ -1,19 +1,13 @@
-import { atom } from "jotai/vanilla";
 import { fetchUnreadCount } from "../lib/api.ts";
+import { createUnreadCountAtoms } from "./unread-count.ts";
 
 // Shared, app-wide unread notification count. A single poller (mounted once in
 // the app layout) writes this; nav surfaces (sidebar bell, mobile header) read
-// it, and the notifications page resets it to 0 after marking items read.
-export const notificationUnreadAtom = atom(0);
-
-// Refresh the unread count from the backend. Safe to call repeatedly; failures
-// are swallowed (the badge is non-critical) so a transient error never breaks
-// the surrounding UI.
-export const refreshNotificationUnreadAtom = atom(null, async (_get, set) => {
-  try {
-    const count = await fetchUnreadCount();
-    set(notificationUnreadAtom, count);
-  } catch (e) {
-    console.error("Failed to fetch unread notification count:", e);
-  }
-});
+// it, and the notifications page re-fetches it after marking visible items read.
+const unread = createUnreadCountAtoms(
+  "/api/notifications/unread/count",
+  fetchUnreadCount,
+  "Failed to fetch unread notification count:",
+);
+export const notificationUnreadAtom = unread.count;
+export const refreshNotificationUnreadAtom = unread.refresh;
