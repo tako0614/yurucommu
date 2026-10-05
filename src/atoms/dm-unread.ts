@@ -1,5 +1,5 @@
-import { atom } from "jotai/vanilla";
 import { fetchDMUnreadCount } from "../lib/api.ts";
+import { createUnreadCountAtoms } from "./unread-count.ts";
 
 // Shared, app-wide unread DM count. A single poller (mounted once in the app
 // layout / nav) writes this; nav surfaces (Messages destination badge) read it.
@@ -8,16 +8,10 @@ import { fetchDMUnreadCount } from "../lib/api.ts";
 // lightweight GET /dm/unread/count endpoint (a backend parity test pins the two
 // together) so the 30s badge poll does not refetch the whole contacts list with
 // actor enrichment + last-message previews on every tick.
-export const dmUnreadCountAtom = atom(0);
-
-// Refresh the unread DM total from the backend. Safe to call repeatedly;
-// failures are swallowed (the badge is non-critical) so a transient error never
-// breaks the surrounding UI.
-export const refreshDmUnreadAtom = atom(null, async (_get, set) => {
-  try {
-    const { total } = await fetchDMUnreadCount();
-    set(dmUnreadCountAtom, total);
-  } catch (e) {
-    console.error("Failed to fetch unread DM count:", e);
-  }
-});
+const unread = createUnreadCountAtoms(
+  "/api/dm/unread/count",
+  async () => (await fetchDMUnreadCount()).total,
+  "Failed to fetch unread DM count:",
+);
+export const dmUnreadCountAtom = unread.count;
+export const refreshDmUnreadAtom = unread.refresh;

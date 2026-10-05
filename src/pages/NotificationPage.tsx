@@ -1,14 +1,23 @@
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import { useNavigate } from "@solidjs/router";
-import { useSetAtom } from "solid-jotai";
+import { useAtomValue, useSetAtom } from "solid-jotai";
 import type { Notification } from "../types/index.ts";
 import { refreshNotificationUnreadAtom } from "../atoms/notifications.ts";
+import {
+  actorAtom,
+  authSessionEpochAtom,
+  hostedUserAtom,
+  logoutBusyAtom,
+  selectedInstanceIdAtom,
+} from "../atoms/auth.ts";
+import { getAuthStrategy } from "../lib/plugin.ts";
 import {
   acceptFollowRequest,
   archiveAllNotifications,
   archiveNotifications,
   fetchNotifications,
+  getYurucommuApiTransport,
   markNotificationsRead,
   rejectFollowRequest,
   unarchiveNotifications,
@@ -143,6 +152,43 @@ export function NotificationPage() {
   const { t, language } = useI18n();
   const navigate = useNavigate();
   const refreshUnread = useSetAtom(refreshNotificationUnreadAtom);
+  const actor = useAtomValue(actorAtom);
+  const authEpoch = useAtomValue(authSessionEpochAtom);
+  const hostedUser = useAtomValue(hostedUserAtom);
+  const logoutBusy = useAtomValue(logoutBusyAtom);
+  const instance = useAtomValue(selectedInstanceIdAtom);
+  let mounted = true;
+  let scopeGeneration = 0;
+  let olderRequest = 0;
+  onCleanup(() => {
+    mounted = false;
+  });
+  // A pending list read must not issue a mark-read with a later session's
+  // credentials. This also retires pagination after route cleanup.
+  const captureCurrent = () => {
+    const generation = scopeGeneration;
+    const actorId = actor()?.ap_id;
+    const epoch = authEpoch();
+    const instanceId = instance();
+    const hostedUserId = hostedUser()?.id ?? null;
+    const strategy = getAuthStrategy();
+    const transport = getYurucommuApiTransport();
+    const url = transport.resolveUrl("/api/notifications");
+    const readUrl = transport.resolveUrl("/api/notifications/read");
+    return () =>
+      mounted &&
+      generation === scopeGeneration &&
+      !!actorId &&
+      !logoutBusy() &&
+      actor()?.ap_id === actorId &&
+      authEpoch() === epoch &&
+      instance() === instanceId &&
+      (hostedUser()?.id ?? null) === hostedUserId &&
+      getAuthStrategy() === strategy &&
+      getYurucommuApiTransport() === transport &&
+      transport.resolveUrl("/api/notifications") === url &&
+      transport.resolveUrl("/api/notifications/read") === readUrl;
+  };
   const [error, setError] = createSignal<string | null>(null);
   const clearError = () => setError(null);
   const [loadError, setLoadError] = createSignal<string | null>(null);
@@ -160,6 +206,8 @@ export function NotificationPage() {
   const [archiving, setArchiving] = createSignal<Record<string, boolean>>({});
   const archiveMutationPending = () =>
     archivingAll() || Object.values(archiving()).some(Boolean);
+  const notificationMutationPending = () =>
+    archiveMutationPending() || Object.values(pendingAction()).some(Boolean);
   // Bumping this re-runs the load effect for the current filter (retry).
   const [reloadKey, setReloadKey] = createSignal(0);
   // Whether an OLDER page exists past the last notification shown. Seeded from
@@ -171,12 +219,24 @@ export function NotificationPage() {
   // A focus GET can finish after an archive commits. Never merge a snapshot
   // that began before a list reset or archive mutation back into this view.
   let listVersion = 0;
+  let listScope: (() => boolean) | null = null;
 
   createEffect(() => {
     const currentFilter = filter();
     const archived = viewArchived();
     reloadKey();
     listVersion++;
+
+    // A retired session cannot finish clearing these flags. Reset them for
+    // the new scope, while keeping same-scope operations fenced across reloads.
+    if (listScope && !listScope()) {
+      scopeGeneration++;
+      setPendingAction({});
+      setArchiving({});
+      setArchivingAll(false);
+    }
+    olderRequest++;
+    setLoadingOlder(false);
 
     setNotifications([]);
     setHasMoreOlder(false);
@@ -185,8 +245,15 @@ export function NotificationPage() {
     setLoading(true);
 
     let cancelled = false;
+    const current = captureCurrent();
+    listScope = current;
+    if (!current()) {
+      setLoading(false);
+      return;
+    }
 
     const loadNotifications = async () => {
+      if (!current()) return;
       try {
         const {
           notifications: data,
@@ -196,7 +263,7 @@ export function NotificationPage() {
           type: currentFilter === "all" ? undefined : currentFilter,
           archived,
         });
-        if (cancelled) return;
+        if (cancelled || !current()) return;
         setNotifications(data);
         setHasMoreOlder(hasMore);
         setNextCursor(pageCursor);
@@ -209,8 +276,9 @@ export function NotificationPage() {
         const unread = archived ? [] : data.filter((n) => !n.read);
         if (unread.length > 0) {
           try {
+            if (cancelled || !current()) return;
             await markNotificationsRead(unread.map((n) => n.id));
-            if (!cancelled) {
+            if (!cancelled && current()) {
               setNotifications((prev) =>
                 prev.map((n) => (n.read ? n : { ...n, read: true })),
               );
@@ -223,12 +291,12 @@ export function NotificationPage() {
           }
         }
       } catch (e) {
-        if (!cancelled) {
+        if (!cancelled && current()) {
           console.error("Failed to load notifications:", e);
           setLoadError(t("common.loadFailed"));
         }
       } finally {
-        if (!cancelled) {
+        if (!cancelled && current()) {
           setLoading(false);
         }
       }
@@ -248,7 +316,14 @@ export function NotificationPage() {
   // Optimistically drop the row from the current view; on failure reload to
   // restore the true state and surface an inline error.
   const handleArchiveToggle = async (notification: Notification) => {
-    if (archivingAll() || archiving()[notification.id]) return;
+    const current = captureCurrent();
+    if (!listScope?.() || !current()) return;
+    if (
+      archivingAll() ||
+      archiving()[notification.id] ||
+      pendingAction()[notification.id]
+    )
+      return;
     const wasArchived = viewArchived();
     listVersion++;
     setArchiving((p) => ({ ...p, [notification.id]: true }));
@@ -259,6 +334,7 @@ export function NotificationPage() {
       } else {
         await archiveNotifications([notification.id]);
       }
+      if (!current()) return;
       // Re-sync the badge: archiving an unread item lowers the count.
       void refreshUnread();
       // Keep the optimistic removal in place — no full reload on success (that
@@ -267,6 +343,7 @@ export function NotificationPage() {
       // row after the filter above; drop it again.
       setNotifications((prev) => prev.filter((n) => n.id !== notification.id));
     } catch (e) {
+      if (!current()) return;
       console.error("Failed to (un)archive notification:", e);
       setError(
         t(
@@ -277,6 +354,7 @@ export function NotificationPage() {
       );
       retryLoad(); // restore the true list
     } finally {
+      if (!current()) return;
       setArchiving((p) => {
         const next = { ...p };
         delete next[notification.id];
@@ -286,8 +364,10 @@ export function NotificationPage() {
   };
 
   const handleArchiveAll = async () => {
+    const current = captureCurrent();
+    if (!listScope?.() || !current()) return;
     if (
-      archiveMutationPending() ||
+      notificationMutationPending() ||
       viewArchived() ||
       filter() !== "all" ||
       notifications().length === 0
@@ -298,6 +378,7 @@ export function NotificationPage() {
     setArchivingAll(true);
     try {
       await archiveAllNotifications();
+      if (!current()) return;
       void refreshUnread();
       // Everything moved to the archive: the inbox is now empty by definition,
       // so reflect that in place instead of a skeleton-flashing full reload.
@@ -305,18 +386,21 @@ export function NotificationPage() {
       setHasMoreOlder(false);
       setNextCursor(null);
     } catch (e) {
+      if (!current()) return;
       console.error("Failed to archive all notifications:", e);
       setError(t("notifications.archiveAllFailed"));
       retryLoad();
     } finally {
-      setArchivingAll(false);
+      if (current()) setArchivingAll(false);
     }
   };
 
   // Append the next server page. Treat next_cursor as opaque: the backend owns
   // its keyset encoding, so the UI never has to reconstruct it from row data.
   const loadOlder = async () => {
-    if (loadingOlder() || archiveMutationPending()) return;
+    const current = captureCurrent();
+    if (!listScope?.() || !current()) return;
+    if (loadingOlder() || notificationMutationPending()) return;
     const before = nextCursor();
     if (!before) return;
     const currentFilter = filter();
@@ -326,6 +410,8 @@ export function NotificationPage() {
     // NOT be appended (it would graft a stale, non-contiguous page onto the
     // fresh one).
     const key = reloadKey();
+    const version = listVersion;
+    const request = ++olderRequest;
     setLoadingOlder(true);
     try {
       const {
@@ -338,6 +424,8 @@ export function NotificationPage() {
         archived,
       });
       if (
+        !current() ||
+        listVersion !== version ||
         filter() !== currentFilter ||
         viewArchived() !== archived ||
         reloadKey() !== key
@@ -357,9 +445,12 @@ export function NotificationPage() {
       const unread = archived ? [] : older.filter((n) => !n.read);
       if (unread.length > 0) {
         try {
+          if (!current() || listVersion !== version) return;
           const ids = unread.map((n) => n.id);
           await markNotificationsRead(ids);
           if (
+            current() &&
+            listVersion === version &&
             filter() === currentFilter &&
             viewArchived() === archived &&
             reloadKey() === key
@@ -381,6 +472,8 @@ export function NotificationPage() {
       // Surface via the dismissible banner (not the full-page retry) so the
       // already-loaded list stays visible; guard against a mid-flight change.
       if (
+        current() &&
+        listVersion === version &&
         filter() === currentFilter &&
         viewArchived() === archived &&
         reloadKey() === key
@@ -388,7 +481,7 @@ export function NotificationPage() {
         setError(t("common.error"));
       }
     } finally {
-      setLoadingOlder(false);
+      if (current() && request === olderRequest) setLoadingOlder(false);
     }
   };
 
@@ -396,7 +489,13 @@ export function NotificationPage() {
   // visible or regains focus, so an open notification view doesn't go stale
   // while only the shared badge polls.
   const refreshInPlace = async () => {
-    if (loading() || loadError() || archiveMutationPending()) return;
+    const current = captureCurrent();
+    if (!current()) return;
+    if (!listScope?.()) {
+      retryLoad();
+      return;
+    }
+    if (loading() || loadError() || notificationMutationPending()) return;
     const currentFilter = filter();
     const archived = viewArchived();
     const version = listVersion;
@@ -407,6 +506,7 @@ export function NotificationPage() {
       });
       // Ignore late responses if the filter / view changed mid-flight.
       if (
+        !current() ||
         filter() !== currentFilter ||
         viewArchived() !== archived ||
         listVersion !== version
@@ -437,8 +537,10 @@ export function NotificationPage() {
       const unread = archived ? [] : data.filter((n) => !n.read);
       if (unread.length > 0) {
         try {
+          if (!current()) return;
           await markNotificationsRead(unread.map((n) => n.id));
           if (
+            current() &&
             filter() === currentFilter &&
             viewArchived() === archived &&
             listVersion === version
@@ -481,7 +583,16 @@ export function NotificationPage() {
     notification: Notification,
     action: "accept" | "reject",
   ) => {
-    if (viewArchived() || pendingAction()[notification.id]) return;
+    const current = captureCurrent();
+    if (!listScope?.() || !current()) return;
+    if (
+      viewArchived() ||
+      pendingAction()[notification.id] ||
+      archivingAll() ||
+      archiving()[notification.id]
+    )
+      return;
+    listVersion++;
     setPendingAction((prev) => ({ ...prev, [notification.id]: true }));
     try {
       if (action === "accept") {
@@ -489,13 +600,17 @@ export function NotificationPage() {
       } else {
         await rejectFollowRequest(notification.actor.ap_id);
       }
+      if (!current()) return;
+      listVersion++;
       setNotifications((prev) => prev.filter((n) => n.id !== notification.id));
       void refreshUnread();
     } catch (e) {
+      if (!current()) return;
       console.error("Failed to handle follow request:", e);
       setError(t("common.error"));
     } finally {
-      setPendingAction((prev) => ({ ...prev, [notification.id]: false }));
+      if (current())
+        setPendingAction((prev) => ({ ...prev, [notification.id]: false }));
     }
   };
 
@@ -694,7 +809,7 @@ export function NotificationPage() {
             >
               <button
                 onClick={handleArchiveAll}
-                disabled={archiveMutationPending()}
+                disabled={notificationMutationPending()}
                 class="px-3 py-1.5 text-sm text-neutral-300 rounded-full hover:bg-neutral-800 transition-colors disabled:opacity-50"
               >
                 {t("notifications.archiveAll")}
@@ -702,7 +817,7 @@ export function NotificationPage() {
             </Show>
             <button
               onClick={() => setViewArchived((v) => !v)}
-              disabled={archiveMutationPending()}
+              disabled={notificationMutationPending()}
               aria-pressed={viewArchived()}
               class={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-full transition-colors disabled:opacity-50 ${
                 viewArchived()
@@ -725,7 +840,7 @@ export function NotificationPage() {
           aria-label={t("notifications.title")}
           class="flex overflow-x-auto scrollbar-hide border-t border-neutral-900"
           onKeyDown={(e) => {
-            if (archiveMutationPending()) return;
+            if (notificationMutationPending()) return;
             const tabs = filterTabs();
             const cur = tabs.findIndex((tb) => tb.key === filter());
             handleTablistKeydown(e, tabs.length, cur < 0 ? 0 : cur, (i) =>
@@ -739,7 +854,7 @@ export function NotificationPage() {
                 role="tab"
                 aria-selected={filter() === tab.key}
                 tabindex={filter() === tab.key ? 0 : -1}
-                disabled={archiveMutationPending()}
+                disabled={notificationMutationPending()}
                 onClick={() => setFilter(tab.key)}
                 class={`flex items-center gap-1.5 px-4 py-2.5 text-sm whitespace-nowrap transition-colors border-b-2 ${
                   filter() === tab.key
@@ -903,7 +1018,7 @@ export function NotificationPage() {
                 <div class="flex justify-center py-4">
                   <button
                     onClick={loadOlder}
-                    disabled={loadingOlder() || archiveMutationPending()}
+                    disabled={loadingOlder() || notificationMutationPending()}
                     class="rounded-full bg-neutral-800 px-4 py-1.5 text-sm text-neutral-300 hover:bg-neutral-700 transition-colors disabled:opacity-50"
                   >
                     {loadingOlder()
