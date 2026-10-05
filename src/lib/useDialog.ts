@@ -20,6 +20,10 @@ interface UseDialogOptions {
   // focused without reopening the dialog or changing its scroll/return stack.
   busyFocus?: () => HTMLElement | null | undefined;
   busyReturnFocus?: () => HTMLElement | null | undefined;
+  // A settled result can replace the editor, including on initial mount.
+  // Resolve its current surface after DOM updates instead of restoring an
+  // editor which may now be inert.
+  settledFocus?: () => HTMLElement | null | undefined;
 }
 
 /**
@@ -107,30 +111,44 @@ function focusableWithin(root: HTMLElement): HTMLElement[] {
  */
 export function useDialog(options: UseDialogOptions): void {
   let beforeBusy: HTMLElement | null = null;
+  let lastSettled: HTMLElement | null = null;
   createEffect(() => {
-    if (!options.isOpen()) return;
+    if (!options.isOpen()) {
+      lastSettled = null;
+      return;
+    }
     const target = options.busyFocus?.();
     if (target) {
+      lastSettled = null;
       beforeBusy ??=
         options.busyReturnFocus?.() ??
         (document.activeElement instanceof HTMLElement
           ? document.activeElement
           : null);
       target.focus();
-    } else if (beforeBusy) {
+    } else {
+      const settledTarget = options.settledFocus?.() ?? null;
+      const enteredResult = settledTarget && settledTarget !== lastSettled;
+      lastSettled = settledTarget;
+      if (!enteredResult && !beforeBusy) return;
       const previous = beforeBusy;
       beforeBusy = null;
       // Wait for disabled/inert to be removed before restoring the editor.
       queueMicrotask(() => {
-        if (options.busyFocus?.()) return;
+        if (!options.isOpen() || options.busyFocus?.()) return;
         const root = options.container();
-        if (!root?.isConnected) return;
         if (
-          previous.isConnected &&
-          root.contains(previous) &&
-          !previous.closest("[inert]")
+          !root?.isConnected ||
+          dialogStack[dialogStack.length - 1]?.root !== root
         )
-          previous.focus();
+          return;
+        const settled = options.settledFocus?.() ?? previous;
+        if (
+          settled?.isConnected &&
+          root.contains(settled) &&
+          !settled.closest("[inert]")
+        )
+          settled.focus();
         else {
           root.setAttribute("tabindex", "-1");
           root.focus();
