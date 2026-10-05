@@ -4,7 +4,7 @@ import { fetchFile, toBlobURL } from "@ffmpeg/util";
 import { CANVAS_HEIGHT, CANVAS_WIDTH } from "./story-canvas.ts";
 
 // Timeout constants
-const FFMPEG_TIMEOUT = 120000; // 2 min (120s)
+const FFMPEG_EXPORT_TIMEOUT = 240000; // One deadline for the entire export
 const FFMPEG_INIT_TIMEOUT = 60000; // 1 min (initialization)
 const FFMPEG_DOWNLOAD_CORE_TIMEOUT = 30000; // 30s (core download)
 const FFMPEG_DOWNLOAD_WASM_TIMEOUT = 60000; // 1 min (WASM download)
@@ -27,6 +27,22 @@ function withTimeout<T>(
 let ffmpeg: FFmpeg | null = null;
 let loaded = false;
 let loading: Promise<FFmpeg> | null = null;
+let exporting = false;
+const terminated = new WeakSet<FFmpeg>();
+
+function retireFFmpeg(instance: FFmpeg): void {
+  if (terminated.has(instance)) return;
+  terminated.add(instance);
+  if (ffmpeg === instance) {
+    ffmpeg = null;
+    loaded = false;
+  }
+  try {
+    instance.terminate();
+  } catch {
+    // The failed worker must not replace the original export error.
+  }
+}
 
 // Custom error class for FFmpeg operations
 export class FFmpegError extends Error {
@@ -96,15 +112,7 @@ export async function initFFmpeg(): Promise<FFmpeg> {
     })
     .catch((error: unknown) => {
       retired = true;
-      try {
-        instance.terminate();
-      } catch {
-        /* Preserve the original initialization failure. */
-      }
-      if (ffmpeg === instance) {
-        ffmpeg = null;
-        loaded = false;
-      }
+      retireFFmpeg(instance);
       if (error instanceof FFmpegError) throw error;
       throw new FFmpegError("Failed to initialize FFmpeg", error);
     })
@@ -200,33 +208,80 @@ export async function exportCanvasWithVideo(
   videoFile: File,
   onProgress?: (progress: number) => void,
   videoTransform?: VideoTransform,
+  signal?: AbortSignal,
 ): Promise<{ blob: Blob; duration: number }> {
-  const ff = await initFFmpeg();
-
-  const progressHandler = ({ progress }: { progress: number }) => {
-    onProgress?.(progress * 100);
+  // Acquire the lease before the first await, including shared initialization.
+  if (exporting) throw new FFmpegError("A video export is already in progress");
+  exporting = true;
+  let ff: FFmpeg | null = null;
+  let failure: FFmpegError | null = null;
+  let active = true;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const inspection = new AbortController();
+  let rejectInterruption!: (error: FFmpegError) => void;
+  const interruption = new Promise<never>((_, reject) => {
+    rejectInterruption = reject;
+  });
+  // An already-aborted signal can reject before the first raced operation.
+  void interruption.catch(() => {});
+  const interrupt = (error: FFmpegError) => {
+    if (failure) return;
+    failure = error;
+    inspection.abort();
+    rejectInterruption(error);
   };
-  ff.on("progress", progressHandler);
+  const abort = () => interrupt(new FFmpegError("Video export was cancelled"));
+  timer = setTimeout(
+    () => interrupt(new FFmpegError("Video export timed out")),
+    FFMPEG_EXPORT_TIMEOUT,
+  );
+  signal?.addEventListener("abort", abort, { once: true });
+  if (signal?.aborted) abort();
+  const assertActive = () => {
+    if (failure) throw failure;
+  };
+  const run = async <T>(operation: () => Promise<T>): Promise<T> => {
+    assertActive();
+    // Check again in the scheduled operation so an abort cannot start a late RPC.
+    const work = Promise.resolve().then(() => {
+      assertActive();
+      return operation();
+    });
+    const value = await Promise.race([work, interruption]);
+    assertActive();
+    return value;
+  };
+  const progressHandler = ({ progress }: { progress: number }) => {
+    if (active && !failure && ff) onProgress?.(progress * 100);
+  };
 
   try {
+    ff = await run(() => initFFmpeg());
+    assertActive();
+    ff.on("progress", progressHandler);
     // Get video duration
-    const duration = await getVideoDuration(videoFile);
+    const duration = await run(() =>
+      getVideoDuration(videoFile, inspection.signal),
+    );
 
     // Convert canvas to PNG (for overlay)
-    const pngBlob = await new Promise<Blob>((resolve, reject) => {
-      canvas.toBlob((blob) => {
-        if (blob) resolve(blob);
-        else reject(new Error("Failed to create PNG blob"));
-      }, "image/png");
-    });
+    const pngBlob = await run(
+      () =>
+        new Promise<Blob>((resolve, reject) => {
+          canvas.toBlob((blob) => {
+            if (blob) resolve(blob);
+            else reject(new Error("Failed to create PNG blob"));
+          }, "image/png");
+        }),
+    );
 
     // Write files to FFmpeg filesystem
     const ext = getExtensionFromMimeType(videoFile.type);
-    const videoData = await fetchFile(videoFile);
-    const pngData = new Uint8Array(await pngBlob.arrayBuffer());
+    const videoData = await run(() => fetchFile(videoFile));
+    const pngData = new Uint8Array(await run(() => pngBlob.arrayBuffer()));
 
-    await ff.writeFile(`input.${ext}`, videoData);
-    await ff.writeFile("overlay.png", pngData);
+    await run(() => ff!.writeFile(`input.${ext}`, videoData));
+    await run(() => ff!.writeFile("overlay.png", pngData));
 
     // Build video filter with transform
     let videoFilter: string;
@@ -270,8 +325,8 @@ export async function exportCanvasWithVideo(
     }
 
     // Compose video with canvas overlay
-    await withTimeout(
-      ff.exec([
+    const exitCode = await run(() =>
+      ff!.exec([
         "-i",
         `input.${ext}`,
         "-i",
@@ -297,39 +352,42 @@ export async function exportCanvasWithVideo(
         "-y",
         "output.mp4",
       ]),
-      FFMPEG_TIMEOUT * 2,
-      "Video export timed out",
     );
+    if (exitCode !== 0)
+      throw new FFmpegError(`Video encoder exited with status ${exitCode}`);
 
     // Read output
-    const data = await ff.readFile("output.mp4");
+    const data = await run(() => ff!.readFile("output.mp4"));
+    if (!(data instanceof Uint8Array) || data.byteLength === 0)
+      throw new FFmpegError("Video encoder produced no usable output");
 
-    // Cleanup
-    try {
-      await ff.deleteFile(`input.${ext}`);
-    } catch {
-      /* ignore */
-    }
-    try {
-      await ff.deleteFile("overlay.png");
-    } catch {
-      /* ignore */
-    }
-    try {
-      await ff.deleteFile("output.mp4");
-    } catch {
-      /* ignore */
-    }
+    // A cached worker is reusable only after all work files are removed.
+    await run(() => ff!.deleteFile(`input.${ext}`));
+    await run(() => ff!.deleteFile("overlay.png"));
+    await run(() => ff!.deleteFile("output.mp4"));
 
-    const blobData = data instanceof Uint8Array ? new Uint8Array(data) : data;
+    const blobData = new Uint8Array(data);
     return {
       blob: new Blob([blobData], { type: "video/mp4" }),
       duration: Math.min(duration, 60),
     };
   } catch (error) {
+    active = false;
+    if (ff) retireFFmpeg(ff);
     if (error instanceof FFmpegError) throw error;
     throw new FFmpegError("Failed to export video", error);
   } finally {
-    ff.off("progress", progressHandler);
+    active = false;
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", abort);
+    inspection.abort();
+    if (ff) {
+      try {
+        ff.off("progress", progressHandler);
+      } catch {
+        // A terminated worker may no longer accept listener operations.
+      }
+    }
+    exporting = false;
   }
 }

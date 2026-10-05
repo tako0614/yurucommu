@@ -77,6 +77,7 @@ export function useStoryPost(opts: UseStoryPostOptions) {
   let coordinator: ReturnType<typeof createStoryIntentCoordinator> | null =
     null;
   let mounted = true;
+  let exportController: AbortController | null = null;
   let retained: { intentId: string; file: File } | null = null;
   const releaseFile = () => {
     retained = null;
@@ -119,8 +120,16 @@ export function useStoryPost(opts: UseStoryPostOptions) {
     next.uploadEndpoint === original.uploadEndpoint &&
     next.storyEndpoint === original.storyEndpoint;
   const retireIdentity = () => {
+    if (identityChanged()) return;
+    exportController?.abort();
     releaseFile();
     setIdentityChanged(true);
+    // The old attempt's finally is deliberately gated after retirement. Unlock
+    // the still-mounted composer here so it can be closed immediately.
+    if (mounted) {
+      setPosting(false);
+      setProgress(0);
+    }
   };
   // A mounted draft remains bound to its original backend and principal.
   // Reopening creates a new coordinator; a mid-upload switch cannot re-aim it.
@@ -171,6 +180,7 @@ export function useStoryPost(opts: UseStoryPostOptions) {
   };
   onCleanup(() => {
     mounted = false;
+    exportController?.abort();
     releaseFile();
   });
   createEffect(() => {
@@ -403,6 +413,8 @@ export function useStoryPost(opts: UseStoryPostOptions) {
     )
       return;
     const attemptCoordinator = coordinator;
+    const belongsToAttempt = () =>
+      mounted && coordinator === attemptCoordinator && identityMatches();
     // Video mode requires FFmpeg to be ready
     if (opts.videoFile && !opts.ffmpegReady) {
       opts.setError(t("story.videoNotReady"));
@@ -442,13 +454,20 @@ export function useStoryPost(opts: UseStoryPostOptions) {
 
       if (captured.videoFile) {
         // Video mode: export canvas overlay on video through FFmpeg
+        const controller = new AbortController();
+        exportController = controller;
         setProgress(10);
         const result = await exportCanvasWithVideo(
           canvas,
           captured.videoFile,
-          (p) => setProgress(10 + p * 0.6), // 10-70%
+          (p) => {
+            if (belongsToAttempt() && !controller.signal.aborted)
+              setProgress(10 + p * 0.6); // 10-70%
+          },
           captured.transform,
+          controller.signal,
         );
+        if (exportController === controller) exportController = null;
         blob = result.blob;
         contentType = "video/mp4";
         duration = result.duration;
@@ -467,7 +486,7 @@ export function useStoryPost(opts: UseStoryPostOptions) {
         });
         contentType = "image/jpeg";
         duration = captured.imageDuration;
-        setProgress(50);
+        if (belongsToAttempt()) setProgress(50);
       }
       if (!identityMatches() || coordinator !== attemptCoordinator) return;
 
@@ -510,11 +529,13 @@ export function useStoryPost(opts: UseStoryPostOptions) {
       )
         return;
       const outcome = await attemptCoordinator.submit(scopedCreate);
-      setProgress(outcome.kind === "confirmed" ? 100 : 0);
-      if (identityMatches() && coordinator === attemptCoordinator)
+      if (belongsToAttempt()) {
+        setProgress(outcome.kind === "confirmed" ? 100 : 0);
         applyOutcome(outcome);
+      }
     } catch (err) {
       console.error("Failed to create story:", err);
+      if (!belongsToAttempt()) return;
       if (err instanceof FFmpegError) {
         opts.setError(
           t("story.videoProcessError").replace("{message}", err.message),
@@ -527,8 +548,11 @@ export function useStoryPost(opts: UseStoryPostOptions) {
         opts.setError(t("story.createFailed"));
       }
     } finally {
-      setPosting(false);
-      setProgress(0);
+      exportController = null;
+      if (belongsToAttempt()) {
+        setPosting(false);
+        setProgress(0);
+      }
     }
   };
 
