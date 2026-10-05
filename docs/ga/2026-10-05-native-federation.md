@@ -34,7 +34,7 @@ separate from this same-product regression gate. This source unit's own gate,
 denial control and CI must qualify its own scripts and freshly rebuilt bytes;
 the earlier cross-product artifact run cannot substitute for them.
 
-Neither fixture proves public DNS/TLS, live federation, signature/SSRF negative
+Neither fixture proves public DNS/TLS, live federation, signer/actor binding or SSRF negative
 controls, transport retry/DLQ/redrive, real issuer integration or existing operator
 data update/restore. Core package publication and consumer adoption remain
 separate dependencies; this change updates no package version or schema.
@@ -48,3 +48,11 @@ After the real delay, the same activity, object, recipient and job must deliver 
 Use `--deny-endpoint-retry` as a strict denial-only control. It refuses the next real retry for that exact activity and object, then requires the same job to remain in `retry_wait` with two failed attempts and no recipient Note. Only after observing that failure does it emit a FAILED record on stderr and exit nonzero, with native runtime/state cleanup. This control cannot be combined with `--deny-peer-key-fetch`; neither control can report a passing journey. The supervisor allows 300 seconds for migration, real delayed delivery, reads and cleanup.
 
 This is an application endpoint-retry regression for the product's built Worker bytes. Native transport retry/DLQ, six-hour reconciliation/redrive, public DNS/TLS and live Queue/Cron/federation remain separate. It does not change published Core pins, schema, account ownership, or deployed state.
+
+## Signed-body Digest refusal
+
+Before forwarding the first genuine signed A-to-B Follow, the default router tests a separate copy whose valid JSON differs by one final activity-ID hex nibble. Its body has the same byte length; URL, Host, Date, Signature, Digest and Content-Length stay unchanged. The product inbox must return HTTP 401 with the generic `Signature verification failed` error. A read-only binding to B's existing disposable native D1 lets the router assert zero inbound activities, dispatch claims, inbox entries, A-to-B follow edges and remote objects before and after that negative request. This is a test observer binding, not a product configuration or authorization change.
+
+After refusal, the router forwards the untouched original request. It must receive 202 and produce exactly one pending Follow, one processed receiver-local actor-scoped inbound ledger row and one dispatch claim. The row's raw envelope must retain the original wire ID; no ledger row may exist for the altered copy. The manifest records the negative status, preserved-header fact, IDs/body hashes, zero-effect counters and original acceptance. It never logs bodies, signatures, cookies or private keys. Runtime/state cleanup still gates success.
+
+This probe runs in the default and endpoint-retry-denial journeys. It is disabled in `--deny-peer-key-fetch`, which remains a separate denial control. The new witness covers Digest refusal in the current built Worker, not signer/actor binding, valid foreign-wire-ID handling, redirect/private-IP refusal or public transport. Actor mismatch needs its own correctly re-signed negative; a validly signed foreign wire ID is normally accepted and stored under an actor-scoped internal ID. Neither contract should be inferred from this Digest test.
