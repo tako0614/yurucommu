@@ -58,6 +58,7 @@ const routeEvents = [];
 const secrets = [];
 const instances = [];
 let deniedEndpointRetryObserved = false;
+let digestTamperProof = null;
 let phase = "preflight";
 let runtime;
 let tempRoot;
@@ -121,16 +122,49 @@ function captureDiagnosticChunk(chunk) {
             typeof event.activityType === "string" ? event.activityType : null,
           actorId: typeof event.actorId === "string" ? event.actorId : null,
           objectId: typeof event.objectId === "string" ? event.objectId : null,
+          followTarget:
+            typeof event.followTarget === "string" ? event.followTarget : null,
           followersOnlyAddressing: Boolean(event.followersOnlyAddressing),
           reason:
-            event.reason === "fixture-deny-endpoint-retry"
+            event.reason === "digest-tamper-refused"
               ? event.reason
-              : event.reason === "first-followers-create-503"
+              : event.reason === "fixture-deny-endpoint-retry"
                 ? event.reason
-                : event.reason === "fixture-deny-unsigned-peer-key-get"
+                : event.reason === "first-followers-create-503"
                   ? event.reason
-                  : undefined,
+                  : event.reason === "fixture-deny-unsigned-peer-key-get"
+                    ? event.reason
+                    : undefined,
           atMs: Number.isSafeInteger(event.atMs) ? event.atMs : null,
+          originalId:
+            typeof event.originalId === "string" ? event.originalId : null,
+          mutatedId:
+            typeof event.mutatedId === "string" ? event.mutatedId : null,
+          originalSha256: /^[a-f0-9]{64}$/.test(event.originalSha256)
+            ? event.originalSha256
+            : null,
+          mutatedSha256: /^[a-f0-9]{64}$/.test(event.mutatedSha256)
+            ? event.mutatedSha256
+            : null,
+          headersPreserved: event.headersPreserved === true,
+          responseError:
+            event.responseError === "Signature verification failed"
+              ? event.responseError
+              : null,
+          noInboundEffects: event.noInboundEffects === true,
+          inboundCounts:
+            event.inboundCounts && typeof event.inboundCounts === "object"
+              ? Object.fromEntries(
+                  ["activities", "claims", "inbox", "follows", "objects"].map(
+                    (name) => [
+                      name,
+                      Number.isSafeInteger(event.inboundCounts[name])
+                        ? event.inboundCounts[name]
+                        : null,
+                    ],
+                  ),
+                )
+              : null,
         };
         if (
           !routeEvents.some(
@@ -265,6 +299,22 @@ function virtualRouterScript(index) {
 const peerOrigin = ${JSON.stringify(origins[peerIndex])};
 const dns = ${JSON.stringify(Object.fromEntries(dnsRecords))};
 let followersCreateFault = null;
+let followDigestProbeUsed = false;
+async function inboundCounts(db, actorId, targetId) {
+  const queries = {
+    activities: ["SELECT COUNT(*) AS count FROM activities WHERE direction = 'inbound'", []],
+    claims: ["SELECT COUNT(*) AS count FROM inbound_activity_claims", []],
+    inbox: ["SELECT COUNT(*) AS count FROM inbox", []],
+    follows: ["SELECT COUNT(*) AS count FROM follows WHERE follower_ap_id = ? AND following_ap_id = ?", [actorId, targetId]],
+    objects: ["SELECT COUNT(*) AS count FROM objects WHERE is_local = 0", []],
+  };
+  const counts = {};
+  for (const [name, [sql, args]] of Object.entries(queries)) {
+    const row = await db.prepare(sql).bind(...args).first();
+    counts[name] = row?.count;
+  }
+  return counts;
+}
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -285,6 +335,8 @@ export default {
       metadata.activityType = typeof activity?.type === 'string' ? activity.type : null;
       metadata.actorId = typeof activity?.actor === 'string' ? activity.actor : null;
       metadata.objectId = typeof activity?.object?.id === 'string' ? activity.object.id : null;
+      metadata.followTarget = activity?.type === 'Follow' && typeof activity.object === 'string'
+        ? activity.object : null;
       const publicAudience = 'https://www.w3.org/ns/activitystreams#Public';
       metadata.followersOnlyAddressing = metadata.actorId?.startsWith(selfOrigin + '/ap/users/')
         && activity?.object?.attributedTo === metadata.actorId
@@ -306,6 +358,57 @@ export default {
       && !metadata.signaturePresent) {
       console.log('native-peer-route', JSON.stringify({ ...metadata, status: 502, reason: 'fixture-deny-unsigned-peer-key-get' }));
       return new Response(null, { status: 502 });
+    }
+    if (${!denyUnsignedPeerKeyGet} && ${index === 0} && !followDigestProbeUsed
+      && request.method === 'POST' && url.pathname.endsWith('/inbox')
+      && metadata.signaturePresent && metadata.activityType === 'Follow'
+      && metadata.actorId?.startsWith(selfOrigin + '/ap/users/')
+      && metadata.followTarget?.startsWith(peerOrigin + '/ap/users/')
+      && metadata.activityId?.startsWith(selfOrigin + '/ap/activities/')) {
+      followDigestProbeUsed = true;
+      const originalBody = await request.clone().text();
+      const parsed = JSON.parse(originalBody);
+      const originalId = parsed.id;
+      const idStart = originalBody.indexOf(JSON.stringify(originalId));
+      if (idStart < 0 || !/^[a-f0-9]$/i.test(originalId.at(-1)))
+        throw new Error('digest probe requires a hex-suffixed Follow id');
+      const lastNibbleOffset = idStart + JSON.stringify(originalId).length - 2;
+      const changedNibble = originalBody[lastNibbleOffset].toLowerCase() === 'a' ? 'b' : 'a';
+      const mutatedBody = originalBody.slice(0, lastNibbleOffset) + changedNibble
+        + originalBody.slice(lastNibbleOffset + 1);
+      const mutatedId = originalId.slice(0, -1) + changedNibble;
+      if (mutatedBody.length !== originalBody.length
+        || JSON.parse(mutatedBody).id !== mutatedId
+        || mutatedId === originalId)
+        throw new Error('digest probe changed more than one id nibble');
+      const beforeCounts = await inboundCounts(env.PEER_DB, metadata.actorId, metadata.followTarget);
+      if (!Object.values(beforeCounts).every((count) => count === 0))
+        throw new Error('digest probe receiver had preexisting inbound effects');
+      const negative = new Request(request.url, {
+        method: request.method, headers: new Headers(request.headers), body: mutatedBody,
+      });
+      const retainedHeaders = ['host', 'date', 'signature', 'digest', 'content-length'];
+      const headersPreserved = retainedHeaders.every((name) =>
+        negative.headers.get(name) === request.headers.get(name));
+      if (!headersPreserved) throw new Error('digest probe changed signed headers');
+      const hashHex = async (body) => Array.from(new Uint8Array(
+        await crypto.subtle.digest('SHA-256', new TextEncoder().encode(body)),
+      )).map((byte) => byte.toString(16).padStart(2, '0')).join('');
+      const negativeResponse = await env.PEER.fetch(negative);
+      const negativeText = await negativeResponse.text();
+      let negativeError = null;
+      try { negativeError = JSON.parse(negativeText).error; } catch {}
+      const counts = await inboundCounts(env.PEER_DB, metadata.actorId, metadata.followTarget);
+      const noInboundEffects = Object.values(counts).every((count) => count === 0)
+        && Object.keys(counts).every((name) => beforeCounts[name] === counts[name]);
+      console.log('native-peer-route', JSON.stringify({ ...metadata,
+        status: negativeResponse.status, reason: 'digest-tamper-refused',
+        originalId, mutatedId, originalSha256: await hashHex(originalBody),
+        mutatedSha256: await hashHex(mutatedBody), headersPreserved,
+        responseError: negativeError === 'Signature verification failed' ? negativeError : null,
+        noInboundEffects, inboundCounts: counts, atMs: Date.now() }));
+      if (negativeResponse.status !== 401 || negativeError !== 'Signature verification failed'
+        || !noInboundEffects) throw new Error('tampered Follow was not refused without inbound effects');
     }
     const signedFollowersCreate = ${index === 1} && metadata.signaturePresent
       && request.method === 'POST' && url.pathname.endsWith('/inbox')
@@ -602,6 +705,7 @@ try {
             modules: true,
             script: virtualRouterScript(0),
             serviceBindings: { PEER: workerNames[1] },
+            d1Databases: { PEER_DB: workerB.d1Databases.DB },
             outboundService: "deny-outbound",
           },
           {
@@ -686,6 +790,122 @@ try {
       : null;
   });
   assert.equal(pending.filter((item) => item.ap_id === a.ownerApId).length, 1);
+  if (!denyUnsignedPeerKeyGet) {
+    phase = "follow-digest-tamper-ledger-oracle";
+    const tamper = await poll(
+      "signed Follow digest tamper route event",
+      async () =>
+        routeEvents.find((item) => item.reason === "digest-tamper-refused"),
+      5_000,
+    );
+    assert.equal(
+      routeEvents.filter((item) => item.reason === "digest-tamper-refused")
+        .length,
+      1,
+      "digest probe must run once",
+    );
+    assert.equal(tamper.router, routerNames[0]);
+    assert.equal(tamper.targetHost, "b.yuru-native.invalid");
+    assert.equal(tamper.headerHost, tamper.targetHost);
+    assert.equal(tamper.method, "POST");
+    assert.equal(tamper.activityType, "Follow");
+    assert.equal(tamper.actorId, a.ownerApId);
+    assert.equal(tamper.followTarget, b.ownerApId);
+    assert.equal(tamper.status, 401);
+    assert.equal(tamper.responseError, "Signature verification failed");
+    assert.equal(tamper.headersPreserved, true);
+    assert.equal(tamper.noInboundEffects, true);
+    assert(
+      Object.values(tamper.inboundCounts).every((count) => count === 0),
+      "tampered Follow created receiver inbound state",
+    );
+    assert.equal(tamper.originalId, tamper.activityId);
+    assert.equal(tamper.originalId.length, tamper.mutatedId.length);
+    assert.notEqual(tamper.originalId, tamper.mutatedId);
+    assert.notEqual(tamper.originalSha256, tamper.mutatedSha256);
+    const originalForward = await poll(
+      "untouched signed Follow accepted after digest refusal",
+      async () => {
+        const matches = routeEvents.filter(
+          (item) =>
+            item.router === routerNames[0] &&
+            item.method === "POST" &&
+            item.activityType === "Follow" &&
+            item.activityId === tamper.originalId &&
+            item.status === 202,
+        );
+        return matches.length ? matches : null;
+      },
+      10_000,
+    );
+    assert.equal(
+      originalForward.length,
+      1,
+      "untouched signed Follow was not accepted after digest refusal",
+    );
+    const inboundActivityId = `${b.origin}/ap/activities/inbound-${sha256(
+      Buffer.from(`${a.ownerApId}\0${tamper.originalId}`, "utf8"),
+    )}`;
+    const mutatedInboundActivityId = `${b.origin}/ap/activities/inbound-${sha256(
+      Buffer.from(`${a.ownerApId}\0${tamper.mutatedId}`, "utf8"),
+    )}`;
+    const inboundFollows = await rows(
+      b.schema.db,
+      "SELECT ap_id, actor_ap_id, raw_json, processed FROM activities WHERE type = 'Follow' AND direction = 'inbound' AND actor_ap_id = ?",
+      [a.ownerApId],
+    );
+    assert.equal(inboundFollows.length, 1);
+    assert.equal(inboundFollows[0].ap_id, inboundActivityId);
+    assert.equal(inboundFollows[0].actor_ap_id, a.ownerApId);
+    assert.equal(inboundFollows[0].processed, 1);
+    assert.equal(JSON.parse(inboundFollows[0].raw_json).id, tamper.originalId);
+    const poisonedRows = await rows(
+      b.schema.db,
+      "SELECT ap_id FROM activities WHERE ap_id = ?",
+      [mutatedInboundActivityId],
+    );
+    assert.equal(
+      poisonedRows.length,
+      0,
+      "tampered wire ID poisoned the actor-scoped inbound ledger",
+    );
+    const followClaims = await rows(
+      b.schema.db,
+      "SELECT activity_ap_id FROM inbound_activity_claims WHERE activity_ap_id IN (?, ?)",
+      [inboundActivityId, mutatedInboundActivityId],
+    );
+    assert.deepEqual(followClaims, [{ activity_ap_id: inboundActivityId }]);
+    const pendingEdges = await rows(
+      b.schema.db,
+      "SELECT follower_ap_id, following_ap_id, status FROM follows WHERE follower_ap_id = ? AND following_ap_id = ?",
+      [a.ownerApId, b.ownerApId],
+    );
+    assert.deepEqual(pendingEdges, [
+      {
+        follower_ap_id: a.ownerApId,
+        following_ap_id: b.ownerApId,
+        status: "pending",
+      },
+    ]);
+    digestTamperProof = {
+      status: tamper.status,
+      error: tamper.responseError,
+      originalId: tamper.originalId,
+      mutatedId: tamper.mutatedId,
+      originalSha256: tamper.originalSha256,
+      mutatedSha256: tamper.mutatedSha256,
+      headersPreserved: tamper.headersPreserved,
+      noInboundEffects: tamper.noInboundEffects,
+      inboundCounts: tamper.inboundCounts,
+      originalFollowStatus: originalForward[0].status,
+      receiverActivityId: inboundActivityId,
+      receiverProcessed: inboundFollows[0].processed,
+      receiverRawJsonHasOriginalWireId: true,
+      mutatedActivityCount: poisonedRows.length,
+      pendingEdgeCount: pendingEdges.length,
+    };
+    phases.push("tampered-follow-digest-401-zero-effects-then-original-202");
+  }
   phases.push("signed-follow-queue-to-private-peer-pending");
   phase = "accept-and-return-delivery";
   await requestJson(
@@ -1381,6 +1601,7 @@ try {
       denyUnsignedPeerKeyGet,
       denyEndpointRetry,
       endpointRetryFaultObserved: faultEvents.length === 1,
+      digestTamperProbeEnabled: !denyUnsignedPeerKeyGet,
     },
     artifact: {
       name: basename(artifactPath),
@@ -1424,7 +1645,13 @@ try {
         finalPostJob.error === null &&
         finalCircuitRows[0].consecutive_failures === 0 &&
         successfulCreates.length === 1,
+      digestTamperRefused: digestTamperProof?.status === 401,
+      digestTamperNoInboundEffects:
+        digestTamperProof?.noInboundEffects === true,
+      originalFollowAcceptedAfterTamper:
+        digestTamperProof?.originalFollowStatus === 202,
     },
+    digestTamper: digestTamperProof,
     endpointRetry: {
       firstFailure: {
         status: firstFailure.fault.status,
@@ -1509,7 +1736,15 @@ try {
         endpointRetryFaultObserved: routeEvents.some(
           (event) => event.reason === "first-followers-create-503",
         ),
+        digestTamperProbeEnabled: !denyUnsignedPeerKeyGet,
+        digestTamperObserved: routeEvents.some(
+          (event) => event.reason === "digest-tamper-refused",
+        ),
       },
+      digestTamper:
+        digestTamperProof ??
+        routeEvents.find((event) => event.reason === "digest-tamper-refused") ??
+        null,
       phase,
       error: mainError
         ? redact(mainError?.message ?? mainError)
