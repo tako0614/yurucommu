@@ -27,6 +27,18 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Fixed dark surfaces keep their own browser UI and focus colors. */
+.nav,
+.hero,
+.principles,
+.server-section,
+.advertisement,
+.footer,
+.code {
+  color-scheme: only dark;
+  --color-focus: var(--color-night-focus);
+}
+
 h1,
 h2,
 h3,
@@ -211,17 +223,6 @@ a:focus-visible {
 }
 
 .hero-brand {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-}
-
-.hero-brand img {
-  flex: none;
-  border-radius: 22%;
-}
-
-.hero-brand h1 {
   font-size: clamp(1.8rem, 4.3vw, 3.5rem);
   font-weight: 900;
   line-height: 1.2;
@@ -526,11 +527,6 @@ figcaption {
   .start-grid {
     gap: var(--space-xl);
   }
-
-  .hero-brand img {
-    width: 44px;
-    height: 44px;
-  }
 }
 
 @media (max-width: 767px) {
@@ -560,10 +556,6 @@ figcaption {
   }
 
   .hero-brand {
-    gap: 0.75rem;
-  }
-
-  .hero-brand h1 {
     font-size: clamp(1.8rem, 8vw, 2.8rem);
   }
 
