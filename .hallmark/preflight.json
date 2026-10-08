@@ -1,0 +1,12 @@
+{
+  "date": "2026-10-08",
+  "scope": "site-src/index.html",
+  "framework": "static HTML generated with build-site.mjs",
+  "fonts": [
+    "Noto Sans JP",
+    "JetBrains Mono"
+  ],
+  "brand": "dark surfaces, blue actions, ゆ mark",
+  "motion": "hover and focus only",
+  "source": "7407f8b"
+}

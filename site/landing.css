@@ -1,0 +1,697 @@
+/* Hallmark · genre: modern-minimal · macrostructure: Split Studio
+ * theme: existing Yurucommu brand · nav: N9 edge-aligned · footer: Ft2 inline
+ * audience: prospective self-hosted SNS users · action: try or install
+ * enrichment: real product screenshots · motion: hover and focus only
+ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  overflow-x: clip;
+  scroll-behavior: smooth;
+  scroll-padding-top: 6rem;
+}
+
+body {
+  margin: 0;
+  overflow-x: clip;
+  background: var(--color-night);
+  color: var(--color-white);
+  font-family: var(--font-body);
+  font-size: var(--text-body);
+  line-height: 1.9;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+p,
+figure {
+  margin: 0;
+}
+
+h1,
+h2,
+h3 {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-family: var(--font-display);
+  font-style: normal;
+  line-height: 1.5;
+  letter-spacing: -0.035em;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+::selection {
+  background: var(--color-accent);
+  color: var(--color-white);
+}
+
+a:focus-visible {
+  outline: 3px solid var(--color-focus);
+  outline-offset: 5px;
+}
+
+.wrap {
+  width: min(100% - 6rem, 1200px);
+  margin-inline: auto;
+}
+
+.skip {
+  position: absolute;
+  top: var(--space-sm);
+  left: var(--space-sm);
+  z-index: 100;
+  padding: var(--space-xs) var(--space-sm);
+  transform: translateY(-200%);
+  background: var(--color-accent);
+  color: var(--color-white);
+}
+
+.skip:focus {
+  transform: none;
+}
+
+.nav {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--color-night);
+  border-bottom: 1px solid var(--color-night-rule);
+}
+
+.nav-inner,
+.nav-links,
+.brand,
+.hero-actions,
+.footer-links {
+  display: flex;
+  align-items: center;
+}
+
+.nav-inner {
+  min-height: 80px;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.brand {
+  gap: 0.625rem;
+  font-weight: 700;
+  font-size: 1rem;
+  white-space: nowrap;
+}
+
+.brand img {
+  flex: none;
+  border-radius: 22%;
+}
+
+.nav-links {
+  gap: var(--space-lg);
+  font-size: 0.875rem;
+}
+
+.nav-secondary {
+  color: var(--color-night-muted);
+  white-space: nowrap;
+}
+
+.nav-secondary:hover,
+.footer-links a:hover {
+  color: var(--color-white);
+  text-decoration: underline;
+  text-underline-offset: 0.35em;
+}
+
+.button,
+.text-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  max-width: 100%;
+  white-space: nowrap;
+  font-size: 0.9375rem;
+  font-weight: 700;
+}
+
+.button {
+  min-height: 48px;
+  padding: 0.75rem 1.25rem;
+  border-radius: var(--radius-action);
+  background: var(--color-accent);
+  color: var(--color-white);
+  transition: background var(--dur-short) var(--ease-out);
+}
+
+.button:hover {
+  background: var(--color-accent-hover);
+}
+
+.button:active {
+  transform: translateY(1px);
+}
+
+.button-small {
+  min-height: 42px;
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+}
+
+.text-link {
+  min-height: 44px;
+  justify-content: flex-start;
+  text-decoration: underline;
+  text-decoration-color: var(--color-rule);
+  text-underline-offset: 0.4em;
+  transition: text-decoration-color var(--dur-short) var(--ease-out);
+}
+
+.text-link:hover {
+  text-decoration-color: currentColor;
+}
+
+.hero {
+  padding-block: var(--space-3xl) var(--space-2xl);
+}
+
+.hero-grid,
+.feature-row,
+.section-intro,
+.server-inner,
+.start-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  align-items: center;
+  gap: var(--space-2xl);
+}
+
+.hero-copy,
+.feature-copy,
+.server-copy,
+.start-install,
+.start-local {
+  min-width: 0;
+}
+
+.hero-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.hero-brand img {
+  flex: none;
+  border-radius: 22%;
+}
+
+.hero-brand h1 {
+  font-size: clamp(1.8rem, 4.3vw, 3.5rem);
+  font-weight: 900;
+  line-height: 1.2;
+}
+
+.hero-title {
+  margin-top: var(--space-lg);
+  font-size: clamp(1.5rem, 2.1vw, 1.85rem);
+  font-weight: 700;
+  line-height: 1.7;
+  letter-spacing: -0.035em;
+}
+
+.hero-description {
+  margin-top: var(--space-md);
+  max-width: 30rem;
+  color: var(--color-night-muted);
+  line-height: 2;
+}
+
+.hero-actions {
+  margin-top: var(--space-lg);
+  flex-wrap: wrap;
+  gap: var(--space-sm) var(--space-md);
+}
+
+.hero-note {
+  margin-top: var(--space-md);
+  color: var(--color-night-muted);
+  font-size: var(--text-small);
+}
+
+.hero-figure {
+  min-width: 0;
+}
+
+.hero-screen {
+  display: block;
+  overflow: hidden;
+  aspect-ratio: 578 / 660;
+  background: var(--color-night-panel);
+  border: 1px solid var(--color-night-rule);
+  border-radius: var(--radius-screen);
+}
+
+/* Focus the desktop capture on its feed; the mobile source uses its full UI. */
+.hero-screen img {
+  width: 221.453%;
+  max-width: none;
+  transform: translateX(-26.5625%);
+}
+
+figcaption {
+  margin-top: var(--space-sm);
+  color: var(--color-muted);
+  font-size: var(--text-small);
+  text-align: center;
+}
+
+.hero-figure figcaption {
+  color: var(--color-night-muted);
+}
+
+.principles {
+  padding-block: var(--space-lg);
+  border-top: 1px solid var(--color-night-rule);
+}
+
+.principles-inner {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-xs) var(--space-lg);
+  font-size: 0.9375rem;
+  color: var(--color-night-muted);
+}
+
+.features,
+.community-section,
+.start-section {
+  background: var(--color-paper);
+  color: var(--color-ink);
+}
+
+.features,
+.story-section,
+.community-section,
+.server-section,
+.start-section {
+  padding-block: var(--space-3xl);
+}
+
+.section-intro h2,
+.feature-copy h2,
+.feature-copy h3,
+.server-inner h2 {
+  font-size: var(--text-heading);
+  font-weight: 700;
+}
+
+.section-intro p,
+.feature-copy p,
+.start-grid p {
+  color: var(--color-muted);
+  max-width: 28rem;
+}
+
+.timeline-row {
+  margin-top: var(--space-3xl);
+}
+
+.feature-copy p {
+  margin-top: var(--space-md);
+}
+
+.feature-copy .text-link {
+  margin-top: var(--space-md);
+}
+
+.timeline-screen {
+  display: block;
+  overflow: hidden;
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-screen);
+  background: var(--color-night-panel);
+}
+
+.story-section {
+  background: var(--color-paper-blue);
+  color: var(--color-ink);
+}
+
+.story-row {
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+}
+
+.story-row .feature-copy {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.story-figure {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+/* The real viewer occupies x27..532/y430..1329 in a 560x1760 capture.
+ * Center that 506x900 region; retain all viewer controls without padding. */
+.story-screen {
+  position: relative;
+  width: min(100%, 290px);
+  aspect-ratio: 506 / 900;
+  margin-inline: auto;
+  overflow: hidden;
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-screen);
+  background: var(--color-night);
+}
+
+.story-screen img {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 110.672%;
+  max-width: none;
+  transform: translate(-50%, -50%);
+}
+
+/* Show the community menu at a readable scale, instead of shrinking
+ * the full desktop screenshot and its surrounding sidebars. */
+.community-screen {
+  position: relative;
+  max-width: 500px;
+  aspect-ratio: 1.12;
+  margin-inline: auto;
+  overflow: hidden;
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-screen);
+  background: var(--color-night);
+}
+
+.community-screen img {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 230%;
+  max-width: none;
+  transform: translate(-50%, -50%);
+}
+
+.server-inner {
+  align-items: start;
+}
+
+.server-copy p {
+  color: var(--color-night-muted);
+}
+
+.server-copy p + p {
+  margin-top: var(--space-md);
+}
+
+.server-copy .text-link {
+  margin-top: var(--space-md);
+}
+
+.start-grid {
+  margin-top: var(--space-2xl);
+  align-items: start;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.start-grid h3 {
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.start-grid p {
+  margin-top: var(--space-sm);
+}
+
+.start-grid .button,
+.start-grid .text-link {
+  margin-top: var(--space-md);
+}
+
+.self-host {
+  margin-top: var(--space-xl);
+}
+
+.code {
+  margin: var(--space-md) 0 0;
+  padding: var(--space-md);
+  overflow-x: auto;
+  background: var(--color-night);
+  color: var(--color-white);
+  border-radius: var(--radius-action);
+  font-family: var(--font-mono);
+  font-size: var(--text-small);
+  line-height: 2;
+  white-space: pre;
+}
+
+.code code {
+  font-family: inherit;
+}
+
+.start-grid .local-note {
+  font-size: var(--text-small);
+}
+
+.advertisement {
+  width: min(100%, 488px);
+  margin-inline: auto;
+}
+
+.advertisement:has(> :not(script)) {
+  padding: var(--space-md);
+}
+
+.footer {
+  padding-block: var(--space-xl);
+  border-top: 1px solid var(--color-night-rule);
+}
+
+.footer-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-md) var(--space-xl);
+}
+
+.footer-links {
+  flex-wrap: wrap;
+  gap: var(--space-sm) var(--space-md);
+  font-size: 0.875rem;
+  color: var(--color-night-muted);
+}
+
+.footer-links a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  white-space: nowrap;
+}
+
+.footer-copy {
+  color: var(--color-night-muted);
+  font-size: var(--text-small);
+}
+
+@media (max-width: 1100px) {
+  .wrap {
+    width: calc(100% - 4rem);
+  }
+
+  .hero-grid,
+  .feature-row,
+  .section-intro,
+  .server-inner,
+  .start-grid {
+    gap: var(--space-xl);
+  }
+
+  .hero-brand img {
+    width: 44px;
+    height: 44px;
+  }
+}
+
+@media (max-width: 767px) {
+  .wrap {
+    width: calc(100% - 3rem);
+  }
+
+  .nav-inner {
+    min-height: 72px;
+  }
+
+  .nav-secondary {
+    display: none;
+  }
+
+  .hero {
+    padding-block: var(--space-xl);
+  }
+
+  .hero-grid,
+  .feature-row,
+  .section-intro,
+  .server-inner,
+  .start-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-lg);
+  }
+
+  .hero-brand {
+    gap: 0.75rem;
+  }
+
+  .hero-brand h1 {
+    font-size: clamp(1.8rem, 8vw, 2.8rem);
+  }
+
+  .hero-title {
+    font-size: clamp(1.375rem, 5vw, 1.7rem);
+  }
+
+  .hero-description {
+    max-width: 36rem;
+  }
+
+  .hero-figure {
+    margin-top: var(--space-sm);
+  }
+
+  .hero-screen,
+  .timeline-screen {
+    width: min(100%, 320px);
+    aspect-ratio: 390 / 844;
+    margin-inline: auto;
+  }
+
+  .hero-screen img {
+    width: 100%;
+    transform: none;
+  }
+
+  /* The hero already shows the complete mobile UI. Here, focus on its
+   * posts without repeating the navigation and story bar. */
+  .timeline-screen {
+    aspect-ratio: 390 / 470;
+  }
+
+  .timeline-screen img {
+    transform: translateY(-24%);
+  }
+
+  .principles {
+    padding-block: var(--space-md);
+  }
+
+  .principles-inner {
+    display: grid;
+    gap: 0.25rem;
+    font-size: 0.875rem;
+  }
+
+  .features,
+  .story-section,
+  .community-section,
+  .server-section,
+  .start-section {
+    padding-block: var(--space-xl);
+  }
+
+  .timeline-row {
+    margin-top: var(--space-xl);
+  }
+
+  .story-row .feature-copy,
+  .story-figure {
+    grid-column: auto;
+    grid-row: auto;
+  }
+
+  .story-screen {
+    width: min(100%, 280px);
+  }
+
+  .community-screen {
+    width: min(100%, 420px);
+  }
+
+  .start-grid {
+    margin-top: var(--space-xl);
+    gap: var(--space-xl);
+  }
+
+  .desktop-break {
+    display: none;
+  }
+
+  .footer-links {
+    gap: var(--space-xs) var(--space-md);
+  }
+}
+
+@media (max-width: 374px) {
+  .wrap {
+    width: calc(100% - 2.5rem);
+  }
+
+  .nav-inner {
+    gap: var(--space-xs);
+  }
+
+  .brand {
+    font-size: 0.9375rem;
+    gap: var(--space-xs);
+  }
+
+  .button-small {
+    padding-inline: 0.75rem;
+  }
+
+  .hero-actions {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .button,
+  .text-link {
+    font-size: 0.875rem;
+    gap: var(--space-xs);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .button,
+  .text-link {
+    transition: none;
+  }
+
+  .button:active {
+    transform: none;
+  }
+}
