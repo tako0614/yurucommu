@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.4.1 - 2026-10-11
+
+- Use Core/API 4.1.14, which fixes the authenticated user-recommendations SQL
+  path.
+
 ## 2.4.0 - 2026-10-11
 
 - Improve timeline, story, notification and direct-message state after account
