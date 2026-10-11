@@ -89,6 +89,12 @@ const SCHEMA_OBJECTS = new Set([
 const SOURCE_MARKERS = [
   "cacheRemoteActorDocument",
   "fetchAndUpsertActorCache",
+  "SQLiteInsertBuilder",
+  "SQLiteD1Session",
+  "D1PreparedQuery",
+  "SQLitePreparedQuery",
+  "runBatch",
+  "requireBatchable",
   "prepareActivityDelivery",
   "prepareDeliveryResolutionJobs",
   "handleRemoteFollow",
@@ -141,6 +147,35 @@ function classifyCoreError(line) {
   if (/(?:TypeError|ReferenceError|RangeError)/.test(line)) return "runtime";
   return "unknown";
 }
+function classifyKnownErrorCode(line) {
+  if (
+    line.includes(
+      "Insert select error: selected fields are not the same or are in a different order",
+    )
+  )
+    return "insert-select-order";
+  if (
+    /missing (?:a )?(?:placeholder|parameter)|placeholder.*(?:missing|not found)/i.test(
+      line,
+    )
+  )
+    return "missing-placeholder";
+  if (line.includes("D1_TYPE_ERROR")) return "d1-type-error";
+  if (line.includes("D1_ERROR")) return "d1-error";
+  if (
+    /(?:cross-request|different request).*(?:I\/O|io|context)|(?:I\/O|io).*(?:cross-request|different request)/i.test(
+      line,
+    )
+  )
+    return "cross-request-io";
+  if (
+    /global scope.*(?:I\/O|io|fetch)|(?:I\/O|io|fetch).*global scope/i.test(
+      line,
+    )
+  )
+    return "global-scope-io";
+  return null;
+}
 function captureCoreErrorLine(line) {
   if (diagnostics.errors.length >= 8) return;
   const jsonStart = line.indexOf("{");
@@ -160,6 +195,7 @@ function captureCoreErrorLine(line) {
     const summary = {
       event: entry.event,
       category: classifyCoreError(line),
+      knownErrorCode: classifyKnownErrorCode(line),
       errorName,
       schemaObject: SCHEMA_OBJECTS.has(missingObject) ? missingObject : null,
       schemaMarkers: [...SCHEMA_OBJECTS].filter((name) =>

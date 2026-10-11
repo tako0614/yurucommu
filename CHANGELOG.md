@@ -8,8 +8,9 @@
 - Include native independent-peer Follow/Accept, restricted posts, direct
   messages, retry and signature/actor-binding regression checks. Exercise
   foreign activity IDs and bounded SSRF refusal through the real Worker bundle.
-- Use Core/API 4.1.12 for atomic single-owner setup, fail-closed logout,
-  media deletion fencing and repaired historical push relations.
+- Use Core/API 4.1.13 for atomic single-owner setup, fail-closed logout,
+  media deletion fencing and repaired historical push relations. Fix authenticated
+  Follow failures against independent servers.
 - This release targets personal deployments and their basic journeys.
   It does not claim completed GA, production-instance deployment, real-issuer
   qualification or operator-owned historical-data migration. Existing operators

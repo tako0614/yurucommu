@@ -197,8 +197,8 @@ the Worker does not run SQL migrations. For an existing installation, inspect
 the current migration history and prepare backup and recovery steps before
 changing the schema.
 
-The v2.4.0 candidate uses Yurucommu Core/API 4.1.12 and 35 SQL migrations,
-ending at 0036. To update from the previous 29-migration schema, stop writes and
+The v2.4.0 candidate uses Yurucommu Core/API 4.1.13 and 35 SQL migrations,
+ending at 0036. It also fixes authenticated Follow failures. To update from the previous 29-migration schema, stop writes and
 make a closed backup before applying 0031–0036 and starting the new Worker.
 Rolling back only to the old Worker does not restore data after those
 migrations. Keep the pre-migration backup for restoring the old schema separate

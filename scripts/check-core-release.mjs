@@ -5,9 +5,10 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // v2.4 requires fail-closed session revocation and opt-in atomic owner claims.
-// Older Core/API packages can falsely acknowledge logout after a storage fault
+// Core/API 4.1.13 also fixes authenticated Follow on the guarded INSERT ... SELECT path.
+// Releases before 4.1.12 can falsely acknowledge logout after a storage fault
 // and do not enforce this product's singleOwner composition option.
-export const MINIMUM_PRODUCT_RELEASE = "4.1.12";
+export const MINIMUM_PRODUCT_RELEASE = "4.1.13";
 
 const PACKAGE_NAMES = ["@takosjp/yurucommu-core", "@takosjp/yurucommu-api"];
 const REQUIRED_API_EXPORTS = [
