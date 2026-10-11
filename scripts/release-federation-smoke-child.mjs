@@ -53,7 +53,7 @@ const workerNames = ["peer-a", "peer-b"];
 const routerNames = ["route-a", "route-b"];
 const phases = [];
 const apiStatuses = [];
-const diagnostics = { bytes: 0 };
+const diagnostics = { bytes: 0, errors: [] };
 const routeEvents = [];
 const secrets = [];
 const instances = [];
@@ -63,6 +63,37 @@ let actorBindingProof = null;
 let phase = "preflight";
 let runtime;
 let tempRoot;
+let diagnosticLineTail = "";
+
+const CORE_ERROR_EVENTS = new Set([
+  "app.error",
+  "follow.remote.create_failed",
+  "follow.activity.delivery_wakeup_failed",
+]);
+const CORE_ERROR_NAMES = new Set([
+  "Error",
+  "TypeError",
+  "SqliteError",
+  "D1_ERROR",
+]);
+const SCHEMA_OBJECTS = new Set([
+  "actor_cache",
+  "actor_cache_candidate",
+  "activities",
+  "blocked_actors",
+  "blocked_domains",
+  "delivery_resolutions",
+  "follows",
+  "remote_actor_tombstones",
+]);
+const SOURCE_MARKERS = [
+  "cacheRemoteActorDocument",
+  "fetchAndUpsertActorCache",
+  "prepareActivityDelivery",
+  "prepareDeliveryResolutionJobs",
+  "handleRemoteFollow",
+  "isActorBlockedStrict",
+];
 
 const sha256 = (value) => createHash("sha256").update(value).digest("hex");
 function redact(value) {
@@ -95,11 +126,65 @@ function safeDiagnostics() {
   return {
     runtimeLogBytes: diagnostics.bytes,
     routeEvents: routeEvents.slice(-32),
+    errors: diagnostics.errors,
   };
+}
+function classifyCoreError(line) {
+  if (/no such (?:table|column|index):/i.test(line)) return "db-missing-schema";
+  if (/(?:FOREIGN KEY|UNIQUE|NOT NULL|CHECK) constraint failed/i.test(line))
+    return "db-constraint";
+  if (/(?:binding|namespace).*(?:missing|unavailable|not found)/i.test(line))
+    return "binding";
+  if (/(?:fetch failed|network error|connection refused)/i.test(line))
+    return "network";
+  if (/(?:D1_ERROR|SqliteError|SQLITE_)/i.test(line)) return "db-other";
+  if (/(?:TypeError|ReferenceError|RangeError)/.test(line)) return "runtime";
+  return "unknown";
+}
+function captureCoreErrorLine(line) {
+  if (diagnostics.errors.length >= 8) return;
+  const jsonStart = line.indexOf("{");
+  if (jsonStart < 0) return;
+  try {
+    const entry = JSON.parse(line.slice(jsonStart));
+    if (!CORE_ERROR_EVENTS.has(entry.event)) return;
+    const rawName = entry.name ?? entry.error?.name;
+    const errorName = CORE_ERROR_NAMES.has(rawName)
+      ? rawName
+      : ([...CORE_ERROR_NAMES].find((name) => line.includes(`${name}:`)) ??
+        "other");
+    const missingObject =
+      /no such (?:table|column|index):\s*(?:[a-z_]+\.)?([a-z_]+)/i.exec(
+        line,
+      )?.[1];
+    const summary = {
+      event: entry.event,
+      category: classifyCoreError(line),
+      errorName,
+      schemaObject: SCHEMA_OBJECTS.has(missingObject) ? missingObject : null,
+      schemaMarkers: [...SCHEMA_OBJECTS].filter((name) =>
+        new RegExp(`\\b${name}\\b`, "i").test(line),
+      ),
+      sourceMarkers: SOURCE_MARKERS.filter((name) => line.includes(name)),
+    };
+    if (
+      !diagnostics.errors.some(
+        (prior) => JSON.stringify(prior) === JSON.stringify(summary),
+      )
+    )
+      diagnostics.errors.push(summary);
+  } catch {
+    // Raw runtime details are never kept in the diagnostic manifest.
+  }
 }
 function captureDiagnosticChunk(chunk) {
   diagnostics.bytes += chunk.length;
-  for (const line of chunk.toString("utf8").split("\n")) {
+  const lines = (diagnosticLineTail + chunk.toString("utf8")).split("\n");
+  diagnosticLineTail = lines.pop() ?? "";
+  if (diagnosticLineTail.length > 16_384) diagnosticLineTail = "";
+  for (const line of lines) {
+    if (line.length > 16_384) continue;
+    captureCoreErrorLine(line);
     const index = line.indexOf("native-peer-route ");
     if (index < 0) continue;
     try {
@@ -806,7 +891,12 @@ try {
       typeof entry?.message === "string"
         ? entry.message
         : JSON.stringify(entry);
-    if (text.includes("native-peer-route "))
+    if (
+      text.includes("native-peer-route ") ||
+      [...CORE_ERROR_EVENTS].some((event) =>
+        text.includes(`"event":"${event}"`),
+      )
+    )
       captureDiagnosticChunk(Buffer.from(text + "\n"));
   };
   runtime = createManagedNativeRuntime(
