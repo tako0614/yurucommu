@@ -116,15 +116,15 @@ const CONTRACT = {
         "independent-review":
           "before publishing the authentication-enforcement artifact, requires independent review of the exact commit, required secret custody and regression/native/CI evidence; publication does not authorize any consumer installation or live secret change",
         provenance:
-          "refuses a dirty, detached, or unpushed worktree; requires main for publication; runs `bun run check`; builds and boots the embedded Worker from that exact commit; requires the repository manifest's default deploy/takoform module and sourceBuild-generated Worker/migration assets, plus direct-Cloudflare module release pins, to align with the same tag and artifact digest; records the source commit plus SHA-256 in the release manifest; and projects the exact version's checked-in CHANGELOG.md section into Release notes",
+          "refuses a dirty, detached, or unpushed worktree; requires main for publication and rechecks fresh origin/main parity after the owner gate and candidate smoke; runs `bun run check`; builds and boots the embedded Worker from that exact commit; requires the repository manifest's default deploy/takoform module and sourceBuild-generated Worker/migration assets, plus direct-Cloudflare module release pins, to align with the same tag and artifact digest; records the source commit plus SHA-256 in the release manifest; and projects the exact version's checked-in CHANGELOG.md section into Release notes",
         "post-conditions":
-          "derives the prerelease lane from the SemVer suffix and creates prereleases with --prerelease --latest=false; reads the create-only tag and GitHub Release back, requires the tag to resolve to the source commit, isImmutable:true, and the exact expected isPrerelease boolean; downloads all three assets, requires their exact SHA-256 digests, and boots the downloaded Worker in workerd with runtime-native DB/KV/MEDIA/queue bindings",
+          "derives the prerelease lane from the SemVer suffix and creates prereleases with --prerelease --latest=false; reads the create-only tag and GitHub Release back, requires the tag to resolve to the source commit, isImmutable:true, the exact expected isPrerelease boolean, and exactly three unique expected assets; downloads all three assets, requires their exact SHA-256 digests, and boots the downloaded Worker in workerd with runtime-native DB/KV/MEDIA/queue bindings",
         reversal:
           "the release identity is never replaced or deleted by this entrypoint; consumers remain able to pin the preceding release, and a defect is repaired by publishing a higher version",
         "failure-handling":
           "fails before mutation when the tag or release already exists; after release creation starts it reports an indeterminate publication and requires authoritative tag/release readback before any retry",
         "no-overwrite":
-          "derives one SemVer tag from package.json, refuses any existing local/remote tag or GitHub Release, reads repos/tako0614/yurucommu/immutable-releases immediately before create and requires enabled:true, requires post-readback isImmutable:true, and uses GitHub create-only release publication without update or delete paths",
+          "derives one SemVer tag from package.json, refuses any existing local/remote tag or GitHub Release and rechecks their absence after the owner gate and candidate smoke, reads repos/tako0614/yurucommu/immutable-releases immediately before create and requires enabled:true, requires post-readback isImmutable:true, and uses GitHub create-only release publication without update or delete paths",
       },
     },
     {
@@ -427,6 +427,27 @@ function releaseNotes(version, commit) {
   return `Worker release built from ${commit}.\n\n${section.trim()}`;
 }
 
+function requireReleaseIdentityAbsent(tag) {
+  const localTag = git("tag", "--list", tag);
+  if (localTag !== "") die(`local tag ${tag} already exists`);
+  const remoteTag = run("git", [
+    "ls-remote",
+    "--tags",
+    "origin",
+    `refs/tags/${tag}`,
+  ]).trim();
+  if (remoteTag !== "") die(`remote tag ${tag} already exists`);
+  try {
+    run("gh", ["release", "view", tag, "--repo", R.repository]);
+    die(`GitHub Release ${tag} already exists`);
+  } catch (error) {
+    const stderr = String(error.stderr ?? "");
+    if (!/release not found|HTTP 404/iu.test(stderr)) {
+      die(`cannot prove GitHub Release ${tag} is absent: ${stderr.trim()}`);
+    }
+  }
+}
+
 function publishWorkerRelease() {
   if (
     process.argv.includes("--execute") &&
@@ -446,24 +467,7 @@ function publishWorkerRelease() {
   const tag = `v${version}`;
   const prerelease = version.includes("-");
   const notes = releaseNotes(version, commit);
-  const localTag = git("tag", "--list", tag);
-  if (localTag !== "") die(`local tag ${tag} already exists`);
-  const remoteTag = run("git", [
-    "ls-remote",
-    "--tags",
-    "origin",
-    `refs/tags/${tag}`,
-  ]).trim();
-  if (remoteTag !== "") die(`remote tag ${tag} already exists`);
-  try {
-    run("gh", ["release", "view", tag, "--repo", R.repository]);
-    die(`GitHub Release ${tag} already exists`);
-  } catch (error) {
-    const stderr = String(error.stderr ?? "");
-    if (!/release not found|HTTP 404/iu.test(stderr)) {
-      die(`cannot prove GitHub Release ${tag} is absent: ${stderr.trim()}`);
-    }
-  }
+  requireReleaseIdentityAbsent(tag);
 
   process.stdout.write(`source ${commit} (${branch})\n`);
   process.stdout.write(`\n==> ${OWNER_GATE}\n`);
@@ -529,6 +533,13 @@ function publishWorkerRelease() {
   }
 
   process.stdout.write(`\n==> create-only GitHub Release ${tag}\n`);
+  const finalSource = requireCleanPushedSource(true);
+  if (finalSource.commit !== commit) {
+    die(
+      `release source changed from ${commit} to ${finalSource.commit} during verification`,
+    );
+  }
+  requireReleaseIdentityAbsent(tag);
   requireRepositoryImmutableReleases();
   try {
     const output = run("gh", [
@@ -588,6 +599,23 @@ function publishWorkerRelease() {
   ) {
     die(
       `published Release ${tag} has unexpected state (isImmutable=${String(release.isImmutable)}, isPrerelease=${String(release.isPrerelease)}, expectedPrerelease=${prerelease})`,
+    );
+  }
+  const expectedNames = Object.keys(expectedDigests);
+  if (
+    !Array.isArray(release.assets) ||
+    release.assets.length !== expectedNames.length ||
+    release.assets.some(
+      (asset) =>
+        !asset ||
+        typeof asset.name !== "string" ||
+        !Object.hasOwn(expectedDigests, asset.name),
+    ) ||
+    new Set(release.assets.map((asset) => asset.name)).size !==
+      expectedNames.length
+  ) {
+    die(
+      `POST_PUBLICATION_INDETERMINATE: published Release ${tag} has an unexpected asset inventory; inspect the immutable Release before any forward repair`,
     );
   }
   const remoteAssets = new Map(
