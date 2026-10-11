@@ -171,9 +171,13 @@ async function qualifyBackgroundEvents(worker, lane) {
   const fixtures = [
     { name: "expired", end: "2000-01-01T00:00:00.000Z" },
     { name: "active", end: "2999-01-01T00:00:00.000Z" },
-  ];
-  for (const { name, end } of fixtures) {
-    const key = `uploads/release-smoke-${name}.webp`;
+  ].map((fixture) => ({
+    ...fixture,
+    // Core's published-media deletion claim admits the same canonical key
+    // shape that the upload route issues, not arbitrary fixture filenames.
+    key: `uploads/${sha256(`release-smoke-${fixture.name}`)}.webp`,
+  }));
+  for (const { name, end, key } of fixtures) {
     await media.put(key, `release-smoke-${name}`);
     await db.batch([
       db
@@ -205,7 +209,7 @@ async function qualifyBackgroundEvents(worker, lane) {
     if (result.outcome !== "ok") {
       throw new Error(`scheduled retention failed: ${JSON.stringify(result)}`);
     }
-    for (const { name } of fixtures) {
+    for (const { name, key } of fixtures) {
       const expected = name === "active";
       const object = await db
         .prepare("SELECT ap_id FROM objects WHERE ap_id = ?")
@@ -215,7 +219,7 @@ async function qualifyBackgroundEvents(worker, lane) {
         .prepare("SELECT id FROM media_uploads WHERE id = ?")
         .bind(name)
         .first();
-      const blob = await media.get(`uploads/release-smoke-${name}.webp`);
+      const blob = await media.get(key);
       if (
         Boolean(object) !== expected ||
         Boolean(upload) !== expected ||
@@ -322,6 +326,381 @@ function nativeWorker(artifactPath, passwordFixture) {
         handleRuntimeStdio,
       }),
   );
+}
+
+function requireOwnerAuthority(condition, message) {
+  if (!condition) throw new Error(`native-owner-authority: ${message}`);
+}
+
+async function requireOwnerJson(response, label) {
+  try {
+    return JSON.parse(await boundedText(response));
+  } catch {
+    // Authentication responses can carry a bearer credential. Never include
+    // their raw body in a failed native smoke diagnostic.
+    throw new Error(`native-owner-authority: ${label} did not return JSON`);
+  }
+}
+
+function storedSessionKey(raw) {
+  return `sha256:${sha256(`${SESSION_SALT}:${raw}`)}`;
+}
+
+async function nativePasswordLogin(worker, transport) {
+  const browser = transport === "browser";
+  const response = await worker.dispatchFetch(
+    `${APP_ORIGIN}/api/auth/${browser ? "login" : "mobile/login"}`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(browser ? { origin: APP_ORIGIN } : {}),
+      },
+      body: JSON.stringify({ password: TEST_PASSWORD }),
+    },
+  );
+  const body = await requireOwnerJson(response, `${transport} login`);
+  if (!browser) {
+    requireOwnerAuthority(
+      response.status === 200 &&
+        typeof body.access_token === "string" &&
+        body.access_token.length > 0 &&
+        body.token_type === "Bearer" &&
+        response.headers.getSetCookie().length === 0,
+      "mobile login did not issue one bearer credential",
+    );
+    return { credential: body.access_token, kind: "bearer" };
+  }
+  const cookies = response.headers
+    .getSetCookie()
+    .filter((header) => header.startsWith("session="));
+  const raw = cookies[0]?.split(";", 1)[0]?.slice("session=".length);
+  requireOwnerAuthority(
+    response.status === 200 &&
+      body.success === true &&
+      cookies.length === 1 &&
+      typeof raw === "string" &&
+      raw.length > 0 &&
+      /(?:^|;)\s*Max-Age=[1-9]\d*/i.test(cookies[0]),
+    "browser login did not issue one active session cookie",
+  );
+  return { credential: decodeURIComponent(raw), kind: "cookie" };
+}
+
+function credentialHeaders(session) {
+  return session.kind === "cookie"
+    ? { origin: APP_ORIGIN, cookie: `session=${session.credential}` }
+    : { authorization: `Bearer ${session.credential}` };
+}
+
+async function nativeIdentity(worker, session) {
+  const response = await worker.dispatchFetch(`${APP_ORIGIN}/api/auth/me`, {
+    headers: credentialHeaders(session),
+  });
+  return {
+    status: response.status,
+    body: await requireOwnerJson(response, "identity"),
+  };
+}
+
+async function nativeActorRows(db) {
+  return (await db.prepare("SELECT * FROM actors ORDER BY ap_id").all())
+    .results;
+}
+
+async function nativeSessionRows(db) {
+  return (await db.prepare("SELECT * FROM sessions ORDER BY id").all()).results;
+}
+
+async function smokeOwnerClaimComposition(artifactPath, passwordFixture) {
+  const lane = `owner-claim-${passwordFixture.method}`;
+  const { worker, dispose } = nativeWorker(artifactPath, passwordFixture);
+  let primaryFailed = false;
+  try {
+    await runPhase(lane, "runtime-ready", () => worker.ready);
+    const { db } = await runPhase(lane, "schema", () =>
+      applyProductSchema(worker),
+    );
+    requireOwnerAuthority(
+      (await nativeActorRows(db)).length === 0 &&
+        (await nativeSessionRows(db)).length === 0,
+      "claim fixture must start empty",
+    );
+
+    // Real browser/mobile requests contend for a fresh owner slot in one
+    // disposable Worker/D1 fixture. This does not force an instruction-level
+    // interleaving; Core's barrier test owns that narrower concurrency proof.
+    const [browser, mobile] = await runPhase(
+      lane,
+      "competing-first-logins",
+      () =>
+        Promise.all([
+          nativePasswordLogin(worker, "browser"),
+          nativePasswordLogin(worker, "mobile"),
+        ]),
+    );
+    const rootApId = `${APP_ORIGIN}/ap/users/tako`;
+    const firstActors = await nativeActorRows(db);
+    const firstSessions = await nativeSessionRows(db);
+    requireOwnerAuthority(
+      firstActors.length === 1 &&
+        firstActors[0]?.ap_id === rootApId &&
+        firstActors[0]?.role === "owner" &&
+        firstActors[0]?.owner_actor_ap_id === null &&
+        firstActors[0]?.takos_user_id === "password:owner" &&
+        firstSessions.length === 2 &&
+        new Set(firstSessions.map((row) => row.id)).size === 2 &&
+        [browser, mobile].every((session) =>
+          firstSessions.some(
+            (row) =>
+              row.id === storedSessionKey(session.credential) &&
+              row.member_id === rootApId &&
+              row.access_token === row.id,
+          ),
+        ),
+      "competing first logins did not leave one root owner and two distinct credentials",
+    );
+    for (const session of [browser, mobile]) {
+      const identity = await nativeIdentity(worker, session);
+      requireOwnerAuthority(
+        identity.status === 200 &&
+          identity.body.actor?.ap_id === rootApId &&
+          identity.body.actor.role === "owner",
+        "competing login credential did not resolve the sole owner",
+      );
+    }
+
+    const personaApId = `${APP_ORIGIN}/ap/users/authority_persona`;
+    const personaResponse = await worker.dispatchFetch(
+      `${APP_ORIGIN}/api/auth/accounts`,
+      {
+        method: "POST",
+        headers: {
+          ...credentialHeaders(browser),
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ username: "authority_persona", role: "owner" }),
+      },
+    );
+    const persona = await requireOwnerJson(personaResponse, "persona creation");
+    await db
+      .prepare(
+        "INSERT INTO actor_cache (ap_id, inbox, raw_json) VALUES (?, ?, '{}')",
+      )
+      .bind(
+        "https://remote.invalid/users/authority",
+        "https://remote.invalid/inbox",
+      )
+      .run();
+    const withPersona = await nativeActorRows(db);
+    const remote = await db
+      .prepare("SELECT ap_id FROM actor_cache WHERE ap_id = ?")
+      .bind("https://remote.invalid/users/authority")
+      .first();
+    requireOwnerAuthority(
+      personaResponse.status === 200 &&
+        persona.account?.ap_id === personaApId &&
+        remote?.ap_id === "https://remote.invalid/users/authority" &&
+        withPersona.length === 2 &&
+        withPersona.filter((row) => row.role === "owner").length === 1 &&
+        withPersona.find((row) => row.ap_id === personaApId)?.role ===
+          "member" &&
+        withPersona.find((row) => row.ap_id === personaApId)
+          ?.owner_actor_ap_id === rootApId,
+      "persona or remote fixture was treated as a second human owner",
+    );
+    const relogin = await nativePasswordLogin(worker, "mobile");
+    const reloginIdentity = await nativeIdentity(worker, relogin);
+    requireOwnerAuthority(
+      reloginIdentity.status === 200 &&
+        reloginIdentity.body.actor?.ap_id === rootApId &&
+        JSON.stringify(await nativeActorRows(db)) ===
+          JSON.stringify(withPersona),
+      "persona or remote actor blocked the existing human owner",
+    );
+
+    // No public product route provisions a second root owner. Model the
+    // pre-existing invalid human-owner state that the public login must refuse.
+    const secondApId = `${APP_ORIGIN}/ap/users/legacy_second_owner`;
+    await db
+      .prepare(
+        `INSERT INTO actors (ap_id, preferred_username, inbox, outbox,
+          followers_url, following_url, public_key_pem, private_key_pem,
+          takos_user_id, role)
+         VALUES (?, 'legacy_second_owner', ?, ?, ?, ?, 'fixture', 'fixture',
+          'legacy:second-human', 'owner')`,
+      )
+      .bind(
+        secondApId,
+        `${secondApId}/inbox`,
+        `${secondApId}/outbox`,
+        `${secondApId}/followers`,
+        `${secondApId}/following`,
+      )
+      .run();
+    const conflictingActors = await nativeActorRows(db);
+    const conflictingSessions = await nativeSessionRows(db);
+    requireOwnerAuthority(
+      conflictingActors.filter(
+        (row) => row.role === "owner" && row.owner_actor_ap_id === null,
+      ).length === 2,
+      "second-human fixture did not contain two local root owners",
+    );
+    for (const transport of ["browser", "mobile"]) {
+      const response = await worker.dispatchFetch(
+        `${APP_ORIGIN}/api/auth/${transport === "browser" ? "login" : "mobile/login"}`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            ...(transport === "browser" ? { origin: APP_ORIGIN } : {}),
+          },
+          body: JSON.stringify({ password: TEST_PASSWORD }),
+        },
+      );
+      const refused = await requireOwnerJson(
+        response,
+        "native-owner-second-human-refusal",
+      );
+      requireOwnerAuthority(
+        response.status === 409 &&
+          refused.code === "OWNER_STATE_CONFLICT" &&
+          response.headers.getSetCookie().length === 0 &&
+          refused.access_token === undefined &&
+          JSON.stringify(await nativeActorRows(db)) ===
+            JSON.stringify(conflictingActors) &&
+          JSON.stringify(await nativeSessionRows(db)) ===
+            JSON.stringify(conflictingSessions),
+        `${transport} login accepted or changed a two-human-owner state`,
+      );
+    }
+    return [
+      "competing-first-owner-browser-mobile",
+      "single-owner-persona-remote-exclusion",
+      "second-human-owner-state-refusal",
+    ];
+  } catch (error) {
+    primaryFailed = true;
+    throw error;
+  } finally {
+    phase(lane, "dispose", "start");
+    try {
+      await dispose();
+      phase(lane, "dispose", "done");
+    } catch (error) {
+      phase(lane, "dispose", "failed");
+      if (!primaryFailed) throw error;
+      process.stderr.write(`release-worker cleanup also failed: ${error}\n`);
+    }
+  }
+}
+
+async function smokeLogoutFailureComposition(artifactPath, passwordFixture) {
+  const lane = `logout-fail-closed-${passwordFixture.method}`;
+  const { worker, dispose } = nativeWorker(artifactPath, passwordFixture);
+  let primaryFailed = false;
+  try {
+    await runPhase(lane, "runtime-ready", () => worker.ready);
+    const { db } = await runPhase(lane, "schema", () =>
+      applyProductSchema(worker),
+    );
+    const browser = await nativePasswordLogin(worker, "browser");
+    const mobile = await nativePasswordLogin(worker, "mobile");
+    const before = await nativeSessionRows(db);
+    const selectedKey = storedSessionKey(browser.credential);
+    const siblingKey = storedSessionKey(mobile.credential);
+    requireOwnerAuthority(
+      selectedKey !== siblingKey &&
+        before.length === 2 &&
+        before.some((row) => row.id === selectedKey) &&
+        before.some((row) => row.id === siblingKey),
+      "logout fixture lacks two independent live sessions",
+    );
+
+    // The only injected fault is a disposable D1 sessions DELETE abort trigger.
+    // Both credentials are supplied to prove cookie precedence and sibling
+    // preservation without exporting either credential in smoke evidence.
+    await db
+      .prepare(
+        `CREATE TRIGGER fixture_reject_session_delete BEFORE DELETE ON sessions
+         BEGIN SELECT RAISE(ABORT, 'fixture_session_delete_refused'); END`,
+      )
+      .run();
+    try {
+      const failed = await worker.dispatchFetch(
+        `${APP_ORIGIN}/api/auth/logout`,
+        {
+          method: "POST",
+          headers: {
+            ...credentialHeaders(browser),
+            authorization: `Bearer ${mobile.credential}`,
+          },
+        },
+      );
+      const refusal = await requireOwnerJson(failed, "logout delete refusal");
+      requireOwnerAuthority(
+        failed.status === 503 &&
+          refusal.code === "SESSION_REVOCATION_FAILED" &&
+          failed.headers.getSetCookie().length === 0 &&
+          JSON.stringify(await nativeSessionRows(db)) ===
+            JSON.stringify(before) &&
+          (await nativeIdentity(worker, browser)).status === 200 &&
+          (await nativeIdentity(worker, mobile)).status === 200,
+        "failed D1 revocation acknowledged logout, cleared a cookie, or changed sessions",
+      );
+    } finally {
+      await db.prepare("DROP TRIGGER fixture_reject_session_delete").run();
+    }
+
+    const success = await worker.dispatchFetch(
+      `${APP_ORIGIN}/api/auth/logout`,
+      {
+        method: "POST",
+        headers: {
+          ...credentialHeaders(browser),
+          authorization: `Bearer ${mobile.credential}`,
+        },
+      },
+    );
+    const body = await requireOwnerJson(
+      success,
+      "native-logout-after-fault-removal",
+    );
+    const expired = success.headers
+      .getSetCookie()
+      .filter((header) => /^session=/.test(header));
+    const after = await nativeSessionRows(db);
+    requireOwnerAuthority(
+      success.status === 200 &&
+        body.success === true &&
+        expired.length === 1 &&
+        /^session=;/.test(expired[0]) &&
+        /(?:^|;)\s*Max-Age=0(?:;|$)/i.test(expired[0]) &&
+        after.length === 1 &&
+        after[0]?.id === siblingKey &&
+        JSON.stringify(after[0]) ===
+          JSON.stringify(before.find((row) => row.id === siblingKey)) &&
+        (await nativeIdentity(worker, browser)).status === 401 &&
+        (await nativeIdentity(worker, { ...browser, kind: "bearer" }))
+          .status === 401 &&
+        (await nativeIdentity(worker, mobile)).status === 200,
+      "successful logout did not revoke only the selected credential",
+    );
+    return ["logout-delete-abort-fail-closed", "logout-exact-row-revocation"];
+  } catch (error) {
+    primaryFailed = true;
+    throw error;
+  } finally {
+    phase(lane, "dispose", "start");
+    try {
+      await dispose();
+      phase(lane, "dispose", "done");
+    } catch (error) {
+      phase(lane, "dispose", "failed");
+      if (!primaryFailed) throw error;
+      process.stderr.write(`release-worker cleanup also failed: ${error}\n`);
+    }
+  }
 }
 
 async function smokeFreshOwner(artifactPath, passwordFixture, firstTransport) {
@@ -545,6 +924,17 @@ async function main() {
       );
     }
   }
+  // Existing onboarding covers both password encodings. One production-style
+  // PBKDF2 fixture bounds the additional native authority/fault-injection cost.
+  const authorityFixture = PASSWORD_FIXTURES[0];
+  const ownerAuthority = {
+    substrate: "disposable-native-worker-d1",
+    passwordMethod: authorityFixture.method,
+    checks: [
+      ...(await smokeOwnerClaimComposition(artifactPath, authorityFixture)),
+      ...(await smokeLogoutFailureComposition(artifactPath, authorityFixture)),
+    ],
+  };
   phase("main", "manifest", "start");
   process.stdout.write(
     `${JSON.stringify({
@@ -558,6 +948,7 @@ async function main() {
         substrate: "fresh-native-bindings",
         cases: onboarding,
       },
+      ownerAuthority,
     })}\n`,
   );
   phase("main", "manifest", "done");

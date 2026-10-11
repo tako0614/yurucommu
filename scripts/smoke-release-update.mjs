@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { createHash, pbkdf2Sync, randomUUID } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import {
   cpSync,
   existsSync,
@@ -9,14 +10,16 @@ import {
   readdirSync,
   rmSync,
   statSync,
+  writeFileSync,
 } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import process from "node:process";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { FormData, Miniflare } from "miniflare";
 import { unstable_readConfig, unstable_splitSqlQuery } from "wrangler";
 import { createSyntheticUpdateIssuer } from "./release-update-oidc.mjs";
+import { lockedPackageVersion } from "./check-core-release.mjs";
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const OLD_VERSION = "2.2.0";
@@ -25,8 +28,13 @@ const OLD_SHA =
   "b0d1d40893a664b8030ddd9a2a003beb350f0394d1d705814b1ada88c2a391dc";
 const SCHEMA_SHA =
   "b8b0f105e307cbaebace94cab8920e8c62f8f02f178e02ead55bfa3de3e705ab";
-const CORE_VERSION = "4.1.11";
-const SCHEMA_COUNT = 29;
+const LEGACY_CORE_VERSION = "4.1.11";
+const LEGACY_SCHEMA_COUNT = 29;
+const MIGRATED_SCHEMA_COUNT = 35;
+const PENDING_MIGRATIONS = [31, 32, 33, 34, 35, 36].map(
+  (n) => String(n).padStart(4, "0") + "_",
+);
+const MIGRATION_FILE_RE = /^\d{4}_[a-z0-9_]+\.sql$/;
 const ORIGIN = "https://session-update.yurucommu.invalid";
 const WORKER_NAME = "yurucommu-update-continuity";
 const PASSWORD = "native-update-owner-password-fixture";
@@ -86,32 +94,89 @@ function artifact(path, label) {
   return { bytes, sha: hash(bytes) };
 }
 function schemaBundle() {
-  const bytes = readFileSync(
+  const legacyBytes = readFileSync(
+    resolve(REPO, "scripts/fixtures/yurucommu-v2.2.0-schema-bundle.json"),
+  );
+  need(hash(legacyBytes) === SCHEMA_SHA, "legacy-schema-v2-2-0-sha256-pin");
+  const currentBytes = readFileSync(
     resolve(REPO, "deploy/takoform/migrations/schema-bundle.json"),
   );
-  need(hash(bytes) === SCHEMA_SHA, "schema-bundle-v2-2-0-sha256-pin");
-  const bundle = JSON.parse(bytes.toString("utf8"));
-  need(
-    bundle.apiVersion === "takosumi.resource-migrations/v1" &&
-      bundle.engine === "sqlite" &&
-      Array.isArray(bundle.entries) &&
-      bundle.entries.length === SCHEMA_COUNT,
-    "schema-bundle-v1-sqlite-29-entries",
-  );
-  bundle.entries.forEach((entry, i) => {
+  const legacy = JSON.parse(legacyBytes.toString("utf8"));
+  const current = JSON.parse(currentBytes.toString("utf8"));
+  const validate = (bundle, count, label) => {
     need(
-      typeof entry.sql === "string" &&
-        entry.sha256 === "sha256:" + hash(Buffer.from(entry.sql, "utf8")),
-      "schema-entry-" + String(i + 1).padStart(2, "0") + "-sha256",
+      bundle.apiVersion === "takosumi.resource-migrations/v1" &&
+        bundle.engine === "sqlite" &&
+        Array.isArray(bundle.entries) &&
+        bundle.entries.length === count,
+      label + "-shape-and-count",
     );
-  });
+    bundle.entries.forEach((entry, i) => {
+      need(
+        typeof entry.name === "string" &&
+          MIGRATION_FILE_RE.test(entry.name) &&
+          typeof entry.sql === "string" &&
+          entry.sha256 === "sha256:" + hash(Buffer.from(entry.sql, "utf8")),
+        label + "-entry-" + String(i + 1).padStart(2, "0") + "-sha256",
+      );
+    });
+  };
+  validate(legacy, LEGACY_SCHEMA_COUNT, "legacy-schema");
+  need(
+    current.entries.length === LEGACY_SCHEMA_COUNT ||
+      current.entries.length === MIGRATED_SCHEMA_COUNT,
+    "current-schema-supported-count",
+  );
+  validate(current, current.entries.length, "current-schema");
+  need(
+    current.entries
+      .slice(0, LEGACY_SCHEMA_COUNT)
+      .every(
+        (entry, i) =>
+          entry.name === legacy.entries[i].name &&
+          entry.sha256 === legacy.entries[i].sha256,
+      ),
+    "current-schema-preserves-exact-legacy-prefix",
+  );
+  const migrating = current.entries.length === MIGRATED_SCHEMA_COUNT;
+  if (migrating) {
+    need(
+      current.entries
+        .slice(LEGACY_SCHEMA_COUNT)
+        .every(
+          (entry, i) =>
+            entry.name.startsWith(PENDING_MIGRATIONS[i]) &&
+            hash(
+              readFileSync(
+                resolve(
+                  REPO,
+                  "node_modules/@takosjp/yurucommu-core/migrations",
+                  entry.name,
+                ),
+              ),
+            ) === entry.sha256.slice("sha256:".length),
+        ),
+      "current-schema-exact-core-0031-through-0036",
+    );
+  } else {
+    need(hash(currentBytes) === SCHEMA_SHA, "same-schema-v2-2-0-sha256-pin");
+  }
   const core = JSON.parse(
     readFileSync(
       resolve(REPO, "node_modules/@takosjp/yurucommu-core/package.json"),
       "utf8",
     ),
   );
-  need(core.version === CORE_VERSION, "installed-core-4-1-11-pin");
+  need(
+    typeof core.version === "string" &&
+      (migrating || core.version === LEGACY_CORE_VERSION),
+    "installed-core-version-supported",
+  );
+  const lockText = readFileSync(resolve(REPO, "bun.lock"), "utf8");
+  need(
+    lockedPackageVersion(lockText, "@takosjp/yurucommu-core") === core.version,
+    "installed-core-matches-lockfile",
+  );
   const lock = JSON.parse(
     readFileSync(resolve(REPO, "release.lock.json"), "utf8"),
   );
@@ -124,7 +189,14 @@ function schemaBundle() {
       pinned.artifact?.sha256 === "sha256:" + OLD_SHA,
     "release-lock-v2-2-0-commit-and-worker-pin",
   );
-  return { bytes, bundle };
+  return {
+    legacyBytes,
+    currentBytes,
+    legacy,
+    current,
+    coreVersion: core.version,
+    migrating,
+  };
 }
 function compatibilityConfig() {
   const config = unstable_readConfig(
@@ -368,6 +440,211 @@ async function applySchema(db, bundle, prefix) {
     need(statements.length > 0, currentCheck + "-statements");
     await db.batch(statements.map((sql) => db.prepare(sql)));
   }
+}
+function writeMigrationFiles(root, bundle, label) {
+  const directory = join(root, label + "-sql");
+  mkdirSync(directory);
+  for (const entry of bundle.entries) {
+    need(MIGRATION_FILE_RE.test(entry.name), label + "-safe-sql-name");
+    writeFileSync(join(directory, entry.name), entry.sql, { mode: 0o600 });
+  }
+  return directory;
+}
+async function loadPublicMigrationHelper(root) {
+  currentCheck = "public-core-migration-helper-compile";
+  const source = fileURLToPath(
+    import.meta.resolve("@takosjp/yurucommu-core/migrations"),
+  );
+  const compiled = join(root, "public-core-migrations.mjs");
+  // Node does not strip TypeScript in node_modules. Compile only the installed
+  // package's public export into this disposable directory; no SQL runner is copied.
+  // This is a library import. Prevent Bun's Node-target lowering of import.meta.main
+  // from treating two absent CommonJS entry-point fields as a CLI invocation.
+  execFileSync(
+    "bun",
+    [
+      "build",
+      source,
+      "--target=node",
+      "--define=import.meta.main=false",
+      "--outfile",
+      compiled,
+    ],
+    {
+      cwd: REPO,
+      stdio: "pipe",
+    },
+  );
+  need(existsSync(compiled), "public-core-migration-helper-compiled");
+  const module = await import(pathToFileURL(compiled).href);
+  need(
+    typeof module.applyMigrations === "function" &&
+      module.MIGRATION_LEDGER_TABLE === "yurucommu_migrations",
+    "public-core-migration-contract",
+  );
+  return module.applyMigrations;
+}
+function migrationWorker(paths, ids, config, root) {
+  const path = join(root, "migration-only-worker.mjs");
+  if (!existsSync(path)) {
+    writeFileSync(
+      path,
+      "export default { fetch() { return new Response(null, { status: 503 }); } };\n",
+      { mode: 0o600 },
+    );
+  }
+  const mf = new Miniflare({
+    workers: [
+      {
+        name: WORKER_NAME,
+        rootPath: root,
+        modulesRoot: root,
+        modules: [{ type: "ESModule", path }],
+        compatibilityDate: config.compatibility_date,
+        compatibilityFlags: config.compatibility_flags,
+        d1Databases: { DB: { id: ids.d1 } },
+      },
+    ],
+    compatibilityDate: config.compatibility_date,
+    compatibilityFlags: config.compatibility_flags,
+    cf: false,
+    d1Persist: paths.d1,
+  });
+  activeWorkers.add(mf);
+  return mf;
+}
+async function assertLedger(db, bundle, label) {
+  const ledger = await db
+    .prepare("SELECT name FROM yurucommu_migrations ORDER BY id")
+    .all();
+  need(
+    ledger?.success === true &&
+      Array.isArray(ledger.results) &&
+      JSON.stringify(ledger.results.map((row) => row.name)) ===
+        JSON.stringify(bundle.entries.map((entry) => entry.name)),
+    label + "-exact-ordered-ledger",
+  );
+}
+async function applyOwnedMigrations(
+  context,
+  paths,
+  ids,
+  bundle,
+  label,
+  expected,
+) {
+  const { config, root, applyMigrations } = context;
+  currentCheck = label + "-public-core-migration";
+  const migrationsDir = writeMigrationFiles(root, bundle, label);
+  let mf;
+  try {
+    mf = migrationWorker(paths, ids, config, root);
+    await mf.ready;
+    const db = await mf.getD1Database("DB", WORKER_NAME);
+    const executeSql = async (sql, execution) => {
+      const statements = unstable_splitSqlQuery(sql);
+      need(statements.length > 0, label + "-nonempty-sql-batch");
+      // The public runner wraps each complete file and its ledger mark in one
+      // executeSql call. D1.batch is the single native transaction boundary.
+      need(
+        !statements.some((statement) =>
+          /^\s*(?:BEGIN|COMMIT|ROLLBACK)\b/i.test(statement),
+        ),
+        label + "-no-outer-transaction-statements",
+      );
+      const results = await db.batch(
+        statements.map((statement) => db.prepare(statement)),
+      );
+      need(
+        Array.isArray(results) &&
+          results.length === statements.length &&
+          results.every(
+            (result) =>
+              result?.success === true && Array.isArray(result.results),
+          ),
+        label + "-complete-successful-native-batch",
+      );
+      if (execution.purpose === "ledger-read") {
+        need(statements.length === 1, label + "-single-ledger-read");
+        return { rows: results[0].results };
+      }
+      return results;
+    };
+    // The runner logs filenames. Keep this machine-readable smoke's stdout as
+    // exactly one manifest, and never print a native SQL error or row contents.
+    const oldLog = console.log;
+    const oldWarn = console.warn;
+    let result;
+    try {
+      console.log = () => {};
+      console.warn = () => {};
+      result = await applyMigrations({
+        resource: ids.d1,
+        migrationsDir,
+        executeSql,
+        wrapTransactions: false,
+        batchPendingMigrations: false,
+        retryAttempts: 1,
+      });
+    } finally {
+      console.log = oldLog;
+      console.warn = oldWarn;
+    }
+    need(
+      JSON.stringify(result.applied) === JSON.stringify(expected.applied) &&
+        JSON.stringify(result.skipped) === JSON.stringify(expected.skipped),
+      label + "-exact-applied-and-skipped",
+    );
+    await assertLedger(db, bundle, label);
+    const foreignKeys = await db.prepare("PRAGMA foreign_key_check").all();
+    need(
+      foreignKeys?.success === true &&
+        Array.isArray(foreignKeys.results) &&
+        foreignKeys.results.length === 0,
+      label + "-foreign-key-check-empty",
+    );
+    const state = await snapshot(db);
+    await dispose(mf);
+    mf = undefined;
+    return state;
+  } finally {
+    await disposeBestEffort(mf);
+  }
+}
+async function bootstrapLegacy(context, paths, ids, label) {
+  if (!context.migrating) return;
+  await applyOwnedMigrations(
+    context,
+    paths,
+    ids,
+    context.legacy,
+    label + "-legacy-29",
+    { applied: context.legacy.entries.map((e) => e.name), skipped: [] },
+  );
+}
+async function migratePopulated(context, paths, ids, oldState, label) {
+  if (!context.migrating) return oldState;
+  const state = await applyOwnedMigrations(
+    context,
+    paths,
+    ids,
+    context.current,
+    label + "-29-to-35",
+    {
+      applied: context.current.entries
+        .slice(LEGACY_SCHEMA_COUNT)
+        .map((e) => e.name),
+      skipped: context.legacy.entries.map((e) => e.name),
+    },
+  );
+  need(
+    state.dataSha === oldState.dataSha &&
+      state.sessionsSha === oldState.sessionsSha &&
+      JSON.stringify(state.counts) === JSON.stringify(oldState.counts) &&
+      state.schemaSha !== oldState.schemaSha,
+    label + "-populated-product-rows-preserved-and-schema-changed",
+  );
+  return state;
 }
 async function emptyOwnerSession(db, check) {
   const counts = await db
@@ -660,10 +937,11 @@ function cloneClosedStores(source, dest) {
   );
   return { paths: cloned, evidence: b };
 }
-async function oldFixture(mf, bundle, lane, saltForHash) {
+async function oldFixture(mf, bundle, lane, saltForHash, migrating) {
   await mf.ready;
   const h = await handles(mf);
-  await applySchema(h.db, bundle, lane + "-fresh-schema");
+  if (!migrating) await applySchema(h.db, bundle, lane + "-fresh-schema");
+  else await assertLedger(h.db, bundle, lane + "-old-worker-reopen");
   await emptyOwnerSession(h.db, lane + "-schema-starts-with-no-identities");
   need((await r2Keys(h.r2)).length === 0, lane + "-r2-starts-empty");
   const schema = await snapshot(h.db);
@@ -904,15 +1182,22 @@ async function ready(mf, check) {
   const body = await jsonResponse(response, 200, check);
   need(body.status === "ok", check + "-body");
 }
-async function runDedicated(root, bundle, config, oldPath, newPath) {
+async function runDedicated(root, bundle, config, oldPath, newPath, context) {
   const lane = "dedicated-salt-preserved";
   const paths = storesAt(root, lane + "-primary");
   const ids = idsFor(lane);
   let oldMf, newMf, cloneMf;
   const checks = [];
   try {
+    await bootstrapLegacy(context, paths, ids, lane);
     oldMf = nativeWorker(oldPath, paths, ids, config, SALT_A);
-    const old = await oldFixture(oldMf, bundle, lane, SALT_A);
+    const old = await oldFixture(
+      oldMf,
+      bundle,
+      lane,
+      SALT_A,
+      context.migrating,
+    );
     checks.push(
       "old-http-owner-persona-content-d1-r2",
       "old-direct-kv-sentinel",
@@ -942,18 +1227,52 @@ async function runDedicated(root, bundle, config, oldPath, newPath) {
       "closed-snapshot-cloned-and-hashes-match-before-open",
     );
 
+    if (context.migrating) {
+      currentCheck = lane + "-old-29-closed-backup-restore";
+      cloneMf = nativeWorker(oldPath, cloned.paths, ids, config, SALT_A);
+      await cloneMf.ready;
+      const backup = await handles(cloneMf);
+      await verifyPersona(
+        cloneMf,
+        backup.db,
+        backup.r2,
+        old.personaCookie,
+        { post: old.post, mediaId: old.mediaId, url: old.url, key: old.key },
+        lane + "-old-29-backup",
+      );
+      await assertStable(backup.db, old.state, lane + "-old-29-backup");
+      await dispose(cloneMf);
+      cloneMf = undefined;
+      checks.push("old-29-closed-backup-restores-with-old-worker");
+    }
+    const expected = await migratePopulated(
+      context,
+      paths,
+      ids,
+      old.state,
+      lane + "-primary",
+    );
+    // The old 29-schema backup stays closed and untouched. Restore the candidate
+    // from a separate byte-exact snapshot of the fully migrated 35-schema store.
+    const candidateClone = context.migrating
+      ? cloneClosedStores(paths, join(root, lane + "-migrated-closed-clone"))
+      : cloned;
+    const restoredExpected = expected;
+
     currentCheck = lane + "-candidate-reopen-same-d1-kv-r2";
     newMf = nativeWorker(newPath, paths, ids, config, SALT_A);
     await newMf.ready;
     const next = await handles(newMf);
+    if (context.migrating)
+      await assertLedger(next.db, context.current, lane + "-candidate-reopen");
     const before = await snapshot(next.db);
     need(
-      before.dataSha === old.state.dataSha &&
-        before.schemaSha === old.state.schemaSha,
-      lane + "-candidate-reuses-same-d1-schema-data",
+      before.dataSha === expected.dataSha &&
+        before.schemaSha === expected.schemaSha,
+      lane + "-candidate-reuses-expected-d1-schema-data",
     );
     need(
-      before.sessionsSha === old.state.sessionsSha,
+      before.sessionsSha === expected.sessionsSha,
       lane + "-candidate-reuses-all-old-session-rows",
     );
     need(
@@ -981,11 +1300,11 @@ async function runDedicated(root, bundle, config, oldPath, newPath) {
     );
     const afterRead = await assertStable(
       next.db,
-      old.state,
+      expected,
       lane + "-candidate-before-relogin",
     );
     need(
-      afterRead.sessionsSha === old.state.sessionsSha,
+      afterRead.sessionsSha === expected.sessionsSha,
       lane + "-readback-keeps-all-old-session-rows",
     );
     checks.push(
@@ -1032,7 +1351,7 @@ async function runDedicated(root, bundle, config, oldPath, newPath) {
     });
     await replay.body?.cancel();
     need(replay.status === 401, lane + "-old-persona-cookie-revoked");
-    await assertStable(next.db, old.state, lane + "-candidate-after-relogin");
+    await assertStable(next.db, expected, lane + "-candidate-after-relogin");
     await kvAssert(next.kv, old.sentinel, lane + "-candidate-after-relogin");
     const switched = await switchPersona(
       newMf,
@@ -1049,7 +1368,7 @@ async function runDedicated(root, bundle, config, oldPath, newPath) {
     );
     await assertStable(
       next.db,
-      old.state,
+      expected,
       lane + "-candidate-final-logical-data",
     );
     checks.push(
@@ -1061,13 +1380,19 @@ async function runDedicated(root, bundle, config, oldPath, newPath) {
     newMf = undefined;
     const candidateFiles = storeDigests(paths);
     currentCheck = lane + "-candidate-reopen-restored-snapshot";
-    cloneMf = nativeWorker(newPath, cloned.paths, ids, config, SALT_A);
+    cloneMf = nativeWorker(newPath, candidateClone.paths, ids, config, SALT_A);
     await cloneMf.ready;
     const restored = await handles(cloneMf);
+    if (context.migrating)
+      await assertLedger(
+        restored.db,
+        context.current,
+        lane + "-candidate-restore",
+      );
     const restoredState = await snapshot(restored.db);
     need(
-      restoredState.dataSha === old.state.dataSha &&
-        restoredState.schemaSha === old.state.schemaSha,
+      restoredState.dataSha === restoredExpected.dataSha &&
+        restoredState.schemaSha === restoredExpected.schemaSha,
       lane + "-restored-candidate-snapshot-state",
     );
     await ready(cloneMf, lane + "-restored-candidate-ready");
@@ -1082,7 +1407,7 @@ async function runDedicated(root, bundle, config, oldPath, newPath) {
     await kvAssert(restored.kv, old.sentinel, lane + "-restored-snapshot");
     await assertStable(
       restored.db,
-      old.state,
+      restoredExpected,
       lane + "-restored-snapshot-final",
     );
     checks.push(
@@ -1096,10 +1421,14 @@ async function runDedicated(root, bundle, config, oldPath, newPath) {
       physicalIds: ids,
       oldClosedFiles: closedFiles,
       candidateClosedFiles: candidateFiles,
-      restoredCloneInitialFiles: cloned.evidence,
-      restoredCloneFinalFiles: storeDigests(cloned.paths),
+      restoredCloneInitialFiles: candidateClone.evidence,
+      restoredCloneFinalFiles: storeDigests(candidateClone.paths),
+      ...(context.migrating ? { old29ClosedBackupFiles: cloned.evidence } : {}),
       dataSha256: "sha256:" + old.state.dataSha,
       schemaSha256: "sha256:" + old.state.schemaSha,
+      ...(context.migrating
+        ? { migratedSchemaSha256: "sha256:" + expected.schemaSha }
+        : {}),
       kv: "native binding sentinel verified; value omitted",
       media: { bytes: PNG.length, sha256: "sha256:" + hash(PNG) },
       checks,
@@ -1108,7 +1437,15 @@ async function runDedicated(root, bundle, config, oldPath, newPath) {
     await disposeBestEffort(cloneMf, newMf, oldMf);
   }
 }
-async function runOidc(root, bundle, config, oldPath, newPath, firstAddition) {
+async function runOidc(
+  root,
+  bundle,
+  config,
+  oldPath,
+  newPath,
+  firstAddition,
+  context,
+) {
   const lane = firstAddition
     ? "oidc-first-salt-addition"
     : "oidc-salt-preserved";
@@ -1226,10 +1563,13 @@ async function runOidc(root, bundle, config, oldPath, newPath, firstAddition) {
   }
   try {
     currentCheck = lane + "-old-real-oidc-setup";
+    await bootstrapLegacy(context, paths, ids, lane);
     oldMf = nativeWorker(oldPath, paths, ids, config, oldSalt, issuer);
     await oldMf.ready;
     const h = await handles(oldMf);
-    await applySchema(h.db, bundle, lane + "-fresh-only-schema");
+    if (!context.migrating)
+      await applySchema(h.db, bundle, lane + "-fresh-only-schema");
+    else await assertLedger(h.db, bundle, lane + "-old-worker-reopen");
     await emptyOwnerSession(h.db, lane + "-no-seeded-identities");
     currentCheck = lane + "-old-oidc-login";
     lastSafeEvidence = undefined;
@@ -1307,11 +1647,56 @@ async function runOidc(root, bundle, config, oldPath, newPath, firstAddition) {
     const cloned = cloneClosedStores(paths, join(root, lane + "-closed-clone"));
     checks.push("closed-old-stores-cloned-byte-for-byte-before-update");
 
+    if (context.migrating) {
+      currentCheck = lane + "-old-29-closed-backup-restore";
+      cloneMf = nativeWorker(
+        oldPath,
+        cloned.paths,
+        ids,
+        config,
+        oldSalt,
+        issuer,
+      );
+      await cloneMf.ready;
+      const backup = await handles(cloneMf);
+      fixture.cookie = old.cookie;
+      await verifyIdentity(cloneMf, old.cookie, lane + "-old-29-backup-me");
+      need(
+        JSON.stringify(
+          await verifySession(
+            backup.db,
+            old,
+            oldHashSalt,
+            lane + "-old-29-backup-tokens",
+          ),
+        ) === JSON.stringify(old.row),
+        lane + "-old-29-backup-encrypted-row",
+      );
+      await verifyFixture(cloneMf, backup, lane + "-old-29-backup-fixture");
+      await assertStable(backup.db, state, lane + "-old-29-backup-state");
+      await dispose(cloneMf);
+      cloneMf = undefined;
+      checks.push("old-29-closed-backup-restores-with-old-worker");
+    }
+    const expected = await migratePopulated(
+      context,
+      paths,
+      ids,
+      state,
+      lane + "-primary",
+    );
+    const candidateClone = context.migrating
+      ? cloneClosedStores(paths, join(root, lane + "-migrated-closed-clone"))
+      : cloned;
+    const restoredExpected = expected;
+
     currentCheck = lane + "-candidate-existing-stores";
     newMf = nativeWorker(newPath, paths, ids, config, candidateSalt, issuer);
     await newMf.ready;
     const next = await handles(newMf);
-    await oldCookieState(newMf, next, old, state, lane + "-candidate");
+    if (context.migrating)
+      await assertLedger(next.db, context.current, lane + "-candidate-reopen");
+    await oldCookieState(newMf, next, old, expected, lane + "-candidate");
     await kvAssert(next.kv, sentinel, lane + "-candidate");
     checks.push(
       "candidate-preserves-every-old-session-and-encrypted-token-column",
@@ -1368,7 +1753,7 @@ async function runOidc(root, bundle, config, oldPath, newPath, firstAddition) {
     await verifyFixture(newMf, next, lane + "-renewed-fixture");
     const renewedState = await assertStable(
       next.db,
-      state,
+      expected,
       lane + "-reauth-data",
     );
     await kvAssert(next.kv, sentinel, lane + "-reauth");
@@ -1379,47 +1764,49 @@ async function runOidc(root, bundle, config, oldPath, newPath, firstAddition) {
     await dispose(newMf);
     newMf = undefined;
 
-    currentCheck = lane + "-old-code-rollback-with-preserved-secrets";
-    rollbackMf = nativeWorker(
-      oldPath,
-      paths,
-      ids,
-      config,
-      candidateSalt,
-      issuer,
-    );
-    await rollbackMf.ready;
-    const rollback = await handles(rollbackMf);
-    await verifyIdentity(rollbackMf, renewed.cookie, lane + "-rollback-me");
-    need(
-      JSON.stringify(
-        await verifySession(
-          rollback.db,
-          renewed,
-          candidateSalt,
-          lane + "-rollback-tokens",
-        ),
-      ) === JSON.stringify(newRow),
-      lane + "-rollback-exact-renewed-session",
-    );
-    await verifyFixture(rollbackMf, rollback, lane + "-rollback-fixture");
-    need(
-      (await snapshot(rollback.db)).sessionsSha === renewedState.sessionsSha,
-      lane + "-rollback-session-columns-unchanged",
-    );
-    await assertStable(rollback.db, state, lane + "-rollback-data");
-    await kvAssert(rollback.kv, sentinel, lane + "-rollback");
-    await dispose(rollbackMf);
-    rollbackMf = undefined;
+    if (!context.migrating) {
+      currentCheck = lane + "-old-code-rollback-with-preserved-secrets";
+      rollbackMf = nativeWorker(
+        oldPath,
+        paths,
+        ids,
+        config,
+        candidateSalt,
+        issuer,
+      );
+      await rollbackMf.ready;
+      const rollback = await handles(rollbackMf);
+      await verifyIdentity(rollbackMf, renewed.cookie, lane + "-rollback-me");
+      need(
+        JSON.stringify(
+          await verifySession(
+            rollback.db,
+            renewed,
+            candidateSalt,
+            lane + "-rollback-tokens",
+          ),
+        ) === JSON.stringify(newRow),
+        lane + "-rollback-exact-renewed-session",
+      );
+      await verifyFixture(rollbackMf, rollback, lane + "-rollback-fixture");
+      need(
+        (await snapshot(rollback.db)).sessionsSha === renewedState.sessionsSha,
+        lane + "-rollback-session-columns-unchanged",
+      );
+      await assertStable(rollback.db, expected, lane + "-rollback-data");
+      await kvAssert(rollback.kv, sentinel, lane + "-rollback");
+      await dispose(rollbackMf);
+      rollbackMf = undefined;
+      checks.push(
+        "old-code-reopen-with-preserved-current-secrets-accepts-renewed-oidc-cookie",
+      );
+    }
     const primaryAfterRollback = storeDigests(paths);
-    checks.push(
-      "old-code-reopen-with-preserved-current-secrets-accepts-renewed-oidc-cookie",
-    );
 
     currentCheck = lane + "-candidate-closed-clone-restore";
     cloneMf = nativeWorker(
       newPath,
-      cloned.paths,
+      candidateClone.paths,
       ids,
       config,
       candidateSalt,
@@ -1427,8 +1814,20 @@ async function runOidc(root, bundle, config, oldPath, newPath, firstAddition) {
     );
     await cloneMf.ready;
     const restored = await handles(cloneMf);
+    if (context.migrating)
+      await assertLedger(
+        restored.db,
+        context.current,
+        lane + "-candidate-restore",
+      );
     fixture.cookie = old.cookie;
-    await oldCookieState(cloneMf, restored, old, state, lane + "-restored");
+    await oldCookieState(
+      cloneMf,
+      restored,
+      old,
+      restoredExpected,
+      lane + "-restored",
+    );
     if (firstAddition) {
       const recovery = await issuer.login(
         cloneMf,
@@ -1460,7 +1859,11 @@ async function runOidc(root, bundle, config, oldPath, newPath, firstAddition) {
         lane + "-restored-exact-two-legacy-and-recovered-sessions",
       );
       await verifyFixture(cloneMf, restored, lane + "-restored-fixture");
-      await assertStable(restored.db, state, lane + "-restored-reauth-data");
+      await assertStable(
+        restored.db,
+        restoredExpected,
+        lane + "-restored-reauth-data",
+      );
     }
     await kvAssert(restored.kv, sentinel, lane + "-restored");
     await dispose(cloneMf);
@@ -1486,11 +1889,21 @@ async function runOidc(root, bundle, config, oldPath, newPath, firstAddition) {
       name: lane,
       physicalIds: ids,
       oldClosedFiles: closed,
-      restoredCloneInitialFiles: cloned.evidence,
-      primaryAfterRollbackFiles: primaryAfterRollback,
-      restoredCloneFinalFiles: storeDigests(cloned.paths),
+      restoredCloneInitialFiles: candidateClone.evidence,
+      ...(context.migrating
+        ? { migratedPrimaryClosedFiles: primaryAfterRollback }
+        : { primaryAfterRollbackFiles: primaryAfterRollback }),
+      restoredCloneFinalFiles: storeDigests(candidateClone.paths),
+      ...(context.migrating ? { old29ClosedBackupFiles: cloned.evidence } : {}),
       oldSessionSha256: "sha256:" + hash(Buffer.from(JSON.stringify(old.row))),
       oldLogicalDataSha256: "sha256:" + state.dataSha,
+      ...(context.migrating
+        ? {
+            migratedSchemaSha256: "sha256:" + expected.schemaSha,
+            rollbackScope:
+              "old 29-schema closed backup verified with old Worker; candidate 35-schema code rollback to old Worker is not claimed",
+          }
+        : {}),
       encryptionKey: "same synthetic key preserved; value omitted",
       tokenScope:
         "opaque ciphertext preservation and independent AES-GCM recovery; Core has no decrypt-and-use or refresh path",
@@ -1504,15 +1917,22 @@ async function runOidc(root, bundle, config, oldPath, newPath, firstAddition) {
     await disposeBestEffort(cloneMf, rollbackMf, newMf, oldMf);
   }
 }
-async function runLegacy(root, bundle, config, oldPath, newPath) {
+async function runLegacy(root, bundle, config, oldPath, newPath, context) {
   const lane = "fallback-salt-relogin";
   const paths = storesAt(root, lane + "-primary");
   const ids = idsFor(lane);
   let oldMf, newMf;
   const checks = [];
   try {
+    await bootstrapLegacy(context, paths, ids, lane);
     oldMf = nativeWorker(oldPath, paths, ids, config, OMIT);
-    const old = await oldFixture(oldMf, bundle, lane, FALLBACK_SALT);
+    const old = await oldFixture(
+      oldMf,
+      bundle,
+      lane,
+      FALLBACK_SALT,
+      context.migrating,
+    );
     const legacyKey = sessionId(FALLBACK_SALT, old.personaCookie);
     need(old.legacy.id === legacyKey, lane + "-old-core-fallback-session-id");
     const oldState = await snapshot(old.db);
@@ -1523,19 +1943,28 @@ async function runLegacy(root, bundle, config, oldPath, newPath) {
       closedFiles.d1.files > 0 && closedFiles.r2.files > 0,
       lane + "-old-closed-files-present",
     );
+    const expected = await migratePopulated(
+      context,
+      paths,
+      ids,
+      oldState,
+      lane + "-primary",
+    );
 
     currentCheck = lane + "-candidate-new-salt-open";
     newMf = nativeWorker(newPath, paths, ids, config, SALT_B);
     await newMf.ready;
     const next = await handles(newMf);
+    if (context.migrating)
+      await assertLedger(next.db, context.current, lane + "-candidate-reopen");
     const initial = await snapshot(next.db);
     need(
-      initial.dataSha === oldState.dataSha &&
-        initial.schemaSha === oldState.schemaSha,
+      initial.dataSha === expected.dataSha &&
+        initial.schemaSha === expected.schemaSha,
       lane + "-candidate-existing-d1-state",
     );
     need(
-      initial.sessionsSha === oldState.sessionsSha,
+      initial.sessionsSha === expected.sessionsSha,
       lane + "-candidate-reopens-all-old-session-rows",
     );
     await ready(newMf, lane + "-candidate-ready");
@@ -1569,7 +1998,7 @@ async function runLegacy(root, bundle, config, oldPath, newPath) {
       JSON.stringify(legacyAfterReject) === JSON.stringify(legacyBefore),
       lane + "-legacy-session-row-unchanged-on-401",
     );
-    await assertStable(next.db, oldState, lane + "-data-unchanged-on-401");
+    await assertStable(next.db, expected, lane + "-data-unchanged-on-401");
     checks.push(
       "new-synthetic-salt-rejects-old-fallback-cookie",
       "old-fallback-session-row-remains-unchanged",
@@ -1614,7 +2043,7 @@ async function runLegacy(root, bundle, config, oldPath, newPath) {
       ) === JSON.stringify(legacyBefore),
       lane + "-legacy-session-row-unchanged-after-relogin",
     );
-    await assertStable(next.db, oldState, lane + "-data-stable-after-relogin");
+    await assertStable(next.db, expected, lane + "-data-stable-after-relogin");
     await kvAssert(next.kv, old.sentinel, lane + "-kv-stable-after-relogin");
 
     currentCheck = lane + "-switch-existing-persona";
@@ -1646,7 +2075,7 @@ async function runLegacy(root, bundle, config, oldPath, newPath) {
       ) === JSON.stringify(legacyBefore),
       lane + "-fallback-row-still-preserved",
     );
-    await assertStable(next.db, oldState, lane + "-final-product-data");
+    await assertStable(next.db, expected, lane + "-final-product-data");
     await kvAssert(next.kv, old.sentinel, lane + "-final-kv");
     checks.push(
       "unchanged-password-recovers-root-and-existing-persona",
@@ -1664,6 +2093,9 @@ async function runLegacy(root, bundle, config, oldPath, newPath) {
         "salted fallback key and unchanged row verified; raw cookie omitted",
       dataSha256: "sha256:" + oldState.dataSha,
       schemaSha256: "sha256:" + oldState.schemaSha,
+      ...(context.migrating
+        ? { migratedSchemaSha256: "sha256:" + expected.schemaSha }
+        : {}),
       kv: "native binding sentinel verified; value omitted",
       media: { bytes: PNG.length, sha256: "sha256:" + hash(PNG) },
       checks,
@@ -1820,41 +2252,53 @@ async function run() {
   let failure;
   let result;
   try {
+    const context = {
+      ...schema,
+      config,
+      root: tempRoot,
+      applyMigrations: schema.migrating
+        ? await loadPublicMigrationHelper(tempRoot)
+        : undefined,
+    };
     const dedicated = await runDedicated(
       tempRoot,
-      schema.bundle,
+      schema.legacy,
       config,
       args.oldPath,
       args.newPath,
+      context,
     );
     const fallback = await runLegacy(
       tempRoot,
-      schema.bundle,
+      schema.legacy,
       config,
       args.oldPath,
       args.newPath,
+      context,
     );
     const invalid = await invalidSaltChecks(
       tempRoot,
-      schema.bundle,
+      schema.current,
       config,
       args.newPath,
     );
     const oidcDedicated = await runOidc(
       tempRoot,
-      schema.bundle,
+      schema.legacy,
       config,
       args.oldPath,
       args.newPath,
       false,
+      context,
     );
     const oidcFirstAddition = await runOidc(
       tempRoot,
-      schema.bundle,
+      schema.legacy,
       config,
       args.oldPath,
       args.newPath,
       true,
+      context,
     );
     need(
       outboundEvidence.blockedFetches === 0,
@@ -1868,17 +2312,30 @@ async function run() {
     result = {
       kind: "yurucommu.native-session-update-continuity@v1",
       status: "PASSED",
-      scope:
-        "offline disposable workerd with native persistent D1/KV/R2; password lanes deny all outbound fetches, OIDC lanes admit only a local synthetic signed issuer, no schema migration, cloud, deployment, live identity, or real data",
+      scope: schema.migrating
+        ? "offline disposable workerd with native persistent D1/KV/R2; published Core runner migrates closed populated 29-schema stores to 35, password lanes deny all outbound fetches, OIDC lanes admit only a local synthetic signed issuer; no cloud, deployment, live identity or real data"
+        : "offline disposable workerd with native persistent D1/KV/R2; password lanes deny all outbound fetches, OIDC lanes admit only a local synthetic signed issuer, no schema migration, cloud, deployment, live identity, or real data",
       artifacts: {
         oldVersion: OLD_VERSION,
         oldCommit: OLD_COMMIT,
         oldWorkerSha256: "sha256:" + OLD_SHA,
         candidateWorker: basename(args.newPath),
         candidateWorkerSha256: "sha256:" + candidate.sha,
-        coreVersion: CORE_VERSION,
-        schemaBundleSha256: "sha256:" + hash(schema.bytes),
-        schemaEntriesAppliedOnlyToFreshLocalStores: SCHEMA_COUNT,
+        coreVersion: schema.coreVersion,
+        ...(!schema.migrating
+          ? {
+              schemaBundleSha256: "sha256:" + hash(schema.currentBytes),
+              schemaEntriesAppliedOnlyToFreshLocalStores: LEGACY_SCHEMA_COUNT,
+            }
+          : {
+              legacySchemaBundleSha256: "sha256:" + hash(schema.legacyBytes),
+              candidateSchemaBundleSha256:
+                "sha256:" + hash(schema.currentBytes),
+              legacySchemaEntries: LEGACY_SCHEMA_COUNT,
+              candidateSchemaEntries: schema.current.entries.length,
+              migrationMode:
+                "closed-populated-native-29-to-35-public-core-runner",
+            }),
       },
       lanes: [dedicated, fallback],
       oidcLanes: [oidcDedicated, oidcFirstAddition],
@@ -1889,13 +2346,21 @@ async function run() {
         observedBlockedFetches: outboundEvidence.blockedFetches,
       },
       checks: [
-        "old-published-worker-bytes-and-shared-schema-pinned-before-runtime",
-        "schema-entry-digests-validated-and-applied-only-to-fresh-local-stores",
-        "candidate-opens-existing-native-persistent-stores-without-migration",
+        schema.migrating
+          ? "old-published-worker-bytes-and-legacy-29-schema-pinned-before-runtime"
+          : "old-published-worker-bytes-and-shared-schema-pinned-before-runtime",
+        schema.migrating
+          ? "legacy-and-current-schema-entry-digests-validated-separately"
+          : "schema-entry-digests-validated-and-applied-only-to-fresh-local-stores",
+        schema.migrating
+          ? "public-core-runner-applies-six-pending-migrations-after-closed-writers-and-preserves-selected-fixture-records"
+          : "candidate-opens-existing-native-persistent-stores-without-migration",
         "dedicated-salt-cookie-continuity-and-restored-snapshot",
         "fallback-salt-transition-requires-password-relogin-without-row-rewrite",
         "missing-blank-and-public-fallback-salts-refused-before-owner-or-session-writes",
-        "synthetic-oidc-encrypted-access-refresh-token-update-reauth-rollback-and-closed-restore",
+        schema.migrating
+          ? "synthetic-oidc-encrypted-token-update-reauth-old29-backup-and-closed35-restore"
+          : "synthetic-oidc-encrypted-access-refresh-token-update-reauth-rollback-and-closed-restore",
       ],
     };
   } catch (error) {

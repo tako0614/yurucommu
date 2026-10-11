@@ -153,14 +153,14 @@ async function assertPublishedMediaReadback(
     ["owner", owner],
     ["anonymous", anonymous],
   ]) {
-    const cacheScope =
-      scope === "owner" && privateOwnerCache ? "private" : "public";
+    const cacheMatches =
+      scope === "owner" && privateOwnerCache
+        ? result.cacheControl === "private, no-store"
+        : /^public, max-age=\d+$/.test(result.cacheControl ?? "");
     requireEffect(
       result.status === 200 &&
         result.contentType === contentType &&
-        new RegExp(`^${cacheScope}, max-age=\\d+$`).test(
-          result.cacheControl ?? "",
-        ) &&
+        cacheMatches &&
         result.bytes.equals(bytes),
       `${label} ${scope} HTTP media readback disagreed with R2 bytes or published policy: ${JSON.stringify({ status: result.status, contentType: result.contentType, cacheControl: result.cacheControl, byteLength: result.bytes.length, bytesMatch: result.bytes.equals(bytes) })}`,
     );
@@ -561,7 +561,7 @@ export async function qualifyBrowserFeed({
   requireEffect(
     storyReadback.status === 200 &&
       storyReadback.contentType === "image/jpeg" &&
-      /^private, max-age=\d+$/.test(storyReadback.cacheControl ?? "") &&
+      storyReadback.cacheControl === "private, no-store" &&
       storyReadback.bytes.equals(renderedStoryFile.bytes),
     "owner Story media HTTP readback disagreed with the rendered upload/R2 bytes",
   );

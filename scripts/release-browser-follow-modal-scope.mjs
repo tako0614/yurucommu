@@ -948,7 +948,9 @@ export async function qualifyFollowModalScope({
       (id) =>
         window.__followModalConsumed.some(
           (event) =>
-            event.id === id && event.status === 503 && event.method === "json",
+            event.id === id &&
+            event.status === 503 &&
+            ["text", "json"].includes(event.method),
         ),
       oldFailureCall,
       { timeout: TIMEOUT },
@@ -1009,7 +1011,9 @@ export async function qualifyFollowModalScope({
       (id) =>
         window.__followModalConsumed.some(
           (event) =>
-            event.id === id && event.status === 503 && event.method === "json",
+            event.id === id &&
+            event.status === 503 &&
+            ["text", "json"].includes(event.method),
         ),
       retryFailureCall,
       { timeout: TIMEOUT },

@@ -60,7 +60,7 @@ const channels = [
     value: dmUnreadCountAtom,
     refresh: refreshDmUnreadAtom,
     path: "/api/dm/unread/count",
-    body: (count: number) => ({ total: count }),
+    body: (count: number) => ({ total: count, dm: count, community: 0 }),
   },
 ];
 function deferred<T>() {
@@ -99,8 +99,7 @@ for (const channel of channels) {
       reads++;
       if (reads === 1) return Response.json(channel.body(3));
       if (reads === 2) return old.promise;
-      // Fetch rejection remains a failure for both currently published SDK
-      // reads; DM4.1.11 does not itself reject every non-2xx response.
+      // Fetch rejection remains a failure for both SDK reads.
       throw new Error("offline");
     }) as unknown as typeof fetch;
     await store.set(channel.refresh);

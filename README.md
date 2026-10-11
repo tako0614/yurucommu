@@ -183,6 +183,14 @@ ASCII 値を使い、既存値がこの文字列経路で変わる場合は cred
 マイグレーションは自動では実行されません。既存データがある環境では、利用中の
 マイグレーション履歴を確認し、バックアップと復旧方法を用意してから適用してください。
 
+v2.4.0 は Core/API 4.1.13 と 35 件の SQL（最終ファイルは 0036）を使います。認証済みフォローの失敗も修正します。
+旧リリースの 29 件から更新する場合は、書き込みを止めて閉鎖したバックアップを確保し、
+0031–0036 を適用してから新しい Worker を起動します。旧 Worker に戻すだけでは
+移行済みデータの復旧になりません。旧スキーマのバックアップと、移行後データの
+復旧手順を分けて管理してください。既存インスタンスへのコード upload 前の読取り専用
+チェックは必要なスキーマが不足していれば停止し、移行を代行しません。GitHub Release
+の公開はインスタンスのデータベースを検査・変更する作業とは別です。
+
 ## データと実行環境
 
 Yurucommu は、実行先が変わっても次の役割を必要とします。
@@ -373,11 +381,14 @@ Version 指定の `content/v2?version=UUID` と JSON text の metadata field は
 
 upload 前には、現在配信中の predecessor Version が持つ具体的な D1 `DB` binding を
 同じ target account で読み取り検査します。固定の D1 Query API SELECT で migration
-0030 の `media_blob_deletion_jobs` の列・主キー・due index を確認し、DB が不明確、
-権限不足、応答不正、必要な構造の欠落なら `PRE_UPLOAD_FAILURE` で止まり、Version
-upload と Deployment write は行いません。既存の API token を使い、新たな権限は付与
-しません。この検査は 0030 の指定構造だけを対象とし、全 schema、migration 台帳や
-live の動作を保証するものではありません。private config に DB を追加する必要はありません。
+0030 の `media_blob_deletion_jobs` の列・主キー・due index と、Core 4.1.12 が必要とする
+0031–0036 の `yurucommu_migrations` 台帳・指定テーブル・列・索引・削除予約ガードを
+確認します。修復後の通知 push テーブルに actor FK が残っている場合も拒否します。
+DB が不明確、権限不足、応答不正、書き込みの報告、必要な構造の欠落なら
+`PRE_UPLOAD_FAILURE` で止まり、Version upload と Deployment write は行いません。
+既存の API token を使い、新たな権限は付与しません。この検査は指定した前提構造が
+対象で、全スキーマ・履歴行の正しさや live の動作を保証するものではありません。
+private config に DB を追加する必要はありません。
 
 `wrangler deploy`、`wrangler triggers deploy`、D1 migration、secret 更新は実行しません。
 route、cron/queue consumer、schema/data、secret の変更は別 surface / operator 手順です。

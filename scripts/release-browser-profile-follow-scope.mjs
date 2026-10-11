@@ -773,7 +773,7 @@ export async function qualifyProfileFollowScope({
             event.id === id &&
             event.status === 400 &&
             event.bodySha256 === digest &&
-            event.method === "json",
+            ["text", "json"].includes(event.method),
         ),
       { id: duplicateCallId, digest: duplicateRefusal.bodySha256 },
       { timeout: TIMEOUT },

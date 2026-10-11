@@ -1,4 +1,9 @@
-@import "tailwindcss";
+@import "tailwindcss" source(none);
+
+/* Keep release CSS tied to the client, independent of docs and test fixtures. */
+@source "./";
+@source not "./**/*.test.*";
+@source "../index.html";
 
 /*
  * Single brand accent token. BLUE — used for primary affordances (login,

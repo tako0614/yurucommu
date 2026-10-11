@@ -326,7 +326,8 @@ exit 1
 
 describe("release version", () => {
   test("records the stable fresh-install release while retaining authoritative rollback pins", () => {
-    expect(packageVersion).toBe("2.3.0");
+    expect(packageVersion).toBe("2.4.0");
+    expect(changelogSource).toContain("## 2.4.0 - 2026-10-11");
     expect(changelogSource).toContain("## 2.3.0 - 2026-10-03");
     expect(changelogSource).toContain("## 2.2.0 - 2026-09-29");
     expect(changelogSource).toContain("## 2.2.0-rc.3 - 2026-09-06");
@@ -413,7 +414,7 @@ describe("release version", () => {
       artifactUrl,
     );
     expect(deploymentDefault(moduleSource, "worker_bundle_sha256")).toBe(
-      "sha256:a453e0746cf4ae33bb18f04fd949ef06f70d0d2f70dcc6479c11a6123773b386",
+      "sha256:6ea3c33dcd0bbc73b38694f1d9d174fd1e35857eb420231a0866bc5a189f741c",
     );
     expect(takoformModuleSource).not.toContain('variable "worker_release_tag"');
     expect(takoformModuleSource).not.toContain('variable "worker_bundle_url"');
@@ -524,7 +525,7 @@ describe("release surface status", () => {
       "exact DB D1 binding",
     );
     expect(worker?.obligations["post-conditions"]).toContain(
-      "fixed read-only direct D1 API query",
+      "fixed read-only direct D1 API queries",
     );
     expect(worker?.obligations["post-conditions"]).toContain("migration 0030");
     expect(worker?.obligations["failure-handling"]).toContain(

@@ -611,8 +611,8 @@ async function newPage(browser, origin, rootCookie) {
           status: null,
           done: false,
           networkError: false,
-          jsonStarted: false,
-          jsonDone: false,
+          bodyReadStarted: false,
+          bodyReadDone: false,
           cloneBodyDone: false,
         };
         probe.consumed.push(record);
@@ -621,16 +621,20 @@ async function newPage(browser, origin, rootCookie) {
         const response = await originalFetch(...args);
         if (record) {
           record.status = response.status;
-          const originalJson = response.json.bind(response);
-          response.json = async (...jsonArgs) => {
-            record.jsonStarted = true;
-            try {
-              return await originalJson(...jsonArgs);
-            } finally {
-              record.jsonDone = true;
-              record.done = true;
-            }
-          };
+          // The API may parse a text body itself or use Response.json().
+          // Observe either path; cloning alone is not application consumption.
+          for (const method of ["text", "json"]) {
+            const originalRead = response[method].bind(response);
+            response[method] = async (...readArgs) => {
+              record.bodyReadStarted = true;
+              try {
+                return await originalRead(...readArgs);
+              } finally {
+                record.bodyReadDone = true;
+                record.done = true;
+              }
+            };
+          }
           void response
             .clone()
             .arrayBuffer()
@@ -791,7 +795,7 @@ async function waitConsumed(page, count) {
         reads.length >= minimum &&
         reads
           .slice(0, minimum)
-          .every((read) => read.jsonDone || read.networkError)
+          .every((read) => read.bodyReadDone || read.networkError)
       );
     },
     count,
@@ -807,7 +811,7 @@ async function waitConsumedAt(page, index) {
   await page.waitForFunction(
     (position) => {
       const read = window.__dmHistoryOrderProbe?.consumed?.[position];
-      return read?.jsonDone === true || read?.networkError === true;
+      return read?.bodyReadDone === true || read?.networkError === true;
     },
     index,
     { timeout: TIMEOUT },

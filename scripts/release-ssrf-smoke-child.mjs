@@ -366,7 +366,7 @@ async function schemaPreflight(bytes, rawConfig) {
   assert.deepEqual(
     schema.entries.map((entry) => entry.name),
     sourceNames,
-    "migration bundle entries differ from installed Core 4.1.11",
+    "migration bundle entries differ from installed Core migration directory",
   );
   for (const entry of schema.entries) {
     assert.deepEqual(
@@ -773,7 +773,8 @@ try {
       "utf8",
     ),
   ).version;
-  assert.equal(coreVersion, "4.1.11", "unexpected installed published Core");
+  assert.equal(coreVersion, "4.1.13", "unexpected installed published Core");
+  assert.equal(apiVersion, "4.1.13", "unexpected installed published API");
   const artifactHash = sha256(await readFile(artifact));
   tempRoot = await mkdtemp(join(tmpdir(), "yurucommu-native-ssrf-"));
   phases.push("strict-config-runtime-compatibility-schema-preflight");

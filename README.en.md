@@ -197,6 +197,17 @@ the Worker does not run SQL migrations. For an existing installation, inspect
 the current migration history and prepare backup and recovery steps before
 changing the schema.
 
+The v2.4.0 candidate uses Yurucommu Core/API 4.1.13 and 35 SQL migrations,
+ending at 0036. It also fixes authenticated Follow failures. To update from the previous 29-migration schema, stop writes and
+make a closed backup before applying 0031–0036 and starting the new Worker.
+Rolling back only to the old Worker does not restore data after those
+migrations. Keep the pre-migration backup for restoring the old schema separate
+from the recovery procedure for data after migration. The instance has one
+human owner, who is responsible for this backup and recovery; linked profiles
+remain that owner's personas. Before code upload to an existing instance, the
+read-only schema prerequisite check refuses missing state and never applies
+migrations.
+
 ## Data and runtime
 
 Yurucommu needs the following roles on every supported host:
@@ -389,12 +400,17 @@ unavailable or malformed content stops at the phase already reached.
 Before upload, the publisher reads the concrete D1 `DB` binding from that exact
 active predecessor Version and queries it in the validated target account. A
 fixed read-only D1 Query API SELECT checks migration 0030's
-`media_blob_deletion_jobs` columns, primary key, and due index. An ambiguous DB,
-denied access, malformed response, or missing structure stops with
-`PRE_UPLOAD_FAILURE` before Version upload or Deployment write. It reuses the
-existing API token and grants no additional permissions. The check covers only
-that named 0030 structure, not the entire schema, migration ledger, or live
-behavior. Do not add a DB binding to the private code-only config.
+`media_blob_deletion_jobs` columns, primary key, and due index, plus the
+`yurucommu_migrations` ledger and the specified tables, columns, indexes, and
+deletion-reservation guard required by Core/API 4.1.12 for migrations
+0031–0036. It also refuses a remaining actor foreign key on the repaired push
+notification table. An ambiguous DB, denied access, malformed or write-reporting
+response, or missing structure stops with `PRE_UPLOAD_FAILURE` before Version
+upload or Deployment write. The check reuses the existing API token, grants no
+additional permissions, and never applies migrations. It checks only the named
+prerequisite structures; it does not establish the correctness of the full
+schema or migration history, or prove live behavior. Do not add a DB binding to
+the private code-only config.
 
 It does not run `wrangler deploy`, trigger deployment, D1 migrations, or secret
 updates. Route, cron/queue consumer, schema/data, and secret changes remain
