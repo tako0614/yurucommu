@@ -414,7 +414,7 @@ describe("release version", () => {
       artifactUrl,
     );
     expect(deploymentDefault(moduleSource, "worker_bundle_sha256")).toBe(
-      "sha256:a453e0746cf4ae33bb18f04fd949ef06f70d0d2f70dcc6479c11a6123773b386",
+      "sha256:6879ddcffbf7259a4c8647da05057bc90d410938f28974865c95752251b9f9ac",
     );
     expect(takoformModuleSource).not.toContain('variable "worker_release_tag"');
     expect(takoformModuleSource).not.toContain('variable "worker_bundle_url"');
@@ -525,7 +525,7 @@ describe("release surface status", () => {
       "exact DB D1 binding",
     );
     expect(worker?.obligations["post-conditions"]).toContain(
-      "fixed read-only direct D1 API query",
+      "fixed read-only direct D1 API queries",
     );
     expect(worker?.obligations["post-conditions"]).toContain("migration 0030");
     expect(worker?.obligations["failure-handling"]).toContain(

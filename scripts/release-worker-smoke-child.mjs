@@ -171,9 +171,13 @@ async function qualifyBackgroundEvents(worker, lane) {
   const fixtures = [
     { name: "expired", end: "2000-01-01T00:00:00.000Z" },
     { name: "active", end: "2999-01-01T00:00:00.000Z" },
-  ];
-  for (const { name, end } of fixtures) {
-    const key = `uploads/release-smoke-${name}.webp`;
+  ].map((fixture) => ({
+    ...fixture,
+    // Core's published-media deletion claim admits the same canonical key
+    // shape that the upload route issues, not arbitrary fixture filenames.
+    key: `uploads/${sha256(`release-smoke-${fixture.name}`)}.webp`,
+  }));
+  for (const { name, end, key } of fixtures) {
     await media.put(key, `release-smoke-${name}`);
     await db.batch([
       db
@@ -205,7 +209,7 @@ async function qualifyBackgroundEvents(worker, lane) {
     if (result.outcome !== "ok") {
       throw new Error(`scheduled retention failed: ${JSON.stringify(result)}`);
     }
-    for (const { name } of fixtures) {
+    for (const { name, key } of fixtures) {
       const expected = name === "active";
       const object = await db
         .prepare("SELECT ap_id FROM objects WHERE ap_id = ?")
@@ -215,7 +219,7 @@ async function qualifyBackgroundEvents(worker, lane) {
         .prepare("SELECT id FROM media_uploads WHERE id = ?")
         .bind(name)
         .first();
-      const blob = await media.get(`uploads/release-smoke-${name}.webp`);
+      const blob = await media.get(key);
       if (
         Boolean(object) !== expected ||
         Boolean(upload) !== expected ||
