@@ -11,6 +11,8 @@
 - Use Core/API 4.1.13 for atomic single-owner setup, fail-closed logout,
   media deletion fencing and repaired historical push relations. Fix authenticated
   Follow failures against independent servers.
+- Known limitation: optional user recommendations may be empty. User search
+  and following a known profile remain available.
 - This release targets personal deployments and their basic journeys.
   It does not claim completed GA, production-instance deployment, real-issuer
   qualification or operator-owned historical-data migration. Existing operators

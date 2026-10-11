@@ -366,7 +366,7 @@ async function schemaPreflight(bytes, rawConfig) {
   assert.deepEqual(
     schema.entries.map((entry) => entry.name),
     sourceNames,
-    "migration bundle entries differ from installed Core 4.1.12",
+    "migration bundle entries differ from installed Core migration directory",
   );
   for (const entry of schema.entries) {
     assert.deepEqual(

@@ -458,9 +458,18 @@ async function loadPublicMigrationHelper(root) {
   const compiled = join(root, "public-core-migrations.mjs");
   // Node does not strip TypeScript in node_modules. Compile only the installed
   // package's public export into this disposable directory; no SQL runner is copied.
+  // This is a library import. Prevent Bun's Node-target lowering of import.meta.main
+  // from treating two absent CommonJS entry-point fields as a CLI invocation.
   execFileSync(
     "bun",
-    ["build", source, "--target=node", "--outfile", compiled],
+    [
+      "build",
+      source,
+      "--target=node",
+      "--define=import.meta.main=false",
+      "--outfile",
+      compiled,
+    ],
     {
       cwd: REPO,
       stdio: "pipe",
