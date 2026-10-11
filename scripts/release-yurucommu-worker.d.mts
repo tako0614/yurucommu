@@ -61,6 +61,11 @@ export type WorkerProvider = {
     index: "media_blob_deletion_jobs_due_idx";
     scope: "migration-0030-only";
   }>;
+  assertCoreUpgradeSchema(input: { databaseId: string }): Promise<{
+    kind: "yurucommu.core-upgrade-schema@v1";
+    migrations: string[];
+    scope: "migration-0031-through-0036-prerequisites";
+  }>;
   upload(input: {
     repo?: string;
     environment?: WorkerEnvironment;

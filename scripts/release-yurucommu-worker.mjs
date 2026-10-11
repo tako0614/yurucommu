@@ -16,6 +16,11 @@ import {
   MEDIA_DELETION_SCHEMA_QUERY,
   validateMediaDeletionQueryResults,
 } from "./media-deletion-schema.mjs";
+import {
+  CORE_UPGRADE_MIGRATIONS,
+  CORE_UPGRADE_SCHEMA_QUERY,
+  validateCoreUpgradeQueryResults,
+} from "./core-upgrade-schema.mjs";
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const COMMIT = /^[0-9a-f]{40}$/u;
@@ -1447,6 +1452,33 @@ export function createCloudflareWorkerProvider({
       }
     },
 
+    async assertCoreUpgradeSchema({ databaseId }) {
+      if (typeof databaseId !== "string" || !UUID.test(databaseId)) {
+        throw new Error("invalid active Worker D1 database id");
+      }
+      const body = await request(
+        `/accounts/${account}/d1/database/${encodeURIComponent(databaseId)}/query`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sql: CORE_UPGRADE_SCHEMA_QUERY }),
+        },
+      );
+      try {
+        return validateCoreUpgradeQueryResults(body?.result);
+      } catch (error) {
+        throw providerError(
+          error instanceof Error
+            ? error.message
+            : "Cloudflare D1 Core 4.1.12 metadata response was invalid",
+          {
+            stderr: JSON.stringify(body),
+            cause: error instanceof Error ? error : undefined,
+          },
+        );
+      }
+    },
+
     async upload({ bundleBytes, configBytes, message, previousVersion }) {
       if (!(bundleBytes instanceof Uint8Array)) {
         throw new Error("the selected Worker bundle bytes are unavailable");
@@ -1694,6 +1726,27 @@ export async function deployYurucommuWorker({
       );
     }
     await releaseProvider.assertMediaDeletionSchema({ databaseId });
+    if (typeof releaseProvider.assertCoreUpgradeSchema !== "function") {
+      throw new Error(
+        "Worker provider is missing the required read-only Core 4.1.12 D1 preflight",
+      );
+    }
+    const upgradeProof = await releaseProvider.assertCoreUpgradeSchema({
+      databaseId,
+    });
+    if (
+      upgradeProof?.kind !== "yurucommu.core-upgrade-schema@v1" ||
+      upgradeProof.scope !== "migration-0031-through-0036-prerequisites" ||
+      !Array.isArray(upgradeProof.migrations) ||
+      upgradeProof.migrations.length !== CORE_UPGRADE_MIGRATIONS.length ||
+      upgradeProof.migrations.some(
+        (name, index) => name !== CORE_UPGRADE_MIGRATIONS[index],
+      )
+    ) {
+      throw new Error(
+        "Worker provider returned invalid Core 4.1.12 D1 preflight proof",
+      );
+    }
 
     phase = "POST_UPLOAD_INDETERMINATE";
     const upload = await releaseProvider.upload({

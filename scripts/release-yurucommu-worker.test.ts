@@ -20,12 +20,27 @@ import {
   YurucommuWorkerReleaseFailure,
 } from "./release-yurucommu-worker.mjs";
 import { MEDIA_DELETION_SCHEMA_QUERY } from "./media-deletion-schema.mjs";
+import {
+  CORE_UPGRADE_MIGRATIONS,
+  CORE_UPGRADE_SCHEMA_QUERY,
+} from "./core-upgrade-schema.mjs";
 
 const COMMIT = "c".repeat(40);
 const REMOTE_MAIN = "d".repeat(40);
 const ACCOUNT_ID = "a".repeat(32);
 const D1_DATABASE_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 const SESSION_HASH_SALT_BINDING = "YURUCOMMU_SESSION_HASH_SALT";
+const CORE_UPGRADE_SCHEMA_QUALIFICATION = {
+  kind: "yurucommu.core-upgrade-schema@v1" as const,
+  migrations: [...CORE_UPGRADE_MIGRATIONS],
+  scope: "migration-0031-through-0036-prerequisites" as const,
+};
+const UPGRADE_SCHEMA_PROVIDER = {
+  assertCoreUpgradeSchema: async ({ databaseId }: { databaseId: string }) => {
+    expect(databaseId).toBe(D1_DATABASE_ID);
+    return CORE_UPGRADE_SCHEMA_QUALIFICATION;
+  },
+};
 const MEDIA_DELETION_SCHEMA_QUALIFICATION = {
   kind: "yurucommu.core-media-deletion-schema@v1" as const,
   table: "media_blob_deletion_jobs" as const,
@@ -263,6 +278,43 @@ async function mediaDeletionMetadataRows() {
   }
 }
 
+// This checks prerequisite metadata against the actual product SQL bundle.
+// Applying DDL to an empty portable SQLite fixture is not an upgrade rehearsal.
+async function coreUpgradeMetadataRows() {
+  const bundle = JSON.parse(
+    await readFile(
+      new URL(
+        "../deploy/takoform/migrations/schema-bundle.json",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  ) as { entries: { name: string; sql: string }[] };
+  expect(bundle.entries).toHaveLength(35);
+  expect(bundle.entries.slice(-6).map((entry) => entry.name)).toEqual(
+    CORE_UPGRADE_MIGRATIONS,
+  );
+  const database = new Database(":memory:");
+  try {
+    database.exec("PRAGMA foreign_keys = ON");
+    for (const entry of bundle.entries) database.exec(entry.sql);
+    database.exec(
+      "CREATE TABLE yurucommu_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL, applied_at TEXT NOT NULL)",
+    );
+    for (const entry of bundle.entries) {
+      database
+        .query(
+          "INSERT INTO yurucommu_migrations (name, applied_at) VALUES (?, ?)",
+        )
+        .run(entry.name, "portable-schema-fixture");
+    }
+    expect(database.query("PRAGMA foreign_key_check").all()).toEqual([]);
+    return database.query(CORE_UPGRADE_SCHEMA_QUERY).all();
+  } finally {
+    database.close();
+  }
+}
+
 describe("production yurucommu Worker publisher", () => {
   test("rejects arbitrary clean feature and detached commits before provider mutation", () =>
     cleanFixture(async ({ repo, target }) => {
@@ -281,6 +333,7 @@ describe("production yurucommu Worker publisher", () => {
           check: async () => {},
           provider: {
             assertVersionCode: codeProof,
+            ...UPGRADE_SCHEMA_PROVIDER,
             assertMediaDeletionSchema: async ({
               databaseId,
             }: {
@@ -326,6 +379,7 @@ describe("production yurucommu Worker publisher", () => {
         check: async () => {},
         provider: {
           assertVersionCode: codeProof,
+          ...UPGRADE_SCHEMA_PROVIDER,
           assertMediaDeletionSchema: async ({
             databaseId,
           }: {
@@ -370,6 +424,7 @@ describe("production yurucommu Worker publisher", () => {
         },
         provider: {
           assertVersionCode: codeProof,
+          ...UPGRADE_SCHEMA_PROVIDER,
           assertMediaDeletionSchema: async ({
             databaseId,
           }: {
@@ -411,6 +466,7 @@ describe("production yurucommu Worker publisher", () => {
         check: async () => {},
         provider: {
           assertVersionCode: codeProof,
+          ...UPGRADE_SCHEMA_PROVIDER,
           assertMediaDeletionSchema: async ({
             databaseId,
           }: {
@@ -470,6 +526,7 @@ describe("production yurucommu Worker publisher", () => {
           check: async () => {},
           provider: {
             assertVersionCode: codeProof,
+            ...UPGRADE_SCHEMA_PROVIDER,
             assertMediaDeletionSchema: async ({
               databaseId,
             }: {
@@ -506,6 +563,7 @@ describe("production yurucommu Worker publisher", () => {
           codeReads += 1;
           return codeProof(input);
         },
+        ...UPGRADE_SCHEMA_PROVIDER,
         assertMediaDeletionSchema: async ({
           databaseId,
         }: {
@@ -652,6 +710,7 @@ describe("production yurucommu Worker publisher", () => {
               versionId,
               versionId === OLD_VERSION ? "previous" : uploadMessage,
             ),
+          ...UPGRADE_SCHEMA_PROVIDER,
           assertMediaDeletionSchema: async () =>
             MEDIA_DELETION_SCHEMA_QUALIFICATION,
           upload: async ({ message }: { message: string }) => {
@@ -719,6 +778,7 @@ describe("production yurucommu Worker publisher", () => {
               versionId,
               versionId === OLD_VERSION ? "previous" : uploadMessage,
             ),
+          ...UPGRADE_SCHEMA_PROVIDER,
           assertMediaDeletionSchema: async () =>
             MEDIA_DELETION_SCHEMA_QUALIFICATION,
           upload: async ({ message }: { message: string }) => {
@@ -818,6 +878,7 @@ describe("production yurucommu Worker publisher", () => {
             activeDeployment: async () =>
               deployment(OLD_DEPLOYMENT, OLD_VERSION),
             version: async () => activeVersion,
+            ...UPGRADE_SCHEMA_PROVIDER,
             assertMediaDeletionSchema: async () => {
               schemaChecks += 1;
               return MEDIA_DELETION_SCHEMA_QUALIFICATION;
@@ -945,6 +1006,7 @@ describe("production yurucommu Worker publisher", () => {
             activeDeployment: async () =>
               deployment(OLD_DEPLOYMENT, OLD_VERSION),
             version: async () => activeVersion,
+            ...UPGRADE_SCHEMA_PROVIDER,
             assertMediaDeletionSchema: async () => {
               schemaChecks += 1;
               return MEDIA_DELETION_SCHEMA_QUALIFICATION;
@@ -1010,6 +1072,123 @@ describe("production yurucommu Worker publisher", () => {
       expect(uploads).toBe(0);
     }));
 
+  test("does not treat the old 0030 callback as Core 4.1.12 readiness", () =>
+    cleanFixture(async ({ repo, target }) => {
+      let uploads = 0;
+      const failure = await deployYurucommuWorker({
+        repo,
+        environment: "production",
+        commit: COMMIT,
+        target,
+        git: gitSource(),
+        check: async () => {},
+        provider: {
+          assertVersionCode: codeProof,
+          domains: async () => [
+            {
+              hostname: "test.yurucommu.com",
+              service: "yurucommu",
+              environment: "production",
+            },
+          ],
+          activeDeployment: async () => deployment(OLD_DEPLOYMENT, OLD_VERSION),
+          version: async ({ versionId }: { versionId: string }) =>
+            versionDetails(versionId),
+          assertMediaDeletionSchema: async () =>
+            MEDIA_DELETION_SCHEMA_QUALIFICATION,
+          upload: async () => {
+            uploads += 1;
+            throw new Error("old 0030 callback must not authorize upload");
+          },
+        },
+      }).catch((error: unknown) => error);
+      expect(failureOf(failure).phase).toBe("PRE_UPLOAD_FAILURE");
+      expect((failure as Error).message).toContain(
+        "required read-only Core 4.1.12 D1 preflight",
+      );
+      expect(uploads).toBe(0);
+    }));
+
+  test("refuses old-only, denied, and write-reported Core D1 metadata before upload", () =>
+    cleanFixture(async ({ repo, target }) => {
+      for (const [label, body, status] of [
+        [
+          "old-only",
+          {
+            success: true,
+            result: [{ success: true, results: [], meta: { rows_written: 0 } }],
+          },
+          200,
+        ],
+        [
+          "denied",
+          { success: false, errors: [{ message: "D1 Read denied" }] },
+          403,
+        ],
+        [
+          "write-reported",
+          {
+            success: true,
+            result: [{ success: true, results: [], meta: { rows_written: 1 } }],
+          },
+          200,
+        ],
+      ] as const) {
+        let uploads = 0;
+        let coreQueries = 0;
+        const realProvider = createCloudflareWorkerProvider({
+          repo,
+          target,
+          token: "test-token",
+          smokePassword: "test-password",
+          fetcher: async (input, init) => {
+            expect(String(input)).toBe(
+              `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/d1/database/${D1_DATABASE_ID}/query`,
+            );
+            expect(init?.method).toBe("POST");
+            expect(JSON.parse(String(init?.body))).toEqual({
+              sql: CORE_UPGRADE_SCHEMA_QUERY,
+            });
+            coreQueries += 1;
+            return Response.json(body, { status });
+          },
+        });
+        const failure = await deployYurucommuWorker({
+          repo,
+          environment: "production",
+          commit: COMMIT,
+          target,
+          git: gitSource(),
+          check: async () => {},
+          provider: {
+            assertVersionCode: codeProof,
+            domains: async () => [
+              {
+                hostname: "test.yurucommu.com",
+                service: "yurucommu",
+                environment: "production",
+              },
+            ],
+            activeDeployment: async () =>
+              deployment(OLD_DEPLOYMENT, OLD_VERSION),
+            version: async ({ versionId }: { versionId: string }) =>
+              versionDetails(versionId),
+            assertMediaDeletionSchema: async () =>
+              MEDIA_DELETION_SCHEMA_QUALIFICATION,
+            assertCoreUpgradeSchema: ({ databaseId }: { databaseId: string }) =>
+              realProvider.assertCoreUpgradeSchema({ databaseId }),
+            upload: async () => {
+              uploads += 1;
+              throw new Error("Core D1 preflight must block upload");
+            },
+          },
+        }).catch((error: unknown) => error);
+        expect(failureOf(failure).phase, label).toBe("PRE_UPLOAD_FAILURE");
+        expect(coreQueries, label).toBe(1);
+        expect(uploads, label).toBe(0);
+      }
+    }));
+
   test("keeps D1 permission denial as PRE_UPLOAD_FAILURE without leaking token or smoke password", () =>
     cleanFixture(async ({ repo, target }) => {
       const apiToken = "known-cloudflare-test-token";
@@ -1057,6 +1236,7 @@ describe("production yurucommu Worker publisher", () => {
           activeDeployment: async () => deployment(OLD_DEPLOYMENT, OLD_VERSION),
           version: async ({ versionId }: { versionId: string }) =>
             versionDetails(versionId),
+          ...UPGRADE_SCHEMA_PROVIDER,
           assertMediaDeletionSchema: ({ databaseId }) =>
             deniedProvider.assertMediaDeletionSchema({ databaseId }),
           upload: async () => {
@@ -1122,6 +1302,7 @@ describe("production yurucommu Worker publisher", () => {
           activeDeployment: async () => deployment(OLD_DEPLOYMENT, OLD_VERSION),
           version: async ({ versionId }: { versionId: string }) =>
             versionDetails(versionId),
+          ...UPGRADE_SCHEMA_PROVIDER,
           assertMediaDeletionSchema: ({ databaseId }) =>
             wrongSchemaProvider.assertMediaDeletionSchema({ databaseId }),
           upload: async () => {
@@ -1229,6 +1410,7 @@ describe("production yurucommu Worker publisher", () => {
         check: async () => {},
         provider: {
           assertVersionCode: codeProof,
+          ...UPGRADE_SCHEMA_PROVIDER,
           assertMediaDeletionSchema: async ({
             databaseId,
           }: {
@@ -1284,6 +1466,7 @@ describe("production yurucommu Worker publisher", () => {
           check: async () => {},
           provider: {
             assertVersionCode: codeProof,
+            ...UPGRADE_SCHEMA_PROVIDER,
             assertMediaDeletionSchema: async ({
               databaseId,
             }: {
@@ -1347,6 +1530,7 @@ describe("production yurucommu Worker publisher", () => {
         check: async () => {},
         provider: {
           assertVersionCode: codeProof,
+          ...UPGRADE_SCHEMA_PROVIDER,
           assertMediaDeletionSchema: async ({
             databaseId,
           }: {
@@ -1422,6 +1606,7 @@ describe("production yurucommu Worker publisher", () => {
           check: async () => {},
           provider: {
             assertVersionCode: codeProof,
+            ...UPGRADE_SCHEMA_PROVIDER,
             assertMediaDeletionSchema: async ({
               databaseId,
             }: {
@@ -1479,6 +1664,7 @@ describe("production yurucommu Worker publisher", () => {
         check: async () => {},
         provider: {
           assertVersionCode: codeProof,
+          ...UPGRADE_SCHEMA_PROVIDER,
           assertMediaDeletionSchema: async ({
             databaseId,
           }: {
@@ -1533,6 +1719,7 @@ describe("production yurucommu Worker publisher", () => {
         check: async () => {},
         provider: {
           assertVersionCode: codeProof,
+          ...UPGRADE_SCHEMA_PROVIDER,
           assertMediaDeletionSchema: async ({
             databaseId,
           }: {
@@ -1589,6 +1776,7 @@ describe("production yurucommu Worker publisher", () => {
         check: async () => {},
         provider: {
           assertVersionCode: codeProof,
+          ...UPGRADE_SCHEMA_PROVIDER,
           assertMediaDeletionSchema: async ({
             databaseId,
           }: {
@@ -1641,6 +1829,7 @@ describe("production yurucommu Worker publisher", () => {
         check: async () => {},
         provider: {
           assertVersionCode: codeProof,
+          ...UPGRADE_SCHEMA_PROVIDER,
           assertMediaDeletionSchema: async ({
             databaseId,
           }: {
@@ -1692,6 +1881,7 @@ describe("production yurucommu Worker publisher", () => {
         check: async () => {},
         provider: {
           assertVersionCode: codeProof,
+          ...UPGRADE_SCHEMA_PROVIDER,
           assertMediaDeletionSchema: async ({
             databaseId,
           }: {
@@ -1754,6 +1944,7 @@ describe("production yurucommu Worker publisher", () => {
         check: async () => {},
         provider: {
           assertVersionCode: codeProof,
+          ...UPGRADE_SCHEMA_PROVIDER,
           assertMediaDeletionSchema: async ({
             databaseId,
           }: {
@@ -1813,6 +2004,7 @@ describe("production yurucommu Worker publisher", () => {
       const deployedVersions: string[] = [];
       const provider = {
         assertVersionCode: codeProof,
+        ...UPGRADE_SCHEMA_PROVIDER,
         assertMediaDeletionSchema: async ({
           databaseId,
         }: {
@@ -1911,6 +2103,7 @@ describe("production yurucommu Worker publisher", () => {
         check: async () => {},
         provider: {
           assertVersionCode: codeProof,
+          ...UPGRADE_SCHEMA_PROVIDER,
           assertMediaDeletionSchema: async ({
             databaseId,
           }: {
@@ -2320,6 +2513,8 @@ describe("production yurucommu Worker publisher", () => {
   test("blocks Deployment when the real content reader sees wrong uploaded bytes", () =>
     cleanFixture(async ({ repo, target }) => {
       const schemaRows = await mediaDeletionMetadataRows();
+      const upgradeRows = await coreUpgradeMetadataRows();
+      let upgradeQueries = 0;
       let uploadMessage = "";
       let versionWrites = 0;
       let deploymentWrites = 0;
@@ -2369,12 +2564,22 @@ describe("production yurucommu Worker publisher", () => {
             method === "POST" &&
             url.includes(`/d1/database/${D1_DATABASE_ID}/query`)
           ) {
+            const { sql } = JSON.parse(String(init?.body));
+            expect([
+              MEDIA_DELETION_SCHEMA_QUERY,
+              CORE_UPGRADE_SCHEMA_QUERY,
+            ]).toContain(sql);
+            if (sql === CORE_UPGRADE_SCHEMA_QUERY) upgradeQueries += 1;
+            expect(versionWrites).toBe(0);
             return Response.json({
               success: true,
               result: [
                 {
                   success: true,
-                  results: schemaRows,
+                  results:
+                    sql === CORE_UPGRADE_SCHEMA_QUERY
+                      ? upgradeRows
+                      : schemaRows,
                   meta: { changed_db: false, rows_written: 0 },
                 },
               ],
@@ -2421,6 +2626,7 @@ describe("production yurucommu Worker publisher", () => {
       expect((failure as Error).message).toContain(
         "differs from the reviewed Worker bundle bytes",
       );
+      expect(upgradeQueries).toBe(1);
       expect(versionWrites).toBe(1);
       expect(contentReads).toBe(1);
       expect(deploymentWrites).toBe(0);
@@ -2710,6 +2916,7 @@ describe("production yurucommu Worker publisher", () => {
           git: gitSource(),
           provider: {
             assertVersionCode: codeProof,
+            ...UPGRADE_SCHEMA_PROVIDER,
             assertMediaDeletionSchema: async ({
               databaseId,
             }: {
@@ -2791,6 +2998,7 @@ describe("production yurucommu Worker publisher", () => {
           },
           provider: {
             assertVersionCode: codeProof,
+            ...UPGRADE_SCHEMA_PROVIDER,
             assertMediaDeletionSchema: async ({
               databaseId,
             }: {

@@ -81,12 +81,18 @@ function sha256(value: string | Uint8Array): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
+function shellQuote(value: string): string {
+  return "'" + value.replaceAll("'", "'\"'\"'") + "'";
+}
+
 type ReleaseScenario = {
   immutableSettings: string;
   readback: string;
   version?: string;
   changelog?: string;
   createFails?: boolean;
+  tagAppearsAfterCheck?: boolean;
+  mainMovesAfterCheck?: boolean;
   manifestMutator?: (source: string) => string;
 };
 
@@ -134,6 +140,7 @@ async function createReleaseHarness(scenario: ReleaseScenario) {
   const ghLogPath = join(root, "gh.log");
   const createArgsPath = join(root, "gh-create-args");
   const tagStatePath = join(root, "tag-created");
+  const mainMovedPath = join(root, "main-moved");
 
   const [
     deploySource,
@@ -148,6 +155,16 @@ async function createReleaseHarness(scenario: ReleaseScenario) {
     readFile(new URL("../main.tf", import.meta.url), "utf8"),
     readFile(new URL("../deploy/takoform/main.tf", import.meta.url), "utf8"),
   ]);
+  const fixtureSourceTag = deploymentDefault(rootModule, "worker_release_tag");
+  if (
+    !fixtureSourceTag ||
+    !/^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u.test(fixtureSourceTag) ||
+    !rootModule.includes(`/releases/download/${fixtureSourceTag}/`)
+  ) {
+    throw new Error(
+      "release harness requires a valid source module release pin",
+    );
+  }
   const replaceDigest = (source: string) =>
     source.replace(
       /(variable\s+"worker_bundle_sha256"[\s\S]*?default\s+=\s+")sha256:[^"]+/u,
@@ -170,7 +187,7 @@ async function createReleaseHarness(scenario: ReleaseScenario) {
     ),
     writeFile(
       join(root, "main.tf"),
-      replaceDigest(rootModule.replaceAll(packageTag, tag)),
+      replaceDigest(rootModule.replaceAll(fixtureSourceTag, tag)),
     ),
     writeFile(join(takoform, "main.tf"), replaceDigest(takoformModule)),
     writeFile(artifactPath, artifact),
@@ -185,15 +202,22 @@ async function createReleaseHarness(scenario: ReleaseScenario) {
     join(fakeBin, "git"),
     `#!/bin/sh
 set -eu
-printf '%s\\n' "$*" >> ${JSON.stringify(ghLogPath)}
+printf '%s\\n' "$*" >> ${shellQuote(ghLogPath)}
 case "$*" in
   "status --porcelain") exit 0 ;;
   "rev-parse --abbrev-ref HEAD") printf 'main\\n' ;;
   "rev-parse --abbrev-ref --symbolic-full-name @{upstream}") printf 'origin/main\\n' ;;
-  "rev-parse HEAD"|"rev-parse origin/main") printf '%s\\n' '${fakeCommit}' ;;
+  "rev-parse HEAD") printf '%s\\n' '${fakeCommit}' ;;
+  "rev-parse origin/main")
+    if [ -s ${shellQuote(mainMovedPath)} ]; then
+      printf '%s\\n' '${"2".repeat(40)}'
+    else
+      printf '%s\\n' '${fakeCommit}'
+    fi
+    ;;
   "tag --list"*) exit 0 ;;
   "ls-remote --tags"*)
-    if [ -s ${JSON.stringify(tagStatePath)} ]; then printf '%s\\trefs/tags/${tag}\\n' '${fakeCommit}'; fi
+    if [ -s ${shellQuote(tagStatePath)} ]; then printf '%s\\trefs/tags/${tag}\\n' '${fakeCommit}'; fi
     exit 0
     ;;
   "fetch"*) exit 0 ;;
@@ -206,6 +230,10 @@ esac
     `#!/bin/sh
 set -eu
 printf '%s\\n' "$*" >> "$FAKE_BUN_LOG"
+if [ "$1" = "run" ] && [ "$2" = "check" ]; then
+  if [ "$FAKE_TAG_AFTER_CHECK" = "1" ]; then printf '%s' 'created' > "$FAKE_TAG_STATE"; fi
+  if [ "$FAKE_MAIN_AFTER_CHECK" = "1" ]; then printf '%s' 'moved' > "$FAKE_MAIN_MOVED_STATE"; fi
+fi
 exit 0
 `,
   );
@@ -267,6 +295,9 @@ exit 1
     FAKE_GH_READBACK: scenario.readback,
     FAKE_GH_CREATE_FAIL: scenario.createFails ? "1" : "0",
     FAKE_TAG_STATE: tagStatePath,
+    FAKE_MAIN_MOVED_STATE: mainMovedPath,
+    FAKE_TAG_AFTER_CHECK: scenario.tagAppearsAfterCheck ? "1" : "0",
+    FAKE_MAIN_AFTER_CHECK: scenario.mainMovesAfterCheck ? "1" : "0",
     FAKE_ARTIFACT_PATH: artifactPath,
     FAKE_MANIFEST_PATH: manifestPath,
     FAKE_CHECKSUM_PATH: checksumPath,
@@ -295,7 +326,8 @@ exit 1
 
 describe("release version", () => {
   test("records the stable fresh-install release while retaining authoritative rollback pins", () => {
-    expect(packageVersion).toBe("2.3.0");
+    expect(packageVersion).toBe("2.4.0");
+    expect(changelogSource).toContain("## 2.4.0 - 2026-10-11");
     expect(changelogSource).toContain("## 2.3.0 - 2026-10-03");
     expect(changelogSource).toContain("## 2.2.0 - 2026-09-29");
     expect(changelogSource).toContain("## 2.2.0-rc.3 - 2026-09-06");
@@ -686,7 +718,11 @@ describe("release surface status", () => {
 
 function readbackPayload(
   isImmutable: boolean | undefined,
-  options: { version?: string; isPrerelease?: boolean } = {},
+  options: {
+    version?: string;
+    isPrerelease?: boolean;
+    assetMode?: "extra" | "duplicate";
+  } = {},
 ): string {
   const artifact = Buffer.from("test release worker artifact\n");
   const artifactDigest = sha256(artifact);
@@ -711,29 +747,71 @@ function readbackPayload(
   };
   const manifestText = `${JSON.stringify(manifest, null, 2)}\n`;
   const checksumText = `${artifactDigest}  yurucommu-worker.js\n`;
+  const assets = [
+    { name: "yurucommu-worker.js", digest: `sha256:${artifactDigest}` },
+    {
+      name: "takosumi-artifact.json",
+      digest: `sha256:${sha256(manifestText)}`,
+    },
+    {
+      name: "yurucommu-worker.js.sha256",
+      digest: `sha256:${sha256(checksumText)}`,
+    },
+  ];
+  if (options.assetMode === "extra") {
+    assets.push({ name: "unexpected.txt", digest: `sha256:${"0".repeat(64)}` });
+  } else if (options.assetMode === "duplicate") {
+    assets[2] = { ...assets[0] };
+  }
   const payload: Record<string, unknown> = {
     isDraft: false,
     isPrerelease: options.isPrerelease ?? version.includes("-"),
     isImmutable,
     tagName: tag,
     url: `https://github.com/tako0614/yurucommu/releases/tag/${tag}`,
-    assets: [
-      { name: "yurucommu-worker.js", digest: `sha256:${artifactDigest}` },
-      {
-        name: "takosumi-artifact.json",
-        digest: `sha256:${sha256(manifestText)}`,
-      },
-      {
-        name: "yurucommu-worker.js.sha256",
-        digest: `sha256:${sha256(checksumText)}`,
-      },
-    ],
+    assets,
   };
   if (isImmutable === undefined) delete payload.isImmutable;
   return JSON.stringify(payload);
 }
 
 describe("immutable GitHub release guard", () => {
+  test.each([
+    ["tag appears", { tagAppearsAfterCheck: true }, "remote tag"],
+    ["main moves", { mainMovesAfterCheck: true }, "does not equal origin/main"],
+  ] as const)(
+    "refuses before release create when %s during candidate verification",
+    async (_label, transition, refusal) => {
+      const result = await createReleaseHarness({
+        immutableSettings: JSON.stringify({ enabled: true }),
+        readback: readbackPayload(true),
+        ...transition,
+      });
+
+      expect(result.exitCode).not.toBe(0);
+      expect(result.ghLog).not.toContain("release create");
+      expect(result.stdout).not.toContain('"status": "PUBLISHED"');
+      expect(result.stderr).toContain(refusal);
+    },
+  );
+
+  test.each(["extra", "duplicate"] as const)(
+    "refuses %s Release asset inventory after create without declaring publication complete",
+    async (assetMode) => {
+      const result = await createReleaseHarness({
+        immutableSettings: JSON.stringify({ enabled: true }),
+        readback: readbackPayload(true, { assetMode }),
+      });
+
+      expect(result.exitCode).not.toBe(0);
+      expect(result.ghLog.match(/release create /gu)).toHaveLength(1);
+      expect(result.ghLog).not.toContain("release download");
+      expect(result.stdout).not.toContain('"status": "PUBLISHED"');
+      expect(result.stderr).toContain("POST_PUBLICATION_INDETERMINATE");
+      expect(result.stderr).toContain("unexpected asset inventory");
+    },
+  );
+
   test("refuses publication without notes for the exact candidate version", async () => {
     const result = await createReleaseHarness({
       immutableSettings: JSON.stringify({ enabled: true }),

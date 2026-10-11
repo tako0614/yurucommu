@@ -197,6 +197,7 @@ type DeliveryMessage = DeliveryQueueMessageV1 | DeliveryDlqMessageV1;
 type DeliveryEvent = MessageBatch<DeliveryMessage> | EdgeQueueBatch;
 
 const backendApp = createYurucommuBackendApp({
+  singleOwner: true,
   discovery: ${JSON.stringify(discovery, null, 2)},
   browserMedia: ${JSON.stringify(browserMedia, null, 2)},
 });

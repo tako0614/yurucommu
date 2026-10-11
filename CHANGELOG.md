@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.4.0 - 2026-10-11
+
+- Improve timeline, story, notification and direct-message state after account
+  changes and acknowledged writes. Preserve drafts and reject stale responses
+  that belong to an earlier account or conversation.
+- Include native independent-peer Follow/Accept, restricted posts, direct
+  messages, retry and signature/actor-binding regression checks. Exercise
+  foreign activity IDs and bounded SSRF refusal through the real Worker bundle.
+- This unpublished candidate targets usable personal deployments with verified
+  basic journeys.
+  It does not claim completed GA, production-instance deployment, real-issuer
+  qualification or operator-owned historical-data migration. Existing operators
+  must preserve their session salt and encryption keys and follow the owning
+  upgrade procedure; publishing this release does not change an installation.
+
 ## 2.3.0 - 2026-10-03
 
 - Align onboarding, account settings and the install contract with a personal

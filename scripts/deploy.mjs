@@ -8,7 +8,7 @@
 //   bun run deploy -- yurucommu-worker --environment=production --commit=<40-hex>
 //
 // この surface が publish するのは **Worker の code だけ** です。durable store
-// (D1 DB / KV / R2 MEDIA) を変更しません。D1 は必要な 0030 metadata だけ読みます。
+// (D1 DB / KV / R2 MEDIA) を変更しません。D1 は必要な 0030–0036 metadata だけ読みます。
 // schema 変更は `irreversible` な別の作業で、
 // この entrypoint の副作用として起きてはいけないからです。
 // ⚠ yurucommu 系の live D1 は `_cf_migrations` 台帳が実態とずれています。
@@ -70,6 +70,7 @@ const CONTRACT = {
         "scripts/post-deploy-smoke.ts",
         "scripts/release-yurucommu-worker.mjs",
         "scripts/media-deletion-schema.mjs",
+        "scripts/core-upgrade-schema.mjs",
       ],
       requiresScripts: ["check", "build:worker", "smoke:postdeploy"],
       requiresTools: ["git", "bun", "node", "tofu"],
@@ -88,10 +89,10 @@ const CONTRACT = {
         "independent-review":
           "before publishing these authentication and publisher-admission changes, requires an independent source review of the exact commit and its regression, native update/restore and CI evidence; the operator records that review and existing secret custody separately. A green check, contract, branch or ledger does not authorize deployment",
         provenance: `requires exactly --environment=production and --commit=<40-hex>; requires a clean HEAD equal to that commit and either freshly pushed main or an exact commit contained by freshly fetched origin/main; uses CLOUDFLARE_API_TOKEN only for provider authentication, reads the operator-private target/config from YURUCOMMU_WORKER_DEPLOY_TARGET as link-free 0600 regular files under 0700 directories outside every discovered Git repository, common directory, and linked worktree, and uses YURUCOMMU_E2E_PASSWORD only for the post-deploy application smoke; runs \`${OWNER_GATE}\` once; and binds the commit, ${W.bundle} sha256, and selected config digest into the uploaded Version annotation`,
-        "post-conditions": `before upload requires the provider's exact Version code readback capability, exactly one YURUCOMMU_SESSION_HASH_SALT secret_text binding on the active predecessor Version (metadata presence/type only; no value read or secret provisioning), its exact DB D1 binding and a fixed read-only direct D1 API query of migration 0030 columns, primary key and due index in the validated target account; uses the existing API token and refuses denied or malformed results without granting permissions or mutating schema; uses one direct Cloudflare API Version upload and one direct Cloudflare API Deployment write; binds each acknowledgement to the exact Version and Deployment ids; treats resources.script.etag only as an opaque drift marker and compares the full non-code closure with the active predecessor; requires bounded timed raw module content/v2?version=UUID readbacks with exactly one ESM worker.mjs part, byte length and SHA-256 equal to the original ${W.bundle} bytes after upload, immediately before Deployment promotion, and after smoke; re-reads the active Deployment and exact hostname/service/environment custom-domain filters across bounded stable pages; runs \`bun run smoke:postdeploy\` through the public launch URL read from the Capsule outputs file selected by TAKOSUMI_CAPSULE_OUTPUTS_FILE; then requires final route, active Deployment, Version metadata and code byte readbacks before PUBLISHED. The content query follows pinned official Wrangler source; live API compatibility and existing token permission require separate operator evidence`,
+        "post-conditions": `before upload requires the provider's exact Version code readback capability, exactly one YURUCOMMU_SESSION_HASH_SALT secret_text binding on the active predecessor Version (metadata presence/type only; no value read or secret provisioning), its exact DB D1 binding and fixed read-only direct D1 API queries for migration 0030 structure and Core 4.1.12 migration 0031–0036 ledger/schema prerequisites in the validated target account; uses the existing API token and refuses denied or malformed results without granting permissions or mutating schema; uses one direct Cloudflare API Version upload and one direct Cloudflare API Deployment write; binds each acknowledgement to the exact Version and Deployment ids; treats resources.script.etag only as an opaque drift marker and compares the full non-code closure with the active predecessor; requires bounded timed raw module content/v2?version=UUID readbacks with exactly one ESM worker.mjs part, byte length and SHA-256 equal to the original ${W.bundle} bytes after upload, immediately before Deployment promotion, and after smoke; re-reads the active Deployment and exact hostname/service/environment custom-domain filters across bounded stable pages; runs \`bun run smoke:postdeploy\` through the public launch URL read from the Capsule outputs file selected by TAKOSUMI_CAPSULE_OUTPUTS_FILE; then requires final route, active Deployment, Version metadata and code byte readbacks before PUBLISHED. The content query follows pinned official Wrangler source; live API compatibility and existing token permission require separate operator evidence`,
         reversal: `reads the pre-upload active Deployment and its exact one-Version 100 percent version set rather than Version-list order; a failed smoke never writes an automatic rollback because Cloudflare exposes no compare-and-swap across the read/write boundary, and instead reports that exact predecessor for manual reversal after an authoritative concurrency readback`,
         "failure-handling":
-          "prints provider diagnostics without credentials; missing exact Version code readback capability, missing/invalid active session-salt secret binding, missing, ambiguous or invalid active DB binding, denied D1 access, malformed query result or missing migration 0030 structure fails PRE_UPLOAD_FAILURE before Version upload or Deployment write; unavailable, malformed or changed raw Version code refuses promotion or PUBLISHED at the reached phase; reports POST_UPLOAD_INDETERMINATE, POST_DEPLOY_INDETERMINATE, or POST_CONDITION_INDETERMINATE after the corresponding operation, and never retries an upload or deployment whose acknowledgement was lost",
+          "prints provider diagnostics without credentials; missing exact Version code readback capability, missing/invalid active session-salt secret binding, missing, ambiguous or invalid active DB binding, denied D1 access, malformed query result or missing migration 0030–0036 prerequisites fails PRE_UPLOAD_FAILURE before Version upload or Deployment write; unavailable, malformed or changed raw Version code refuses promotion or PUBLISHED at the reached phase; reports POST_UPLOAD_INDETERMINATE, POST_DEPLOY_INDETERMINATE, or POST_CONDITION_INDETERMINATE after the corresponding operation, and never retries an upload or deployment whose acknowledgement was lost",
       },
     },
     {
@@ -116,15 +117,15 @@ const CONTRACT = {
         "independent-review":
           "before publishing the authentication-enforcement artifact, requires independent review of the exact commit, required secret custody and regression/native/CI evidence; publication does not authorize any consumer installation or live secret change",
         provenance:
-          "refuses a dirty, detached, or unpushed worktree; requires main for publication; runs `bun run check`; builds and boots the embedded Worker from that exact commit; requires the repository manifest's default deploy/takoform module and sourceBuild-generated Worker/migration assets, plus direct-Cloudflare module release pins, to align with the same tag and artifact digest; records the source commit plus SHA-256 in the release manifest; and projects the exact version's checked-in CHANGELOG.md section into Release notes",
+          "refuses a dirty, detached, or unpushed worktree; requires main for publication and rechecks fresh origin/main parity after the owner gate and candidate smoke; runs `bun run check`; builds and boots the embedded Worker from that exact commit; requires the repository manifest's default deploy/takoform module and sourceBuild-generated Worker/migration assets, plus direct-Cloudflare module release pins, to align with the same tag and artifact digest; records the source commit plus SHA-256 in the release manifest; and projects the exact version's checked-in CHANGELOG.md section into Release notes",
         "post-conditions":
-          "derives the prerelease lane from the SemVer suffix and creates prereleases with --prerelease --latest=false; reads the create-only tag and GitHub Release back, requires the tag to resolve to the source commit, isImmutable:true, and the exact expected isPrerelease boolean; downloads all three assets, requires their exact SHA-256 digests, and boots the downloaded Worker in workerd with runtime-native DB/KV/MEDIA/queue bindings",
+          "derives the prerelease lane from the SemVer suffix and creates prereleases with --prerelease --latest=false; reads the create-only tag and GitHub Release back, requires the tag to resolve to the source commit, isImmutable:true, the exact expected isPrerelease boolean, and exactly three unique expected assets; downloads all three assets, requires their exact SHA-256 digests, and boots the downloaded Worker in workerd with runtime-native DB/KV/MEDIA/queue bindings",
         reversal:
           "the release identity is never replaced or deleted by this entrypoint; consumers remain able to pin the preceding release, and a defect is repaired by publishing a higher version",
         "failure-handling":
           "fails before mutation when the tag or release already exists; after release creation starts it reports an indeterminate publication and requires authoritative tag/release readback before any retry",
         "no-overwrite":
-          "derives one SemVer tag from package.json, refuses any existing local/remote tag or GitHub Release, reads repos/tako0614/yurucommu/immutable-releases immediately before create and requires enabled:true, requires post-readback isImmutable:true, and uses GitHub create-only release publication without update or delete paths",
+          "derives one SemVer tag from package.json, refuses any existing local/remote tag or GitHub Release and rechecks their absence after the owner gate and candidate smoke, reads repos/tako0614/yurucommu/immutable-releases immediately before create and requires enabled:true, requires post-readback isImmutable:true, and uses GitHub create-only release publication without update or delete paths",
       },
     },
     {
@@ -427,6 +428,27 @@ function releaseNotes(version, commit) {
   return `Worker release built from ${commit}.\n\n${section.trim()}`;
 }
 
+function requireReleaseIdentityAbsent(tag) {
+  const localTag = git("tag", "--list", tag);
+  if (localTag !== "") die(`local tag ${tag} already exists`);
+  const remoteTag = run("git", [
+    "ls-remote",
+    "--tags",
+    "origin",
+    `refs/tags/${tag}`,
+  ]).trim();
+  if (remoteTag !== "") die(`remote tag ${tag} already exists`);
+  try {
+    run("gh", ["release", "view", tag, "--repo", R.repository]);
+    die(`GitHub Release ${tag} already exists`);
+  } catch (error) {
+    const stderr = String(error.stderr ?? "");
+    if (!/release not found|HTTP 404/iu.test(stderr)) {
+      die(`cannot prove GitHub Release ${tag} is absent: ${stderr.trim()}`);
+    }
+  }
+}
+
 function publishWorkerRelease() {
   if (
     process.argv.includes("--execute") &&
@@ -446,24 +468,7 @@ function publishWorkerRelease() {
   const tag = `v${version}`;
   const prerelease = version.includes("-");
   const notes = releaseNotes(version, commit);
-  const localTag = git("tag", "--list", tag);
-  if (localTag !== "") die(`local tag ${tag} already exists`);
-  const remoteTag = run("git", [
-    "ls-remote",
-    "--tags",
-    "origin",
-    `refs/tags/${tag}`,
-  ]).trim();
-  if (remoteTag !== "") die(`remote tag ${tag} already exists`);
-  try {
-    run("gh", ["release", "view", tag, "--repo", R.repository]);
-    die(`GitHub Release ${tag} already exists`);
-  } catch (error) {
-    const stderr = String(error.stderr ?? "");
-    if (!/release not found|HTTP 404/iu.test(stderr)) {
-      die(`cannot prove GitHub Release ${tag} is absent: ${stderr.trim()}`);
-    }
-  }
+  requireReleaseIdentityAbsent(tag);
 
   process.stdout.write(`source ${commit} (${branch})\n`);
   process.stdout.write(`\n==> ${OWNER_GATE}\n`);
@@ -529,6 +534,13 @@ function publishWorkerRelease() {
   }
 
   process.stdout.write(`\n==> create-only GitHub Release ${tag}\n`);
+  const finalSource = requireCleanPushedSource(true);
+  if (finalSource.commit !== commit) {
+    die(
+      `release source changed from ${commit} to ${finalSource.commit} during verification`,
+    );
+  }
+  requireReleaseIdentityAbsent(tag);
   requireRepositoryImmutableReleases();
   try {
     const output = run("gh", [
@@ -588,6 +600,23 @@ function publishWorkerRelease() {
   ) {
     die(
       `published Release ${tag} has unexpected state (isImmutable=${String(release.isImmutable)}, isPrerelease=${String(release.isPrerelease)}, expectedPrerelease=${prerelease})`,
+    );
+  }
+  const expectedNames = Object.keys(expectedDigests);
+  if (
+    !Array.isArray(release.assets) ||
+    release.assets.length !== expectedNames.length ||
+    release.assets.some(
+      (asset) =>
+        !asset ||
+        typeof asset.name !== "string" ||
+        !Object.hasOwn(expectedDigests, asset.name),
+    ) ||
+    new Set(release.assets.map((asset) => asset.name)).size !==
+      expectedNames.length
+  ) {
+    die(
+      `POST_PUBLICATION_INDETERMINATE: published Release ${tag} has an unexpected asset inventory; inspect the immutable Release before any forward repair`,
     );
   }
   const remoteAssets = new Map(
