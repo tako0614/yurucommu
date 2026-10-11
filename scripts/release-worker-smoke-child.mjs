@@ -412,6 +412,285 @@ async function nativeSessionRows(db) {
   return (await db.prepare("SELECT * FROM sessions ORDER BY id").all()).results;
 }
 
+async function smokeAuthenticatedRecommendations(
+  artifactPath,
+  artifactDigest,
+  passwordFixture,
+) {
+  const lane = "native-recommendations";
+  const { worker, dispose } = nativeWorker(artifactPath, passwordFixture);
+  let primaryFailed = false;
+  try {
+    await runPhase(lane, "runtime-ready", () => worker.ready);
+    const { db, schemaSha256, migrationCount } = await runPhase(
+      lane,
+      "schema",
+      () => applyProductSchema(worker),
+    );
+
+    const rootApId = `${APP_ORIGIN}/ap/users/tako`;
+    const personaApId = `${APP_ORIGIN}/ap/users/recommendation_persona`;
+    const rootSession = await runPhase(
+      lane,
+      "authenticated-owner-session",
+      () => nativePasswordLogin(worker, "browser"),
+    );
+    const identity = await nativeIdentity(worker, rootSession);
+    if (
+      identity.status !== 200 ||
+      identity.body.actor?.ap_id !== rootApId ||
+      identity.body.actor?.role !== "owner"
+    ) {
+      throw new Error(
+        "recommendations fixture did not authenticate the sole root owner",
+      );
+    }
+
+    const personaResponse = await worker.dispatchFetch(
+      `${APP_ORIGIN}/api/auth/accounts`,
+      {
+        method: "POST",
+        headers: {
+          ...credentialHeaders(rootSession),
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          username: "recommendation_persona",
+          role: "owner",
+        }),
+      },
+    );
+    const persona = await requireOwnerJson(personaResponse, "persona creation");
+    const actors = await nativeActorRows(db);
+    if (
+      personaResponse.status !== 200 ||
+      persona.account?.ap_id !== personaApId ||
+      actors.length !== 2 ||
+      actors.filter((actor) => actor.role === "owner").length !== 1 ||
+      actors.find((actor) => actor.ap_id === rootApId)?.role !== "owner" ||
+      actors.find((actor) => actor.ap_id === personaApId)?.role !== "member" ||
+      actors.find((actor) => actor.ap_id === personaApId)?.owner_actor_ap_id !==
+        rootApId
+    ) {
+      throw new Error(
+        "recommendations fixture did not preserve one root owner and its member persona",
+      );
+    }
+
+    const candidates = [
+      {
+        apId: "https://allowed.invalid/users/recommendation",
+        username: "recommendation",
+      },
+      {
+        apId: "https://followed.invalid/users/recommendation",
+        username: "already_followed",
+      },
+      {
+        apId: "https://blocked.invalid/users/recommendation",
+        username: "personally_blocked",
+      },
+      {
+        apId: "https://operator.invalid/users/recommendation",
+        username: "operator_blocked",
+      },
+    ];
+    const acceptedAt = "2026-10-11T00:00:00.000Z";
+    const follows = [
+      [rootApId, personaApId],
+      [rootApId, candidates[1].apId],
+      [personaApId, candidates[0].apId],
+      [personaApId, candidates[1].apId],
+      [personaApId, candidates[2].apId],
+      [personaApId, candidates[3].apId],
+      [personaApId, rootApId],
+    ];
+
+    await runPhase(lane, "seed-recommendation-graph", async () => {
+      await db.batch([
+        ...candidates.map((candidate) =>
+          db
+            .prepare(
+              `INSERT INTO actor_cache
+                (ap_id, preferred_username, inbox, raw_json)
+               VALUES (?, ?, ?, ?)`,
+            )
+            .bind(
+              candidate.apId,
+              candidate.username,
+              `${candidate.apId}/inbox`,
+              JSON.stringify({
+                id: candidate.apId,
+                preferredUsername: candidate.username,
+                inbox: `${candidate.apId}/inbox`,
+              }),
+            ),
+        ),
+        ...follows.map(([followerApId, followingApId]) =>
+          db
+            .prepare(
+              `INSERT INTO follows
+                (follower_ap_id, following_ap_id, status, accepted_at)
+               VALUES (?, ?, 'accepted', ?)`,
+            )
+            .bind(followerApId, followingApId, acceptedAt),
+        ),
+        db
+          .prepare(
+            `INSERT INTO blocks (blocker_ap_id, blocked_ap_id)
+             VALUES (?, ?)`,
+          )
+          .bind(rootApId, candidates[2].apId),
+        db
+          .prepare(`INSERT INTO blocked_domains (domain, reason) VALUES (?, ?)`)
+          .bind("operator.invalid", "release smoke exclusion fixture"),
+      ]);
+
+      const cachedActors = (
+        await db
+          .prepare(
+            `SELECT ap_id, preferred_username, inbox, raw_json
+             FROM actor_cache ORDER BY ap_id`,
+          )
+          .all()
+      ).results;
+      const actualFollows = (
+        await db
+          .prepare(
+            `SELECT follower_ap_id, following_ap_id, status, accepted_at
+             FROM follows ORDER BY follower_ap_id, following_ap_id`,
+          )
+          .all()
+      ).results;
+      const actualBlocks = (
+        await db
+          .prepare(
+            `SELECT blocker_ap_id, blocked_ap_id FROM blocks
+             ORDER BY blocker_ap_id, blocked_ap_id`,
+          )
+          .all()
+      ).results;
+      const actualBlockedDomains = (
+        await db
+          .prepare("SELECT domain FROM blocked_domains ORDER BY domain")
+          .all()
+      ).results;
+      const followKeys = actualFollows.map(
+        (row) =>
+          `${row.follower_ap_id}|${row.following_ap_id}|${row.status}|${row.accepted_at}`,
+      );
+      const expectedFollowKeys = follows
+        .map(
+          ([followerApId, followingApId]) =>
+            `${followerApId}|${followingApId}|accepted|${acceptedAt}`,
+        )
+        .sort();
+
+      if (
+        cachedActors.length !== candidates.length ||
+        candidates.some(
+          (candidate) =>
+            !cachedActors.some(
+              (row) =>
+                row.ap_id === candidate.apId &&
+                row.preferred_username === candidate.username &&
+                row.inbox === `${candidate.apId}/inbox` &&
+                JSON.parse(row.raw_json)?.id === candidate.apId,
+            ),
+        ) ||
+        followKeys.length !== expectedFollowKeys.length ||
+        JSON.stringify(followKeys) !== JSON.stringify(expectedFollowKeys) ||
+        actualBlocks.length !== 1 ||
+        actualBlocks[0]?.blocker_ap_id !== rootApId ||
+        actualBlocks[0]?.blocked_ap_id !== candidates[2].apId ||
+        actualBlockedDomains.length !== 1 ||
+        actualBlockedDomains[0]?.domain !== "operator.invalid"
+      ) {
+        throw new Error(
+          "recommendations fixture graph did not match its native D1 readback",
+        );
+      }
+    });
+
+    const recommendationResult = await runPhase(
+      lane,
+      "recommendations-authenticated-nonempty",
+      async () => {
+        const response = await worker.dispatchFetch(
+          `${APP_ORIGIN}/api/recommendations/users`,
+          {
+            headers: {
+              ...credentialHeaders(rootSession),
+              accept: "application/json",
+            },
+          },
+        );
+        const payload = await requireOwnerJson(
+          response,
+          "authenticated recommendations",
+        );
+        const users = payload.users;
+        const allowed = users?.[0];
+        if (
+          response.status !== 200 ||
+          !Array.isArray(users) ||
+          users.length !== 1 ||
+          allowed?.ap_id !== candidates[0].apId ||
+          allowed?.preferred_username !== candidates[0].username ||
+          allowed?.username !== `${candidates[0].username}@allowed.invalid` ||
+          allowed?.mutual_count !== 1 ||
+          candidates
+            .slice(1)
+            .some((candidate) =>
+              users.some((user) => user?.ap_id === candidate.apId),
+            ) ||
+          users.some((user) => user?.ap_id === rootApId)
+        ) {
+          throw new Error(
+            "recommendations-authenticated-nonempty: expected exactly the allowed remote candidate with mutual_count 1 and its seeded username",
+          );
+        }
+        return {
+          status: response.status,
+          users: users.map(({ ap_id, username, mutual_count }) => ({
+            ap_id,
+            username,
+            mutual_count,
+          })),
+        };
+      },
+    );
+
+    return {
+      artifactSha256: `sha256:${artifactDigest}`,
+      substrate: "disposable-native-worker-d1",
+      schemaSha256,
+      migrationCount,
+      authenticatedActorApId: rootApId,
+      memberPersonaApId: personaApId,
+      seededAcceptedFollows: follows.length,
+      seededRemoteCandidates: candidates.length,
+      personallyBlockedApId: candidates[2].apId,
+      operatorBlockedDomain: "operator.invalid",
+      recommendation: recommendationResult,
+      checks: ["recommendations-authenticated-nonempty"],
+    };
+  } catch (error) {
+    primaryFailed = true;
+    throw error;
+  } finally {
+    phase(lane, "dispose", "start");
+    try {
+      await dispose();
+      phase(lane, "dispose", "done");
+    } catch (error) {
+      phase(lane, "dispose", "failed");
+      if (!primaryFailed) throw error;
+      process.stderr.write(`release-worker cleanup also failed: ${error}\n`);
+    }
+  }
+}
+
 async function smokeOwnerClaimComposition(artifactPath, passwordFixture) {
   const lane = `owner-claim-${passwordFixture.method}`;
   const { worker, dispose } = nativeWorker(artifactPath, passwordFixture);
@@ -935,6 +1214,13 @@ async function main() {
       ...(await smokeLogoutFailureComposition(artifactPath, authorityFixture)),
     ],
   };
+  // Preserve the existing fault-injection suites' causal diagnostics before
+  // qualifying the additional isolated authenticated recommendations graph.
+  const recommendations = await smokeAuthenticatedRecommendations(
+    artifactPath,
+    artifactDigest,
+    PASSWORD_FIXTURES[0],
+  );
   phase("main", "manifest", "start");
   process.stdout.write(
     `${JSON.stringify({
@@ -948,6 +1234,7 @@ async function main() {
         substrate: "fresh-native-bindings",
         cases: onboarding,
       },
+      recommendations,
       ownerAuthority,
     })}\n`,
   );
