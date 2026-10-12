@@ -18,6 +18,7 @@ import {
   assertStateAddresses,
   assertSingleSuccessfulQuery,
   assertWorkerScriptAbsent,
+  isApiSuccess,
   loadIntegrationTarget,
   listFilteredDomains,
   parseIntegrationArgs,
@@ -403,4 +404,35 @@ test("empty and malformed Worker identities refuse activation absence", () => {
   for (const result of [[null], [{}], [{ id: "" }], [{ id: 42 }]]) {
     expect(() => assertWorkerScriptAbsent({ result })).toThrow();
   }
+});
+
+// Live Queues inventory returned this nullable-error success shape before any write.
+// IDs/names are disposable placeholders; response status is checked by the caller.
+test("nullable Queue error field accepts explicit success and refuses contradictions", () => {
+  const queuePage = {
+    success: true,
+    errors: null,
+    messages: null,
+    result: [
+      { queue_id: "a".repeat(32), queue_name: "unrelated-existing-queue" },
+    ],
+    result_info: {
+      page: 1,
+      per_page: 100,
+      count: 1,
+      total_count: 1,
+      total_pages: 1,
+    },
+  };
+  expect(isApiSuccess(queuePage)).toBe(true);
+  for (const change of [
+    { success: false },
+    { success: undefined },
+    { errors: [{ code: 7003, message: "provider failure" }] },
+    { errors: "provider failure" },
+    { errors: {} },
+    { error: "provider failure" },
+    { error: { message: "provider failure" } },
+  ])
+    expect(isApiSuccess({ ...queuePage, ...change })).toBe(false);
 });

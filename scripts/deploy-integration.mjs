@@ -248,8 +248,18 @@ function invoke(command, args, cwd, env = safeEnv()) {
 function hasNoApiErrors(value) {
   return (
     (value?.errors === undefined ||
+      value.errors === null ||
       (Array.isArray(value.errors) && value.errors.length === 0)) &&
     (value?.error === undefined || value.error === null || value.error === "")
+  );
+}
+export function isApiSuccess(value) {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    value.success === true &&
+    hasNoApiErrors(value)
   );
 }
 async function api(t, method, path, body) {
@@ -274,7 +284,7 @@ async function api(t, method, path, body) {
   } catch {
     value = null;
   }
-  if (!response.ok || value?.success !== true || !hasNoApiErrors(value)) {
+  if (!response.ok || !isApiSuccess(value)) {
     const log = privateDiagnostic("cloudflare", raw);
     throw new Error(
       `${method} ${path.split("?")[0]} denied or failed (${response.status}); raw diagnostics: ${log}; no blind retry`,

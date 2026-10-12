@@ -45,3 +45,5 @@ export function listFilteredDomains(
   request: (path: string) => Promise<unknown>,
 ): Promise<unknown[]>;
 export function deployIntegration(args: string[]): Promise<unknown>;
+
+export function isApiSuccess(value: unknown): boolean;
