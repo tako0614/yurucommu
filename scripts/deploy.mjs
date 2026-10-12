@@ -84,11 +84,11 @@ const CONTRACT = {
         "independent-review":
           "resource creation, schema mutation, authentication secrets, and public domain attachment require independent review before their separate phase",
         "pre-mutation-proof":
-          "resources require empty private state and authoritative absence of the exact names; activation requires the fresh schema ledger and create-only plan; domain attachment requires a collision-free changeset",
+          "resources require empty private state and authoritative absence of the exact names; recover-prefix32 requires the exact published Core prefix schema, ledger, counts, sequence, seed bytes and absent Worker, plus separately reviewed native full-35 proof before the operator starts a one-use phase; activation requires the complete schema ledger and create-only plan; domain attachment requires a collision-free changeset",
         "post-conditions":
-          "resources/activate APPLIED means exact create-only OpenTofu plan and private state-address readback only; fresh-schema reads exact published Core migration ledger; domain reads exact hostname/service/zone and public HTTPS response. The operator separately requires authoritative Worker artifact, bindings, queue/cron, and real-user auth/storage/federation/browser smoke before any live integration claim",
+          "resources/activate APPLIED means exact create-only OpenTofu plan and private state-address readback only; fresh-schema reads the exact published Core migration ledger; recover-prefix32 writes only the three missing batches, reads every ledger prefix and compares the complete final schema, counts, sequence and seed bytes; domain reads exact hostname/service/zone and public HTTPS response. The operator separately requires authoritative Worker artifact, bindings, queue/cron, and real-user auth/storage/federation/browser smoke before any live integration claim",
         reversal:
-          "resource/schema/domain phases never destroy or import existing resources; schema failures require forward repair of the isolated fresh database; later code deployment uses the provider predecessor",
+          "resource/schema/domain phases never destroy or import existing resources; recover-prefix32 preserves the first 32 migrations and has no rollback or replay; a failed or uncertain suffix write requires authoritative reconciliation and a new reviewed forward-repair decision; later code deployment uses the provider predecessor",
         "failure-handling":
           "fails closed on denied inventory, missing source pin, non-create plan, malformed state, conflicting hostname, or uncertain provider response; no automatic retry, deletion, or rollback",
       },
@@ -192,7 +192,7 @@ if (![W.surface, R.surface, S.surface, I.surface].includes(requestedSurface)) {
     `usage: bun run deploy -- ${W.surface} --environment=production --commit=<40-hex>\n` +
       `       bun run deploy -- ${R.surface} [--dry-run|--execute]\n` +
       `       bun run deploy -- ${S.surface} --environment=integration|production\n` +
-      `       bun run deploy -- ${I.surface} --environment=integration --phase=preflight|resources|fresh-schema|activate|domain\n`,
+      `       bun run deploy -- ${I.surface} --environment=integration --phase=preflight|resources|fresh-schema|recover-prefix32|activate|domain\n`,
   );
   process.exit(1);
 }

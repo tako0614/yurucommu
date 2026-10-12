@@ -18,6 +18,7 @@ import {
   assertStateAddresses,
   assertSingleSuccessfulQuery,
   assertWorkerScriptAbsent,
+  deployIntegration,
   isApiSuccess,
   loadIntegrationTarget,
   listFilteredDomains,
@@ -61,9 +62,17 @@ test("only the explicit integration phase syntax is accepted", () => {
   expect(
     parseIntegrationArgs(["--environment=integration", "--phase=resources"]),
   ).toBe("resources");
+  expect(
+    parseIntegrationArgs([
+      "--environment=integration",
+      "--phase=recover-prefix32",
+    ]),
+  ).toBe("recover-prefix32");
   for (const args of [
     ["--environment=production", "--phase=resources"],
     ["--environment=integration", "--phase=destroy"],
+    ["--environment=integration", "--phase=resources1"],
+    ["--environment=integration", "--phase=1resources"],
     ["--environment=integration", "--phase=resources", "--auto-approve"],
   ])
     expect(() => parseIntegrationArgs(args)).toThrow();
@@ -137,6 +146,23 @@ test("private target refuses broad permissions and state outside its private tre
   payload.stateDir = join(aliasedState.dir, "state-alias", "inner");
   writeFileSync(aliasedState.file, JSON.stringify(payload));
   expect(() => loadIntegrationTarget(aliasedState.file)).toThrow();
+});
+
+test("prefix32 phase refuses a target pinned to a different or dirty source before provider access", async () => {
+  const selected = target({ sourceCommit: "d".repeat(40) });
+  const previous = process.env.YURUCOMMU_INTEGRATION_TARGET;
+  process.env.YURUCOMMU_INTEGRATION_TARGET = selected.file;
+  try {
+    await expect(
+      deployIntegration([
+        "--environment=integration",
+        "--phase=recover-prefix32",
+      ]),
+    ).rejects.toThrow("source must be the exact clean reviewed commit");
+  } finally {
+    if (previous === undefined) delete process.env.YURUCOMMU_INTEGRATION_TARGET;
+    else process.env.YURUCOMMU_INTEGRATION_TARGET = previous;
+  }
 });
 
 test("OpenTofu plan accepts only exact creates and unchanged predecessors", () => {
