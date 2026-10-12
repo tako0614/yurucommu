@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
+import { createHash } from "node:crypto";
 import {
   chmodSync,
   mkdtempSync,
@@ -24,6 +25,16 @@ const token = "synthetic-test-token";
 const expectedDatabaseName = "yurucommu-ga-20261012-0938-db";
 const expectedWorkerName = "yurucommu-ga-20261012-0938";
 const names = integrationSchemaTestSupport.migrationNames;
+const pinned0034CaseSelect =
+  "SELECT CASE WHEN NEW.allow_ambiguous=0 AND EXISTS (\n" +
+  "    SELECT 1 FROM media_staged_ambiguity\n" +
+  "    WHERE source_kind=NEW.source_kind AND source_id=NEW.source_id\n" +
+  "  ) THEN RAISE(ABORT,'media reference invalid') END;";
+const projected0034CaseSelect =
+  "SELECT (CASE WHEN NEW.allow_ambiguous=0 AND EXISTS (\n" +
+  "    SELECT 1 FROM media_staged_ambiguity\n" +
+  "    WHERE source_kind=NEW.source_kind AND source_id=NEW.source_id\n" +
+  "  ) THEN RAISE(ABORT,'media reference invalid') END);";
 const coreLedgerInitSql = `CREATE TABLE IF NOT EXISTS yurucommu_migrations (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT UNIQUE NOT NULL,
@@ -608,9 +619,28 @@ test("REST batch fixture applies all 35 immutable migrations and nested triggers
     const ledgerPrefix =
       "CREATE TABLE IF NOT EXISTS yurucommu_migrations (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  name TEXT UNIQUE NOT NULL,\n  applied_at TEXT NOT NULL\n);";
     const originalScript = `${ledgerPrefix}\n${raw.trim()}\n${statements.at(-1)};\n`;
-    expect(statements).toEqual(
-      integrationSchemaTestSupport.splitSqlStatements(originalScript),
-    );
+    const expectedStatements =
+      integrationSchemaTestSupport.splitSqlStatements(originalScript);
+    if (migration === "0034_staged_media_retention.sql") {
+      expect(raw.split(pinned0034CaseSelect)).toHaveLength(2);
+      expect(createHash("sha256").update(raw).digest("hex")).toBe(
+        "7acfe6567af5c4d569f3e523167a29f44370b9c0b207bc2365d4b49849c53d61",
+      );
+      expect(
+        integrationSchemaTestSupport.assertMigrationScript(
+          originalScript,
+          migration,
+          raw,
+        ),
+      ).toBe(originalScript);
+      expect(statements).toEqual(
+        integrationSchemaTestSupport.splitSqlStatements(
+          originalScript.replace(pinned0034CaseSelect, projected0034CaseSelect),
+        ),
+      );
+    } else {
+      expect(statements).toEqual(expectedStatements);
+    }
     expect(writeStatements(call!).at(-1)).toMatch(
       new RegExp(
         `^INSERT INTO yurucommu_migrations \\(name, applied_at\\) VALUES \\('${migration}',`,
@@ -656,8 +686,21 @@ test("0034 REST batch preserves Wrangler statement order, compound CASE trigger 
   const ledgerPrefix =
     "CREATE TABLE IF NOT EXISTS yurucommu_migrations (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  name TEXT UNIQUE NOT NULL,\n  applied_at TEXT NOT NULL\n);";
   const originalScript = `${ledgerPrefix}\n${raw.trim()}\n${batch.at(-1)};\n`;
-  const expected =
-    integrationSchemaTestSupport.splitSqlStatements(originalScript);
+  const coreHash = createHash("sha256").update(raw).digest("hex");
+  expect(coreHash).toBe(
+    "7acfe6567af5c4d569f3e523167a29f44370b9c0b207bc2365d4b49849c53d61",
+  );
+  expect(
+    integrationSchemaTestSupport.assertMigrationScript(
+      originalScript,
+      "0034_staged_media_retention.sql",
+      raw,
+    ),
+  ).toBe(originalScript);
+  expect(raw.split(pinned0034CaseSelect)).toHaveLength(2);
+  const expected = integrationSchemaTestSupport.splitSqlStatements(
+    originalScript.replace(pinned0034CaseSelect, projected0034CaseSelect),
+  );
   expect(batch).toHaveLength(expected.length);
   expect(batch).toEqual(expected);
   expect(batch.at(-1)).toMatch(
@@ -670,10 +713,92 @@ test("0034 REST batch preserves Wrangler statement order, compound CASE trigger 
   expect(trigger[0]).toContain("BEGIN");
   expect(trigger[0]).toContain("CASE WHEN");
   expect(trigger[0].match(/;/g)?.length).toBeGreaterThan(3);
+  const admittedCaseSelect = projected0034CaseSelect
+    .replace("(CASE", "( CASE")
+    .replace("END);", "END );");
+  expect(trigger[0].split(admittedCaseSelect)).toHaveLength(2);
+  expect(trigger[0]).not.toContain(pinned0034CaseSelect);
+
+  const wrongContext = originalScript.replace(
+    "CREATE TRIGGER media_staged_process_input",
+    "CREATE TRIGGER media_staged_process_input_wrong",
+  );
+  expect(() =>
+    integrationSchemaTestSupport.buildMigrationBatch(
+      wrongContext,
+      "0034_staged_media_retention.sql",
+    ),
+  ).toThrow("exact pinned media-input trigger context");
+  const duplicateStatement = originalScript.replace(
+    pinned0034CaseSelect,
+    `${pinned0034CaseSelect}\n  ${pinned0034CaseSelect}`,
+  );
+  expect(() =>
+    integrationSchemaTestSupport.buildMigrationBatch(
+      duplicateStatement,
+      "0034_staged_media_retention.sql",
+    ),
+  ).toThrow("exact pinned media-input trigger context");
+
+  const runGuard = (statement: string, allowAmbiguous: number) => {
+    const db = new Database(":memory:");
+    try {
+      db.exec(
+        "CREATE TABLE media_staged_ambiguity (source_kind TEXT, source_id TEXT);" +
+          "CREATE TABLE media_staged_source_inputs (source_kind TEXT, source_id TEXT, allow_ambiguous INTEGER);" +
+          `CREATE TRIGGER media_staged_process_input AFTER INSERT ON media_staged_source_inputs BEGIN ${statement} END;` +
+          "INSERT INTO media_staged_ambiguity VALUES ('object', 'fixture');",
+      );
+      let rejected = false;
+      try {
+        db.transaction(() =>
+          db
+            .query(
+              "INSERT INTO media_staged_source_inputs VALUES ('object', 'fixture', ?)",
+            )
+            .run(allowAmbiguous),
+        ).immediate();
+      } catch {
+        rejected = true;
+      }
+      return {
+        rejected,
+        inputRows: db
+          .query<{ count: number }, []>(
+            "SELECT COUNT(*) AS count FROM media_staged_source_inputs",
+          )
+          .get()!.count,
+      };
+    } finally {
+      db.close();
+    }
+  };
+  const rawStatement = `  ${pinned0034CaseSelect}`;
+  const projectedStatement = `  ${projected0034CaseSelect}`;
+  expect(runGuard(rawStatement, 1)).toEqual(runGuard(projectedStatement, 1));
+  expect(runGuard(rawStatement, 1)).toEqual({ rejected: false, inputRows: 1 });
+  expect(runGuard(rawStatement, 0)).toEqual(runGuard(projectedStatement, 0));
+  expect(runGuard(projectedStatement, 0)).toEqual({
+    rejected: true,
+    inputRows: 0,
+  });
 });
 
 test("prefix32 recovery skips the exact first 32 and writes only the final three batches with each ledger readback", async () => {
   const f = fixture({ prefix32: true });
+  const prefix32SchemaObjectCount = f.db
+    .query<{ count: number }, []>(
+      "SELECT COUNT(*) AS count FROM sqlite_master WHERE name NOT GLOB 'sqlite_*'",
+    )
+    .get()!.count;
+  expect(f.ledger).toEqual(names.slice(0, 32));
+  expect(
+    f.db
+      .query(
+        "SELECT name FROM sqlite_master WHERE name='media_staged_backfill'",
+      )
+      .all(),
+  ).toEqual([]);
   const result = await muted(() =>
     recoverPrefix32IntegrationSchema(args(f.fetchImpl)),
   );
@@ -709,6 +834,25 @@ test("prefix32 recovery skips the exact first 32 and writes only the final three
   ).toBe(false);
   expect(f.migrationScripts).toBe(3);
   expect(f.ledger).toEqual([...names]);
+  expect(f.ledger).toHaveLength(35);
+  expect(
+    f.db
+      .query<{ count: number }, []>(
+        "SELECT COUNT(*) AS count FROM sqlite_master WHERE name NOT GLOB 'sqlite_*'",
+      )
+      .get()!.count,
+  ).toBeGreaterThan(prefix32SchemaObjectCount);
+  expect(
+    f.db
+      .query(
+        "SELECT source_kind AS sourceKind, cursor, complete FROM media_staged_backfill ORDER BY source_kind",
+      )
+      .all(),
+  ).toEqual([
+    { sourceKind: "actor", cursor: null, complete: 0 },
+    { sourceKind: "community", cursor: null, complete: 0 },
+    { sourceKind: "object", cursor: null, complete: 0 },
+  ]);
   expect(
     f.calls.filter(
       (call) =>
