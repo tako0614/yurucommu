@@ -14,6 +14,7 @@ import {
   assertCreateOnlyPlan,
   assertDomainChangeset,
   assertDomainInventoryPage,
+  assertEmptyOwnerTables,
   assertPinnedRootDefaults,
   assertStateAddresses,
   assertSingleSuccessfulQuery,
@@ -23,6 +24,8 @@ import {
   loadIntegrationTarget,
   listFilteredDomains,
   parseIntegrationArgs,
+  testOwnerAuthPayload,
+  withTestOwnerAuthPreflight,
 } from "./deploy-integration.mjs";
 
 const dirs: string[] = [];
@@ -68,6 +71,12 @@ test("only the explicit integration phase syntax is accepted", () => {
       "--phase=recover-prefix32",
     ]),
   ).toBe("recover-prefix32");
+  expect(
+    parseIntegrationArgs([
+      "--environment=integration",
+      "--phase=test-owner-auth",
+    ]),
+  ).toBe("test-owner-auth");
   for (const args of [
     ["--environment=production", "--phase=resources"],
     ["--environment=integration", "--phase=destroy"],
@@ -76,6 +85,60 @@ test("only the explicit integration phase syntax is accepted", () => {
     ["--environment=integration", "--phase=resources", "--auto-approve"],
   ])
     expect(() => parseIntegrationArgs(args)).toThrow();
+});
+
+test("test-owner auth refuses malformed hash or occupied Core owner tables before any write", async () => {
+  const hash = `${"a".repeat(64)}:${"b".repeat(64)}`;
+  expect(testOwnerAuthPayload(hash)).toEqual({
+    name: "AUTH_PASSWORD_HASH",
+    text: hash,
+    type: "secret_text",
+  });
+  for (const malformed of [
+    "",
+    "bootstrap",
+    `${"a".repeat(64)}:${"B".repeat(64)}`,
+  ])
+    expect(() => testOwnerAuthPayload(malformed)).toThrow();
+
+  const body = (actors: number, sessions: number) => ({
+    success: true,
+    errors: [],
+    result: [{ success: true, results: [{ actors, sessions }] }],
+  });
+  expect(() => assertEmptyOwnerTables(body(0, 0))).not.toThrow();
+  let writes = 0;
+  for (const blocked of [
+    body(1, 0),
+    body(0, 1),
+    { ...body(0, 0), result: [] },
+  ]) {
+    await expect(
+      withTestOwnerAuthPreflight(
+        () => assertEmptyOwnerTables(blocked),
+        () => {
+          writes += 1;
+        },
+        () => undefined,
+      ),
+    ).rejects.toThrow();
+  }
+  expect(writes).toBe(0);
+  let readbacks = 0;
+  await expect(
+    withTestOwnerAuthPreflight(
+      () => assertEmptyOwnerTables(body(0, 0)),
+      () => {
+        writes += 1;
+        throw new Error("provider echoed a secret");
+      },
+      () => {
+        readbacks += 1;
+      },
+    ),
+  ).rejects.toThrow("reconcile without replay");
+  expect(writes).toBe(1);
+  expect(readbacks).toBe(0);
 });
 
 test("target binds exact origin, resource prefix, source and published artifact", () => {
@@ -264,12 +327,19 @@ test("single-page Worker script inventory requires every entry to have an id", (
     expect(() => assertWorkerScriptAbsent({ result })).toThrow();
 });
 
-test("custom domain changeset never accepts replacement or DNS conflict", () => {
+test("custom domain changeset requires the real added/updated/removed/conflicting shape", () => {
   const added = [{ hostname: "ga-commu-20261012.yurucommu.com" }];
-  const clean = { added, updated: [], deleted: [], conflicting: [] };
+  const clean = { added, updated: [], removed: [], conflicting: [] };
   expect(() => assertDomainChangeset(clean)).not.toThrow();
-  for (const key of ["updated", "deleted", "conflicting"] as const) {
-    expect(() => assertDomainChangeset({ ...clean, [key]: added })).toThrow();
+  for (const key of ["updated", "removed", "conflicting"] as const) {
+    expect(() => assertDomainChangeset({ ...clean, [key]: added })).toThrow(
+      `custom-domain changeset has ${key} entries`,
+    );
+    const malformed = { ...clean } as Record<string, unknown>;
+    delete malformed[key];
+    expect(() => assertDomainChangeset(malformed)).toThrow(
+      `custom-domain changeset lacks ${key} array`,
+    );
   }
   expect(() =>
     assertDomainChangeset({ ...clean, added: [{ hostname: "yurucommu.com" }] }),

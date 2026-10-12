@@ -27,6 +27,7 @@ const PHASES = new Set([
   "recover-prefix32",
   "activate",
   "domain",
+  "test-owner-auth",
 ]);
 const RESOURCE_ADDRESSES = new Set([
   "random_id.encryption_key",
@@ -743,6 +744,288 @@ function databaseFromState(t, exactAddresses) {
   );
   return db;
 }
+export function testOwnerAuthPayload(hash) {
+  insist(
+    typeof hash === "string" && /^[a-f0-9]{64}:[a-f0-9]{64}$/u.test(hash),
+    "ephemeral test-owner password hash must be canonical PBKDF2 salt:hash",
+  );
+  return { name: "AUTH_PASSWORD_HASH", text: hash, type: "secret_text" };
+}
+export function assertEmptyOwnerTables(body) {
+  assertSingleSuccessfulQuery(body);
+  const rows = body.result[0].results;
+  insist(
+    rows.length === 1 && rows[0]?.actors === 0 && rows[0]?.sessions === 0,
+    "isolated test-owner auth requires zero actors and sessions",
+  );
+}
+export async function withTestOwnerAuthPreflight(preflight, put, readback) {
+  await preflight();
+  try {
+    await put();
+    return await readback();
+  } catch {
+    const error = new Error(
+      "test-owner secret write or active Version readback indeterminate; reconcile without replay",
+    );
+    error.phase = "POST_AUTH_INDETERMINATE";
+    throw error;
+  }
+}
+function testOwnerStateBindings(t) {
+  const path = join(moduleDir(t), "terraform.tfstate");
+  const stat = lstatSync(path);
+  insist(
+    stat.isFile() &&
+      !stat.isSymbolicLink() &&
+      stat.nlink === 1 &&
+      (stat.mode & 0o077) === 0 &&
+      realpathSync(path) === path,
+    "test-owner private state file must be link-free and 0600 or stricter",
+  );
+  const state = JSON.parse(readFileSync(path, "utf8"));
+  insist(
+    state.version === 4 && Array.isArray(state.resources),
+    "test-owner state is malformed",
+  );
+  const one = (type, name, mode) => {
+    const found = state.resources.filter(
+      (resource) =>
+        resource.type === type &&
+        resource.name === name &&
+        resource.mode === mode,
+    );
+    insist(
+      found.length === 1 && found[0].instances?.length === 1,
+      "test-owner state resource is not unique",
+    );
+    return found[0].instances[0].attributes;
+  };
+  const worker = one("cloudflare_workers_script", "worker", "managed");
+  const bundle = one("http", "worker_bundle", "data");
+  const digest = createHash("sha256")
+    .update(Buffer.from(bundle.response_body ?? "", "utf8"))
+    .digest("hex");
+  insist(
+    worker.script_name === PREFIX &&
+      worker.main_module === "worker.js" &&
+      (worker.content_sha256 === digest ||
+        worker.content_sha256 === `sha256:${digest}`) &&
+      digest === t.artifactSha256 &&
+      Array.isArray(worker.bindings),
+    "test-owner state Worker differs from the exact published artifact",
+  );
+  return worker.bindings;
+}
+function assertTestOwnerBindings(expected, actual) {
+  insist(
+    Array.isArray(expected) &&
+      new Set(expected.map((binding) => binding?.name)).size ===
+        expected.length &&
+      Array.isArray(actual) &&
+      actual.length === expected.length,
+    "test-owner Worker binding count differs from state",
+  );
+  const byName = new Map();
+  for (const binding of actual) {
+    insist(
+      typeof binding?.name === "string" && !byName.has(binding.name),
+      "test-owner Worker bindings are malformed or duplicated",
+    );
+    byName.set(binding.name, binding);
+  }
+  const safe = [];
+  for (const want of expected) {
+    const got = byName.get(want?.name);
+    insist(
+      got?.type === want?.type,
+      "test-owner Worker binding identity differs from state",
+    );
+    const selected = { name: got.name, type: got.type };
+    if (want.type !== "secret_text") {
+      for (const key of [
+        "text",
+        "database_id",
+        "namespace_id",
+        "bucket_name",
+        "queue_name",
+      ]) {
+        if (Object.hasOwn(want, key)) {
+          insist(
+            got[key] === want[key],
+            "test-owner Worker binding target differs from state",
+          );
+          selected[key] = got[key];
+        }
+      }
+    }
+    safe.push(selected);
+  }
+  insist(
+    [
+      "AUTH_PASSWORD_HASH",
+      "ENCRYPTION_KEY",
+      "YURUCOMMU_SESSION_HASH_SALT",
+    ].every((name) => byName.get(name)?.type === "secret_text"),
+    "test-owner Worker secret binding closure differs from state",
+  );
+  return JSON.stringify(safe.sort((a, b) => a.name.localeCompare(b.name)));
+}
+async function testOwnerRequest(t, method, path, payload) {
+  const token = process.env.CLOUDFLARE_API_TOKEN;
+  insist(
+    typeof token === "string" && token.length > 0,
+    "ephemeral Cloudflare token is required",
+  );
+  let response;
+  try {
+    response = await fetch(`https://api.cloudflare.com/client/v4${path}`, {
+      method,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        ...(payload === undefined
+          ? {}
+          : { "Content-Type": "application/json" }),
+      },
+      ...(payload === undefined ? {} : { body: JSON.stringify(payload) }),
+      redirect: "manual",
+      cache: "no-store",
+      signal: AbortSignal.timeout(30000),
+    });
+    insist(
+      response.status === 200 &&
+        !response.redirected &&
+        !response.headers.get("location"),
+      "test-owner provider response failed",
+    );
+  } catch {
+    throw new Error(
+      "test-owner provider request failed; reconcile without replay",
+    );
+  }
+  return response;
+}
+async function testOwnerJson(t, method, path, payload) {
+  const response = await testOwnerRequest(t, method, path, payload);
+  let body;
+  try {
+    body = await response.json();
+  } catch {
+    throw new Error(
+      "test-owner provider JSON response is malformed; reconcile without replay",
+    );
+  }
+  insist(
+    isApiSuccess(body),
+    "test-owner provider rejected request; reconcile without replay",
+  );
+  return body.result;
+}
+async function activeTestOwnerWorker(t, expectedBindings) {
+  const script = `/accounts/${t.accountId}/workers/scripts/${PREFIX}`;
+  const deployments = await testOwnerJson(t, "GET", `${script}/deployments`);
+  const deployment = deployments?.deployments?.[0];
+  const version = deployment?.versions?.[0];
+  insist(
+    /^[a-f0-9-]{36}$/iu.test(deployment?.id ?? "") &&
+      deployment.strategy === "percentage" &&
+      deployment.versions.length === 1 &&
+      /^[a-f0-9-]{36}$/iu.test(version?.version_id ?? "") &&
+      version.percentage === 100,
+    "test-owner Worker has no single active Version at 100 percent",
+  );
+  const versionId = version.version_id;
+  const detail = await testOwnerJson(
+    t,
+    "GET",
+    `${script}/versions/${encodeURIComponent(versionId)}`,
+  );
+  insist(
+    detail?.id === versionId,
+    "test-owner active Version identity changed",
+  );
+  const settings = await testOwnerJson(t, "GET", `${script}/settings`);
+  const bindings = assertTestOwnerBindings(
+    expectedBindings,
+    settings?.bindings,
+  );
+  const content = await testOwnerRequest(
+    t,
+    "GET",
+    `${script}/content/v2?version=${encodeURIComponent(versionId)}`,
+  );
+  let parts;
+  try {
+    parts = await content.formData();
+  } catch {
+    throw new Error("test-owner active Worker multipart response is malformed");
+  }
+  const modules = parts.getAll("worker.js");
+  insist(
+    [...parts.keys()].length === 1 &&
+      modules.length === 1 &&
+      modules[0]?.name === "worker.js" &&
+      content.headers.get("cf-entrypoint") === "worker.js",
+    "test-owner active Worker module response is malformed",
+  );
+  const digest = createHash("sha256")
+    .update(Buffer.from(await modules[0].arrayBuffer()))
+    .digest("hex");
+  insist(
+    digest === t.artifactSha256,
+    "test-owner active Worker code differs from published artifact",
+  );
+  return { deploymentId: deployment.id, versionId, bindings };
+}
+async function testOwnerAuth(t) {
+  const payload = testOwnerAuthPayload(process.env.TF_VAR_auth_password_hash);
+  let before;
+  let expectedBindings;
+  return withTestOwnerAuthPreflight(
+    async () => {
+      const db = await schemaReady(t, true);
+      expectedBindings = testOwnerStateBindings(t);
+      insist(
+        expectedBindings.find(
+          (binding) => binding?.name === "AUTH_PASSWORD_HASH",
+        )?.text !== payload.text,
+        "test-owner password hash must differ from activated state",
+      );
+      await exactDomainAbsent(t);
+      const counts = await api(
+        t,
+        "POST",
+        `/accounts/${t.accountId}/d1/database/${db}/query`,
+        {
+          sql: "SELECT (SELECT COUNT(*) FROM actors) AS actors, (SELECT COUNT(*) FROM sessions) AS sessions",
+        },
+      );
+      assertEmptyOwnerTables(counts);
+      before = await activeTestOwnerWorker(t, expectedBindings);
+    },
+    async () => {
+      const result = await testOwnerJson(
+        t,
+        "PUT",
+        `/accounts/${t.accountId}/workers/scripts/${PREFIX}/secrets`,
+        payload,
+      );
+      insist(
+        result?.name === "AUTH_PASSWORD_HASH" && result?.type === "secret_text",
+        "test-owner secret acknowledgement is malformed",
+      );
+    },
+    async () => {
+      const after = await activeTestOwnerWorker(t, expectedBindings);
+      insist(
+        after.versionId !== before.versionId &&
+          after.bindings === before.bindings,
+        "test-owner secret Version is not the sole active Deployment with unchanged bindings",
+      );
+      return { phase: "test-owner-auth", status: "ACTIVE_VERSION_READ_BACK" };
+    },
+  );
+}
 async function schemaReady(t, activated = false) {
   const db = databaseFromState(
     t,
@@ -794,11 +1077,16 @@ export function assertDomainChangeset(changeset) {
       changeset.added[0]?.hostname === host,
     "custom-domain changeset does not add only the exact hostname",
   );
-  for (const key of ["updated", "deleted", "conflicting"])
+  for (const key of ["updated", "removed", "conflicting"]) {
     insist(
-      Array.isArray(changeset[key]) && changeset[key].length === 0,
+      Array.isArray(changeset[key]),
+      `custom-domain changeset lacks ${key} array; no overwrite/removal allowed`,
+    );
+    insist(
+      changeset[key].length === 0,
       `custom-domain changeset has ${key} entries; no overwrite/removal allowed`,
     );
+  }
 }
 async function attachDomain(t) {
   const dir = moduleDir(t);
@@ -905,6 +1193,7 @@ export async function deployIntegration(args) {
     );
     return tofu(t, phase);
   }
+  if (phase === "test-owner-auth") return testOwnerAuth(t);
   await schemaReady(t, true);
   return attachDomain(t);
 }
