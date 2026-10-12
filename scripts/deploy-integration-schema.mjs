@@ -120,6 +120,26 @@ const MIGRATIONS = Object.freeze({
 const MIGRATION_NAMES = Object.freeze(Object.keys(MIGRATIONS).sort());
 const MIGRATION_MAP_SHA256 =
   "ac5d5c0da5ba84d94339f45fc5d1a61103ac65d36add75d9703c2201386b1b50";
+const PINNED_0034_MIGRATION = "0034_staged_media_retention.sql";
+const PINNED_0034_SQL_SHA256 =
+  "7acfe6567af5c4d569f3e523167a29f44370b9c0b207bc2365d4b49849c53d61";
+const PINNED_0034_TRIGGER_HEAD =
+  "CREATE TRIGGER media_staged_process_input\n" +
+  "AFTER INSERT ON media_staged_source_inputs\nBEGIN\n";
+const PINNED_0034_TRIGGER_CASE_SELECT =
+  "SELECT CASE WHEN NEW.allow_ambiguous=0 AND EXISTS (\n" +
+  "    SELECT 1 FROM media_staged_ambiguity\n" +
+  "    WHERE source_kind=NEW.source_kind AND source_id=NEW.source_id\n" +
+  "  ) THEN RAISE(ABORT,'media reference invalid') END;";
+const PINNED_0034_TRIGGER_CASE_SELECT_PROJECTED =
+  "SELECT (CASE WHEN NEW.allow_ambiguous=0 AND EXISTS (\n" +
+  "    SELECT 1 FROM media_staged_ambiguity\n" +
+  "    WHERE source_kind=NEW.source_kind AND source_id=NEW.source_id\n" +
+  "  ) THEN RAISE(ABORT,'media reference invalid') END);";
+const PINNED_0034_TRIGGER_CASE_TAIL =
+  "\n  INSERT OR IGNORE INTO media_staged_references(r2_key,source_kind,source_id)\n" +
+  "    SELECT r2_key,source_kind,source_id FROM media_staged_filename_candidates\n" +
+  "      WHERE source_kind=NEW.source_kind AND source_id=NEW.source_id;";
 const EMPTY_SCHEMA_SQL = `SELECT type, name FROM sqlite_master WHERE name NOT GLOB 'sqlite_*' AND NOT (type = 'table' AND name IN (${RESERVED_D1_TABLES_SQL})) ORDER BY type, name`;
 
 function insist(ok, message) {
@@ -660,12 +680,58 @@ function normalizeCaseEndParentheses(sql) {
   return output;
 }
 
+function countExactOccurrences(value, needle) {
+  let count = 0;
+  let offset = 0;
+  while (true) {
+    const index = value.indexOf(needle, offset);
+    if (index === -1) return count;
+    count += 1;
+    offset = index + needle.length;
+  }
+}
+
+function projectPinned0034CaseTransport(sql, migration) {
+  if (migration !== PINNED_0034_MIGRATION) return sql;
+  insist(
+    MIGRATIONS[PINNED_0034_MIGRATION] === PINNED_0034_SQL_SHA256,
+    "pinned 0034 transport projection digest differs from the Core map",
+  );
+  const triggerIndex = sql.indexOf(PINNED_0034_TRIGGER_HEAD);
+  const caseIndex = sql.indexOf(PINNED_0034_TRIGGER_CASE_SELECT);
+  const tailIndex = sql.indexOf(PINNED_0034_TRIGGER_CASE_TAIL);
+  insist(
+    countExactOccurrences(sql, PINNED_0034_TRIGGER_HEAD) === 1 &&
+      countExactOccurrences(sql, PINNED_0034_TRIGGER_CASE_SELECT) === 1 &&
+      countExactOccurrences(sql, PINNED_0034_TRIGGER_CASE_TAIL) === 1 &&
+      triggerIndex >= 0 &&
+      caseIndex > triggerIndex &&
+      tailIndex > caseIndex,
+    "0034 transport projection requires its exact pinned media-input trigger context once",
+  );
+  const projected = sql.replace(
+    PINNED_0034_TRIGGER_CASE_SELECT,
+    PINNED_0034_TRIGGER_CASE_SELECT_PROJECTED,
+  );
+  insist(
+    countExactOccurrences(projected, PINNED_0034_TRIGGER_CASE_SELECT) === 0 &&
+      countExactOccurrences(
+        projected,
+        PINNED_0034_TRIGGER_CASE_SELECT_PROJECTED,
+      ) === 1,
+    "0034 transport projection did not replace exactly one pinned CASE statement",
+  );
+  return projected;
+}
+
 function buildMigrationBatch(sql, migration) {
   insist(
     typeof migration === "string" && MIGRATIONS[migration],
     "REST D1 batch requested an unpinned migration",
   );
-  const statements = splitSqlStatements(sql);
+  const statements = splitSqlStatements(
+    projectPinned0034CaseTransport(sql, migration),
+  );
   insist(
     statements.length >= 3 &&
       /^CREATE TABLE IF NOT EXISTS yurucommu_migrations\b/iu.test(
