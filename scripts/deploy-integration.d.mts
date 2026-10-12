@@ -33,6 +33,11 @@ export function assertStateAddresses(
 export function assertDomainChangeset(changeset: unknown): void;
 export function assertSingleSuccessfulQuery(body: unknown): void;
 export function assertEmptyOwnerTables(body: unknown): void;
+export function assertTestOwnerDomainSnapshot(
+  hostnameRows: unknown,
+  serviceRows: unknown,
+  zoneId: string,
+): "ABSENT" | "EXACT_BOUND";
 export function assertTestOwnerBindings(
   expected: unknown,
   actual: unknown,
