@@ -32,6 +32,21 @@ export function assertStateAddresses(
 ): void;
 export function assertDomainChangeset(changeset: unknown): void;
 export function assertSingleSuccessfulQuery(body: unknown): void;
+export function assertEmptyOwnerTables(body: unknown): void;
+export function assertTestOwnerBindings(
+  expected: unknown,
+  actual: unknown,
+): string;
+export function testOwnerAuthPayload(hash: string): {
+  name: "AUTH_PASSWORD_HASH";
+  text: string;
+  type: "secret_text";
+};
+export function withTestOwnerAuthPreflight<T>(
+  preflight: () => void | Promise<void>,
+  put: () => void | Promise<void>,
+  readback: () => T | Promise<T>,
+): Promise<T>;
 export function assertDomainInventoryPage(
   value: unknown,
   page: number,
