@@ -14,6 +14,7 @@ const CORE_RUNNER_SHA256 =
   "f5bb782ed83dccd0a4240ad6e813c651b39edf76d10587ed4ea0789572aa139d";
 const LEDGER = "yurucommu_migrations";
 const PROBE_TABLE = "__yurucommu_ga_atomic_probe";
+const RESERVED_D1_TABLES_SQL = "'_cf_METADATA', '_cf_KV'";
 const LEDGER_CREATE_SQL = `CREATE TABLE IF NOT EXISTS ${LEDGER} (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT UNIQUE NOT NULL,
@@ -101,8 +102,7 @@ const MIGRATIONS = Object.freeze({
 const MIGRATION_NAMES = Object.freeze(Object.keys(MIGRATIONS).sort());
 const MIGRATION_MAP_SHA256 =
   "ac5d5c0da5ba84d94339f45fc5d1a61103ac65d36add75d9703c2201386b1b50";
-const EMPTY_SCHEMA_SQL =
-  "SELECT type, name FROM sqlite_master WHERE name NOT GLOB 'sqlite_*' AND name != '_cf_METADATA' ORDER BY type, name";
+const EMPTY_SCHEMA_SQL = `SELECT type, name FROM sqlite_master WHERE name NOT GLOB 'sqlite_*' AND NOT (type = 'table' AND name IN (${RESERVED_D1_TABLES_SQL})) ORDER BY type, name`;
 
 function insist(ok, message) {
   if (!ok) throw new Error(message);
@@ -708,7 +708,7 @@ async function assertFinalReadback(context, result) {
   );
   const tables = await query(
     context,
-    "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT GLOB 'sqlite_*' AND name != '_cf_METADATA' ORDER BY name",
+    `SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT GLOB 'sqlite_*' AND name NOT IN (${RESERVED_D1_TABLES_SQL}) ORDER BY name`,
   );
   const tableNames = new Set(tables.map((row) => row?.name));
   for (const name of [
