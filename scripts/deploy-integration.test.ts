@@ -17,6 +17,7 @@ import {
   assertEmptyOwnerTables,
   assertPinnedRootDefaults,
   assertStateAddresses,
+  assertTestOwnerBindings,
   assertSingleSuccessfulQuery,
   assertWorkerScriptAbsent,
   deployIntegration,
@@ -139,6 +140,86 @@ test("test-owner auth refuses malformed hash or occupied Core owner tables befor
   ).rejects.toThrow("reconcile without replay");
   expect(writes).toBe(1);
   expect(readbacks).toBe(0);
+});
+
+test("test-owner binding readback treats only optional null and absence as equal", () => {
+  const targets = [
+    ["DB", "d1", "database_id", "d1-id"],
+    ["KV", "kv_namespace", "namespace_id", "kv-id"],
+    ["MEDIA", "r2_bucket", "bucket_name", "media-name"],
+    ["DELIVERY_QUEUE", "queue", "queue_name", "delivery-name"],
+    ["DELIVERY_DLQ", "queue", "queue_name", "dlq-name"],
+    ["APP_URL", "plain_text", "text", "https://ga-commu.example"],
+    ["DELIVERY_QUEUE_NAME", "plain_text", "text", "delivery-name"],
+    ["DELIVERY_DLQ_NAME", "plain_text", "text", "dlq-name"],
+  ] as const;
+  const keys = [
+    "text",
+    "database_id",
+    "namespace_id",
+    "bucket_name",
+    "queue_name",
+  ] as const;
+  const expected: Record<string, unknown>[] = targets.map(
+    ([name, type, key, value]) => ({
+      name,
+      type,
+      ...Object.fromEntries(
+        keys.map((field) => [field, field === key ? value : null]),
+      ),
+    }),
+  );
+  const actual: Record<string, unknown>[] = targets.map(
+    ([name, type, key, value]) => ({
+      name,
+      type,
+      [key]: value,
+    }),
+  );
+  for (const name of [
+    "ENCRYPTION_KEY",
+    "YURUCOMMU_SESSION_HASH_SALT",
+    "AUTH_PASSWORD_HASH",
+  ]) {
+    const secret = { name, type: "secret_text" } as Record<string, unknown>;
+    Object.defineProperty(secret, "text", {
+      get() {
+        throw new Error("secret value was read");
+      },
+    });
+    expected.push(secret);
+    actual.push(secret);
+  }
+  const signature = assertTestOwnerBindings(expected, actual);
+  expect(signature).toContain("d1-id");
+  expect(signature).not.toContain("secret value");
+
+  const changed = (index: number, patch: Record<string, unknown>) =>
+    actual.map((binding, at) =>
+      at === index ? { ...binding, ...patch } : binding,
+    );
+  expect(() =>
+    assertTestOwnerBindings(expected, changed(0, { database_id: "other" })),
+  ).toThrow();
+  expect(() =>
+    assertTestOwnerBindings(expected, changed(0, { text: "unsolicited" })),
+  ).toThrow();
+  expect(() =>
+    assertTestOwnerBindings(expected, changed(0, { text: "" })),
+  ).toThrow();
+  expect(() =>
+    assertTestOwnerBindings(expected, changed(5, { text: null })),
+  ).toThrow();
+  expect(() =>
+    assertTestOwnerBindings(expected, changed(0, { type: "queue" })),
+  ).toThrow();
+  expect(() =>
+    assertTestOwnerBindings(expected, changed(0, { name: "KV" })),
+  ).toThrow();
+  expect(() => assertTestOwnerBindings(expected, actual.slice(1))).toThrow();
+  expect(() =>
+    assertTestOwnerBindings(expected, changed(0, { database_id: null })),
+  ).toThrow();
 });
 
 test("target binds exact origin, resource prefix, source and published artifact", () => {

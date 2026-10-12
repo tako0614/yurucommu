@@ -33,6 +33,10 @@ export function assertStateAddresses(
 export function assertDomainChangeset(changeset: unknown): void;
 export function assertSingleSuccessfulQuery(body: unknown): void;
 export function assertEmptyOwnerTables(body: unknown): void;
+export function assertTestOwnerBindings(
+  expected: unknown,
+  actual: unknown,
+): string;
 export function testOwnerAuthPayload(hash: string): {
   name: "AUTH_PASSWORD_HASH";
   text: string;

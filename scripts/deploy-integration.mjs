@@ -817,9 +817,33 @@ function testOwnerStateBindings(t) {
   );
   return worker.bindings;
 }
-function assertTestOwnerBindings(expected, actual) {
+export function assertTestOwnerBindings(expected, actual) {
+  const fields = [
+    "text",
+    "database_id",
+    "namespace_id",
+    "bucket_name",
+    "queue_name",
+  ];
+  const targetField = {
+    plain_text: "text",
+    d1: "database_id",
+    kv_namespace: "namespace_id",
+    r2_bucket: "bucket_name",
+    queue: "queue_name",
+  };
   insist(
     Array.isArray(expected) &&
+      expected.every(
+        (binding) =>
+          binding !== null &&
+          typeof binding === "object" &&
+          !Array.isArray(binding) &&
+          typeof binding.name === "string" &&
+          binding.name.length > 0 &&
+          (binding.type === "secret_text" ||
+            Object.hasOwn(targetField, binding.type)),
+      ) &&
       new Set(expected.map((binding) => binding?.name)).size ===
         expected.length &&
       Array.isArray(actual) &&
@@ -829,7 +853,13 @@ function assertTestOwnerBindings(expected, actual) {
   const byName = new Map();
   for (const binding of actual) {
     insist(
-      typeof binding?.name === "string" && !byName.has(binding.name),
+      binding !== null &&
+        typeof binding === "object" &&
+        !Array.isArray(binding) &&
+        typeof binding.name === "string" &&
+        binding.name.length > 0 &&
+        typeof binding.type === "string" &&
+        !byName.has(binding.name),
       "test-owner Worker bindings are malformed or duplicated",
     );
     byName.set(binding.name, binding);
@@ -843,19 +873,23 @@ function assertTestOwnerBindings(expected, actual) {
     );
     const selected = { name: got.name, type: got.type };
     if (want.type !== "secret_text") {
-      for (const key of [
-        "text",
-        "database_id",
-        "namespace_id",
-        "bucket_name",
-        "queue_name",
-      ]) {
-        if (Object.hasOwn(want, key)) {
+      const required = targetField[want.type];
+      for (const key of fields) {
+        const stateValue = want[key];
+        const providerValue = got[key];
+        if (key === required) {
           insist(
-            got[key] === want[key],
+            typeof stateValue === "string" &&
+              stateValue.length > 0 &&
+              providerValue === stateValue,
             "test-owner Worker binding target differs from state",
           );
-          selected[key] = got[key];
+          selected[key] = providerValue;
+        } else {
+          insist(
+            stateValue == null && providerValue == null,
+            "test-owner Worker binding has unexpected optional target",
+          );
         }
       }
     }
