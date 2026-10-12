@@ -24,11 +24,15 @@ export declare const integrationSchemaTestSupport: Readonly<{
   migrationNames: readonly string[];
   migrationMapSha256: string;
   probeTable: string;
+  probeLogTable: string;
+  probeTrigger: string;
   assertMigrationScript(
     sql: string,
     migration: string,
     migrationSql: string,
   ): string;
+  buildMigrationBatch(sql: string, migration: string): Array<{ sql: string }>;
+  splitSqlStatements(sql: string): string[];
   assertEnvelope(
     result: unknown,
     expectedCount: number | undefined,
