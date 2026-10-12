@@ -57,9 +57,42 @@ const S = {
   publicOrigin: "https://yurucommu.com",
 };
 
+const I = {
+  surface: "yurucommu-integration",
+  origin: "https://ga-commu-20261012.yurucommu.com",
+};
+
 const CONTRACT = {
   kind: "takos.deploy-contract@v2",
   surfaces: [
+    {
+      surface: I.surface,
+      target: `cloudflare-worker:${I.origin}`,
+      covers: [
+        "main.tf",
+        "release.lock.json",
+        "scripts/deploy-integration.mjs",
+        "docs/deploy-integration.md",
+      ],
+      requiresScripts: ["check", "build:worker"],
+      requiresTools: ["bun", "node", "tofu"],
+      requiresEnv: ["CLOUDFLARE_API_TOKEN", "YURUCOMMU_INTEGRATION_TARGET"],
+      triggers: ["authority", "irreversible"],
+      obligations: {
+        provenance:
+          "requires a private exact-account/zone/origin target, the checked-in v2.4.1 release pin, and a private OpenTofu state; each phase checks its own source and plan",
+        "independent-review":
+          "resource creation, schema mutation, authentication secrets, and public domain attachment require independent review before their separate phase",
+        "pre-mutation-proof":
+          "resources require empty private state and authoritative absence of the exact names; activation requires the fresh schema ledger and create-only plan; domain attachment requires a collision-free changeset",
+        "post-conditions":
+          "resources/activate APPLIED means exact create-only OpenTofu plan and private state-address readback only; fresh-schema reads exact published Core migration ledger; domain reads exact hostname/service/zone and public HTTPS response. The operator separately requires authoritative Worker artifact, bindings, queue/cron, and real-user auth/storage/federation/browser smoke before any live integration claim",
+        reversal:
+          "resource/schema/domain phases never destroy or import existing resources; schema failures require forward repair of the isolated fresh database; later code deployment uses the provider predecessor",
+        "failure-handling":
+          "fails closed on denied inventory, missing source pin, non-create plan, malformed state, conflicting hostname, or uncertain provider response; no automatic retry, deletion, or rollback",
+      },
+    },
     {
       surface: W.surface,
       target: `cloudflare-worker:${W.worker}`,
@@ -154,11 +187,12 @@ if (process.argv.includes("--contract")) {
 }
 
 const requestedSurface = process.argv[2];
-if (![W.surface, R.surface, S.surface].includes(requestedSurface)) {
+if (![W.surface, R.surface, S.surface, I.surface].includes(requestedSurface)) {
   process.stderr.write(
     `usage: bun run deploy -- ${W.surface} --environment=production --commit=<40-hex>\n` +
       `       bun run deploy -- ${R.surface} [--dry-run|--execute]\n` +
-      `       bun run deploy -- ${S.surface} --environment=integration|production\n`,
+      `       bun run deploy -- ${S.surface} --environment=integration|production\n` +
+      `       bun run deploy -- ${I.surface} --environment=integration --phase=preflight|resources|fresh-schema|activate|domain\n`,
   );
   process.exit(1);
 }
@@ -674,6 +708,20 @@ function publishWorkerRelease() {
     )}\n`,
   );
   rmSync(releaseDir, { recursive: true, force: true });
+}
+
+if (requestedSurface === I.surface) {
+  const { deployIntegration } = await import("./deploy-integration.mjs");
+  try {
+    process.stdout.write(
+      `${JSON.stringify(await deployIntegration(process.argv.slice(3)), null, 2)}\n`,
+    );
+  } catch (error) {
+    die(
+      `integration ${error.phase ?? "PRE_MUTATION_FAILURE"}: ${error.message}`,
+    );
+  }
+  process.exit(0);
 }
 
 if (requestedSurface === R.surface) {
