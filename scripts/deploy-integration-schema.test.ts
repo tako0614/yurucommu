@@ -61,6 +61,7 @@ function fixture(
     workerError?: boolean;
     identityErrors?: boolean;
     existingTables?: string[];
+    initialSql?: string;
     probe?: "atomic" | "partial" | "success" | "wrong-error" | "transport";
     migrationFailureAt?: number;
     migrationTimeoutAt?: number;
@@ -74,6 +75,7 @@ function fixture(
   const db = new Database(":memory:");
   databases.push(db);
   db.exec("PRAGMA foreign_keys=ON");
+  if (options.initialSql) db.exec(options.initialSql);
   for (const name of options.existingTables ?? []) {
     db.exec(`CREATE TABLE "${name}" (id TEXT)`);
   }
@@ -294,11 +296,18 @@ test("runner script guard rejects injected SQL, altered pinned bytes, wrong name
     ).toThrow();
 });
 
-test("empty-schema SQL treats wildcard-lookalike names as foreign schema", () => {
+test("empty-schema SQL ignores only the exact reserved platform tables", () => {
   const db = new Database(":memory:");
   try {
     db.exec(
-      "CREATE TABLE actors (id TEXT); CREATE TABLE xcfXfoo (id TEXT); CREATE TABLE sqlitexfoo (id TEXT); CREATE TABLE _cf_METADATA (id TEXT); CREATE TABLE _cf_fake (id TEXT)",
+      "CREATE TABLE _cf_KV (key TEXT PRIMARY KEY,value BLOB) WITHOUT ROWID; CREATE TABLE _cf_METADATA (id TEXT)",
+    );
+    expect(db.query(integrationSchemaTestSupport.emptySchemaSql).all()).toEqual(
+      [],
+    );
+
+    db.exec(
+      "CREATE TABLE actors (id TEXT); CREATE TABLE xcfXfoo (id TEXT); CREATE TABLE sqlitexfoo (id TEXT); CREATE TABLE _cf_fake (id TEXT)",
     );
     const rows = db
       .query(integrationSchemaTestSupport.emptySchemaSql)
@@ -312,6 +321,49 @@ test("empty-schema SQL treats wildcard-lookalike names as foreign schema", () =>
   } finally {
     db.close();
   }
+
+  const nonTable = new Database(":memory:");
+  try {
+    nonTable.exec(
+      "CREATE TABLE source_table (id TEXT); CREATE VIEW _cf_METADATA AS SELECT id FROM source_table; CREATE TRIGGER _cf_KV AFTER INSERT ON source_table BEGIN SELECT 1; END",
+    );
+    const rows = nonTable
+      .query(integrationSchemaTestSupport.emptySchemaSql)
+      .all() as Array<{ type: string; name: string }>;
+    expect(rows).toEqual([
+      { type: "table", name: "source_table" },
+      { type: "trigger", name: "_cf_KV" },
+      { type: "view", name: "_cf_METADATA" },
+    ]);
+  } finally {
+    nonTable.close();
+  }
+});
+
+test("empty-schema guard admits reserved-only D1 state and refuses foreign objects before writes", async () => {
+  const reservedSql =
+    "CREATE TABLE _cf_KV (key TEXT PRIMARY KEY,value BLOB) WITHOUT ROWID; CREATE TABLE _cf_METADATA (id TEXT)";
+  const accepted = fixture({ initialSql: reservedSql });
+  await muted(async () => {
+    await applyFreshIntegrationSchema(args(accepted.fetchImpl));
+  });
+  expect(accepted.migrationScripts).toBe(35);
+
+  const rejected = fixture({
+    initialSql: `${reservedSql}; CREATE TABLE _cf_lookalike (id TEXT); CREATE VIEW app_view AS SELECT 1;`,
+  });
+  await expect(
+    applyFreshIntegrationSchema(args(rejected.fetchImpl)),
+  ).rejects.toThrow("D1 is not empty");
+  expect(rejected.migrationScripts).toBe(0);
+  expect(
+    rejected.calls.some(
+      (call) =>
+        call.method === "POST" &&
+        typeof call.body?.sql === "string" &&
+        !/^SELECT\b/i.test(call.body.sql),
+    ),
+  ).toBe(false);
 });
 
 test("whole-script executor applies all 35 immutable migrations and nested triggers with each exact ledger prefix", async () => {
