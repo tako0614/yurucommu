@@ -6,6 +6,7 @@ import { existsSync, lstatSync, realpathSync, writeFileSync } from "node:fs";
 import { readFile, readdir } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { unstable_splitSqlQuery } from "wrangler";
 const API = "https://api.cloudflare.com/client/v4";
 const DATABASE_NAME = "yurucommu-ga-20261012-0938-db";
 const WORKER_NAME = "yurucommu-ga-20261012-0938";
@@ -14,6 +15,9 @@ const CORE_RUNNER_SHA256 =
   "f5bb782ed83dccd0a4240ad6e813c651b39edf76d10587ed4ea0789572aa139d";
 const LEDGER = "yurucommu_migrations";
 const PROBE_TABLE = "__yurucommu_ga_atomic_probe";
+const PROBE_LOG_TABLE = "__yurucommu_ga_atomic_probe_log";
+const PROBE_TRIGGER = "__yurucommu_ga_atomic_probe_trigger";
+const PROBE_LEDGER_MARKER = "__yurucommu_ga_atomic_probe__";
 const RESERVED_D1_TABLES_SQL = "'_cf_METADATA', '_cf_KV'";
 const LEDGER_CREATE_SQL = `CREATE TABLE IF NOT EXISTS ${LEDGER} (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -293,10 +297,7 @@ function assertEnvelope(
   if (!result.response.ok || result.value?.success !== true) {
     fail(`${label} failed`);
   }
-  if (
-    (typeof result.value.error === "string" && result.value.error.length > 0) ||
-    (Array.isArray(result.value.errors) && result.value.errors.length > 0)
-  ) {
+  if (!hasNoQueryErrors(result.value)) {
     fail(`${label} returned an unsuccessful query result`);
   }
   if (
@@ -313,6 +314,7 @@ function assertEnvelope(
   for (const row of result.value.result) {
     if (!(
       row?.success === true &&
+      hasNoQueryErrors(row) &&
       (!requireRows || Array.isArray(row.results)) &&
       (row.results === undefined || Array.isArray(row.results))
     )) {
@@ -328,10 +330,11 @@ async function query(context, sql) {
 }
 
 async function writeMigration(context, sql, migration) {
-  const response = await request(context, "POST", "/query", { sql });
+  const batch = buildMigrationBatch(sql, migration);
+  const response = await request(context, "POST", "/query", { batch });
   return assertEnvelope(
     response,
-    undefined,
+    batch.length,
     `Core migration ${migration}`,
     context,
     false,
@@ -451,11 +454,11 @@ async function assertEmptySchema(context) {
 async function assertProbeAbsent(context, diagnosticPath) {
   const rows = await query(
     context,
-    `SELECT name FROM sqlite_master WHERE type = 'table' AND name = '${PROBE_TABLE}'`,
+    `SELECT type, name FROM sqlite_master WHERE name IN ('${PROBE_TABLE}', '${PROBE_LOG_TABLE}', '${PROBE_TRIGGER}', '${LEDGER}') ORDER BY type, name`,
   );
   if (!Array.isArray(rows) || rows.length !== 0) {
     throw new Error(
-      `atomicity probe left D1 state; stop without cleanup or retry${diagnosticPath ? `; private diagnostics: ${diagnosticPath}` : ""}`,
+      `atomicity probe left table, trigger, or ledger state; stop without cleanup or retry${diagnosticPath ? `; private diagnostics: ${diagnosticPath}` : ""}`,
     );
   }
 }
@@ -488,16 +491,21 @@ function hasFailedResult(value) {
   );
 }
 
+function hasNoQueryErrors(value) {
+  return (
+    (value?.errors === undefined ||
+      value.errors === null ||
+      (Array.isArray(value.errors) && value.errors.length === 0)) &&
+    (value?.error === undefined || value.error === null || value.error === "")
+  );
+}
+
 async function proveRestBatchAtomicity(context) {
-  const sql = [
-    `CREATE TABLE ${PROBE_TABLE} (id INTEGER PRIMARY KEY, marker TEXT NOT NULL)`,
-    `INSERT INTO ${PROBE_TABLE} (id, marker) VALUES (1, 'first')`,
-    `INSERT INTO ${PROBE_TABLE} (id, marker) VALUES (1, 'duplicate')`,
-  ].join(";\n");
+  const batch = buildAtomicityProbeBatch();
   let outcome;
   let requestFailure;
   try {
-    outcome = await request(context, "POST", "/query", { sql });
+    outcome = await request(context, "POST", "/query", { batch });
   } catch (error) {
     // The request may have reached D1. Read back only; never retry or clean up.
     requestFailure = error;
@@ -534,6 +542,173 @@ async function proveRestBatchAtomicity(context) {
       `atomicity probe did not report its expected duplicate-key failure; no migrations were run; private diagnostics: ${outcome.diagnosticPath}`,
     );
   }
+}
+
+function splitSqlStatements(sql) {
+  insist(
+    !/\bBEGIN\s+TRANSACTION\s*;/iu.test(sql),
+    "REST D1 batch cannot contain explicit transaction control",
+  );
+  const statements = unstable_splitSqlQuery(normalizeCaseEndParentheses(sql));
+  insist(
+    Array.isArray(statements) &&
+      statements.length > 0 &&
+      statements.every(
+        (statement) =>
+          typeof statement === "string" && statement.trim().length > 0,
+      ),
+    "Wrangler SQL splitter returned an empty or malformed batch",
+  );
+  insist(
+    statements.every(
+      (statement) =>
+        !/^\s*(?:BEGIN(?:\s+(?:DEFERRED|IMMEDIATE|EXCLUSIVE|TRANSACTION)\b)?|COMMIT|END|ROLLBACK|SAVEPOINT|RELEASE)\b/iu.test(
+          statement,
+        ),
+    ),
+    "REST D1 batch cannot contain explicit transaction control",
+  );
+  return statements;
+}
+
+function normalizeCaseEndParentheses(sql) {
+  let output = "";
+  let quote;
+  let lineComment = false;
+  let blockComment = false;
+  for (let index = 0; index < sql.length; index += 1) {
+    const char = sql[index];
+    const next = sql[index + 1];
+    if (lineComment) {
+      output += char;
+      if (char === "\n") lineComment = false;
+      continue;
+    }
+    if (blockComment) {
+      output += char;
+      if (char === "*" && next === "/") {
+        output += next;
+        index += 1;
+        blockComment = false;
+      }
+      continue;
+    }
+    if (quote) {
+      output += char;
+      if (char === quote) {
+        if (quote !== "]" && next === quote) {
+          output += next;
+          index += 1;
+        } else {
+          quote = undefined;
+        }
+      }
+      continue;
+    }
+    if (char === "-" && next === "-") {
+      output += "--";
+      index += 1;
+      lineComment = true;
+      continue;
+    }
+    if (char === "/" && next === "*") {
+      output += "/*";
+      index += 1;
+      blockComment = true;
+      continue;
+    }
+    if (char === "'" || char === '"' || char === "`" || char === "[") {
+      output += char;
+      quote = char === "[" ? "]" : char;
+      continue;
+    }
+    // Wrangler recognizes CASE nesting only after whitespace. In the pinned
+    // corpus CASE can immediately follow an opening parenthesis.
+    if (
+      char.toUpperCase() === "C" &&
+      sql.slice(index, index + 4).toUpperCase() === "CASE" &&
+      sql[index - 1] === "(" &&
+      /\s/u.test(sql[index + 4] ?? "")
+    ) {
+      output += " ";
+    }
+    if (
+      sql.slice(index, index + 3).toUpperCase() === "END" &&
+      (index === 0 || !/[\w$]/u.test(sql[index - 1])) &&
+      sql[index + 3] === ")"
+    ) {
+      output += `${sql.slice(index, index + 3)} `;
+      index += 2;
+      continue;
+    }
+    output += char;
+  }
+  return output;
+}
+
+function buildMigrationBatch(sql, migration) {
+  insist(
+    typeof migration === "string" && MIGRATIONS[migration],
+    "REST D1 batch requested an unpinned migration",
+  );
+  const statements = splitSqlStatements(sql);
+  insist(
+    statements.length >= 3 &&
+      /^CREATE TABLE IF NOT EXISTS yurucommu_migrations\b/iu.test(
+        statements[0],
+      ),
+    "REST D1 migration batch is missing its first ledger initialization statement",
+  );
+  const ledgerReferences = statements
+    .map((statement, index) =>
+      /\byurucommu_migrations\b/iu.test(statement) ? index : -1,
+    )
+    .filter((index) => index !== -1);
+  const escapedMigration = migration.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  const markPattern = new RegExp(
+    `^INSERT INTO yurucommu_migrations \\(name, applied_at\\) VALUES \\('${escapedMigration}', '\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z'\\)$`,
+    "u",
+  );
+  insist(
+    ledgerReferences.length === 2 &&
+      ledgerReferences[0] === 0 &&
+      ledgerReferences[1] === statements.length - 1 &&
+      markPattern.test(statements.at(-1)),
+    "REST D1 migration batch must end with exactly one matching ledger mark",
+  );
+  return statements.map((statement) => ({ sql: statement }));
+}
+
+function buildAtomicityProbeBatch() {
+  const sql = [
+    `CREATE TABLE ${PROBE_TABLE} (id INTEGER PRIMARY KEY, marker TEXT NOT NULL)`,
+    `CREATE TABLE ${PROBE_LOG_TABLE} (value TEXT NOT NULL)`,
+    `CREATE TRIGGER ${PROBE_TRIGGER} AFTER INSERT ON ${PROBE_TABLE} BEGIN\n  INSERT INTO ${PROBE_LOG_TABLE}(value) VALUES (CASE WHEN NEW.id = 1 THEN CASE WHEN NEW.marker = 'first' THEN NEW.marker ELSE 'other' END ELSE NEW.marker END);\nEND`,
+    LEDGER_CREATE_SQL.trim().replace(/;$/u, ""),
+    `INSERT INTO ${LEDGER} (name, applied_at) VALUES ('${PROBE_LEDGER_MARKER}', '2026-10-12T00:00:00.000Z')`,
+    `INSERT INTO ${PROBE_TABLE} (id, marker) VALUES (1, 'first')`,
+    `INSERT INTO ${PROBE_TABLE} (id, marker) VALUES (1, 'duplicate')`,
+  ].join(";\n");
+  const statements = splitSqlStatements(sql);
+  insist(
+    statements.length === 7 &&
+      statements.some(
+        (statement) =>
+          statement.startsWith(`CREATE TRIGGER ${PROBE_TRIGGER}`) &&
+          statement.includes("BEGIN") &&
+          statement.includes("CASE WHEN") &&
+          statement.includes("END"),
+      ),
+    "atomicity probe batch lost its ledger statements or compound trigger",
+  );
+  insist(
+    statements[3] === LEDGER_CREATE_SQL.trim().replace(/;$/u, "") &&
+      statements[4] ===
+        `INSERT INTO ${LEDGER} (name, applied_at) VALUES ('${PROBE_LEDGER_MARKER}', '2026-10-12T00:00:00.000Z')` &&
+      statements.at(-1)?.includes("'duplicate'"),
+    "atomicity probe ledger marker must precede its deliberately late constraint failure",
+  );
+  return statements.map((statement) => ({ sql: statement }));
 }
 
 async function verifyCoreInputs(repo) {
@@ -769,7 +944,11 @@ export const integrationSchemaTestSupport = Object.freeze({
   migrationNames: MIGRATION_NAMES,
   migrationMapSha256: MIGRATION_MAP_SHA256,
   probeTable: PROBE_TABLE,
+  probeLogTable: PROBE_LOG_TABLE,
+  probeTrigger: PROBE_TRIGGER,
   assertMigrationScript,
+  buildMigrationBatch,
+  splitSqlStatements,
   assertEnvelope,
   proveRestBatchAtomicity,
   verifyCoreInputs,
