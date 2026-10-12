@@ -468,6 +468,42 @@ async function exactDomainAbsent(t) {
     "target Worker already owns a custom domain; replace_state could detach it",
   );
 }
+export function assertTestOwnerDomainSnapshot(
+  hostnameRows,
+  serviceRows,
+  zoneId,
+) {
+  insist(
+    /^[a-f0-9]{32}$/u.test(zoneId ?? "") &&
+      Array.isArray(hostnameRows) &&
+      Array.isArray(serviceRows),
+    "test-owner custom-domain inventories are malformed",
+  );
+  if (hostnameRows.length === 0 && serviceRows.length === 0) return "ABSENT";
+  insist(
+    hostnameRows.length === 1 && serviceRows.length === 1,
+    "test-owner custom-domain inventories are incomplete or contain extra domains",
+  );
+  const hostname = new URL(ORIGIN).hostname;
+  for (const row of [hostnameRows[0], serviceRows[0]])
+    insist(
+      row !== null &&
+        typeof row === "object" &&
+        !Array.isArray(row) &&
+        typeof row.id === "string" &&
+        row.id.trim().length > 0 &&
+        row.hostname === hostname &&
+        row.zone_id === zoneId &&
+        row.service === PREFIX &&
+        row.environment === "production",
+      "test-owner custom domain differs from the exact isolated Worker",
+    );
+  insist(
+    hostnameRows[0].id === serviceRows[0].id,
+    "test-owner custom-domain inventories disagree on domain id",
+  );
+  return "EXACT_BOUND";
+}
 async function noTakeover(t) {
   const zone = await api(t, "GET", `/zones/${t.zoneId}`);
   insist(
@@ -1025,7 +1061,11 @@ async function testOwnerAuth(t) {
         )?.text !== payload.text,
         "test-owner password hash must differ from activated state",
       );
-      await exactDomainAbsent(t);
+      assertTestOwnerDomainSnapshot(
+        await domainsBy(t, "hostname", new URL(ORIGIN).hostname),
+        await domainsBy(t, "service", PREFIX),
+        t.zoneId,
+      );
       const counts = await api(
         t,
         "POST",

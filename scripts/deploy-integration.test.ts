@@ -18,6 +18,7 @@ import {
   assertPinnedRootDefaults,
   assertStateAddresses,
   assertTestOwnerBindings,
+  assertTestOwnerDomainSnapshot,
   assertSingleSuccessfulQuery,
   assertWorkerScriptAbsent,
   deployIntegration,
@@ -140,6 +141,52 @@ test("test-owner auth refuses malformed hash or occupied Core owner tables befor
   ).rejects.toThrow("reconcile without replay");
   expect(writes).toBe(1);
   expect(readbacks).toBe(0);
+});
+
+test("test-owner auth admits only absent or the exact already-bound isolated domain", () => {
+  const zoneId = "b".repeat(32);
+  const owned = {
+    id: "exact-domain-id",
+    hostname: "ga-commu-20261012.yurucommu.com",
+    zone_id: zoneId,
+    service: "yurucommu-ga-20261012-0938",
+    environment: "production",
+  };
+  expect(assertTestOwnerDomainSnapshot([], [], zoneId)).toBe("ABSENT");
+  expect(assertTestOwnerDomainSnapshot([owned], [{ ...owned }], zoneId)).toBe(
+    "EXACT_BOUND",
+  );
+
+  const changed = (patch: Record<string, unknown>) => [{ ...owned, ...patch }];
+  for (const rows of [
+    changed({ id: "" }),
+    changed({ hostname: "other.yurucommu.com" }),
+    changed({ zone_id: "c".repeat(32) }),
+    changed({ service: "other-worker" }),
+    changed({ environment: "staging" }),
+    changed({ environment: undefined }),
+  ])
+    expect(() =>
+      assertTestOwnerDomainSnapshot(rows, [owned], zoneId),
+    ).toThrow();
+  expect(() => assertTestOwnerDomainSnapshot([owned], [], zoneId)).toThrow();
+  expect(() => assertTestOwnerDomainSnapshot([], [owned], zoneId)).toThrow();
+  expect(() =>
+    assertTestOwnerDomainSnapshot([owned, owned], [owned], zoneId),
+  ).toThrow();
+  expect(() =>
+    assertTestOwnerDomainSnapshot([owned], [owned, owned], zoneId),
+  ).toThrow();
+  expect(() =>
+    assertTestOwnerDomainSnapshot(
+      [owned],
+      changed({ id: "different-id" }),
+      zoneId,
+    ),
+  ).toThrow();
+  expect(() =>
+    assertTestOwnerDomainSnapshot([null], [owned], zoneId),
+  ).toThrow();
 });
 
 test("test-owner binding readback treats only optional null and absence as equal", () => {
