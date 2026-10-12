@@ -1,16 +1,30 @@
 #!/usr/bin/env bun
-// Fresh-schema-only integration adapter. This module is intentionally not used
-// by the product's ordinary Worker publisher or activation path.
+// Isolated fresh-schema and exact-prefix32 recovery adapter. This module is
+// intentionally not used by the product's ordinary Worker publisher.
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, lstatSync, realpathSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  lstatSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { readFile, readdir } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { Database } from "bun:sqlite";
 import { unstable_splitSqlQuery } from "wrangler";
 const API = "https://api.cloudflare.com/client/v4";
 const DATABASE_NAME = "yurucommu-ga-20261012-0938-db";
 const WORKER_NAME = "yurucommu-ga-20261012-0938";
 const CORE_VERSION = "4.1.14";
+const PREFIX32_LENGTH = 32;
+const MAX_SCHEMA_OBJECTS = 600;
+const MAX_COUNTED_TABLES = 240;
+const TABLE_COUNT_CHUNK_SIZE = 20;
 const CORE_RUNNER_SHA256 =
   "f5bb782ed83dccd0a4240ad6e813c651b39edf76d10587ed4ea0789572aa139d";
 const LEDGER = "yurucommu_migrations";
@@ -781,6 +795,371 @@ async function verifyCoreInputs(repo) {
   return { migrationsDir, applyMigrations: runner.applyMigrations };
 }
 
+function quoteIdentifier(value) {
+  insist(
+    typeof value === "string" && value.length > 0 && value.length <= 200,
+    "invalid SQLite identifier",
+  );
+  return `"${value.replaceAll('"', '""')}"`;
+}
+
+function sqliteSnapshot(db) {
+  const schemaObjects = db
+    .query(
+      "SELECT type, name, tbl_name AS tableName, sql FROM sqlite_master " +
+        "WHERE name NOT GLOB 'sqlite_*' AND NOT (type = 'table' AND name IN ('_cf_KV', '_cf_METADATA')) " +
+        "ORDER BY type, name",
+    )
+    .all();
+  insist(
+    schemaObjects.length > 0 && schemaObjects.length <= MAX_SCHEMA_OBJECTS,
+    "reference schema object count is invalid",
+  );
+  for (const row of schemaObjects) {
+    insist(
+      typeof row.type === "string" &&
+        typeof row.name === "string" &&
+        typeof row.tableName === "string" &&
+        (row.sql === null || typeof row.sql === "string"),
+      "reference schema object shape is invalid",
+    );
+  }
+  const tables = schemaObjects
+    .filter((row) => row.type === "table")
+    .map((row) => row.name)
+    .sort();
+  insist(
+    tables.length > 0 &&
+      tables.length <= MAX_COUNTED_TABLES &&
+      new Set(tables).size === tables.length,
+    "reference table names are invalid",
+  );
+  const tableCounts = tables.map((tableName) => {
+    const row = db
+      .query(`SELECT COUNT(*) AS rowCount FROM ${quoteIdentifier(tableName)}`)
+      .get();
+    insist(
+      Number.isSafeInteger(row?.rowCount) && row.rowCount >= 0,
+      `reference table count is invalid: ${tableName}`,
+    );
+    return { tableName, rowCount: row.rowCount };
+  });
+  const ledger = db.query(`SELECT id, name FROM ${LEDGER} ORDER BY id`).all();
+  const sequenceEntries = db
+    .query("SELECT name, seq FROM sqlite_sequence ORDER BY name")
+    .all()
+    .map((row) => ({ tableName: row.name, sequenceValue: row.seq }));
+  const foreignKeyViolationCount = db
+    .query("PRAGMA foreign_key_check")
+    .all().length;
+  const ftsSeedRows = {
+    config: db
+      .query(
+        "SELECT k, typeof(v) AS valueType, hex(CAST(v AS BLOB)) AS valueHex " +
+          "FROM objects_fts_config ORDER BY k",
+      )
+      .all(),
+    data: db
+      .query(
+        "SELECT id, typeof(block) AS blockType, hex(block) AS blockHex " +
+          "FROM objects_fts_data ORDER BY id",
+      )
+      .all(),
+  };
+  const mediaStagedBackfillRows = tables.includes("media_staged_backfill")
+    ? db
+        .query(
+          "SELECT source_kind AS sourceKind, typeof(cursor) AS cursorType, " +
+            "hex(CAST(cursor AS BLOB)) AS cursorHex, complete, " +
+            "typeof(complete) AS completeType " +
+            "FROM media_staged_backfill ORDER BY source_kind",
+        )
+        .all()
+    : null;
+  return {
+    schemaObjects,
+    tables,
+    tableCounts,
+    ledger,
+    sequenceEntries,
+    foreignKeyViolationCount,
+    ftsSeedRows,
+    mediaStagedBackfillRows,
+  };
+}
+
+function assertReferenceSeedState(snapshot, prefixLength) {
+  const allowedCounts = new Map([
+    ["objects_fts_config", 1],
+    ["objects_fts_data", 2],
+    [LEDGER, prefixLength],
+  ]);
+  if (prefixLength === MIGRATION_NAMES.length) {
+    allowedCounts.set("media_staged_backfill", 3);
+  }
+  for (const { tableName, rowCount } of snapshot.tableCounts) {
+    insist(
+      rowCount === (allowedCounts.get(tableName) ?? 0),
+      `published Core prefix reference has unexpected seed rows in ${tableName}`,
+    );
+  }
+  insist(
+    [...allowedCounts.keys()].every((name) => snapshot.tables.includes(name)),
+    "published Core prefix reference is missing an expected seed table",
+  );
+  const expectedBackfillRows =
+    prefixLength === MIGRATION_NAMES.length
+      ? ["actor", "community", "object"].map((sourceKind) => ({
+          sourceKind,
+          cursorType: "null",
+          cursorHex: "",
+          complete: 0,
+          completeType: "integer",
+        }))
+      : null;
+  insist(
+    snapshot.ledger.length === prefixLength &&
+      snapshot.ledger.every(
+        (row, index) =>
+          row.id === index + 1 && row.name === MIGRATION_NAMES[index],
+      ) &&
+      JSON.stringify(snapshot.sequenceEntries) ===
+        JSON.stringify([{ tableName: LEDGER, sequenceValue: prefixLength }]) &&
+      JSON.stringify(snapshot.mediaStagedBackfillRows) ===
+        JSON.stringify(expectedBackfillRows) &&
+      snapshot.foreignKeyViolationCount === 0,
+    "published Core prefix reference ledger, sequence, or foreign keys differ",
+  );
+}
+
+async function buildCoreReference(inputs, prefixLength) {
+  insist(
+    prefixLength === PREFIX32_LENGTH || prefixLength === MIGRATION_NAMES.length,
+    "unsupported offline Core reference prefix",
+  );
+  const fixtureDir = mkdtempSync(join(tmpdir(), "yurucommu-core-reference-"));
+  chmodSync(fixtureDir, 0o700);
+  let db;
+  try {
+    for (const migration of MIGRATION_NAMES.slice(0, prefixLength)) {
+      writeFileSync(
+        join(fixtureDir, migration),
+        await readFile(join(inputs.migrationsDir, migration)),
+        { flag: "wx", mode: 0o600 },
+      );
+    }
+    db = new Database(":memory:");
+    db.exec("PRAGMA foreign_keys = ON");
+    let applied = 0;
+    const executeSql = async (sql, execution) => {
+      insist(
+        execution?.resource === `offline-core-prefix-${prefixLength}`,
+        "offline Core runner resource differs",
+      );
+      if (execution.purpose === "ledger-init") {
+        insist(
+          sql.trim() === LEDGER_INIT_SQL,
+          "offline Core runner ledger initialization differs",
+        );
+        db.exec(sql);
+        return undefined;
+      }
+      if (execution.purpose === "ledger-read") {
+        insist(
+          sql === `SELECT name FROM ${LEDGER}`,
+          "offline Core runner ledger read differs",
+        );
+        return { rows: db.query(sql).all() };
+      }
+      insist(
+        execution.purpose === "migration" &&
+          execution.migration === MIGRATION_NAMES[applied] &&
+          applied < prefixLength,
+        "offline Core runner migration order differs",
+      );
+      const migrationSql = await readFile(
+        join(inputs.migrationsDir, execution.migration),
+        "utf8",
+      );
+      const script = assertMigrationScript(
+        sql,
+        execution.migration,
+        migrationSql,
+      );
+      if (
+        prefixLength === MIGRATION_NAMES.length &&
+        applied >= PREFIX32_LENGTH
+      ) {
+        // Final-three reference objects must match the admitted REST wire
+        // projection. Prefix-32 remains the unmodified Core SQL reference.
+        const batch = buildMigrationBatch(script, execution.migration);
+        db.transaction(() => {
+          for (const statement of batch) db.exec(statement.sql);
+        }).immediate();
+      } else {
+        db.transaction(() => db.exec(script)).immediate();
+      }
+      applied += 1;
+      const ledger = db.query(`SELECT name FROM ${LEDGER} ORDER BY id`).all();
+      insist(
+        JSON.stringify(ledger.map((row) => row.name)) ===
+          JSON.stringify(MIGRATION_NAMES.slice(0, applied)),
+        "offline Core runner ledger prefix differs",
+      );
+      return undefined;
+    };
+    const result = await inputs.applyMigrations({
+      resource: `offline-core-prefix-${prefixLength}`,
+      migrationsDir: fixtureDir,
+      wrapTransactions: false,
+      batchPendingMigrations: false,
+      retryAttempts: 1,
+      executeSql,
+    });
+    insist(
+      applied === prefixLength &&
+        JSON.stringify(result?.applied) ===
+          JSON.stringify(MIGRATION_NAMES.slice(0, prefixLength)) &&
+        Array.isArray(result?.skipped) &&
+        result.skipped.length === 0,
+      "offline Core runner did not apply the exact requested prefix",
+    );
+    const snapshot = sqliteSnapshot(db);
+    assertReferenceSeedState(snapshot, prefixLength);
+    return snapshot;
+  } finally {
+    db?.close();
+    rmSync(fixtureDir, { recursive: true, force: true });
+  }
+}
+
+async function readRemoteTableCounts(context, tables) {
+  insist(
+    Array.isArray(tables) &&
+      tables.length > 0 &&
+      tables.length <= MAX_COUNTED_TABLES,
+    "expected table names exceed the bounded prefix snapshot",
+  );
+  const counts = [];
+  for (
+    let offset = 0;
+    offset < tables.length;
+    offset += TABLE_COUNT_CHUNK_SIZE
+  ) {
+    const chunk = tables.slice(offset, offset + TABLE_COUNT_CHUNK_SIZE);
+    const sql = `SELECT ${chunk
+      .map(
+        (tableName, index) =>
+          `(SELECT COUNT(*) FROM ${quoteIdentifier(tableName)}) AS "c${index}"`,
+      )
+      .join(", ")}`;
+    const rows = await query(context, sql);
+    insist(
+      Array.isArray(rows) && rows.length === 1,
+      "D1 table count query returned an invalid row count",
+    );
+    const row = rows[0];
+    insist(
+      JSON.stringify(Object.keys(row ?? {}).sort()) ===
+        JSON.stringify(chunk.map((_, index) => `c${index}`).sort()),
+      "D1 table count query returned unexpected aliases",
+    );
+    for (const [index, tableName] of chunk.entries()) {
+      const rowCount = row[`c${index}`];
+      insist(
+        Number.isSafeInteger(rowCount) && rowCount >= 0,
+        `D1 table count is invalid: ${tableName}`,
+      );
+      counts.push({ tableName, rowCount });
+    }
+  }
+  return counts;
+}
+
+async function readRemoteCoreSnapshot(context, reference) {
+  const schemaObjects = await query(
+    context,
+    "SELECT type, name, tbl_name AS tableName, sql FROM sqlite_master " +
+      "WHERE name NOT GLOB 'sqlite_*' AND NOT (type = 'table' AND name IN ('_cf_KV', '_cf_METADATA')) " +
+      "ORDER BY type, name",
+  );
+  insist(
+    Array.isArray(schemaObjects) &&
+      schemaObjects.length > 0 &&
+      schemaObjects.length <= MAX_SCHEMA_OBJECTS &&
+      schemaObjects.every(
+        (row) =>
+          typeof row?.type === "string" &&
+          typeof row?.name === "string" &&
+          typeof row?.tableName === "string" &&
+          (row.sql === null || typeof row.sql === "string"),
+      ),
+    "D1 schema-object readback is incomplete or malformed",
+  );
+  insist(
+    JSON.stringify(schemaObjects) === JSON.stringify(reference.schemaObjects),
+    "D1 schema objects differ from the exact published Core prefix",
+  );
+  const tableCounts = await readRemoteTableCounts(context, reference.tables);
+  insist(
+    JSON.stringify(tableCounts) === JSON.stringify(reference.tableCounts),
+    "D1 table counts differ from the exact published Core prefix",
+  );
+  const ledger = await query(
+    context,
+    `SELECT id, name FROM ${LEDGER} ORDER BY id`,
+  );
+  insist(
+    Array.isArray(ledger) &&
+      JSON.stringify(ledger) === JSON.stringify(reference.ledger),
+    "D1 ledger IDs or names differ from the exact published Core prefix",
+  );
+  const sequenceEntries = await query(
+    context,
+    "SELECT name AS tableName, seq AS sequenceValue FROM sqlite_sequence ORDER BY name",
+  );
+  insist(
+    Array.isArray(sequenceEntries) &&
+      JSON.stringify(sequenceEntries) ===
+        JSON.stringify(reference.sequenceEntries),
+    "D1 sqlite_sequence differs from the exact published Core prefix",
+  );
+  const foreignKeyViolations = await query(context, "PRAGMA foreign_key_check");
+  insist(
+    Array.isArray(foreignKeyViolations) && foreignKeyViolations.length === 0,
+    "D1 foreign-key check returned violations or incomplete rows",
+  );
+  const ftsSeedRows = {
+    config: await query(
+      context,
+      "SELECT k, typeof(v) AS valueType, hex(CAST(v AS BLOB)) AS valueHex " +
+        "FROM objects_fts_config ORDER BY k",
+    ),
+    data: await query(
+      context,
+      "SELECT id, typeof(block) AS blockType, hex(block) AS blockHex " +
+        "FROM objects_fts_data ORDER BY id",
+    ),
+  };
+  const mediaStagedBackfillRows = reference.tables.includes(
+    "media_staged_backfill",
+  )
+    ? await query(
+        context,
+        "SELECT source_kind AS sourceKind, typeof(cursor) AS cursorType, " +
+          "hex(CAST(cursor AS BLOB)) AS cursorHex, complete, " +
+          "typeof(complete) AS completeType " +
+          "FROM media_staged_backfill ORDER BY source_kind",
+      )
+    : null;
+  insist(
+    JSON.stringify(ftsSeedRows) === JSON.stringify(reference.ftsSeedRows) &&
+      JSON.stringify(mediaStagedBackfillRows) ===
+        JSON.stringify(reference.mediaStagedBackfillRows),
+    "D1 seed rows differ from the exact published Core prefix",
+  );
+}
+
 function assertMigrationScript(sql, migration, migrationSql) {
   insist(
     typeof migration === "string" && MIGRATIONS[migration],
@@ -897,6 +1276,153 @@ async function assertFinalReadback(context, result) {
       tableNames.has(name),
       `final D1 schema is missing required table ${name}`,
     );
+  }
+}
+
+function assertLedgerRows(rows, prefixLength, label) {
+  const expected = MIGRATION_NAMES.slice(0, prefixLength).map(
+    (name, index) => ({
+      id: index + 1,
+      name,
+    }),
+  );
+  insist(
+    Array.isArray(rows) && JSON.stringify(rows) === JSON.stringify(expected),
+    `${label} differs from the exact ${prefixLength}-migration ledger prefix`,
+  );
+}
+
+async function assertRecoveryFinalReadback(context, result, reference) {
+  const expectedApplied = MIGRATION_NAMES.slice(PREFIX32_LENGTH);
+  const expectedSkipped = MIGRATION_NAMES.slice(0, PREFIX32_LENGTH);
+  insist(
+    Array.isArray(result?.applied) &&
+      JSON.stringify(result.applied) === JSON.stringify(expectedApplied) &&
+      Array.isArray(result?.skipped) &&
+      JSON.stringify(result.skipped) === JSON.stringify(expectedSkipped),
+    "Core runner did not skip the exact prefix and apply only the final three migrations",
+  );
+  await readRemoteCoreSnapshot(context, reference);
+}
+
+/** Forward only the exact observed Commu 32-prefix to the pinned Core head. */
+export async function recoverPrefix32IntegrationSchema({
+  accountId,
+  databaseId,
+  token,
+  repo,
+  diagnosticsDir,
+  fetchImpl = fetch,
+}) {
+  validIdentity(accountId, databaseId, token);
+  insist(
+    typeof repo === "string" && repo.length > 0,
+    "repository root required",
+  );
+  const root = resolve(repo);
+  const privateDiagnosticsDir = validateDiagnosticsDir(diagnosticsDir, root);
+  const context = {
+    accountId,
+    databaseId,
+    token,
+    fetchImpl,
+    diagnosticsDir: privateDiagnosticsDir,
+  };
+  let writesStarted = false;
+  try {
+    const inputs = await verifyCoreInputs(root);
+    const prefixReference = await buildCoreReference(inputs, PREFIX32_LENGTH);
+    const fullReference = await buildCoreReference(
+      inputs,
+      MIGRATION_NAMES.length,
+    );
+    await assertExactD1Identity(context);
+    await assertNoTargetWorker(context);
+    await readRemoteCoreSnapshot(context, prefixReference);
+    let migrationsApplied = 0;
+    const executeSql = async (sql, execution) => {
+      insist(
+        execution?.resource === databaseId,
+        "Core runner resource differs from exact integration D1",
+      );
+      if (execution.purpose === "ledger-init") {
+        insist(
+          sql.trim() === LEDGER_INIT_SQL,
+          "unexpected Core ledger initialization script",
+        );
+        return undefined;
+      }
+      if (execution.purpose === "ledger-read") {
+        insist(
+          sql === `SELECT name FROM ${LEDGER}`,
+          "unexpected Core ledger read script",
+        );
+        const ledger = await query(
+          context,
+          `SELECT id, name FROM ${LEDGER} ORDER BY id`,
+        );
+        assertLedgerRows(ledger, PREFIX32_LENGTH, "D1 recovery start ledger");
+        return { rows: ledger.map(({ name }) => ({ name })) };
+      }
+      insist(
+        execution.purpose === "migration" && MIGRATIONS[execution.migration],
+        "Core requested an unpinned recovery migration",
+      );
+      const expectedName = MIGRATION_NAMES[PREFIX32_LENGTH + migrationsApplied];
+      insist(
+        expectedName && execution.migration === expectedName,
+        "Core runner migration order differs from the exact final-three suffix",
+      );
+      const migrationSql = await readFile(
+        join(inputs.migrationsDir, execution.migration),
+        "utf8",
+      );
+      const script = assertMigrationScript(
+        sql,
+        execution.migration,
+        migrationSql,
+      );
+      writesStarted = true;
+      await writeMigration(context, script, execution.migration);
+      migrationsApplied += 1;
+      const ledger = await query(
+        context,
+        `SELECT id, name FROM ${LEDGER} ORDER BY id`,
+      );
+      assertLedgerRows(
+        ledger,
+        PREFIX32_LENGTH + migrationsApplied,
+        `D1 ledger after ${execution.migration}`,
+      );
+      return undefined;
+    };
+    const result = await inputs.applyMigrations({
+      resource: databaseId,
+      migrationsDir: inputs.migrationsDir,
+      wrapTransactions: false,
+      batchPendingMigrations: false,
+      retryAttempts: 1,
+      executeSql,
+    });
+    await assertRecoveryFinalReadback(context, result, fullReference);
+    return {
+      status: "APPLIED",
+      phase: "recover-prefix32",
+      databaseId,
+      coreVersion: CORE_VERSION,
+      prefixLength: PREFIX32_LENGTH,
+      migrationCount: MIGRATION_NAMES.length,
+      applied: [...MIGRATION_NAMES.slice(PREFIX32_LENGTH)],
+      skipped: [...MIGRATION_NAMES.slice(0, PREFIX32_LENGTH)],
+      mapSha256: MIGRATION_MAP_SHA256,
+    };
+  } catch (error) {
+    if (error && typeof error === "object" && !error.phase) {
+      error.phase = writesStarted
+        ? "POST_SCHEMA_INDETERMINATE"
+        : "PREFIX32_PREFLIGHT_REFUSED";
+    }
+    throw error;
   }
 }
 

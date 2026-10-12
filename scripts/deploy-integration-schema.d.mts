@@ -16,9 +16,25 @@ export type FreshIntegrationSchemaResult = {
   mapSha256: string;
 };
 
+export type Prefix32RecoveryResult = {
+  status: "APPLIED";
+  phase: "recover-prefix32";
+  databaseId: string;
+  coreVersion: "4.1.14";
+  prefixLength: 32;
+  migrationCount: 35;
+  applied: string[];
+  skipped: string[];
+  mapSha256: string;
+};
+
 export declare function applyFreshIntegrationSchema(
   options: FreshIntegrationSchemaOptions,
 ): Promise<FreshIntegrationSchemaResult>;
+
+export declare function recoverPrefix32IntegrationSchema(
+  options: FreshIntegrationSchemaOptions,
+): Promise<Prefix32RecoveryResult>;
 
 export declare const integrationSchemaTestSupport: Readonly<{
   migrationNames: readonly string[];

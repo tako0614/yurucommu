@@ -14,6 +14,7 @@ import { unstable_splitSqlQuery } from "wrangler";
 import {
   applyFreshIntegrationSchema,
   integrationSchemaTestSupport,
+  recoverPrefix32IntegrationSchema,
 } from "./deploy-integration-schema.mjs";
 
 const repo = resolve(import.meta.dir, "..");
@@ -23,6 +24,16 @@ const token = "synthetic-test-token";
 const expectedDatabaseName = "yurucommu-ga-20261012-0938-db";
 const expectedWorkerName = "yurucommu-ga-20261012-0938";
 const names = integrationSchemaTestSupport.migrationNames;
+const coreLedgerInitSql = `CREATE TABLE IF NOT EXISTS yurucommu_migrations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT UNIQUE NOT NULL,
+        applied_at TEXT NOT NULL
+      )`;
+const ledgerCreateSql = `CREATE TABLE IF NOT EXISTS yurucommu_migrations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT UNIQUE NOT NULL,
+  applied_at TEXT NOT NULL
+);`;
 const privateDirs: string[] = [];
 const databases: Database[] = [];
 
@@ -60,7 +71,9 @@ function writeStatements(call: { body?: any }): string[] {
 function isWriteCall(call: { method: string; body?: any }) {
   return (
     call.method === "POST" &&
-    writeStatements(call).some((sql: string) => !/^SELECT\b/i.test(sql))
+    writeStatements(call).some(
+      (sql: string) => !/^(?:SELECT|PRAGMA)\b/i.test(sql),
+    )
   );
 }
 
@@ -76,6 +89,17 @@ function fixture(
     identityErrors?: boolean;
     existingTables?: string[];
     initialSql?: string;
+    prefix32?: boolean;
+    wrongPrefixLedgerDefinition?: boolean;
+    corruptPrefixLedger?: boolean;
+    appendPrefixLedger?: boolean;
+    corruptPrefixSequence?: boolean;
+    corruptPrefixFtsSeed?: boolean;
+    addPrefix32View?: boolean;
+    insertPrefix32ApplicationRow?: boolean;
+    wrongDatabaseName?: boolean;
+    returnForeignKeyViolation?: boolean;
+    remove0034TriggerAfterRecovery?: boolean;
     probe?: "atomic" | "partial" | "success" | "wrong-error" | "transport";
     migrationFailureAt?: number;
     migrationTimeoutAt?: number;
@@ -90,6 +114,51 @@ function fixture(
   databases.push(db);
   db.exec("PRAGMA foreign_keys=ON");
   if (options.initialSql) db.exec(options.initialSql);
+  if (options.prefix32) {
+    db.exec(
+      options.wrongPrefixLedgerDefinition
+        ? coreLedgerInitSql.replace(
+            "applied_at TEXT NOT NULL",
+            "applied_at TEXT NOT NULL DEFAULT ''",
+          )
+        : coreLedgerInitSql,
+    );
+    for (const migration of names.slice(0, 32)) {
+      const raw = readFileSync(
+        resolve(
+          repo,
+          "node_modules/@takosjp/yurucommu-core/migrations",
+          migration,
+        ),
+        "utf8",
+      );
+      const script = `${ledgerCreateSql}\n${raw.trim()}\nINSERT INTO yurucommu_migrations (name, applied_at) VALUES ('${migration}', '2026-10-12T00:00:00.000Z');`;
+      db.transaction(() => db.exec(script)).immediate();
+    }
+    if (options.corruptPrefixLedger) {
+      db.exec(
+        "UPDATE yurucommu_migrations SET name='unexpected-prefix-row' WHERE id=32",
+      );
+    }
+    if (options.appendPrefixLedger) {
+      db.exec(
+        "INSERT INTO yurucommu_migrations (name, applied_at) VALUES ('0037_unpinned.sql', '2026-10-12T00:00:00.000Z')",
+      );
+    }
+    if (options.corruptPrefixSequence) {
+      db.exec(
+        "UPDATE sqlite_sequence SET seq=99 WHERE name='yurucommu_migrations'",
+      );
+    }
+    if (options.addPrefix32View) {
+      db.exec("CREATE VIEW unexpected_prefix_view AS SELECT 1 AS value");
+    }
+    if (options.insertPrefix32ApplicationRow) {
+      db.exec(
+        "INSERT INTO instance_actor (ap_id, preferred_username, public_key_pem, private_key_pem) VALUES ('https://example.invalid/actor', 'fixture', 'public', 'private')",
+      );
+    }
+  }
   for (const name of options.existingTables ?? []) {
     db.exec(`CREATE TABLE "${name}" (id TEXT)`);
   }
@@ -123,7 +192,9 @@ function fixture(
           uuid: options.wrongDatabase
             ? "99999999-2222-4333-8444-555555555555"
             : databaseId,
-          name: expectedDatabaseName,
+          name: options.wrongDatabaseName
+            ? "different-integration-database"
+            : expectedDatabaseName,
           ...(options.wrongDatabase ? { diagnosticEcho: token } : {}),
         },
       });
@@ -134,8 +205,24 @@ function fixture(
     const sql = typeof body?.sql === "string" ? body.sql.trim() : undefined;
     const batch = Array.isArray(body?.batch) ? body.batch : undefined;
     if (sql && batch) throw new Error("fixture rejects mixed query transports");
-    if (sql && /^SELECT\b/i.test(sql)) {
+    if (sql && /^(?:SELECT|PRAGMA)\b/i.test(sql)) {
       let rows = db.query(sql).all();
+      if (
+        options.corruptPrefixFtsSeed &&
+        sql ===
+          "SELECT k, typeof(v) AS valueType, hex(CAST(v AS BLOB)) AS valueHex FROM objects_fts_config ORDER BY k"
+      ) {
+        rows = rows.map((row) => ({
+          ...(row as Record<string, unknown>),
+          valueHex: "999",
+        }));
+      }
+      if (
+        sql === "PRAGMA foreign_key_check" &&
+        options.returnForeignKeyViolation
+      ) {
+        rows = [{ table: "follows", rowid: 1, parent: "actors", fkid: 0 }];
+      }
       if (
         sql === "SELECT name FROM yurucommu_migrations ORDER BY id" &&
         options.ledgerPrefixMismatchAt === migrationScripts
@@ -263,6 +350,12 @@ function fixture(
     db.transaction(() => {
       for (const statement of statements) db.exec(statement);
     })();
+    if (
+      options.remove0034TriggerAfterRecovery &&
+      statements.at(-1)?.includes("0036_notification_push_actor_fk_repair.sql")
+    ) {
+      db.exec("DROP TRIGGER media_staged_process_input");
+    }
     if (options.migrationTimeoutAt === migrationScripts)
       throw new Error("migration acknowledgement lost");
     return json({
@@ -579,13 +672,147 @@ test("0034 REST batch preserves Wrangler statement order, compound CASE trigger 
   expect(trigger[0].match(/;/g)?.length).toBeGreaterThan(3);
 });
 
-async function muted(action: () => Promise<void>) {
+test("prefix32 recovery skips the exact first 32 and writes only the final three batches with each ledger readback", async () => {
+  const f = fixture({ prefix32: true });
+  const result = await muted(() =>
+    recoverPrefix32IntegrationSchema(args(f.fetchImpl)),
+  );
+  expect(result).toMatchObject({
+    status: "APPLIED",
+    phase: "recover-prefix32",
+    databaseId,
+    coreVersion: "4.1.14",
+    prefixLength: 32,
+    migrationCount: 35,
+    applied: names.slice(32),
+    skipped: names.slice(0, 32),
+    mapSha256: integrationSchemaTestSupport.migrationMapSha256,
+  });
+  const writes = f.calls.filter(isWriteCall);
+  expect(writes).toHaveLength(3);
+  expect(writes.every((call) => Array.isArray(call.body?.batch))).toBe(true);
+  expect(
+    writes.map(
+      (call) =>
+        writeStatements(call)
+          .at(-1)
+          ?.match(/VALUES \('([^']+)'/)?.[1],
+    ),
+  ).toEqual(names.slice(32));
+  expect(
+    f.calls.some(
+      (call) =>
+        call.body?.sql &&
+        !/^SELECT\b/i.test(call.body.sql) &&
+        !/^PRAGMA\b/i.test(call.body.sql),
+    ),
+  ).toBe(false);
+  expect(f.migrationScripts).toBe(3);
+  expect(f.ledger).toEqual([...names]);
+  expect(
+    f.calls.filter(
+      (call) =>
+        call.body?.sql ===
+        "SELECT id, name FROM yurucommu_migrations ORDER BY id",
+    ),
+  ).toHaveLength(6); // preflight, runner start, 33/34/35, final readback
+  expect(f.db.query("PRAGMA foreign_key_check").all()).toEqual([]);
+});
+
+test("fresh-schema keeps refusing a populated prefix32 database without writes", async () => {
+  const f = fixture({ prefix32: true });
+  await expect(applyFreshIntegrationSchema(args(f.fetchImpl))).rejects.toThrow(
+    "D1 is not empty",
+  );
+  expect(f.calls.some(isWriteCall)).toBe(false);
+  expect(f.migrationScripts).toBe(0);
+  expect(f.ledger).toEqual(names.slice(0, 32));
+});
+
+test("prefix32 recovery refuses mismatched identity, competing Worker, ledger, objects, rows, sequence, and FTS seeds before writes", async () => {
+  const cases = [
+    {
+      options: { wrongDatabase: true },
+      reason: "exact new integration database",
+    },
+    {
+      options: { wrongDatabaseName: true },
+      reason: "exact new integration database",
+    },
+    { options: { workerPresent: true }, reason: "Worker already exists" },
+    {
+      options: { prefix32: true, wrongPrefixLedgerDefinition: true },
+      reason: "schema objects differ",
+    },
+    {
+      options: { prefix32: true, corruptPrefixLedger: true },
+      reason: "published Core prefix",
+    },
+    {
+      options: { prefix32: true, appendPrefixLedger: true },
+      reason: "table counts differ",
+    },
+    {
+      options: { prefix32: true, addPrefix32View: true },
+      reason: "schema objects differ",
+    },
+    {
+      options: { prefix32: true, insertPrefix32ApplicationRow: true },
+      reason: "table counts differ",
+    },
+    {
+      options: { prefix32: true, corruptPrefixSequence: true },
+      reason: "sqlite_sequence differs",
+    },
+    {
+      options: { prefix32: true, corruptPrefixFtsSeed: true },
+      reason: "D1 seed rows differ from the exact published Core prefix",
+    },
+    {
+      options: { prefix32: true, returnForeignKeyViolation: true },
+      reason: "foreign-key check returned violations",
+    },
+  ] as const;
+  for (const { options, reason } of cases) {
+    const f = fixture(options);
+    await expect(
+      recoverPrefix32IntegrationSchema(args(f.fetchImpl)),
+    ).rejects.toThrow(reason);
+    expect(f.calls.some(isWriteCall)).toBe(false);
+    expect(f.migrationScripts).toBe(0);
+  }
+});
+
+test("prefix32 recovery stops after one failed or indeterminate suffix batch without retry", async () => {
+  for (const options of [
+    { migrationFailureAt: 1 },
+    { migrationTimeoutAt: 1 },
+  ] as const) {
+    const f = fixture({ prefix32: true, ...options });
+    await expect(
+      recoverPrefix32IntegrationSchema(args(f.fetchImpl)),
+    ).rejects.toMatchObject({ phase: "POST_SCHEMA_INDETERMINATE" });
+    expect(f.migrationScripts).toBe(1);
+    expect(f.calls.filter(isWriteCall)).toHaveLength(1);
+  }
+});
+
+test("prefix32 recovery refuses final readback missing a 0034 trigger", async () => {
+  const f = fixture({ prefix32: true, remove0034TriggerAfterRecovery: true });
+  await expect(
+    recoverPrefix32IntegrationSchema(args(f.fetchImpl)),
+  ).rejects.toMatchObject({ phase: "POST_SCHEMA_INDETERMINATE" });
+  expect(f.migrationScripts).toBe(3);
+  expect(f.calls.filter(isWriteCall)).toHaveLength(3);
+});
+
+async function muted<T>(action: () => Promise<T>): Promise<T> {
   const oldLog = console.log;
   const oldWarn = console.warn;
   try {
     console.log = () => {};
     console.warn = () => {};
-    await action();
+    return await action();
   } finally {
     console.log = oldLog;
     console.warn = oldWarn;
