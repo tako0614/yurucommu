@@ -311,7 +311,7 @@ async function localLifecycle(failHealth: boolean) {
               const value = await (
                 await realFetch(`${local}/mock-absence`)
               ).json();
-              expect(value.exists).toBe(false);
+              expect(value).toMatchObject({ exists: false });
             },
             removeWorkdir: async () => {
               phases.push("state-removed");
