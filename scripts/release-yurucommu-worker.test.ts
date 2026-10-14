@@ -282,7 +282,7 @@ async function mediaDeletionMetadataRows() {
 
 // This checks prerequisite metadata against the actual product SQL bundle.
 // Applying DDL to an empty portable SQLite fixture is not an upgrade rehearsal.
-async function coreUpgradeMetadataRows() {
+async function coreUpgradeMetadataRows(sql = CORE_UPGRADE_SCHEMA_QUERY) {
   const bundle = JSON.parse(
     await readFile(
       new URL(
@@ -311,7 +311,7 @@ async function coreUpgradeMetadataRows() {
         .run(entry.name, "portable-schema-fixture");
     }
     expect(database.query("PRAGMA foreign_key_check").all()).toEqual([]);
-    return database.query(CORE_UPGRADE_SCHEMA_QUERY).all();
+    return database.query(sql).all();
   } finally {
     database.close();
   }
@@ -1111,7 +1111,13 @@ describe("production yurucommu Worker publisher", () => {
           "old-only",
           {
             success: true,
-            result: [{ success: true, results: [], meta: { rows_written: 0 } }],
+            result: [
+              {
+                success: true,
+                results: [],
+                meta: { changed_db: false, rows_written: 0 },
+              },
+            ],
           },
           200,
         ],
@@ -1141,9 +1147,9 @@ describe("production yurucommu Worker publisher", () => {
               `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/d1/database/${D1_DATABASE_ID}/query`,
             );
             expect(init?.method).toBe("POST");
-            expect(JSON.parse(String(init?.body))).toEqual({
-              sql: CORE_UPGRADE_SCHEMA_QUERY,
-            });
+            const { sql } = JSON.parse(String(init?.body));
+            expect(CORE_UPGRADE_SCHEMA_QUERY.includes(sql)).toBe(true);
+            expect(sql.split("\nUNION ALL\n").length).toBeLessThanOrEqual(5);
             coreQueries += 1;
             return Response.json(body, { status });
           },
@@ -1179,8 +1185,101 @@ describe("production yurucommu Worker publisher", () => {
           },
         }).catch((error: unknown) => error);
         expect(failureOf(failure).phase, label).toBe("PRE_UPLOAD_FAILURE");
-        expect(coreQueries, label).toBe(1);
+        expect(coreQueries, label).toBe(label === "old-only" ? 5 : 1);
         expect(uploads, label).toBe(0);
+      }
+    }));
+
+  test("queries all Core 4.1.15 schema terms within the live D1 five-term limit", () =>
+    cleanFixture(async ({ repo, target }) => {
+      const sqlRequests: string[] = [];
+      const provider = createCloudflareWorkerProvider({
+        repo,
+        target,
+        token: "test-token",
+        smokePassword: "test-password",
+        fetcher: async (input, init) => {
+          expect(String(input)).toBe(
+            `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/d1/database/${D1_DATABASE_ID}/query`,
+          );
+          expect(init?.method).toBe("POST");
+          const { sql } = JSON.parse(String(init?.body));
+          const terms = sql.split("\nUNION ALL\n");
+          sqlRequests.push(sql);
+          if (terms.length > 5) {
+            return Response.json(
+              {
+                success: false,
+                errors: [
+                  { code: 7500, message: "too many terms in compound SELECT" },
+                ],
+              },
+              { status: 400 },
+            );
+          }
+          return Response.json({
+            success: true,
+            result: [
+              {
+                success: true,
+                results: await coreUpgradeMetadataRows(sql),
+                meta: { changed_db: false, rows_written: 0 },
+              },
+            ],
+          });
+        },
+      });
+      await expect(
+        provider.assertCoreUpgradeSchema({ databaseId: D1_DATABASE_ID }),
+      ).resolves.toEqual(CORE_UPGRADE_SCHEMA_QUALIFICATION);
+      expect(sqlRequests).toHaveLength(5);
+      expect(
+        sqlRequests.every((sql) => sql.split("\nUNION ALL\n").length === 5),
+      ).toBe(true);
+      expect(sqlRequests.join("\nUNION ALL\n")).toBe(CORE_UPGRADE_SCHEMA_QUERY);
+    }));
+
+  test("stops on a missing, extra, or unproven Core schema chunk", () =>
+    cleanFixture(async ({ repo, target }) => {
+      for (const kind of ["missing", "extra", "write", "no-meta"] as const) {
+        let requests = 0;
+        const provider = createCloudflareWorkerProvider({
+          repo,
+          target,
+          token: "test-token",
+          smokePassword: "test-password",
+          fetcher: async (_input, init) => {
+            requests += 1;
+            const { sql } = JSON.parse(String(init?.body));
+            const valid = {
+              success: true,
+              results: await coreUpgradeMetadataRows(sql),
+              meta: { changed_db: false, rows_written: 0 },
+            };
+            return Response.json({
+              success: true,
+              result:
+                requests !== 3
+                  ? [valid]
+                  : kind === "missing"
+                    ? []
+                    : kind === "extra"
+                      ? [valid, valid]
+                      : kind === "write"
+                        ? [
+                            {
+                              ...valid,
+                              meta: { changed_db: false, rows_written: 1 },
+                            },
+                          ]
+                        : [{ success: true, results: valid.results }],
+            });
+          },
+        });
+        await expect(
+          provider.assertCoreUpgradeSchema({ databaseId: D1_DATABASE_ID }),
+        ).rejects.toThrow("Core schema query");
+        expect(requests).toBe(3);
       }
     }));
 
@@ -2538,7 +2637,6 @@ describe("production yurucommu Worker publisher", () => {
   test("blocks Deployment when the real content reader sees wrong uploaded bytes", () =>
     cleanFixture(async ({ repo, target }) => {
       const schemaRows = await mediaDeletionMetadataRows();
-      const upgradeRows = await coreUpgradeMetadataRows();
       let upgradeQueries = 0;
       let uploadMessage = "";
       let versionWrites = 0;
@@ -2596,21 +2694,21 @@ describe("production yurucommu Worker publisher", () => {
             url.includes(`/d1/database/${D1_DATABASE_ID}/query`)
           ) {
             const { sql } = JSON.parse(String(init?.body));
-            expect([
-              MEDIA_DELETION_SCHEMA_QUERY,
-              CORE_UPGRADE_SCHEMA_QUERY,
-            ]).toContain(sql);
-            if (sql === CORE_UPGRADE_SCHEMA_QUERY) upgradeQueries += 1;
+            const isCore = sql !== MEDIA_DELETION_SCHEMA_QUERY;
+            if (isCore) {
+              expect(CORE_UPGRADE_SCHEMA_QUERY.includes(sql)).toBe(true);
+              expect(sql.split("\nUNION ALL\n").length).toBeLessThanOrEqual(5);
+              upgradeQueries += 1;
+            }
             expect(versionWrites).toBe(0);
             return Response.json({
               success: true,
               result: [
                 {
                   success: true,
-                  results:
-                    sql === CORE_UPGRADE_SCHEMA_QUERY
-                      ? upgradeRows
-                      : schemaRows,
+                  results: isCore
+                    ? await coreUpgradeMetadataRows(sql)
+                    : schemaRows,
                   meta: { changed_db: false, rows_written: 0 },
                 },
               ],
@@ -2657,7 +2755,7 @@ describe("production yurucommu Worker publisher", () => {
       expect((failure as Error).message).toContain(
         "differs from the reviewed Worker bundle bytes",
       );
-      expect(upgradeQueries).toBe(1);
+      expect(upgradeQueries).toBe(5);
       expect(versionWrites).toBe(1);
       expect(contentReads).toBe(1);
       expect(deploymentWrites).toBe(0);
@@ -2868,6 +2966,148 @@ describe("production yurucommu Worker publisher", () => {
 
       await expect(provider.domains()).resolves.toEqual([domain]);
       expect(requests).toBe(4);
+    }));
+
+  test("accepts Cloudflare's observed domain pagination without total_pages", () =>
+    cleanFixture(async ({ repo, target }) => {
+      let requests = 0;
+      const domain = {
+        hostname: target.route.hostname,
+        service: target.workerName,
+        environment: "production",
+      };
+      const provider = createCloudflareWorkerProvider({
+        repo,
+        target,
+        token: "test-token",
+        smokePassword: "test-password",
+        fetcher: async (input: string | URL) => {
+          const url = new URL(String(input));
+          expect(url.searchParams.get("page")).toBe("1");
+          expect(url.searchParams.get("per_page")).toBe("100");
+          requests += 1;
+          return Response.json({
+            success: true,
+            result: [domain],
+            result_info: { count: 1, page: 1, per_page: 100, total_count: 1 },
+          });
+        },
+      });
+      await expect(provider.domains()).resolves.toEqual([domain]);
+      expect(requests).toBe(2);
+    }));
+
+  test("uses bounded page length when total_count includes other domains", () =>
+    cleanFixture(async ({ repo, target }) => {
+      const fullPage = Array.from({ length: 100 }, (_, index) => ({
+        hostname: `other-${index}.example`,
+        service: target.workerName,
+        environment: "production",
+      }));
+      const last = {
+        hostname: target.route.hostname,
+        service: target.workerName,
+        environment: "production",
+      };
+      let requests = 0;
+      const provider = createCloudflareWorkerProvider({
+        repo,
+        target,
+        token: "test-token",
+        smokePassword: "test-password",
+        fetcher: async (input: string | URL) => {
+          const page = Number(new URL(String(input)).searchParams.get("page"));
+          requests += 1;
+          expect(page).toBeLessThanOrEqual(2);
+          return Response.json({
+            success: true,
+            result: page === 1 ? fullPage : [last],
+            result_info: { count: 101, page, per_page: 100, total_count: 1000 },
+          });
+        },
+      });
+      await expect(provider.domains()).resolves.toHaveLength(101);
+      expect(requests).toBe(4);
+    }));
+
+  test("rejects malformed or unbounded page-length domain metadata", () =>
+    cleanFixture(async ({ repo, target }) => {
+      for (const metadata of [
+        { count: -1, page: 1, per_page: 100, total_count: 1 },
+        { count: 1, page: 2, per_page: 100, total_count: 1 },
+        { count: 1, page: 1, per_page: 50, total_count: 1 },
+        { count: 1, page: 1, per_page: 100, total_count: -1 },
+      ]) {
+        const provider = createCloudflareWorkerProvider({
+          repo,
+          target,
+          token: "test-token",
+          smokePassword: "test-password",
+          fetcher: async () =>
+            Response.json({
+              success: true,
+              result: [{ hostname: target.route.hostname }],
+              result_info: metadata,
+            }),
+        });
+        await expect(provider.domains()).rejects.toThrow("pagination");
+      }
+      let requests = 0;
+      const fullPage = Array.from({ length: 100 }, () => ({
+        hostname: target.route.hostname,
+        service: target.workerName,
+        environment: "production",
+      }));
+      const provider = createCloudflareWorkerProvider({
+        repo,
+        target,
+        token: "test-token",
+        smokePassword: "test-password",
+        fetcher: async (input: string | URL) => {
+          const page = Number(new URL(String(input)).searchParams.get("page"));
+          requests += 1;
+          return Response.json({
+            success: true,
+            result: fullPage,
+            result_info: {
+              count: 100,
+              page,
+              per_page: 100,
+              total_count: 1000,
+            },
+          });
+        },
+      });
+      await expect(provider.domains()).rejects.toThrow(
+        "8-page stability bound",
+      );
+      expect(requests).toBe(8);
+    }));
+
+  test("refuses a full first domain page when pagination metadata is absent", () =>
+    cleanFixture(async ({ repo, target }) => {
+      let requests = 0;
+      const provider = createCloudflareWorkerProvider({
+        repo,
+        target,
+        token: "test-token",
+        smokePassword: "test-password",
+        fetcher: async () => {
+          requests += 1;
+          return Response.json({
+            success: true,
+            result: Array.from({ length: 100 }, () => ({
+              hostname: target.route.hostname,
+              service: target.workerName,
+              environment: "production",
+            })),
+          });
+        },
+      });
+      await expect(provider.domains()).rejects.toThrow(
+        "omitted bounded pagination metadata",
+      );
+      expect(requests).toBe(1);
     }));
 
   test("rejects a custom-domain inventory that changes between bounded snapshots", () =>
@@ -3429,6 +3669,7 @@ describe("isolated integration Worker code publisher", () => {
       const target = await integrationTarget(value);
       for (const bindings of [
         { DB: { type: "d1", id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee" } },
+        { DB: { type: "d1" } },
         { KV: { type: "kv_namespace", namespace_id: "f".repeat(32) } },
         { EXTRA_DB: { type: "d1", id: target.resources.databaseId } },
         { SERVICE: { type: "service", service: "production-worker" } },
@@ -3436,7 +3677,14 @@ describe("isolated integration Worker code publisher", () => {
           DB: {
             type: "d1",
             id: target.resources.databaseId,
-            database_id: target.resources.databaseId,
+            database_id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+          },
+        },
+        {
+          DB: {
+            type: "d1",
+            id: target.resources.databaseId,
+            namespace_id: target.resources.kvNamespaceId,
           },
         },
       ]) {
@@ -3497,6 +3745,84 @@ describe("isolated integration Worker code publisher", () => {
           expect(failure.message).toContain("binding");
           expect(writes).toBe(0);
         }
+      }
+    }));
+
+  test("accepts the observed array D1 binding with equal id and database_id before writes", () =>
+    cleanFixture(async (value) => {
+      const target = await integrationTarget(value);
+      const base = integrationVersionDetails(target);
+      const bindings = Object.entries(base.resources.bindings).map(
+        ([name, binding]) => ({
+          name,
+          ...binding,
+          ...(name === "DB"
+            ? { database_id: target.resources.databaseId }
+            : {}),
+        }),
+      );
+      const version = {
+        ...base,
+        resources: { ...base.resources, bindings },
+      };
+      for (const surface of ["code", "auth"] as const) {
+        let writes = 0;
+        const provider = {
+          domains: async () => [
+            {
+              hostname: target.route.hostname,
+              service: target.workerName,
+              environment: "production",
+            },
+          ],
+          activeDeployment: async () => deployment(OLD_DEPLOYMENT, OLD_VERSION),
+          version: async () => version,
+          assertVersionCode: codeProof,
+          assertMediaDeletionSchema: async () => {
+            throw new Error("reached D1 schema preflight");
+          },
+          snapshotVersionCode: async () => {
+            throw new Error("reached bounded code snapshot");
+          },
+          upload: async () => {
+            writes += 1;
+            throw new Error("unexpected upload");
+          },
+          putAuthSecret: async () => {
+            writes += 1;
+            throw new Error("unexpected secret PUT");
+          },
+        };
+        const failure = await (
+          surface === "code"
+            ? deployYurucommuWorker({
+                repo: value.repo,
+                environment: "integration",
+                commit: COMMIT,
+                target,
+                git: gitSource(),
+                check: async () => {},
+                provider,
+              })
+            : resetYurucommuIntegrationAuth({
+                repo: value.repo,
+                commit: COMMIT,
+                target,
+                password: "integration-test-owner-password-12345",
+                git: gitSource(),
+                check: async () => {},
+                provider,
+              })
+        ).catch((error) => error);
+        expect(failureOf(failure).phase).toBe(
+          surface === "code" ? "PRE_UPLOAD_FAILURE" : "PRE_AUTH_FAILURE",
+        );
+        expect(failure.message).toContain(
+          surface === "code"
+            ? "reached D1 schema preflight"
+            : "reached bounded code snapshot",
+        );
+        expect(writes).toBe(0);
       }
     }));
 
