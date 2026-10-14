@@ -1292,6 +1292,7 @@ export function createCloudflareWorkerProvider({
   smokePassword = process.env.YURUCOMMU_E2E_PASSWORD,
   fetcher = globalThis.fetch,
   runSmoke = defaultRun,
+  createAuthLoginTransport,
 } = {}) {
   if (typeof token !== "string" || !token.trim()) {
     throw new Error("CLOUDFLARE_API_TOKEN is required before provider access");
@@ -1956,12 +1957,19 @@ export function createCloudflareWorkerProvider({
       if (selectedTarget.environment !== "integration") {
         throw new Error("isolated auth login requires integration target");
       }
+      let stage = "transport_init";
+      let httpStatus = "none";
+      let ackSuccess = false;
+      let cookiePresent = false;
+      let sessionCookiePrefix = false;
       try {
-        const { createPinnedHttpTransport } =
-          await import("./post-deploy-smoke.ts");
-        const transport = await createPinnedHttpTransport(
+        const transportFactory =
+          createAuthLoginTransport ??
+          (await import("./post-deploy-smoke.ts")).createPinnedHttpTransport;
+        const transport = await transportFactory(
           new URL(selectedTarget.publicOrigin),
         );
+        stage = "request";
         const response = await transport.request(
           new URL("/api/auth/login", selectedTarget.publicOrigin),
           {
@@ -1974,19 +1982,30 @@ export function createCloudflareWorkerProvider({
             body: JSON.stringify({ password }),
           },
         );
+        stage = "response_status";
+        if (
+          Number.isInteger(response.status) &&
+          response.status >= 100 &&
+          response.status <= 599
+        ) {
+          httpStatus = response.status;
+        }
         if (response.status !== 200) {
           throw new Error("password login rejected");
         }
+        stage = "response_json";
         const body = await response.json();
-        if (
-          body?.success !== true ||
-          !/^session=[^;\s]+/u.test(response.headers.get("set-cookie") ?? "")
-        ) {
+        stage = "acknowledgement";
+        ackSuccess = body?.success === true;
+        const cookie = response.headers.get("set-cookie") ?? "";
+        cookiePresent = cookie.length > 0;
+        sessionCookiePrefix = /^session=[^;\s]+/u.test(cookie);
+        if (!ackSuccess || !sessionCookiePrefix) {
           throw new Error("password login acknowledgement invalid");
         }
       } catch {
         throw new ProviderFailure(
-          "isolated integration password login proof failed; inspect active Version and login state without replaying the secret write",
+          `isolated integration password login proof failed (stage=${stage}, http_status=${httpStatus}, ack_success=${ackSuccess}, cookie_present=${cookiePresent}, session_cookie_prefix=${sessionCookiePrefix}); inspect active Version and login state without replaying the secret write`,
         );
       }
       return { status: "passed" };

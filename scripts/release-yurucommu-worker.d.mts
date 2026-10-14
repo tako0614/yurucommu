@@ -206,6 +206,9 @@ export function createCloudflareWorkerProvider(options: {
   smokePassword?: string;
   fetcher?: (input: string | URL, init?: RequestInit) => Promise<Response>;
   runSmoke?: WorkerCommand;
+  createAuthLoginTransport?: (origin: URL) => Promise<{
+    request: (url: URL, init?: RequestInit) => Promise<Response>;
+  }>;
 }): WorkerProvider;
 
 export function deployYurucommuWorker(options: {
