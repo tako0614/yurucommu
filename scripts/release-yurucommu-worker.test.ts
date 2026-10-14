@@ -4254,6 +4254,141 @@ describe("isolated integration Worker code publisher", () => {
       expect(requests).toHaveLength(2);
     }));
 
+  test("auth login proof reports only fixed failure stages and safe response facts", () =>
+    cleanFixture(async (value) => {
+      const target = await integrationTarget(value);
+      const secret = "sensitive-password-and-provider-body";
+      const cookieValue = `session=${secret}; Path=/; HttpOnly`;
+      const response = (status: number, body: string, cookie = cookieValue) =>
+        new Response(body, {
+          status,
+          headers: { "set-cookie": cookie },
+        });
+      const makeProvider = (
+        createAuthLoginTransport: (origin: URL) => Promise<{
+          request: (url: URL, init?: RequestInit) => Promise<Response>;
+        }>,
+      ) =>
+        createCloudflareWorkerProvider({
+          repo: value.repo,
+          target,
+          token: "test-token",
+          smokePassword: "test-password",
+          createAuthLoginTransport,
+        });
+      const cases = [
+        {
+          stage: "transport_init",
+          status: "none",
+          ack: false,
+          cookie: false,
+          prefix: false,
+          factory: async () => {
+            throw new Error(secret);
+          },
+        },
+        {
+          stage: "request",
+          status: "none",
+          ack: false,
+          cookie: false,
+          prefix: false,
+          factory: async () => ({
+            request: async () => {
+              throw new Error(secret);
+            },
+          }),
+        },
+        {
+          stage: "response_status",
+          status: "401",
+          ack: false,
+          cookie: false,
+          prefix: false,
+          factory: async () => ({
+            request: async () => response(401, secret),
+          }),
+        },
+        {
+          stage: "response_json",
+          status: "200",
+          ack: false,
+          cookie: false,
+          prefix: false,
+          factory: async () => ({
+            request: async () => response(200, secret),
+          }),
+        },
+        {
+          stage: "acknowledgement",
+          status: "200",
+          ack: false,
+          cookie: true,
+          prefix: true,
+          factory: async () => ({
+            request: async () =>
+              response(200, '{"success":false}', cookieValue),
+          }),
+        },
+        {
+          stage: "acknowledgement",
+          status: "200",
+          ack: true,
+          cookie: false,
+          prefix: false,
+          factory: async () => ({
+            request: async () => response(200, '{"success":true}', ""),
+          }),
+        },
+        {
+          stage: "acknowledgement",
+          status: "200",
+          ack: true,
+          cookie: true,
+          prefix: false,
+          factory: async () => ({
+            request: async () =>
+              response(200, '{"success":true}', `other=${secret}`),
+          }),
+        },
+      ];
+      for (const item of cases) {
+        const failure = await makeProvider(item.factory)
+          .verifyAuthLogin({ password: secret })
+          .catch((error) => error);
+        expect(failure.name).toBe("ProviderFailure");
+        expect(failure.message).toContain(`stage=${item.stage}`);
+        expect(failure.message).toContain(`http_status=${item.status}`);
+        expect(failure.message).toContain(`ack_success=${item.ack}`);
+        expect(failure.message).toContain(`cookie_present=${item.cookie}`);
+        expect(failure.message).toContain(
+          `session_cookie_prefix=${item.prefix}`,
+        );
+        expect(JSON.stringify(failure)).not.toContain(secret);
+        expect(failure.message).not.toContain(secret);
+        expect(failure.cause).toBeUndefined();
+      }
+      let requests = 0;
+      const provider = makeProvider(async (origin) => {
+        expect(origin.href).toBe(`${target.publicOrigin}/`);
+        return {
+          request: async (url, init) => {
+            requests += 1;
+            expect(url.href).toBe(`${target.publicOrigin}/api/auth/login`);
+            expect(init?.method).toBe("POST");
+            expect(JSON.parse(String(init?.body))).toEqual({
+              password: secret,
+            });
+            return response(200, '{"success":true}');
+          },
+        };
+      });
+      expect(await provider.verifyAuthLogin({ password: secret })).toEqual({
+        status: "passed",
+      });
+      expect(requests).toBe(1);
+    }));
+
   test("auth code snapshot reads raw predecessor bytes without assuming the new bundle", () =>
     cleanFixture(async (value) => {
       const target = await integrationTarget(value);
