@@ -1122,9 +1122,7 @@ describe("release Worker smoke", () => {
       "DM isolation exposed a message to an unrelated actor",
     ],
   ] as const) {
-    const isFreshMobileOwnerCase =
-      name ===
-      "fresh mobile login success without owner or session persistence";
+    const isLateOwnerCase = error.startsWith("first-owner-");
     test(
       `rejects ${name}`,
       async () => {
@@ -1133,15 +1131,16 @@ describe("release Worker smoke", () => {
             expect(source).toContain(fetchAnchor);
             return source.replace(fetchAnchor, injected + fetchAnchor);
           }),
-          // The native smoke supervisor has a 120s deadline; this case reaches
-          // its mobile owner lane after the preceding native setup lanes.
-          isFreshMobileOwnerCase ? 130_000 : undefined,
+          // Owner failures occur after both native setup lanes. Allow the
+          // supervisor's 120s deadline and cleanup to finish before this
+          // outer process guard intervenes.
+          isLateOwnerCase ? 130_000 : undefined,
         );
         expect(result.exitCode).not.toBe(0);
         expect(result.stdout.toString()).toBe("");
         expect(result.stderr.toString()).toContain(error);
       },
-      isFreshMobileOwnerCase ? 140_000 : 30_000,
+      isLateOwnerCase ? 140_000 : 30_000,
     );
   }
 
