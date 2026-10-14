@@ -487,6 +487,26 @@ function validateTarget(value, environment, { repo } = {}) {
   return { ...value, configBytes: bytes, configValues: config };
 }
 
+function rawTargetDescriptor(value) {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    Array.isArray(value) ||
+    !(value.configBytes instanceof Uint8Array) ||
+    typeof value.configValues !== "object" ||
+    value.configValues === null ||
+    Array.isArray(value.configValues)
+  ) {
+    return value;
+  }
+  const {
+    configBytes: _configBytes,
+    configValues: _configValues,
+    ...raw
+  } = value;
+  return raw;
+}
+
 export function loadYurucommuWorkerTarget({ path, environment, repo } = {}) {
   if (typeof path !== "string" || !isAbsolute(path)) {
     throw new Error("YURUCOMMU_WORKER_DEPLOY_TARGET must be one absolute path");
@@ -501,10 +521,7 @@ export function loadYurucommuWorkerTarget({ path, environment, repo } = {}) {
       cause: error instanceof Error ? error : undefined,
     });
   }
-  const selected = validateTarget(value, environment, { repo });
-  delete selected.configBytes;
-  delete selected.configValues;
-  return selected;
+  return rawTargetDescriptor(validateTarget(value, environment, { repo }));
 }
 
 function digest(bytes) {
@@ -1250,7 +1267,11 @@ export function createCloudflareWorkerProvider({
       "YURUCOMMU_E2E_PASSWORD is required before provider access",
     );
   }
-  const selectedTarget = validateTarget(target, target?.environment, { repo });
+  const selectedTarget = validateTarget(
+    rawTargetDescriptor(target),
+    target?.environment,
+    { repo },
+  );
   if (!["production", "integration"].includes(selectedTarget.environment)) {
     throw new Error("Worker provider requires an exact deployment environment");
   }
@@ -1945,7 +1966,9 @@ export async function deployYurucommuWorker({
       );
     }
     source = await qualifyProductionSource({ repo, commit, git });
-    selectedTarget = validateTarget(target, environment, { repo });
+    selectedTarget = validateTarget(rawTargetDescriptor(target), environment, {
+      repo,
+    });
     releaseProvider ??= createCloudflareWorkerProvider({ repo, target });
 
     await check({ repo, environment, commit: source.commit });
@@ -2318,7 +2341,11 @@ export async function resetYurucommuIntegrationAuth({
       );
     }
     const source = await qualifyProductionSource({ repo, commit, git });
-    selectedTarget = validateTarget(target, "integration", { repo });
+    selectedTarget = validateTarget(
+      rawTargetDescriptor(target),
+      "integration",
+      { repo },
+    );
     const releaseProvider =
       provider ??
       createCloudflareWorkerProvider({
