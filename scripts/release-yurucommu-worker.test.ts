@@ -3207,6 +3207,88 @@ describe("isolated integration Worker code publisher", () => {
       ).toThrow("keys differ");
     }));
 
+  test("loaded integration descriptor survives auth, code, and provider revalidation", () =>
+    cleanFixture(async (value) => {
+      const target = await integrationTarget(value);
+      const path = join(value.privateDir, "loaded-integration-target.json");
+      await writeFile(path, `${JSON.stringify(target)}\n`, { mode: 0o600 });
+      const loaded = loadYurucommuWorkerTarget({
+        path,
+        repo: value.repo,
+        environment: "integration",
+      });
+      const configBytes = await readFile(target.config.path);
+      const enriched = {
+        ...loaded,
+        configBytes,
+        configValues: JSON.parse(configBytes.toString("utf8")),
+      };
+      const provider = createCloudflareWorkerProvider({
+        repo: value.repo,
+        target: enriched,
+        token: "test-token",
+        smokePassword: "integration-test-owner-password-12345",
+        fetcher: async () => {
+          throw new Error("no provider request expected during validation");
+        },
+      });
+      expect(provider).toHaveProperty("activeDeployment");
+
+      let writes = 0;
+      const readOnlyStop = {
+        assertVersionCode: codeProof,
+        snapshotVersionCode: async () => {
+          throw new Error("unexpected code snapshot");
+        },
+        domains: async () => {
+          throw new Error("stopped at first provider read");
+        },
+        upload: async () => {
+          writes += 1;
+          throw new Error("unexpected upload");
+        },
+        putAuthSecret: async () => {
+          writes += 1;
+          throw new Error("unexpected secret PUT");
+        },
+      };
+      const authFailure = await resetYurucommuIntegrationAuth({
+        repo: value.repo,
+        commit: COMMIT,
+        target: loaded,
+        password: "integration-test-owner-password-12345",
+        git: gitSource(),
+        check: async () => {},
+        provider: readOnlyStop,
+      }).catch((error) => error);
+      expect(failureOf(authFailure).phase).toBe("PRE_AUTH_FAILURE");
+      expect(authFailure.message).toContain("stopped at first provider read");
+      const codeFailure = await deployYurucommuWorker({
+        repo: value.repo,
+        environment: "integration",
+        commit: COMMIT,
+        target: loaded,
+        git: gitSource(),
+        check: async () => {},
+        provider: readOnlyStop,
+      }).catch((error) => error);
+      expect(failureOf(codeFailure).phase).toBe("PRE_UPLOAD_FAILURE");
+      expect(codeFailure.message).toContain("stopped at first provider read");
+      expect(writes).toBe(0);
+
+      await writeFile(
+        path,
+        `${JSON.stringify({ ...target, configBytes: "extra" })}\n`,
+      );
+      expect(() =>
+        loadYurucommuWorkerTarget({
+          path,
+          repo: value.repo,
+          environment: "integration",
+        }),
+      ).toThrow("keys differ");
+    }));
+
   test("queries the provider production domain environment for the isolated Worker", () =>
     cleanFixture(async (value) => {
       const target = await integrationTarget(value);
