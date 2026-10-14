@@ -773,8 +773,8 @@ try {
       "utf8",
     ),
   ).version;
-  assert.equal(coreVersion, "4.1.14", "unexpected installed published Core");
-  assert.equal(apiVersion, "4.1.14", "unexpected installed published API");
+  assert.equal(coreVersion, "4.1.15", "unexpected installed published Core");
+  assert.equal(apiVersion, "4.1.15", "unexpected installed published API");
   const artifactHash = sha256(await readFile(artifact));
   tempRoot = await mkdtemp(join(tmpdir(), "yurucommu-native-ssrf-"));
   phases.push("strict-config-runtime-compatibility-schema-preflight");

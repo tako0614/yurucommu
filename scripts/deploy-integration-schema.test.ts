@@ -561,7 +561,7 @@ test("REST batch fixture applies all 35 immutable migrations and nested triggers
     expect(result).toMatchObject({
       status: "APPLIED",
       databaseId,
-      coreVersion: "4.1.14",
+      coreVersion: "4.1.15",
       migrationCount: 35,
       mapSha256: integrationSchemaTestSupport.migrationMapSha256,
     });
@@ -806,7 +806,7 @@ test("prefix32 recovery skips the exact first 32 and writes only the final three
     status: "APPLIED",
     phase: "recover-prefix32",
     databaseId,
-    coreVersion: "4.1.14",
+    coreVersion: "4.1.15",
     prefixLength: 32,
     migrationCount: 35,
     applied: names.slice(32),
