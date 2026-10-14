@@ -1,6 +1,6 @@
-import { constants } from "node:fs";
+import { constants, type Stats } from "node:fs";
 import { lstat, open, realpath, type FileHandle } from "node:fs/promises";
-import { join, relative, isAbsolute } from "node:path";
+import { dirname, join, relative, isAbsolute, resolve } from "node:path";
 import { check, type Role } from "./contracts.ts";
 import { PRODUCT_ROOT } from "./inputs.ts";
 
@@ -49,6 +49,58 @@ export interface Journal {
   close(): Promise<void>;
 }
 export const JOURNAL_FILENAME = "hosted-e2e.jsonl";
+async function metadata(path: string): Promise<Stats | undefined> {
+  try {
+    return await lstat(path);
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      error.code === "ENOENT"
+    )
+      return undefined;
+    // Permission or filesystem uncertainty cannot establish an external directory.
+    throw error;
+  }
+}
+async function outsideRepositories(
+  directory: string,
+  actual: string,
+): Promise<void> {
+  const checked = new Set<string>();
+  // Check both names: following a parent symlink cannot enter a checkout or
+  // escape a lexical checkout into an otherwise external directory.
+  for (const start of [resolve(directory), actual]) {
+    for (
+      let ancestor = start;
+      !checked.has(ancestor);
+      ancestor = dirname(ancestor)
+    ) {
+      checked.add(ancestor);
+      // Any .git entry is a boundary, including linked-worktree files and
+      // dangling symlinks. Do not read its contents or follow its gitdir pointer.
+      check(!(await metadata(join(ancestor, ".git"))), "JOURNAL_IN_REPOSITORY");
+      const [head, objects, refs, packed] = await Promise.all([
+        metadata(join(ancestor, "HEAD")),
+        metadata(join(ancestor, "objects")),
+        metadata(join(ancestor, "refs")),
+        metadata(join(ancestor, "packed-refs")),
+      ]);
+      const file = (entry: Stats | undefined) =>
+        Boolean(entry?.isFile() || entry?.isSymbolicLink());
+      const folder = (entry: Stats | undefined) =>
+        Boolean(entry?.isDirectory() || entry?.isSymbolicLink());
+      // Bare/custom Git metadata has no .git marker. File/type metadata alone
+      // recognizes its HEAD/object/ref layout without reading repository state.
+      check(
+        !(file(head) && folder(objects) && (folder(refs) || file(packed))),
+        "JOURNAL_IN_REPOSITORY",
+      );
+      if (dirname(ancestor) === ancestor) break;
+    }
+  }
+}
 export async function openJournal(
   directory: string,
   runId: string,
@@ -72,6 +124,7 @@ export async function openJournal(
       isAbsolute(relation),
     "JOURNAL_IN_REPOSITORY",
   );
+  await outsideRepositories(directory, actual);
   // One durable run per explicitly supplied directory. A restart with a new
   // randomly generated prefix still cannot conceal a prior uncertain run.
   const handle: FileHandle = await open(
