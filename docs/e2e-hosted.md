@@ -1,121 +1,205 @@
-# Hosted staging E2E skeleton
+# Hosted staging reference-app E2E
 
-After loading the environment below, one command performs the existing
-Yurucommu portable install lifecycle: deploy the temporary 15-resource graph,
-check migration-backed health, destroy, and verify authoritative absence.
+One command creates Yurucommu's disposable 15-resource graph through the
+current Takoform Host v2 API, checks its public JSON health and database-backed
+NodeInfo, deletes the acknowledged graph, and verifies Host and route absence:
 
 ```bash
-bun tests/e2e-hosted/run.ts --execute
+bun --no-env-file tests/e2e-hosted/run.ts --execute
 ```
 
-The default invocation and `--dry-run` only print the intended phases. They do
-not make HTTP requests, start a Provider, build, provision, or delete resources.
+Default invocation and `--dry-run` describe phases and missing inputs without
+reading operator files, making requests, building, or starting subprocesses.
+Use Bun 1.4.0 for the focused checks and execution below. Local test results
+establish the harness protocol and failure behavior; they do not establish
+an actual staging pass or launch qualification.
 
-```bash
-bun tests/e2e-hosted/run.ts --dry-run
-bun test tests/e2e-hosted
+## Inputs from the authorized staging owner
+
+All credentials and application private inputs enter through environment
+variables. Load them using the operator's existing private mechanism; never
+put their values in argv, this repository, shell history, or logs.
+
+| Variable                                 | Input                                                             |
+| ---------------------------------------- | ----------------------------------------------------------------- |
+| `YURUCOMMU_HOSTED_E2E_ENVIRONMENT`       | `staging`                                                         |
+| `YURUCOMMU_HOSTED_E2E_TARGET_FILE`       | Absolute path to nonsecret owner-selected target metadata below   |
+| `YURUCOMMU_HOSTED_E2E_FIXTURE_FILE`      | Absolute path to the immutable Yurucommu artifact receipt below   |
+| `YURUCOMMU_HOSTED_E2E_JOURNAL_DIRECTORY` | Existing, operator-owned `0700` directory outside this repository |
+| `TAKOFORM_TOKEN`                         | Host writer scoped to the target organization/Space               |
+| `TAKOFORM_EVIDENCE_TOKEN`                | Distinct Host read credential for the same owner and Space        |
+| `ENCRYPTION_KEY`                         | Application-generated 32-byte lowercase hexadecimal value         |
+| `YURUCOMMU_SESSION_HASH_SALT`            | Separate, non-development 32-byte lowercase hexadecimal value     |
+| `TAKOSUMI_ACCOUNTS_ISSUER_URL`           | Owner-selected HTTPS OIDC issuer                                  |
+| `TAKOSUMI_ACCOUNTS_CLIENT_ID`            | Application's provisioned client identity                         |
+| `TAKOSUMI_ACCOUNTS_OWNER_SUB`            | Application's provisioned owner subject                           |
+| `TAKOSUMI_ACCOUNTS_REDIRECT_URI`         | Application's registered HTTPS callback                           |
+
+Target metadata has the exact fields shown below. Angle brackets are required
+owner inputs, so this example is deliberately not runnable:
+
+```json
+{
+  "kind": "yurucommu.hosted-staging-target@v2",
+  "environment": "staging",
+  "api": "forms.takoform.com/v2",
+  "hostOrigin": "<exact authorized HTTPS staging origin, without trailing slash>",
+  "space": "<actual staging organization id>",
+  "qualifiedHostCommit": "<40 lowercase hex characters>",
+  "qualificationReceiptSha256": "<64 lowercase hex characters>",
+  "appSuffix": ".app-staging.takos.jp"
+}
 ```
 
-This change was verified with dry-run and local HTTP/process mocks only. No
-staging or production deployment was performed. The mocks exercise deploy,
-the existing `/healthz`, `/readyz`, social-server and NodeInfo checks, destroy,
-absence verification, failed health, and recovery-state retention after failed
-cleanup. They do not establish hosted platform qualification or production
-isolation evidence.
+The Space is the organization id accepted by the current Host credential
+flow. The harness generates a fresh `yurucommu-e2e-<12hex>` resource prefix
+inside it; it does not invent a disposable Space or mutate the organization.
+The hostname must explicitly identify staging, and discovery's advertised v2
+base URL must retain that exact origin. The qualification receipt belongs to
+the owning operator and must cover the selected commit, API, private-input
+custody, SQLite migrations and runtime, Queue/consumer bindings, and wildcard
+endpoint dispatch/TLS. The harness records its digest, but cannot create or
+independently certify this operator evidence.
 
-## Environment
+The current preparation handoff reports the incumbent Hosted runtime as schema
+0088; the new private SQLite candidate requires 0094 plus its 0088 drain seal.
+Private SQLite #130 has not been formally transferred to this lane. An old
+deployment, prepared `.invalid` fixture, or stale qualification receipt does
+not satisfy the execution prerequisites. The latest launch scope retains the
+full Container, Actor, Workflow and Tier 1 requirements; this reference-app
+health test does not reduce them to an earlier Tier 1-only launch proposal.
 
-Load credentials from the operator's environment. Do not put credentials in
-shell history, command arguments, files in this repository, or CI logs.
+## Published artifact receipt
 
-| Variable                              | Required value                                                                    |
-| ------------------------------------- | --------------------------------------------------------------------------------- |
-| `YURUCOMMU_HOSTED_E2E_ENVIRONMENT`    | `staging`                                                                         |
-| `TAKOFORM_ENDPOINT`                   | An exact selector in `STAGING_ORIGINS` in the harness                             |
-| `YURUCOMMU_HOSTED_E2E_WORKER_VERSION` | The module's current pinned WorkerVersion Form version, currently `0.3.0`         |
-| `TAKOFORM_SPACE`                      | A separately provisioned disposable space matching `yurucommu-e2e-[a-z0-9]{1,16}` |
-| `TAKOFORM_TOKEN`                      | Writer credential scoped only to this staging space                               |
-| `TAKOFORM_EVIDENCE_TOKEN`             | A distinct read-only credential for the same space                                |
-| `TAKOFORM_PROVIDER_BINARY`            | Absolute path to the operator-selected Provider binary                            |
-| `TAKOFORM_PROVIDER_SHA256`            | Exact `sha256:` digest of that binary                                             |
-| `TAKOFORM_E2E_TIMEOUT_SECONDS`        | Optional existing owner command timeout                                           |
+Use the product-owned source build contract in
+[.well-known/takosumi.json](../.well-known/takosumi.json),
+[scripts/build-yurucommu-worker.ts](../scripts/build-yurucommu-worker.ts), and
+[scripts/prepare-takoform-v1-source.ts](../scripts/prepare-takoform-v1-source.ts)
+to obtain the real compiled module and ordered migration SQL. That source
+preparation script's retained name does not make the resulting module's ABI
+v1-only: [scripts/yurucommu-worker-bindings.ts](../scripts/yurucommu-worker-bindings.ts)
+uses the portable `edge.sql`, `edge.kv`, `edge.objects` and `edge.queue`
+facades from the published Core package. This harness does not build or
+publish these artifacts itself.
 
-The initial staging selectors are `https://api-staging.takoserver.com` and
-`https://takoserver-staging.takos.jp`. They are an explicit allowlist for this
-skeleton, **not a claim that either origin currently serves a qualified Host**.
-An operator must verify the actual staging origin before a live run; a
-different origin requires a reviewed source change to this allowlist and its
-negative tests. A hostname supplied through another environment variable is
-never added automatically. The assigned app must be
-`https://yurucommu-e2e-<12 lowercase hex characters>.app-staging.takos.jp`.
+The owning publisher must attest that the compiled module belongs to the
+recorded reviewed source commit and publish both manifests and every referenced
+file at immutable, anonymously readable HTTPS URLs. Existing native Worker
+inline upload and the private fixed `hello-v1`/`hello-v2` smoke publisher do
+not establish arbitrary Yurucommu manifest publication. The generic authorized
+publication surface is an unresolved prerequisite in the current handoff.
+Do not substitute a new raw-provider publisher or relabel a hello bundle.
 
-The hosted **Form** version is 0.x. The Yurucommu package and Provider versions
-are separate identities: the current module pins Provider `4.1.0` through
-`scripts/takoform-provider-pin.ts`. The harness reads the complete
-WorkerVersion FormRef, including its published schema digest, from
-[`deploy/takoform/host-support-profile.json`](../deploy/takoform/host-support-profile.json).
-It does not use the old `0.1.0` example identities in generic lifecycle tests.
-Before any apply, it GETs the exact `/apis/forms.takoform.com/v1/forms`
-availability query with space, group, kind, definitionVersion and schemaDigest,
-requiring one identical installed/executable/activated entry that supports
-create, update and delete. A changed digest, unavailable Form, 1.x Form,
-redirect, or denied request fails before the owner lifecycle starts.
+The receipt has these exact fields:
 
-## Reused owner lifecycle and guards
+```json
+{
+  "kind": "yurucommu.hosted-artifacts@v2",
+  "sourceCommit": "<reviewed 40-character source commit>",
+  "productResourcesSha256": "<digest of deploy/product-resources.json bytes>",
+  "schemaBundleSha256": "<digest of deploy/takoform/migrations/schema-bundle.json bytes>",
+  "workerBundle": {
+    "artifact": {
+      "url": "<immutable worker manifest URL>",
+      "sha256": "<manifest bytes digest>"
+    },
+    "manifestFile": "<absolute path to those exact manifest bytes>"
+  },
+  "migrationSet": {
+    "artifact": {
+      "url": "<immutable migration manifest URL>",
+      "sha256": "<manifest bytes digest>"
+    },
+    "manifestFile": "<absolute path to those exact manifest bytes>"
+  }
+}
+```
 
-The implementation calls the existing
-[`scripts/takoform-v1-e2e-full.ts`](../scripts/takoform-v1-e2e-full.ts) `main()`;
-its source preparation, binary/digest/version handshake, exact Provider schema,
-fresh project name, private temporary state, runtime-input handling, resource
-readback, and teardown remain owned there. This is the documented disposable
-operator install path, not publication of an official Worker surface. It does
-not call Wrangler, Cloudflare deploy, the GA integration Worker publisher, or
-an alternate raw Provider implementation.
+Digests are bare lowercase SHA-256 hex. A WorkerBundle manifest contains
+`entrypoint: "yurucommu-worker.js"` and one `files` entry with `path`, `url`,
+`sha256`, and `mediaType: "application/javascript+module"`. The
+SQLiteMigrationSet manifest contains `files` entries with the same four keys,
+`mediaType: "application/sql"`, and every migration in the product's checked-in
+schema bundle, sorted by name with identical SQL digest. The loader rejects
+contract drift, missing migrations, wrong module identity, query/signed URLs,
+and changed manifest bytes. Source-to-module provenance is the publisher's
+attestation; a filename and hash alone cannot prove how a module was built.
+Before the first write, anonymous GETs verify all public bytes against the
+receipt. No credential is sent to an artifact URL.
 
-The selected origin and space are passed unchanged to the pinned Provider.
-Its stable-v1 client refuses HTTP redirects and cross-origin discovery; the
-owner verifies the selected Provider bytes and version. The wrapper also
-guards all owner JavaScript HTTP reads: only the exact staging Host and space,
-or the fresh staging app's four public health paths, are accepted. App requests
-carry no cookie or authorization header and follow no redirects. Runtime
-diagnostic endpoints, alternate OIDC journeys, arbitrary endpoints, production
-environment selectors, unpinned Form versions, and debug/TF logging are refused.
-Canonical origins are not rewritten through a proxy, preserving the Provider's
-private runtime-input apply commitment.
+## Current v2 graph and bounded lifecycle
 
-Only a small environment allowlist enters the owner and its subprocesses.
-Cloudflare credentials, `TF_VAR_*`, `TF_CLI_CONFIG_FILE`, proxy settings, and
-unrelated inherited secrets are omitted. All owner stdout/stderr and console
-channels are suppressed, including error output. The wrapper returns only its
-fixed result projection or a fixed error code; provider responses, exceptions,
-causes, generated runtime inputs and credentials are never printed.
+[contracts.ts](../tests/e2e-hosted/contracts.ts) maps the product's actual
+[15 resource roles](../deploy/product-resources.json) to 13 exact v2 Form URLs.
+The mapped WorkerVersion is `0.5.0`; ModuleWorker and WorkerEndpoint are
+`0.3.0`, WorkerDeployment `0.4.0`, QueueConsumer and WorkerCronTrigger
+`0.3.0`, and artifact/SQLite/KV/ObjectBucket/Queue Forms `0.2.0`.
+These identities were inspected in public Takoserver source at `1b44eb09`.
+The adapter uses v2 `resourceUid` references, camelCase specifications and
+typed binding arrays. It never translates or claims support for the legacy
+FormRefs in `deploy/takoform/host-support-profile.json` or Provider `4.1.0`.
+The original skeleton at `ef59712` and its typed assertion correction
+`6cbd2f9` are retained in history as an unqualified v1 bridge.
 
-After apply, the existing owner always attempts destroy and exact FormRef
-absence readback, including after a failed health check. The wrapper reports
-success only after the owner acknowledges all 15 resources and both cleanup
-and authoritative absence. If destroy or absence verification fails, the owner
-retains its private temporary state for operator recovery. A wrapper error
-does not authorize a manual deletion of another space, a blind retry, or an
-automatic production rollback. Inspect the retained `yurucommu-takoform-v1-*`
-directory under the operator's private `TMPDIR`; the wrapper deliberately does
-not expose that path or raw diagnostics. The disposable space itself belongs
-to the operator and is not destroyed by the resource lifecycle.
+The explicit HTTP port uses injected transports for tests, separate writer and
+evidence headers, five-second request/body bounds, response-size limits, and
+manual redirect handling. It starts with v2 discovery, private-input support,
+exact create/read/delete support for all Forms, and exact empty name queries.
+It sends the six private inputs only in the WorkerVersion create request.
+No subprocess inherits an environment, and no global env, fetch or output
+channel is replaced. Proxy and verbose-fetch/debug environment switches are
+refused for execution. The CLI emits only a fixed result or fixed failure code.
 
-## Portable checks
+Each intent is synced to an exclusive `wx`, `0600` `hosted-e2e.jsonl` journal
+before sending. There is one run per explicitly supplied directory, so restarting
+with a new random resource prefix cannot conceal a previous uncertain run.
+The directory is synced, and accepted Operation/resource identities and
+generation fences are synced separately. An existing journal prevents any
+remote work. Journals contain payload-free public identity/provenance records;
+they omit raw responses, specifications, credentials, private inputs and errors.
+An accepted Operation is polled read-only for at most 60 seconds, preserving its
+id/action/resource/generation. Only `succeeded` with `effect: complete`, exact
+Resource readback, current observed generation and `idle` phase advances.
+Waiting-input/reconciling, failed/partial effects, timeout, malformed ACK or
+changed identity halt the run. A missing HTTP ACK may conceal a committed
+effect, so the harness never replays a mutation or automatically destroys after
+such a failure. It leaves the journal for owning operator reconciliation;
+there is no automatic resume/delete command.
 
-The new directory is intentionally outside the existing package test list and
-format/type globs because the carve-out allows only new test/docs files. Run
-these focused checks explicitly alongside the repository's unchanged full gate:
+Once every create is settled and owned, the Host-assigned endpoint must be
+HTTPS at one valid 3–32-character label under `app-staging.takos.jp`. Its value
+comes from Resource output; no hostname is reconstructed from resource names.
+`/healthz` and `/readyz` must report service `yurucommu`, status `ok`, and zero
+missing bindings. Social-server discovery must use that exact canonical origin;
+NodeInfo must report Yurucommu and nonnegative database-backed counters. App
+requests carry no cookie or authorization. An HTML 200 is a failure.
+
+A failed health check still proceeds to acknowledged teardown because all
+create effects are already settled. Deletes run in reverse graph dependency
+order with each resource's expected generation and one fresh idempotency key.
+Every delete needs a complete accepted Operation plus authoritative Host
+404/410 readback; authorization failure or network loss is not absence. The
+former endpoint's `/healthz` must then be 404/410. Any uncertain delete halts
+immediately and preserves remaining resources. A health failure remains a
+failed result even if teardown succeeds. No outcome rolls back production.
+
+## Focused local checks
 
 ```bash
-bun test tests/e2e-hosted
-bunx prettier --check tests/e2e-hosted docs/e2e-hosted.md
+bun --no-env-file tests/e2e-hosted/run.ts --dry-run
+bun --no-env-file test tests/e2e-hosted
+bunx prettier@3.9.9 --check tests/e2e-hosted docs/e2e-hosted.md
 bunx tsc --noEmit --strict --target ESNext --module Preserve \
   --moduleResolution bundler --allowImportingTsExtensions \
   --types bun,node,@cloudflare/workers-types --skipLibCheck tests/e2e-hosted/*.ts
-bun run check
 ```
 
-Keep live execution separate from these portable checks. The CLI's default is
-dry-run, and the tests contact only ephemeral loopback HTTP servers and local
-child processes with sentinel credentials.
+Tests contact ephemeral loopback HTTP servers only. They commit real local
+resource-map effects and exercise graph creation/readback, bounded accepted
+Operation polling, strict health, dependency-ordered teardown and absence.
+They also cover lost create/delete ACKs, changed identities, reconciling,
+preflight refusal, secret canaries, exclusive journal ownership, manifest/source
+drift and the new staging suffix. Synthetic local modules prove protocol
+behavior, not execution of the compiled reference app. The repository's
+unchanged `bun run check` remains the full portable gate and must be scheduled
+separately before final publication.
