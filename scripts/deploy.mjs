@@ -39,6 +39,15 @@ const W = {
   worker: "yurucommu",
   bundle: "dist/yurucommu-worker.js",
 };
+const IW = {
+  surface: "yurucommu-integration-worker",
+  worker: "yurucommu-ga-20261012-0938",
+  origin: "https://ga-commu-20261012.yurucommu.com",
+};
+const IA = {
+  surface: "yurucommu-integration-auth",
+  worker: IW.worker,
+};
 
 const R = {
   surface: "yurucommu-worker-release",
@@ -65,6 +74,64 @@ const I = {
 const CONTRACT = {
   kind: "takos.deploy-contract@v2",
   surfaces: [
+    {
+      surface: IA.surface,
+      target: `cloudflare-worker:${IA.worker}`,
+      covers: [
+        "scripts/release-yurucommu-worker.mjs",
+        "scripts/post-deploy-smoke.ts",
+        "docs/deploy-integration.md",
+      ],
+      requiresScripts: ["check", "build:worker"],
+      requiresTools: ["git", "bun", "node"],
+      requiresEnv: [
+        "CLOUDFLARE_API_TOKEN",
+        "YURUCOMMU_E2E_PASSWORD",
+        "YURUCOMMU_WORKER_DEPLOY_TARGET",
+      ],
+      triggers: ["authority"],
+      obligations: {
+        "independent-review":
+          "requires independent review of the exact source and one-secret mutation boundary before the isolated test-owner credential is reset",
+        provenance:
+          "requires exactly --environment=integration and --commit=<40-hex>, a clean exact HEAD on freshly fetched origin/main, private digest-pinned exact isolated target/config, bun run check and a bounded raw code snapshot of the active Version",
+        "post-conditions":
+          "preflight checks the exact active Deployment, APP_URL, AUTH_PASSWORD_HASH and session-salt bindings, all five private isolated resource targets with no extra data-capable binding, latest uploaded Version equal to the active predecessor, full non-code closure and raw Version code; after one AUTH_PASSWORD_HASH secret PUT requires a new sole active Version, unchanged full closure, exact same code bytes, exact isolated production-environment custom-domain record, and successful real password login with final active Deployment and code readback",
+        reversal:
+          "records the exact predecessor Deployment and Version for reviewed manual reversal; a secret reset cannot recover the prior opaque password hash from this entrypoint",
+        "failure-handling":
+          "refuses missing or mismatched source, target, code, bindings, or credentials before mutation; after PUT reports POST_AUTH_INDETERMINATE without replay or automatic rollback and never prints password, hash, provider body, or secret-bearing cause",
+      },
+    },
+    {
+      surface: IW.surface,
+      target: `cloudflare-worker:${IW.worker}`,
+      covers: [
+        "scripts/release-yurucommu-worker.mjs",
+        "scripts/post-deploy-smoke.ts",
+        "docs/deploy-integration.md",
+      ],
+      requiresScripts: ["check", "build:worker", "smoke:postdeploy"],
+      requiresTools: ["git", "bun", "node"],
+      requiresEnv: [
+        "CLOUDFLARE_API_TOKEN",
+        "YURUCOMMU_E2E_PASSWORD",
+        "YURUCOMMU_WORKER_DEPLOY_TARGET",
+      ],
+      triggers: ["authority"],
+      obligations: {
+        "independent-review":
+          "the exact merged source and code-only publisher require independent review before the operator publishes authentication code",
+        provenance:
+          "requires exactly --environment=integration and --commit=<40-hex>, a clean exact HEAD contained by freshly fetched origin/main, a private digest-pinned config and exact isolated Worker/domain; runs bun run check and records source commit, bundle digest and config digest in the uploaded Version",
+        "post-conditions":
+          "reads the exact predecessor, five exact private isolated resource binding targets with no extra data-capable binding, latest uploaded Version equal to the active predecessor before strict latest binding inheritance, D1 schema prerequisites, uploaded Version bytes and complete non-code closure before and after promotion; checks the production-environment Cloudflare custom-domain record for the isolated hostname and Worker; an authenticated real-request smoke creates and reads one retained test post and reads both unread count endpoints three times with valid non-429 responses before final Version/Deployment/code readback. Separate provider evidence is needed to prove zero KV writes",
+        reversal:
+          "records the exact predecessor Deployment and Version for manual reversal after authoritative concurrency readback; never automatically rolls back",
+        "failure-handling":
+          "refuses target/config/source/credential/readback mismatch before upload, reports post-upload uncertainty by phase, never retries an uncertain write, and never mutates schema, bindings, secrets, domain, or durable data except the explicitly retained smoke post",
+      },
+    },
     {
       surface: I.surface,
       target: `cloudflare-worker:${I.origin}`,
@@ -187,9 +254,20 @@ if (process.argv.includes("--contract")) {
 }
 
 const requestedSurface = process.argv[2];
-if (![W.surface, R.surface, S.surface, I.surface].includes(requestedSurface)) {
+if (
+  ![
+    W.surface,
+    IW.surface,
+    IA.surface,
+    R.surface,
+    S.surface,
+    I.surface,
+  ].includes(requestedSurface)
+) {
   process.stderr.write(
     `usage: bun run deploy -- ${W.surface} --environment=production --commit=<40-hex>\n` +
+      `       bun run deploy -- ${IW.surface} --environment=integration --commit=<40-hex>\n` +
+      `       bun run deploy -- ${IA.surface} --environment=integration --commit=<40-hex>\n` +
       `       bun run deploy -- ${R.surface} [--dry-run|--execute]\n` +
       `       bun run deploy -- ${S.surface} --environment=integration|production\n` +
       `       bun run deploy -- ${I.surface} --environment=integration --phase=preflight|resources|fresh-schema|recover-prefix32|activate|domain\n`,
@@ -758,14 +836,18 @@ const environmentArgument = workerArgs.find((argument) =>
 const commitArgument = workerArgs.find((argument) =>
   argument.startsWith("--commit="),
 );
+const workerEnvironment =
+  requestedSurface === IW.surface || requestedSurface === IA.surface
+    ? "integration"
+    : "production";
 if (
   workerArgs.length !== 2 ||
-  environmentArgument !== "--environment=production" ||
+  environmentArgument !== `--environment=${workerEnvironment}` ||
   !/^--commit=[0-9a-f]{40}$/u.test(commitArgument ?? "") ||
   new Set(workerArgs).size !== 2
 ) {
   die(
-    `${W.surface} requires exactly --environment=production and --commit=<40-hex>`,
+    `${requestedSurface} requires exactly --environment=${workerEnvironment} and --commit=<40-hex>`,
   );
 }
 
@@ -773,18 +855,25 @@ const {
   deployYurucommuWorker,
   loadYurucommuWorkerTarget,
   reportYurucommuWorkerReleaseFailure,
+  resetYurucommuIntegrationAuth,
 } = await import("./release-yurucommu-worker.mjs");
 try {
   const target = loadYurucommuWorkerTarget({
-    environment: "production",
+    environment: workerEnvironment,
     path: process.env.YURUCOMMU_WORKER_DEPLOY_TARGET,
     repo,
   });
-  const result = await deployYurucommuWorker({
-    environment: "production",
-    commit: commitArgument.slice("--commit=".length),
-    target,
-  });
+  const result =
+    requestedSurface === IA.surface
+      ? await resetYurucommuIntegrationAuth({
+          commit: commitArgument.slice("--commit=".length),
+          target,
+        })
+      : await deployYurucommuWorker({
+          environment: workerEnvironment,
+          commit: commitArgument.slice("--commit=".length),
+          target,
+        });
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
 } catch (error) {
   reportYurucommuWorkerReleaseFailure(error);

@@ -43,11 +43,14 @@ export interface FunctionalProbeOptions {
   readonly password?: string;
   /** Require the managed Takosumi Accounts OIDC provider and no password. */
   readonly requireOidc?: boolean;
+  /** Integration only: leave the created post in place and poll unread APIs. */
+  readonly retainPost?: boolean;
 }
 
 export interface FunctionalProbeResult {
   readonly checks: readonly string[];
-  readonly cleanupVerified: true;
+  readonly cleanupVerified?: true;
+  readonly postRetained?: true;
 }
 
 interface ProbeContext {
@@ -199,13 +202,21 @@ export async function runFunctionalProbe(
     const postContent = `e2e-post-${crypto.randomUUID()}`;
     const createdPost = await requestJson(context, "/api/posts", {
       method: "POST",
-      body: { content: postContent, visibility: "public" },
+      body: {
+        content: postContent,
+        visibility: options.retainPost ? "direct" : "public",
+      },
       expectedStatus: 200,
       headers: {
         "Idempotency-Key": `yurucommu-smoke-post-${postContent.slice("e2e-post-".length)}`,
       },
       validator: (value) =>
-        parseCreatedPostResponse(value, postContent, actorApId),
+        parseCreatedPostResponse(
+          value,
+          postContent,
+          actorApId,
+          options.retainPost ? "direct" : "public",
+        ),
     });
     const post = createdPost.post as JsonRecord;
     const postApId = post.ap_id;
@@ -223,6 +234,30 @@ export async function runFunctionalProbe(
       throw new Error("created post was not returned by the post API");
     }
     checks.push("posts.crud");
+    if (options.retainPost) {
+      checks.push("posts.readback");
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const notifications = await requestJson(
+          context,
+          "/api/notifications/unread/count",
+          { expectedStatus: 200 },
+        );
+        const dm = await requestJson(context, "/api/dm/unread/count", {
+          expectedStatus: 200,
+        });
+        for (const [label, value] of [
+          ["notifications.count", notifications.count],
+          ["dm.total", dm.total],
+          ["dm.dm", dm.dm],
+          ["dm.community", dm.community],
+        ] as const) {
+          if (!Number.isSafeInteger(value) || Number(value) < 0) {
+            throw new Error(`${label} was not a nonnegative integer`);
+          }
+        }
+      }
+      checks.push("unread.polling");
+    }
   } catch (error) {
     primaryError = error;
     mutationUncertain = isFunctionalProbeMutationUncertain(error);
@@ -235,7 +270,7 @@ export async function runFunctionalProbe(
         "probe cleanup refused: a non-safe request acknowledgement was lost after dispatch; reconcile by its idempotency key before deleting",
       ),
     );
-  } else if (postId) {
+  } else if (postId && !options.retainPost) {
     try {
       await requestJson(context, `/api/posts/${encodeURIComponent(postId)}`, {
         method: "DELETE",
@@ -262,7 +297,9 @@ export async function runFunctionalProbe(
     throw new AggregateError(cleanupErrors, "Yurucommu probe cleanup failed");
   }
 
-  return { checks, cleanupVerified: true };
+  return options.retainPost
+    ? { checks, postRetained: true }
+    : { checks, cleanupVerified: true };
 }
 
 export async function main(): Promise<void> {
@@ -277,14 +314,27 @@ export async function main(): Promise<void> {
   const baseUrl = firstString(outputs, ["launch_url"]);
   if (!baseUrl) throw new Error("Capsule outputs do not contain a public URL");
 
-  const result = await runFunctionalProbe({ launchUrl: baseUrl, password });
+  const retainPost = process.env.YURUCOMMU_PROBE_RETAIN_POST === "1";
+  if (
+    retainPost &&
+    new URL(baseUrl).origin !== "https://ga-commu-20261012.yurucommu.com"
+  ) {
+    throw new Error("retained-post probe is pinned to the integration origin");
+  }
+  const result = await runFunctionalProbe({
+    launchUrl: baseUrl,
+    password,
+    retainPost,
+  });
   console.log(
     JSON.stringify({
       kind: "takosumi.capsule-functional-probe@v1",
       status: "passed",
       product: "yurucommu",
       checks: result.checks.map((name) => ({ name, status: "passed" })),
-      cleanupVerified: result.cleanupVerified,
+      ...(retainPost
+        ? { postRetained: result.postRetained }
+        : { cleanupVerified: result.cleanupVerified }),
     }),
   );
 }
@@ -419,6 +469,7 @@ export function parseCreatedPostResponse(
   value: JsonRecord,
   expectedContent: string,
   expectedActorApId?: string,
+  expectedVisibility = "public",
 ): JsonRecord {
   const label = "POST /api/posts response";
   assertClosedKeys(
@@ -448,11 +499,13 @@ export function parseCreatedPostResponse(
     topLevel,
     `${label} (top-level)`,
     expectedContent,
+    expectedVisibility,
   );
   const nestedProjection = parseCreatedPostProjection(
     value.post,
     `${label}.post`,
     expectedContent,
+    expectedVisibility,
   );
   if (expectedActorApId !== undefined) {
     for (const projection of [topProjection, nestedProjection]) {
@@ -509,6 +562,7 @@ function parseCreatedPostProjection(
   value: unknown,
   label: string,
   expectedContent: string,
+  expectedVisibility: string,
 ): JsonRecord {
   const projection = parseRecord(value, label);
   assertClosedKeys(
@@ -551,8 +605,8 @@ function parseCreatedPostProjection(
   if (projection.summary !== null && typeof projection.summary !== "string") {
     throw new Error(`${label}.summary was invalid`);
   }
-  if (typeof projection.visibility !== "string") {
-    throw new Error(`${label}.visibility was invalid`);
+  if (projection.visibility !== expectedVisibility) {
+    throw new Error(`${label}.visibility did not match requested visibility`);
   }
   if (
     typeof projection.published !== "string" ||

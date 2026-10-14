@@ -17,6 +17,7 @@ import {
   deployYurucommuWorker,
   loadYurucommuWorkerTarget,
   ownerGateEnvironment,
+  resetYurucommuIntegrationAuth,
   YurucommuWorkerReleaseFailure,
 } from "./release-yurucommu-worker.mjs";
 import { MEDIA_DELETION_SCHEMA_QUERY } from "./media-deletion-schema.mjs";
@@ -36,6 +37,7 @@ const CORE_UPGRADE_SCHEMA_QUALIFICATION = {
   scope: "migration-0031-through-0036-prerequisites" as const,
 };
 const UPGRADE_SCHEMA_PROVIDER = {
+  latestVersion: async () => OLD_VERSION,
   assertCoreUpgradeSchema: async ({ databaseId }: { databaseId: string }) => {
     expect(databaseId).toBe(D1_DATABASE_ID);
     return CORE_UPGRADE_SCHEMA_QUALIFICATION;
@@ -548,7 +550,7 @@ describe("production yurucommu Worker publisher", () => {
       }
     }));
 
-  test("uses the active Deployment as predecessor when a newer Version is unserved", () =>
+  test("refuses upload when a newer Version is unserved", () =>
     cleanFixture(async ({ repo, target }) => {
       let checks = 0;
       let latestVersionReads = 0;
@@ -626,7 +628,7 @@ describe("production yurucommu Worker publisher", () => {
         smoke: async () => ({ status: "passed" }),
       };
 
-      const result = await deployYurucommuWorker({
+      const failure = await deployYurucommuWorker({
         repo,
         environment: "production",
         commit: COMMIT,
@@ -636,25 +638,18 @@ describe("production yurucommu Worker publisher", () => {
           checks += 1;
         },
         provider,
-      });
+      }).catch((error) => error);
 
-      expect(result).toMatchObject({
-        status: "PUBLISHED",
-        providerReadback:
-          "EXACT_ACTIVE_DEPLOYMENT_VERSION_METADATA_AND_CODE_BYTES",
-        accountId: ACCOUNT_ID,
-        workerName: "yurucommu",
-        route: "https://test.yurucommu.com",
-        previousVersionId: OLD_VERSION,
-        versionId: NEW_VERSION,
-        deploymentId: NEW_DEPLOYMENT,
-      });
+      expect(failureOf(failure).phase).toBe("PRE_UPLOAD_FAILURE");
+      expect(failure.message).toContain(
+        "latest uploaded Worker Version differs",
+      );
       expect(checks).toBe(1);
-      expect(activeReads).toBe(4);
-      expect(domainsRead).toBe(3);
-      expect(latestVersionReads).toBe(0);
-      expect(codeReads).toBe(3);
-      expect(uploadSequence).toEqual(["schema", "upload", "deploy"]);
+      expect(activeReads).toBe(1);
+      expect(domainsRead).toBe(1);
+      expect(latestVersionReads).toBe(1);
+      expect(codeReads).toBe(0);
+      expect(uploadSequence).toEqual(["schema"]);
     }));
 
   test("refuses a provider without exact Version code readback before upload", () =>
@@ -2338,6 +2333,12 @@ describe("production yurucommu Worker publisher", () => {
             },
           });
         }
+        if (method === "GET" && url.endsWith("/versions?page=1&per_page=1")) {
+          return Response.json({
+            success: true,
+            result: { items: [{ id: OLD_VERSION }] },
+          });
+        }
         if (method === "GET" && url.endsWith(`/versions/${NEW_VERSION}`)) {
           return Response.json({
             success: true,
@@ -2359,16 +2360,16 @@ describe("production yurucommu Worker publisher", () => {
             annotations: { "workers/message": "candidate identity" },
           });
           expect(metadata.bindings).toEqual([
-            { name: "DB", type: "inherit", version_id: OLD_VERSION },
+            { name: "DB", type: "inherit", version_id: "latest" },
             {
               name: "DELIVERY_QUEUE",
               type: "inherit",
-              version_id: OLD_VERSION,
+              version_id: "latest",
             },
             {
               name: SESSION_HASH_SALT_BINDING,
               type: "inherit",
-              version_id: OLD_VERSION,
+              version_id: "latest",
             },
           ]);
           expect(metadata.bindings).not.toContainEqual(
@@ -2432,6 +2433,7 @@ describe("production yurucommu Worker publisher", () => {
       expect(await provider.version({ versionId: NEW_VERSION })).toMatchObject({
         id: NEW_VERSION,
       });
+      expect(await provider.latestVersion()).toBe(OLD_VERSION);
       expect(
         await provider.assertMediaDeletionSchema({
           databaseId: D1_DATABASE_ID,
@@ -2475,6 +2477,29 @@ describe("production yurucommu Worker publisher", () => {
         ]),
       );
       expect(writeCalls).toBe(2);
+    }));
+
+  test("latest Version list rejects an absent or ambiguous first item", () =>
+    cleanFixture(async ({ repo, target }) => {
+      for (const items of [
+        [],
+        [{ id: "bad" }],
+        [{ id: OLD_VERSION }, { id: NEW_VERSION }],
+      ]) {
+        const provider = createCloudflareWorkerProvider({
+          repo,
+          target,
+          token: "test-token",
+          smokePassword: "test-password",
+          fetcher: async (input: string | URL) => {
+            expect(String(input)).toContain("/versions?page=1&per_page=1");
+            return Response.json({ success: true, result: { items } });
+          },
+        });
+        await expect(provider.latestVersion()).rejects.toThrow(
+          "latest Worker Version list is malformed or empty",
+        );
+      }
     }));
 
   test("reads the exact selected Version module bytes through the fixed content endpoint", () =>
@@ -2546,6 +2571,12 @@ describe("production yurucommu Worker publisher", () => {
               result: {
                 deployments: [deployment(OLD_DEPLOYMENT, OLD_VERSION)],
               },
+            });
+          }
+          if (method === "GET" && url.endsWith("/versions?page=1&per_page=1")) {
+            return Response.json({
+              success: true,
+              result: { items: [{ id: OLD_VERSION }] },
             });
           }
           if (method === "GET" && url.endsWith(`/versions/${OLD_VERSION}`)) {
@@ -3028,5 +3059,818 @@ describe("production yurucommu Worker publisher", () => {
       ]) {
         expect(captured).not.toContain(`${name}=`);
       }
+    }));
+});
+
+describe("isolated integration Worker code publisher", () => {
+  test("CLI rejects production selection on the integration code surface", () => {
+    for (const surface of [
+      "yurucommu-integration-worker",
+      "yurucommu-integration-auth",
+    ]) {
+      for (const environment of ["production", "staging"]) {
+        const result = Bun.spawnSync([
+          "bun",
+          "scripts/deploy.mjs",
+          surface,
+          `--environment=${environment}`,
+          `--commit=${COMMIT}`,
+        ]);
+        expect(result.exitCode).not.toBe(0);
+        expect(result.stderr.toString()).toContain(
+          "requires exactly --environment=integration",
+        );
+      }
+    }
+  });
+
+  async function integrationTarget(value: Awaited<ReturnType<typeof fixture>>) {
+    const config = `{"name":"yurucommu-ga-20261012-0938","account_id":"${ACCOUNT_ID}","main":"./dist/yurucommu-worker.js","compatibility_date":"2026-07-16"}\n`;
+    await writeFile(value.target.config.path, config);
+    return {
+      ...value.target,
+      environment: "integration",
+      workerName: "yurucommu-ga-20261012-0938",
+      publicOrigin: "https://ga-commu-20261012.yurucommu.com",
+      route: {
+        kind: "custom-domain",
+        hostname: "ga-commu-20261012.yurucommu.com",
+      },
+      resources: {
+        databaseId: D1_DATABASE_ID,
+        kvNamespaceId: "e".repeat(32),
+        mediaBucketName: "yurucommu-ga-20261012-0938-media",
+        deliveryQueueName: "yurucommu-ga-20261012-0938-delivery",
+        deliveryDlqName: "yurucommu-ga-20261012-0938-delivery-dlq",
+      },
+      config: { path: value.target.config.path, sha256: sha256(config) },
+    } as const;
+  }
+
+  function integrationResourceBindings(
+    target: Awaited<ReturnType<typeof integrationTarget>>,
+  ) {
+    return {
+      DB: { type: "d1", id: target.resources.databaseId },
+      KV: {
+        type: "kv_namespace",
+        namespace_id: target.resources.kvNamespaceId,
+      },
+      MEDIA: {
+        type: "r2_bucket",
+        bucket_name: target.resources.mediaBucketName,
+      },
+      DELIVERY_QUEUE: {
+        type: "queue",
+        queue_name: target.resources.deliveryQueueName,
+      },
+      DELIVERY_DLQ: {
+        type: "queue",
+        queue_name: target.resources.deliveryDlqName,
+      },
+    };
+  }
+
+  function integrationVersionDetails(
+    target: Awaited<ReturnType<typeof integrationTarget>>,
+    versionId = OLD_VERSION,
+    bindingsOverride: Record<string, unknown> = {},
+  ) {
+    const base = versionDetails(versionId);
+    return {
+      ...base,
+      resources: {
+        ...base.resources,
+        bindings: {
+          ...base.resources.bindings,
+          ...integrationResourceBindings(target),
+          APP_URL: { type: "plain_text", text: target.publicOrigin },
+          AUTH_PASSWORD_HASH: { type: "secret_text" },
+          ...bindingsOverride,
+        },
+      },
+    };
+  }
+
+  test("accepts only the exact isolated target and matched environment", () =>
+    cleanFixture(async (value) => {
+      const target = await integrationTarget(value);
+      const path = join(value.privateDir, "integration-target.json");
+      await writeFile(path, `${JSON.stringify(target)}\n`, { mode: 0o600 });
+      expect(
+        loadYurucommuWorkerTarget({
+          path,
+          repo: value.repo,
+          environment: "integration",
+        }),
+      ).toMatchObject(target);
+      expect(() =>
+        loadYurucommuWorkerTarget({
+          path,
+          repo: value.repo,
+          environment: "production",
+        }),
+      ).toThrow("environment");
+      for (const mutation of [
+        { workerName: "yurucommu" },
+        { publicOrigin: "https://test.yurucommu.com" },
+        { route: { kind: "custom-domain", hostname: "test.yurucommu.com" } },
+        { resources: { ...target.resources, databaseId: "bad-id" } },
+        { resources: { ...target.resources, kvNamespaceId: "f".repeat(31) } },
+        {
+          resources: {
+            ...target.resources,
+            mediaBucketName: "production-media",
+          },
+        },
+      ]) {
+        await writeFile(
+          path,
+          `${JSON.stringify({ ...target, ...mutation })}\n`,
+        );
+        expect(() =>
+          loadYurucommuWorkerTarget({
+            path,
+            repo: value.repo,
+            environment: "integration",
+          }),
+        ).toThrow();
+      }
+      const { resources: _resources, ...missingResources } = target;
+      await writeFile(path, `${JSON.stringify(missingResources)}\n`);
+      expect(() =>
+        loadYurucommuWorkerTarget({
+          path,
+          repo: value.repo,
+          environment: "integration",
+        }),
+      ).toThrow("keys differ");
+    }));
+
+  test("queries the provider production domain environment for the isolated Worker", () =>
+    cleanFixture(async (value) => {
+      const target = await integrationTarget(value);
+      const queries: URL[] = [];
+      const provider = createCloudflareWorkerProvider({
+        repo: value.repo,
+        target,
+        token: "test-token",
+        smokePassword: "test-password",
+        fetcher: async (input: string | URL) => {
+          const url = new URL(String(input));
+          queries.push(url);
+          return Response.json({
+            success: true,
+            result: [
+              {
+                hostname: "ga-commu-20261012.yurucommu.com",
+                service: "yurucommu-ga-20261012-0938",
+                environment: "production",
+              },
+            ],
+          });
+        },
+      });
+      expect(await provider.domains()).toHaveLength(1);
+      expect(queries).toHaveLength(2);
+      for (const query of queries) {
+        expect(query.searchParams.get("environment")).toBe("production");
+        expect(query.searchParams.get("service")).toBe(target.workerName);
+      }
+    }));
+
+  test("integration upload inherits existing bindings and sends only Version code", () =>
+    cleanFixture(async (value) => {
+      const target = await integrationTarget(value);
+      const requests: Array<{ url: URL; method: string }> = [];
+      const provider = createCloudflareWorkerProvider({
+        repo: value.repo,
+        target,
+        token: "test-token",
+        smokePassword: "test-password",
+        fetcher: async (input: string | URL, init?: RequestInit) => {
+          const url = new URL(String(input));
+          requests.push({ url, method: init?.method ?? "GET" });
+          expect(init?.body).toBeInstanceOf(FormData);
+          const form = init?.body as FormData;
+          const metadata = JSON.parse(String(form.get("metadata")));
+          expect(metadata.bindings).toEqual(
+            expect.arrayContaining([
+              { name: "DB", type: "inherit", version_id: "latest" },
+              { name: "APP_URL", type: "inherit", version_id: "latest" },
+              {
+                name: SESSION_HASH_SALT_BINDING,
+                type: "inherit",
+                version_id: "latest",
+              },
+            ]),
+          );
+          expect(metadata).not.toHaveProperty("routes");
+          expect(metadata).not.toHaveProperty("migrations");
+          expect([...form.keys()]).toEqual(["metadata", "worker.mjs"]);
+          return Response.json({ success: true, result: { id: NEW_VERSION } });
+        },
+      });
+      const previous = versionDetails(OLD_VERSION);
+      const response = await provider.upload({
+        bundleBytes: Buffer.from(BUNDLE),
+        configBytes: await readFile(target.config.path),
+        previousVersion: {
+          ...previous,
+          resources: {
+            ...previous.resources,
+            bindings: {
+              ...previous.resources.bindings,
+              ...integrationResourceBindings(target),
+              APP_URL: { type: "plain_text", text: target.publicOrigin },
+            },
+          },
+        },
+        message: "integration-code-test",
+      });
+      expect(response).toEqual({
+        versionId: NEW_VERSION,
+        workerName: target.workerName,
+      });
+      expect(requests).toHaveLength(1);
+      expect(requests[0]?.method).toBe("POST");
+      expect(requests[0]?.url.pathname).toContain(
+        `/workers/scripts/${target.workerName}/versions`,
+      );
+      expect(requests[0]?.url.searchParams.get("bindings_inherit")).toBe(
+        "strict",
+      );
+    }));
+
+  test("refuses wrong provider domain or missing canonical APP_URL before upload", () =>
+    cleanFixture(async (value) => {
+      const target = await integrationTarget(value);
+      for (const mismatch of ["domain", "app-url"] as const) {
+        let uploads = 0;
+        const failure = await deployYurucommuWorker({
+          repo: value.repo,
+          environment: "integration",
+          commit: COMMIT,
+          target,
+          git: gitSource(),
+          check: async () => {},
+          provider: {
+            assertVersionCode: codeProof,
+            domains: async () => [
+              {
+                hostname: target.route.hostname,
+                service: target.workerName,
+                environment:
+                  mismatch === "domain" ? "integration" : "production",
+              },
+            ],
+            activeDeployment: async () =>
+              deployment(OLD_DEPLOYMENT, OLD_VERSION),
+            version: async ({ versionId }: { versionId: string }) =>
+              versionDetails(versionId),
+            upload: async () => {
+              uploads += 1;
+              throw new Error("must not upload");
+            },
+          },
+        }).catch((error) => error);
+        expect(failureOf(failure).phase).toBe("PRE_UPLOAD_FAILURE");
+        expect(failure.message).toContain(
+          mismatch === "domain" ? "environment filters" : "APP_URL",
+        );
+        expect(uploads).toBe(0);
+      }
+    }));
+
+  test("refuses rebound or additional integration resources before upload or secret PUT", () =>
+    cleanFixture(async (value) => {
+      const target = await integrationTarget(value);
+      for (const bindings of [
+        { DB: { type: "d1", id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee" } },
+        { KV: { type: "kv_namespace", namespace_id: "f".repeat(32) } },
+        { EXTRA_DB: { type: "d1", id: target.resources.databaseId } },
+        { SERVICE: { type: "service", service: "production-worker" } },
+        {
+          DB: {
+            type: "d1",
+            id: target.resources.databaseId,
+            database_id: target.resources.databaseId,
+          },
+        },
+      ]) {
+        for (const surface of ["code", "auth"] as const) {
+          let writes = 0;
+          const provider = {
+            ...UPGRADE_SCHEMA_PROVIDER,
+            domains: async () => [
+              {
+                hostname: target.route.hostname,
+                service: target.workerName,
+                environment: "production",
+              },
+            ],
+            activeDeployment: async () =>
+              deployment(OLD_DEPLOYMENT, OLD_VERSION),
+            version: async () =>
+              integrationVersionDetails(target, OLD_VERSION, bindings),
+            snapshotVersionCode: async () => {
+              throw new Error("unexpected code snapshot");
+            },
+            upload: async () => {
+              writes += 1;
+              throw new Error("unexpected upload");
+            },
+            putAuthSecret: async () => {
+              writes += 1;
+              throw new Error("unexpected PUT");
+            },
+          };
+          const failure = await (
+            surface === "code"
+              ? deployYurucommuWorker({
+                  repo: value.repo,
+                  environment: "integration",
+                  commit: COMMIT,
+                  target,
+                  git: gitSource(),
+                  check: async () => {},
+                  provider: {
+                    ...provider,
+                    assertVersionCode: codeProof,
+                  },
+                })
+              : resetYurucommuIntegrationAuth({
+                  repo: value.repo,
+                  commit: COMMIT,
+                  target,
+                  password: "integration-test-owner-password-12345",
+                  git: gitSource(),
+                  check: async () => {},
+                  provider,
+                })
+          ).catch((error) => error);
+          expect(failureOf(failure).phase).toBe(
+            surface === "code" ? "PRE_UPLOAD_FAILURE" : "PRE_AUTH_FAILURE",
+          );
+          expect(failure.message).toContain("binding");
+          expect(writes).toBe(0);
+        }
+      }
+    }));
+
+  test("refuses stale latest Version before integration upload or secret PUT", () =>
+    cleanFixture(async (value) => {
+      const target = await integrationTarget(value);
+      for (const surface of ["code", "auth"] as const) {
+        let writes = 0;
+        const provider = {
+          ...UPGRADE_SCHEMA_PROVIDER,
+          latestVersion: async () => UNSERVED_VERSION,
+          domains: async () => [
+            {
+              hostname: target.route.hostname,
+              service: target.workerName,
+              environment: "production",
+            },
+          ],
+          activeDeployment: async () => deployment(OLD_DEPLOYMENT, OLD_VERSION),
+          version: async () => integrationVersionDetails(target),
+          snapshotVersionCode: async () => ({
+            kind: "yurucommu.worker-version-code@v1" as const,
+            versionId: OLD_VERSION,
+            sha256: sha256("predecessor"),
+            size: Buffer.byteLength("predecessor"),
+          }),
+          assertVersionCode: codeProof,
+          assertMediaDeletionSchema: async () =>
+            MEDIA_DELETION_SCHEMA_QUALIFICATION,
+          upload: async () => {
+            writes += 1;
+            throw new Error("unexpected upload");
+          },
+          putAuthSecret: async () => {
+            writes += 1;
+            throw new Error("unexpected PUT");
+          },
+        };
+        const failure = await (
+          surface === "code"
+            ? deployYurucommuWorker({
+                repo: value.repo,
+                environment: "integration",
+                commit: COMMIT,
+                target,
+                git: gitSource(),
+                check: async () => {},
+                provider,
+              })
+            : resetYurucommuIntegrationAuth({
+                repo: value.repo,
+                commit: COMMIT,
+                target,
+                password: "integration-test-owner-password-12345",
+                git: gitSource(),
+                check: async () => {},
+                provider,
+              })
+        ).catch((error) => error);
+        expect(failureOf(failure).phase).toBe(
+          surface === "code" ? "PRE_UPLOAD_FAILURE" : "PRE_AUTH_FAILURE",
+        );
+        expect(failure.message).toContain(
+          "latest uploaded Worker Version differs",
+        );
+        expect(writes).toBe(0);
+      }
+    }));
+
+  test("publishes only isolated code with predecessor and domain readbacks", () =>
+    cleanFixture(async (value) => {
+      const target = await integrationTarget(value);
+      let activeReads = 0;
+      let domainReads = 0;
+      let codeReads = 0;
+      let message = "";
+      let deploymentMessage = "";
+      const result = await deployYurucommuWorker({
+        repo: value.repo,
+        environment: "integration",
+        commit: COMMIT,
+        target,
+        git: gitSource({ branch: "", remoteMain: REMOTE_MAIN, ancestor: true }),
+        check: async () => {},
+        provider: {
+          assertVersionCode: async (input: Parameters<typeof codeProof>[0]) => {
+            codeReads += 1;
+            return codeProof(input);
+          },
+          ...UPGRADE_SCHEMA_PROVIDER,
+          assertMediaDeletionSchema: async () =>
+            MEDIA_DELETION_SCHEMA_QUALIFICATION,
+          domains: async () => {
+            domainReads += 1;
+            return [
+              {
+                hostname: target.route.hostname,
+                service: target.workerName,
+                environment: "production",
+              },
+            ];
+          },
+          activeDeployment: async () => {
+            activeReads += 1;
+            return activeReads <= 3
+              ? deployment(OLD_DEPLOYMENT, OLD_VERSION)
+              : deployment(NEW_DEPLOYMENT, NEW_VERSION, deploymentMessage);
+          },
+          latestVersion: async () => OLD_VERSION,
+          version: async ({ versionId }: { versionId: string }) => {
+            const version = versionDetails(versionId, message);
+            return {
+              ...version,
+              resources: {
+                ...version.resources,
+                bindings: {
+                  ...version.resources.bindings,
+                  ...integrationResourceBindings(target),
+                  APP_URL: { type: "plain_text", text: target.publicOrigin },
+                },
+              },
+            };
+          },
+          upload: async ({
+            previousVersion,
+            message: nextMessage,
+          }: {
+            previousVersion: unknown;
+            message: string;
+          }) => {
+            expect(previousVersion).toMatchObject({
+              id: OLD_VERSION,
+              resources: { bindings: integrationResourceBindings(target) },
+            });
+            message = nextMessage;
+            return { versionId: NEW_VERSION, workerName: target.workerName };
+          },
+          deployVersion: async ({
+            message: nextMessage,
+          }: {
+            message: string;
+          }) => {
+            deploymentMessage = nextMessage;
+            return {
+              deploymentId: NEW_DEPLOYMENT,
+              workerName: target.workerName,
+            };
+          },
+          smoke: async () => ({ status: "passed", postRetained: true }),
+        },
+      });
+      expect(result).toMatchObject({
+        surface: "yurucommu-integration-worker",
+        environment: "integration",
+        workerName: target.workerName,
+        route: target.publicOrigin,
+        previousDeploymentId: OLD_DEPLOYMENT,
+        status: "PUBLISHED",
+      });
+      expect(activeReads).toBe(5);
+      expect(domainReads).toBe(3);
+      expect(codeReads).toBe(3);
+    }));
+
+  test("reset changes only isolated auth secret and proves new login", () =>
+    cleanFixture(async (value) => {
+      const target = await integrationTarget(value);
+      const password = "integration-test-owner-password-12345";
+      let putCount = 0;
+      let activeReads = 0;
+      let codeReads = 0;
+      let loginCount = 0;
+      const version = (versionId: string) => {
+        const base = versionDetails(versionId);
+        return {
+          ...base,
+          resources: {
+            ...base.resources,
+            bindings: {
+              ...base.resources.bindings,
+              ...integrationResourceBindings(target),
+              APP_URL: { type: "plain_text", text: target.publicOrigin },
+              AUTH_PASSWORD_HASH: { type: "secret_text" },
+            },
+          },
+        };
+      };
+      const result = await resetYurucommuIntegrationAuth({
+        repo: value.repo,
+        commit: COMMIT,
+        target,
+        password,
+        git: gitSource(),
+        check: async () => {},
+        provider: {
+          domains: async () => [
+            {
+              hostname: target.route.hostname,
+              service: target.workerName,
+              environment: "production",
+            },
+          ],
+          activeDeployment: async () => {
+            activeReads += 1;
+            return activeReads <= 2
+              ? deployment(OLD_DEPLOYMENT, OLD_VERSION)
+              : deployment(NEW_DEPLOYMENT, NEW_VERSION);
+          },
+          latestVersion: async () => OLD_VERSION,
+          version: async ({ versionId }: { versionId: string }) =>
+            version(versionId),
+          snapshotVersionCode: async ({ versionId }: { versionId: string }) => {
+            codeReads += 1;
+            return {
+              kind: "yurucommu.worker-version-code@v1" as const,
+              versionId,
+              sha256: sha256("previous integration worker bytes"),
+              size: Buffer.byteLength("previous integration worker bytes"),
+            };
+          },
+          putAuthSecret: async ({ hash }: { hash: string }) => {
+            putCount += 1;
+            expect(hash).toMatch(/^[a-f0-9]{64}:[a-f0-9]{64}$/u);
+            const { verifyPassword } =
+              await import("../node_modules/@takosjp/yurucommu-core/src/backend/lib/crypto.ts");
+            expect(await verifyPassword(password, hash)).toBe(true);
+            return { name: "AUTH_PASSWORD_HASH", type: "secret_text" };
+          },
+          verifyAuthLogin: async ({
+            password: supplied,
+          }: {
+            password: string;
+          }) => {
+            expect(supplied).toBe(password);
+            loginCount += 1;
+            return { status: "passed" };
+          },
+        },
+      });
+      expect(result).toMatchObject({
+        surface: "yurucommu-integration-auth",
+        status: "PUBLISHED",
+        previousVersionId: OLD_VERSION,
+        versionId: NEW_VERSION,
+      });
+      expect(putCount).toBe(1);
+      expect(loginCount).toBe(1);
+      expect(activeReads).toBe(4);
+      expect(codeReads).toBe(3);
+      expect(JSON.stringify(result)).not.toContain(password);
+    }));
+
+  test("auth reset refuses code or binding mismatch before secret write", () =>
+    cleanFixture(async (value) => {
+      const target = await integrationTarget(value);
+      for (const failureKind of ["code", "binding"] as const) {
+        let writes = 0;
+        const failure = await resetYurucommuIntegrationAuth({
+          repo: value.repo,
+          commit: COMMIT,
+          target,
+          password: "integration-test-owner-password-12345",
+          git: gitSource(),
+          check: async () => {},
+          provider: {
+            domains: async () => [
+              {
+                hostname: target.route.hostname,
+                service: target.workerName,
+                environment: "production",
+              },
+            ],
+            activeDeployment: async () =>
+              deployment(OLD_DEPLOYMENT, OLD_VERSION),
+            version: async ({ versionId }: { versionId: string }) => {
+              const base = versionDetails(versionId);
+              return {
+                ...base,
+                resources: {
+                  ...base.resources,
+                  bindings: {
+                    ...base.resources.bindings,
+                    ...integrationResourceBindings(target),
+                    APP_URL: { type: "plain_text", text: target.publicOrigin },
+                    ...(failureKind === "binding"
+                      ? {}
+                      : { AUTH_PASSWORD_HASH: { type: "secret_text" } }),
+                  },
+                },
+              };
+            },
+            snapshotVersionCode: async ({
+              versionId,
+            }: {
+              versionId: string;
+            }) => ({
+              kind: "yurucommu.worker-version-code@v1" as const,
+              versionId: failureKind === "code" ? NEW_VERSION : versionId,
+              sha256: sha256("wrong code"),
+              size: 10,
+            }),
+            putAuthSecret: async () => {
+              writes += 1;
+              throw new Error("must not write");
+            },
+          },
+        }).catch((error) => error);
+        expect(failureOf(failure).phase).toBe("PRE_AUTH_FAILURE");
+        expect(writes).toBe(0);
+      }
+    }));
+
+  test("auth reset reports post-write closure drift as indeterminate without replay", () =>
+    cleanFixture(async (value) => {
+      const target = await integrationTarget(value);
+      let writes = 0;
+      let activeReads = 0;
+      const failure = await resetYurucommuIntegrationAuth({
+        repo: value.repo,
+        commit: COMMIT,
+        target,
+        password: "integration-test-owner-password-12345",
+        git: gitSource(),
+        check: async () => {},
+        provider: {
+          domains: async () => [
+            {
+              hostname: target.route.hostname,
+              service: target.workerName,
+              environment: "production",
+            },
+          ],
+          activeDeployment: async () => {
+            activeReads += 1;
+            return activeReads <= 2
+              ? deployment(OLD_DEPLOYMENT, OLD_VERSION)
+              : deployment(NEW_DEPLOYMENT, NEW_VERSION);
+          },
+          latestVersion: async () => OLD_VERSION,
+          version: async ({ versionId }: { versionId: string }) => {
+            const base = versionDetails(versionId);
+            return {
+              ...base,
+              resources: {
+                ...base.resources,
+                bindings: {
+                  ...base.resources.bindings,
+                  ...integrationResourceBindings(target),
+                  APP_URL: {
+                    type: "plain_text",
+                    text:
+                      versionId === OLD_VERSION
+                        ? target.publicOrigin
+                        : "https://wrong.example",
+                  },
+                  AUTH_PASSWORD_HASH: { type: "secret_text" },
+                },
+              },
+            };
+          },
+          snapshotVersionCode: async ({
+            versionId,
+          }: {
+            versionId: string;
+          }) => ({
+            kind: "yurucommu.worker-version-code@v1" as const,
+            versionId,
+            sha256: sha256("old worker"),
+            size: Buffer.byteLength("old worker"),
+          }),
+          putAuthSecret: async () => {
+            writes += 1;
+            return { name: "AUTH_PASSWORD_HASH", type: "secret_text" };
+          },
+          verifyAuthLogin: async () => {
+            throw new Error("must not login after closure drift");
+          },
+        },
+      }).catch((error) => error);
+      expect(failureOf(failure).phase).toBe("POST_AUTH_INDETERMINATE");
+      expect(failure.evidence.previousVersionId).toBe(OLD_VERSION);
+      expect(failure.evidence.versionId).toBe(NEW_VERSION);
+      expect(writes).toBe(1);
+    }));
+
+  test("auth secret API makes one isolated PUT and suppresses hash-bearing errors", () =>
+    cleanFixture(async (value) => {
+      const target = await integrationTarget(value);
+      const hash = `${"a".repeat(64)}:${"b".repeat(64)}`;
+      const requests: Array<{ url: URL; method: string }> = [];
+      const makeProvider = (status: number) =>
+        createCloudflareWorkerProvider({
+          repo: value.repo,
+          target,
+          token: "test-token",
+          smokePassword: "test-password",
+          fetcher: async (input: string | URL, init?: RequestInit) => {
+            const url = new URL(String(input));
+            requests.push({ url, method: init?.method ?? "GET" });
+            expect(JSON.parse(String(init?.body))).toEqual({
+              name: "AUTH_PASSWORD_HASH",
+              type: "secret_text",
+              text: hash,
+            });
+            return Response.json(
+              status === 200
+                ? {
+                    success: true,
+                    result: { name: "AUTH_PASSWORD_HASH", type: "secret_text" },
+                  }
+                : { success: false, error: hash },
+              { status },
+            );
+          },
+        });
+      expect(await makeProvider(200).putAuthSecret({ hash })).toEqual({
+        name: "AUTH_PASSWORD_HASH",
+        type: "secret_text",
+      });
+      expect(requests).toHaveLength(1);
+      expect(requests[0]?.method).toBe("PUT");
+      expect(requests[0]?.url.pathname).toBe(
+        `/client/v4/accounts/${ACCOUNT_ID}/workers/scripts/${target.workerName}/secrets`,
+      );
+      const failure = await makeProvider(403)
+        .putAuthSecret({ hash })
+        .catch((error) => error);
+      expect(failure.message).not.toContain(hash);
+      expect(requests).toHaveLength(2);
+    }));
+
+  test("auth code snapshot reads raw predecessor bytes without assuming the new bundle", () =>
+    cleanFixture(async (value) => {
+      const target = await integrationTarget(value);
+      const oldCode =
+        "export default { fetch() { return new Response('old'); } };";
+      const provider = createCloudflareWorkerProvider({
+        repo: value.repo,
+        target,
+        token: "test-token",
+        smokePassword: "test-password",
+        fetcher: async () =>
+          moduleContentResponse(oldCode, {
+            entrypoint: "worker.js",
+            partName: "worker.js",
+            filename: "worker.js",
+            mediaType: "application/javascript",
+          }),
+      });
+      expect(
+        await provider.snapshotVersionCode({ versionId: OLD_VERSION }),
+      ).toEqual({
+        kind: "yurucommu.worker-version-code@v1",
+        versionId: OLD_VERSION,
+        sha256: sha256(oldCode),
+        size: Buffer.byteLength(oldCode),
+      });
     }));
 });

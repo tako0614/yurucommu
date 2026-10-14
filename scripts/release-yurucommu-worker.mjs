@@ -29,6 +29,8 @@ const SHA256 = /^sha256:[0-9a-f]{64}$/u;
 const TARGET_KIND = "yurucommu.worker-deploy-target@v1";
 const WORKER = "yurucommu";
 const PUBLIC_ORIGIN = "https://test.yurucommu.com";
+const INTEGRATION_WORKER = "yurucommu-ga-20261012-0938";
+const INTEGRATION_ORIGIN = "https://ga-commu-20261012.yurucommu.com";
 const BUNDLE = "dist/yurucommu-worker.js";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
 const CLOUDFLARE_API = "https://api.cloudflare.com/client/v4";
@@ -39,6 +41,7 @@ const MAX_DOMAIN_PAGES = 8;
 const SESSION_HASH_SALT_BINDING = "YURUCOMMU_SESSION_HASH_SALT";
 const SESSION_HASH_SALT_REQUIRED_ERROR =
   "active predecessor Version must expose exactly one YURUCOMMU_SESSION_HASH_SALT secret_text binding; stop and have the operator review existing secret custody before retrying. If no salt was previously configured, adding the first one changes session hashes and existing users will need to log in again.";
+const AUTH_HASH_BINDING = "AUTH_PASSWORD_HASH";
 
 const asText = (value) =>
   typeof value === "string" ? value : Buffer.from(value ?? "").toString("utf8");
@@ -372,6 +375,9 @@ function validateTarget(value, environment, { repo } = {}) {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new Error("deploy target descriptor must be an object");
   }
+  if (value.environment !== environment) {
+    throw new Error("deploy target environment does not match the selection");
+  }
   exactKeys(value, [
     "kind",
     "environment",
@@ -380,12 +386,10 @@ function validateTarget(value, environment, { repo } = {}) {
     "publicOrigin",
     "route",
     "config",
+    ...(environment === "integration" ? ["resources"] : []),
   ]);
   if (value.kind !== TARGET_KIND) {
     throw new Error(`deploy target kind must be ${TARGET_KIND}`);
-  }
-  if (value.environment !== environment) {
-    throw new Error("deploy target environment does not match the selection");
   }
   if (
     typeof value.accountId !== "string" ||
@@ -395,11 +399,45 @@ function validateTarget(value, environment, { repo } = {}) {
       "deploy target accountId must be exactly 32 lowercase hex characters",
     );
   }
-  if (value.workerName !== WORKER) {
-    throw new Error(`deploy target workerName must be ${WORKER}`);
+  const expectedWorker =
+    environment === "integration" ? INTEGRATION_WORKER : WORKER;
+  const expectedOrigin =
+    environment === "integration" ? INTEGRATION_ORIGIN : PUBLIC_ORIGIN;
+  if (value.workerName !== expectedWorker) {
+    throw new Error(`deploy target workerName must be ${expectedWorker}`);
   }
-  if (value.publicOrigin !== PUBLIC_ORIGIN) {
-    throw new Error(`deploy target publicOrigin must be ${PUBLIC_ORIGIN}`);
+  if (value.publicOrigin !== expectedOrigin) {
+    throw new Error(`deploy target publicOrigin must be ${expectedOrigin}`);
+  }
+  if (environment === "integration") {
+    const resources = value.resources;
+    if (
+      typeof resources !== "object" ||
+      resources === null ||
+      Array.isArray(resources)
+    ) {
+      throw new Error("integration deploy target resources must be an object");
+    }
+    exactKeys(resources, [
+      "databaseId",
+      "kvNamespaceId",
+      "mediaBucketName",
+      "deliveryQueueName",
+      "deliveryDlqName",
+    ]);
+    if (
+      typeof resources.databaseId !== "string" ||
+      !UUID.test(resources.databaseId) ||
+      typeof resources.kvNamespaceId !== "string" ||
+      !ACCOUNT_ID.test(resources.kvNamespaceId) ||
+      resources.mediaBucketName !== `${INTEGRATION_WORKER}-media` ||
+      resources.deliveryQueueName !== `${INTEGRATION_WORKER}-delivery` ||
+      resources.deliveryDlqName !== `${INTEGRATION_WORKER}-delivery-dlq`
+    ) {
+      throw new Error(
+        "integration deploy target resources are not the pinned isolated resources",
+      );
+    }
   }
   if (
     typeof value.route !== "object" ||
@@ -411,10 +449,10 @@ function validateTarget(value, environment, { repo } = {}) {
   exactKeys(value.route, ["kind", "hostname"]);
   if (
     value.route.kind !== "custom-domain" ||
-    value.route.hostname !== new URL(PUBLIC_ORIGIN).hostname
+    value.route.hostname !== new URL(expectedOrigin).hostname
   ) {
     throw new Error(
-      `deploy target route must be the ${new URL(PUBLIC_ORIGIN).hostname} custom domain`,
+      `deploy target route must be the ${new URL(expectedOrigin).hostname} custom domain`,
     );
   }
   if (
@@ -545,7 +583,9 @@ function assertDomains(entries, target, label) {
     if (
       entry.hostname !== target.route.hostname ||
       entry.service !== target.workerName ||
-      entry.environment !== target.environment
+      // Cloudflare records custom domains on separately named Workers as
+      // "production" even when our deployment selection is "integration".
+      entry.environment !== "production"
     ) {
       throw new Error(
         `${label} returned a record outside the exact hostname, service, and environment filters`,
@@ -588,14 +628,14 @@ function canonicalDomainSnapshot(entries) {
   return canonicalDomainValue(entries);
 }
 
-function acknowledged(value, field, label) {
+function acknowledged(value, field, label, workerName) {
   if (
     typeof value !== "object" ||
     value === null ||
     Array.isArray(value) ||
     typeof value[field] !== "string" ||
     !UUID.test(value[field]) ||
-    value.workerName !== WORKER
+    value.workerName !== workerName
   ) {
     throw new Error(
       `${label} did not acknowledge the selected Worker identity`,
@@ -647,6 +687,9 @@ function assertVersionCodeProof(
     Object.keys(proof).sort().join(",") !== "kind,sha256,size,versionId" ||
     proof.kind !== "yurucommu.worker-version-code@v1" ||
     proof.versionId !== versionId ||
+    !SHA256.test(proof.sha256) ||
+    !Number.isSafeInteger(proof.size) ||
+    proof.size < 1 ||
     proof.sha256 !== bundleDigest ||
     proof.size !== bundleByteLength
   ) {
@@ -830,6 +873,127 @@ function assertActiveSessionHashSaltBinding(version) {
     saltBindings[0]?.type !== "secret_text"
   ) {
     throw new Error(SESSION_HASH_SALT_REQUIRED_ERROR);
+  }
+}
+
+function assertIntegrationAppUrl(version, origin) {
+  const bindings = versionRuntime(version).bindings;
+  const candidates = Array.isArray(bindings)
+    ? bindings.filter((binding) => binding?.name === "APP_URL")
+    : typeof bindings === "object" &&
+        bindings !== null &&
+        Object.hasOwn(bindings, "APP_URL")
+      ? [bindings.APP_URL]
+      : [];
+  if (
+    candidates.length !== 1 ||
+    candidates[0]?.type !== "plain_text" ||
+    candidates[0]?.text !== origin
+  ) {
+    throw new Error(
+      "isolated integration predecessor must expose exactly one plain_text APP_URL equal to its pinned origin before code upload",
+    );
+  }
+}
+
+function assertIntegrationResources(version, target) {
+  const bindings = versionRuntime(version).bindings;
+  let entries;
+  if (Array.isArray(bindings)) {
+    entries = bindings.map((binding) => [binding?.name, binding]);
+  } else if (
+    typeof bindings === "object" &&
+    bindings !== null &&
+    !Array.isArray(bindings)
+  ) {
+    entries = Object.entries(bindings);
+  } else {
+    throw new Error(
+      "isolated integration Version has no authoritative resource bindings",
+    );
+  }
+  const byName = new Map();
+  for (const [name, binding] of entries) {
+    if (
+      typeof name !== "string" ||
+      name.length === 0 ||
+      typeof binding !== "object" ||
+      binding === null ||
+      Array.isArray(binding) ||
+      (binding.name !== undefined && binding.name !== name) ||
+      byName.has(name)
+    ) {
+      throw new Error(
+        "isolated integration Version bindings are malformed or duplicated",
+      );
+    }
+    byName.set(name, binding);
+  }
+  const expected = [
+    ["DB", "d1", ["id", "database_id"], target.resources.databaseId],
+    [
+      "KV",
+      "kv_namespace",
+      ["id", "namespace_id"],
+      target.resources.kvNamespaceId,
+    ],
+    ["MEDIA", "r2_bucket", ["bucket_name"], target.resources.mediaBucketName],
+    [
+      "DELIVERY_QUEUE",
+      "queue",
+      ["queue_name"],
+      target.resources.deliveryQueueName,
+    ],
+    ["DELIVERY_DLQ", "queue", ["queue_name"], target.resources.deliveryDlqName],
+  ];
+  const targetFields = [
+    "id",
+    "database_id",
+    "namespace_id",
+    "bucket_name",
+    "queue_name",
+  ];
+  for (const [name, type, allowedFields, value] of expected) {
+    const binding = byName.get(name);
+    const present = targetFields.filter((field) => binding?.[field] != null);
+    if (
+      binding?.type !== type ||
+      present.length !== 1 ||
+      !allowedFields.includes(present[0]) ||
+      binding[present[0]] !== value
+    ) {
+      throw new Error(
+        `isolated integration ${name} binding differs from the private target`,
+      );
+    }
+  }
+  for (const [name, binding] of byName) {
+    if (
+      !["DB", "KV", "MEDIA", "DELIVERY_QUEUE", "DELIVERY_DLQ"].includes(name) &&
+      (!["plain_text", "secret_text", "json"].includes(binding.type) ||
+        targetFields.some((field) => binding[field] !== undefined))
+    ) {
+      throw new Error(
+        `isolated integration ${name} has an unapproved binding type`,
+      );
+    }
+  }
+  return target.resources.databaseId;
+}
+
+function assertIntegrationAuthBinding(version) {
+  const bindings = versionRuntime(version).bindings;
+  const candidates = Array.isArray(bindings)
+    ? bindings.filter((binding) => binding?.name === AUTH_HASH_BINDING)
+    : typeof bindings === "object" &&
+        bindings !== null &&
+        Object.hasOwn(bindings, AUTH_HASH_BINDING)
+      ? [bindings[AUTH_HASH_BINDING]]
+      : [];
+  if (candidates.length !== 1 || candidates[0]?.type !== "secret_text") {
+    throw new Error(
+      "isolated integration predecessor must expose exactly one AUTH_PASSWORD_HASH secret_text binding",
+    );
   }
 }
 
@@ -1059,13 +1223,13 @@ function bindingNamesForInheritance(previousVersion) {
     return bindings.map((binding) => ({
       name: binding.name,
       type: "inherit",
-      version_id: versionId,
+      version_id: "latest",
     }));
   }
   if (typeof bindings === "object" && bindings !== null) {
     return Object.keys(bindings)
       .sort()
-      .map((name) => ({ name, type: "inherit", version_id: versionId }));
+      .map((name) => ({ name, type: "inherit", version_id: "latest" }));
   }
   return [];
 }
@@ -1086,7 +1250,10 @@ export function createCloudflareWorkerProvider({
       "YURUCOMMU_E2E_PASSWORD is required before provider access",
     );
   }
-  const selectedTarget = validateTarget(target, "production", { repo });
+  const selectedTarget = validateTarget(target, target?.environment, { repo });
+  if (!["production", "integration"].includes(selectedTarget.environment)) {
+    throw new Error("Worker provider requires an exact deployment environment");
+  }
   const account = encodeURIComponent(selectedTarget.accountId);
   const worker = encodeURIComponent(selectedTarget.workerName);
   const providerError = (message, output = {}) =>
@@ -1149,19 +1316,25 @@ export function createCloudflareWorkerProvider({
     bundleDigest,
     bundleByteLength,
   }) {
+    const hasExpectedBundle =
+      bundleDigest !== undefined || bundleByteLength !== undefined;
     if (
       typeof versionId !== "string" ||
       !UUID.test(versionId) ||
-      typeof bundleDigest !== "string" ||
-      !SHA256.test(bundleDigest) ||
-      !Number.isSafeInteger(bundleByteLength) ||
-      bundleByteLength < 1 ||
-      bundleByteLength > Number.MAX_SAFE_INTEGER - VERSION_CONTENT_OVERHEAD
+      (hasExpectedBundle &&
+        (typeof bundleDigest !== "string" ||
+          !SHA256.test(bundleDigest) ||
+          !Number.isSafeInteger(bundleByteLength) ||
+          bundleByteLength < 1 ||
+          bundleByteLength >
+            Number.MAX_SAFE_INTEGER - VERSION_CONTENT_OVERHEAD))
     ) {
       throw new Error("invalid Worker Version code readback input");
     }
     const path = `/accounts/${account}/workers/scripts/${worker}/content/v2?version=${versionId}`;
-    const maximumBytes = bundleByteLength + VERSION_CONTENT_OVERHEAD;
+    const maximumBytes = hasExpectedBundle
+      ? bundleByteLength + VERSION_CONTENT_OVERHEAD
+      : 20 * 1024 * 1024;
     const controller = new AbortController();
     let timer;
     const timedOut = new Promise((_, reject) => {
@@ -1200,9 +1373,12 @@ export function createCloudflareWorkerProvider({
               contentType,
             )
           : null;
+      const entrypoint = response.headers.get("cf-entrypoint");
       if (
         !boundaryMatch ||
-        response.headers.get("cf-entrypoint") !== "worker.mjs"
+        (hasExpectedBundle
+          ? entrypoint !== "worker.mjs"
+          : !["worker.js", "worker.mjs"].includes(entrypoint))
       ) {
         throw providerError(
           "Worker Version content readback lacks the reviewed multipart entrypoint",
@@ -1265,13 +1441,17 @@ export function createCloudflareWorkerProvider({
         .split("\r\n");
       if (
         partHeaders.length !== 2 ||
-        !partHeaders.some((line) =>
-          /^content-disposition: form-data; name="worker\.mjs"; filename="worker\.mjs"$/iu.test(
-            line,
-          ),
+        !partHeaders.some(
+          (line) =>
+            line.toLowerCase() ===
+            `content-disposition: form-data; name="${entrypoint}"; filename="${entrypoint}"`,
         ) ||
         !partHeaders.some((line) =>
-          /^content-type: application\/javascript\+module$/iu.test(line),
+          hasExpectedBundle
+            ? /^content-type: application\/javascript\+module$/iu.test(line)
+            : /^content-type: application\/javascript(?:\+module)?$/iu.test(
+                line,
+              ),
         )
       ) {
         throw providerError(
@@ -1291,18 +1471,21 @@ export function createCloudflareWorkerProvider({
       const parts = [...form.entries()];
       if (
         parts.length !== 1 ||
-        parts[0][0] !== "worker.mjs" ||
+        parts[0][0] !== entrypoint ||
         !(parts[0][1] instanceof Blob) ||
-        parts[0][1].name !== "worker.mjs"
+        parts[0][1].name !== entrypoint
       ) {
         throw providerError(
           "Worker Version content contains unexpected module parts",
         );
       }
       const moduleBytes = new Uint8Array(await parts[0][1].arrayBuffer());
+      const actualDigest = digest(moduleBytes);
       if (
-        moduleBytes.byteLength !== bundleByteLength ||
-        digest(moduleBytes) !== bundleDigest
+        moduleBytes.byteLength < 1 ||
+        (hasExpectedBundle &&
+          (moduleBytes.byteLength !== bundleByteLength ||
+            actualDigest !== bundleDigest))
       ) {
         throw providerError(
           "Worker Version content differs from the reviewed Worker bundle bytes",
@@ -1311,8 +1494,8 @@ export function createCloudflareWorkerProvider({
       return {
         kind: "yurucommu.worker-version-code@v1",
         versionId,
-        sha256: bundleDigest,
-        size: bundleByteLength,
+        sha256: actualDigest,
+        size: moduleBytes.byteLength,
       };
     };
     try {
@@ -1336,7 +1519,7 @@ export function createCloudflareWorkerProvider({
           const query = new URLSearchParams({
             hostname: selectedTarget.route.hostname,
             service: selectedTarget.workerName,
-            environment: selectedTarget.environment,
+            environment: "production",
             page: String(page),
             per_page: String(DOMAIN_PAGE_SIZE),
           });
@@ -1423,7 +1606,26 @@ export function createCloudflareWorkerProvider({
       return body.result;
     },
 
+    async latestVersion() {
+      const body = await request(
+        `/accounts/${account}/workers/scripts/${worker}/versions?page=1&per_page=1`,
+      );
+      const items = body?.result?.items;
+      if (
+        !Array.isArray(items) ||
+        items.length !== 1 ||
+        typeof items[0]?.id !== "string" ||
+        !UUID.test(items[0].id)
+      ) {
+        throw providerError(
+          "Cloudflare latest Worker Version list is malformed or empty",
+        );
+      }
+      return items[0].id;
+    },
+
     assertVersionCode: assertVersionContent,
+    snapshotVersionCode: assertVersionContent,
 
     async assertMediaDeletionSchema({ databaseId }) {
       if (typeof databaseId !== "string" || !UUID.test(databaseId)) {
@@ -1564,6 +1766,95 @@ export function createCloudflareWorkerProvider({
       };
     },
 
+    async putAuthSecret({ hash }) {
+      if (
+        selectedTarget.environment !== "integration" ||
+        !/^[a-f0-9]{64}:[a-f0-9]{64}$/u.test(hash)
+      ) {
+        throw new Error("isolated integration auth hash is invalid");
+      }
+      let response;
+      try {
+        response = await fetcher(
+          `${CLOUDFLARE_API}/accounts/${account}/workers/scripts/${worker}/secrets`,
+          {
+            method: "PUT",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+              Accept: "application/json",
+            },
+            body: JSON.stringify({
+              name: AUTH_HASH_BINDING,
+              text: hash,
+              type: "secret_text",
+            }),
+            cache: "no-store",
+            redirect: "error",
+            signal: AbortSignal.timeout(30_000),
+          },
+        );
+        if (response.status !== 200 || response.redirected) {
+          throw new Error("secret write acknowledgement is unavailable");
+        }
+        const body = await response.json();
+        if (
+          body?.success !== true ||
+          body?.result?.name !== AUTH_HASH_BINDING ||
+          body.result.type !== "secret_text"
+        ) {
+          throw new Error("secret write acknowledgement is malformed");
+        }
+      } catch {
+        // The response may echo the new hash. Never include provider bytes,
+        // body, or an exception cause in the caller-visible diagnostic.
+        throw new ProviderFailure(
+          "isolated integration auth write is indeterminate; read active Version before any retry",
+        );
+      }
+      return { name: AUTH_HASH_BINDING, type: "secret_text" };
+    },
+
+    async verifyAuthLogin({ password }) {
+      if (selectedTarget.environment !== "integration") {
+        throw new Error("isolated auth login requires integration target");
+      }
+      try {
+        const { createPinnedHttpTransport } =
+          await import("./post-deploy-smoke.ts");
+        const transport = await createPinnedHttpTransport(
+          new URL(selectedTarget.publicOrigin),
+        );
+        const response = await transport.request(
+          new URL("/api/auth/login", selectedTarget.publicOrigin),
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "application/json",
+              Origin: selectedTarget.publicOrigin,
+            },
+            body: JSON.stringify({ password }),
+          },
+        );
+        if (response.status !== 200) {
+          throw new Error("password login rejected");
+        }
+        const body = await response.json();
+        if (
+          body?.success !== true ||
+          !/^session=[^;\s]+/u.test(response.headers.get("set-cookie") ?? "")
+        ) {
+          throw new Error("password login acknowledgement invalid");
+        }
+      } catch {
+        throw new ProviderFailure(
+          "isolated integration password login proof failed; inspect active Version and login state without replaying the secret write",
+        );
+      }
+      return { status: "passed" };
+    },
+
     async smoke() {
       return inTemporaryDirectory(
         "yurucommu-worker-smoke-",
@@ -1583,6 +1874,9 @@ export function createCloudflareWorkerProvider({
                 ...subprocessBaseEnv(),
                 TAKOSUMI_CAPSULE_OUTPUTS_FILE: outputsPath,
                 YURUCOMMU_E2E_PASSWORD: smokePassword,
+                ...(selectedTarget.environment === "integration"
+                  ? { YURUCOMMU_PROBE_RETAIN_POST: "1" }
+                  : {}),
               },
             },
           );
@@ -1606,10 +1900,16 @@ export function createCloudflareWorkerProvider({
             result?.kind !== "takosumi.capsule-functional-probe@v1" ||
             result.status !== "passed" ||
             result.product !== "yurucommu" ||
-            result.cleanupVerified !== true
+            (selectedTarget.environment === "integration"
+              ? result.postRetained !== true ||
+                !result.checks?.some(
+                  (check) => check.name === "posts.readback",
+                ) ||
+                !result.checks?.some((check) => check.name === "unread.polling")
+              : result.cleanupVerified !== true)
           ) {
             throw new ProviderFailure(
-              "post-deploy smoke did not prove Yurucommu behavior and cleanup",
+              "post-deploy smoke did not prove the selected Yurucommu behavior",
               output,
             );
           }
@@ -1639,8 +1939,10 @@ export async function deployYurucommuWorker({
   let deploymentId = null;
   let releaseProvider = provider;
   try {
-    if (environment !== "production") {
-      throw new Error("worker deployment requires --environment=production");
+    if (!["production", "integration"].includes(environment)) {
+      throw new Error(
+        "worker deployment requires --environment=production|integration",
+      );
     }
     source = await qualifyProductionSource({ repo, commit, git });
     selectedTarget = validateTarget(target, environment, { repo });
@@ -1669,7 +1971,9 @@ export async function deployYurucommuWorker({
       throw new Error("deploy config digest changed during the owner gate");
     }
     const identity = [
-      "yurucommu-worker",
+      environment === "integration"
+        ? "yurucommu-integration-worker"
+        : "yurucommu-worker",
       source.commit,
       bundleDigest,
       selectedTarget.config.sha256,
@@ -1712,6 +2016,10 @@ export async function deployYurucommuWorker({
       );
     }
     assertVersionClosure(previousVersion, "active predecessor Version");
+    if (environment === "integration") {
+      assertIntegrationAppUrl(previousVersion, selectedTarget.publicOrigin);
+      assertIntegrationResources(previousVersion, selectedTarget);
+    }
     assertConfigMatchesVersion(
       selectedTarget.configValues,
       previousVersion,
@@ -1719,7 +2027,10 @@ export async function deployYurucommuWorker({
     );
 
     assertActiveSessionHashSaltBinding(previousVersion);
-    const databaseId = activeDatabaseId(previousVersion);
+    const databaseId =
+      environment === "integration"
+        ? selectedTarget.resources.databaseId
+        : activeDatabaseId(previousVersion);
     if (typeof releaseProvider.assertMediaDeletionSchema !== "function") {
       throw new Error(
         "Worker provider is missing the required read-only migration 0030 D1 preflight",
@@ -1748,6 +2059,34 @@ export async function deployYurucommuWorker({
       );
     }
 
+    if (environment === "integration") {
+      const immediateDeployment = deployment(
+        await releaseProvider.activeDeployment(),
+        "immediate pre-upload active Deployment",
+      );
+      assertSameDeployment(previous, immediateDeployment, "active Deployment");
+      const immediateVersion = await releaseProvider.version({
+        versionId: previous.versionId,
+      });
+      if (immediateVersion?.id !== previous.versionId) {
+        throw new Error("immediate pre-upload Version identity changed");
+      }
+      assertCodeOnlyVersion(previousVersion, immediateVersion);
+      assertIntegrationAppUrl(immediateVersion, selectedTarget.publicOrigin);
+      assertIntegrationResources(immediateVersion, selectedTarget);
+    }
+
+    if (typeof releaseProvider.latestVersion !== "function") {
+      throw new Error(
+        "provider lacks authoritative latest Worker Version readback",
+      );
+    }
+    if ((await releaseProvider.latestVersion()) !== previous.versionId) {
+      throw new Error(
+        "latest uploaded Worker Version differs from the active predecessor; inherited bindings cannot be pinned safely",
+      );
+    }
+
     phase = "POST_UPLOAD_INDETERMINATE";
     const upload = await releaseProvider.upload({
       repo,
@@ -1761,7 +2100,12 @@ export async function deployYurucommuWorker({
       previousVersion,
       message: identity,
     });
-    versionId = acknowledged(upload, "versionId", "Worker Version upload");
+    versionId = acknowledged(
+      upload,
+      "versionId",
+      "Worker Version upload",
+      selectedTarget.workerName,
+    );
     const uploadedVersion = await releaseProvider.version({ versionId });
     const uploadedEtag = assertVersionIdentity(
       uploadedVersion,
@@ -1794,7 +2138,12 @@ export async function deployYurucommuWorker({
       versionId,
       message: deploymentMessage,
     });
-    deploymentId = acknowledged(deployed, "deploymentId", "Worker Deployment");
+    deploymentId = acknowledged(
+      deployed,
+      "deploymentId",
+      "Worker Deployment",
+      selectedTarget.workerName,
+    );
     const active = deployment(
       await releaseProvider.activeDeployment(),
       "post-deploy active Deployment",
@@ -1889,7 +2238,10 @@ export async function deployYurucommuWorker({
     await proveSelectedCode(versionId);
     return {
       kind: "takos.deploy-result@v1",
-      surface: "yurucommu-worker",
+      surface:
+        environment === "integration"
+          ? "yurucommu-integration-worker"
+          : "yurucommu-worker",
       target: `cloudflare-worker:${selectedTarget.workerName}`,
       environment,
       accountId: selectedTarget.accountId,
@@ -1945,6 +2297,236 @@ export async function deployYurucommuWorker({
   }
 }
 
+export async function resetYurucommuIntegrationAuth({
+  repo = REPO,
+  commit,
+  target,
+  password = process.env.YURUCOMMU_E2E_PASSWORD,
+  git = defaultGit,
+  check = defaultCheck,
+  provider,
+} = {}) {
+  let phase = "PRE_AUTH_FAILURE";
+  let selectedTarget;
+  let predecessor;
+  let candidate;
+  let secretHash;
+  try {
+    if (typeof password !== "string" || password.length < 24) {
+      throw new Error(
+        "a strong ephemeral integration test-owner password is required",
+      );
+    }
+    const source = await qualifyProductionSource({ repo, commit, git });
+    selectedTarget = validateTarget(target, "integration", { repo });
+    const releaseProvider =
+      provider ??
+      createCloudflareWorkerProvider({
+        repo,
+        target: selectedTarget,
+        smokePassword: password,
+      });
+    await check({ repo, environment: "integration", commit: source.commit });
+    const checkedSource = await qualifyProductionSource({ repo, commit, git });
+    if (
+      checkedSource.commit !== source.commit ||
+      checkedSource.branch !== source.branch
+    ) {
+      throw new Error("source identity changed during the owner gate");
+    }
+    if (typeof releaseProvider.snapshotVersionCode !== "function") {
+      throw new Error("bounded Worker Version code snapshot is required");
+    }
+    assertDomains(
+      await releaseProvider.domains(),
+      selectedTarget,
+      "pre-auth route readback",
+    );
+    predecessor = deployment(
+      await releaseProvider.activeDeployment(),
+      "pre-auth active Deployment",
+    );
+    const before = await releaseProvider.version({
+      versionId: predecessor.versionId,
+    });
+    if (before?.id !== predecessor.versionId) {
+      throw new Error("pre-auth active Version identity is invalid");
+    }
+    assertVersionClosure(before, "pre-auth active Version");
+    assertIntegrationAppUrl(before, selectedTarget.publicOrigin);
+    assertIntegrationResources(before, selectedTarget);
+    assertIntegrationAuthBinding(before);
+    assertActiveSessionHashSaltBinding(before);
+    const predecessorCode = await releaseProvider.snapshotVersionCode({
+      versionId: predecessor.versionId,
+    });
+    assertVersionCodeProof(
+      predecessorCode,
+      predecessor.versionId,
+      predecessorCode?.sha256,
+      predecessorCode?.size,
+    );
+    const proveSameCode = async (versionId) => {
+      const proof = await releaseProvider.snapshotVersionCode({ versionId });
+      assertVersionCodeProof(
+        proof,
+        versionId,
+        predecessorCode.sha256,
+        predecessorCode.size,
+      );
+    };
+    // Use the installed Core implementation used by both current and next
+    // Worker bundles. Finish hashing before the immediate pre-write readbacks.
+    const { hashPassword, verifyPassword } =
+      await import("../node_modules/@takosjp/yurucommu-core/src/backend/lib/crypto.ts");
+    const hash = await hashPassword(password);
+    secretHash = hash;
+    if (
+      !/^[a-f0-9]{64}:[a-f0-9]{64}$/u.test(hash) ||
+      !(await verifyPassword(password, hash))
+    ) {
+      throw new Error(
+        "installed Core did not self-verify a canonical password hash",
+      );
+    }
+    if (typeof releaseProvider.putAuthSecret !== "function") {
+      throw new Error("provider lacks exact integration auth secret writer");
+    }
+    const beforeWrite = deployment(
+      await releaseProvider.activeDeployment(),
+      "immediate pre-auth active Deployment",
+    );
+    assertSameDeployment(predecessor, beforeWrite, "active Deployment");
+    const immediateVersion = await releaseProvider.version({
+      versionId: predecessor.versionId,
+    });
+    if (immediateVersion?.id !== predecessor.versionId) {
+      throw new Error("immediate pre-auth Version identity changed");
+    }
+    assertCodeOnlyVersion(before, immediateVersion);
+    assertIntegrationAppUrl(immediateVersion, selectedTarget.publicOrigin);
+    assertIntegrationResources(immediateVersion, selectedTarget);
+
+    if (typeof releaseProvider.latestVersion !== "function") {
+      throw new Error(
+        "provider lacks authoritative latest Worker Version readback",
+      );
+    }
+    if ((await releaseProvider.latestVersion()) !== predecessor.versionId) {
+      throw new Error(
+        "latest uploaded Worker Version differs from the active predecessor; secret update cannot be pinned safely",
+      );
+    }
+
+    phase = "POST_AUTH_INDETERMINATE";
+    const acknowledgedSecret = await releaseProvider.putAuthSecret({ hash });
+    if (
+      acknowledgedSecret?.name !== AUTH_HASH_BINDING ||
+      acknowledgedSecret.type !== "secret_text"
+    ) {
+      throw new Error("integration auth secret acknowledgement is invalid");
+    }
+    candidate = deployment(
+      await releaseProvider.activeDeployment(),
+      "post-auth active Deployment",
+    );
+    if (
+      candidate.id === predecessor.id ||
+      candidate.versionId === predecessor.versionId
+    ) {
+      throw new Error("secret write did not produce a new sole active Version");
+    }
+    const after = await releaseProvider.version({
+      versionId: candidate.versionId,
+    });
+    if (after?.id !== candidate.versionId) {
+      throw new Error("post-auth active Version identity is invalid");
+    }
+    assertCodeOnlyVersion(before, after);
+    assertIntegrationAppUrl(after, selectedTarget.publicOrigin);
+    assertIntegrationResources(after, selectedTarget);
+    assertIntegrationAuthBinding(after);
+    await proveSameCode(candidate.versionId);
+    assertDomains(
+      await releaseProvider.domains(),
+      selectedTarget,
+      "post-auth route readback",
+    );
+    if (typeof releaseProvider.verifyAuthLogin !== "function") {
+      throw new Error("provider lacks authenticated login proof");
+    }
+    const login = await releaseProvider.verifyAuthLogin({ password });
+    if (login?.status !== "passed") {
+      throw new Error("new integration credential did not pass login proof");
+    }
+    const finalActive = deployment(
+      await releaseProvider.activeDeployment(),
+      "post-login active Deployment",
+    );
+    assertSameDeployment(candidate, finalActive, "active Deployment");
+    const finalVersion = await releaseProvider.version({
+      versionId: candidate.versionId,
+    });
+    assertCodeOnlyVersion(before, finalVersion);
+    assertIntegrationResources(finalVersion, selectedTarget);
+    await proveSameCode(candidate.versionId);
+    return {
+      kind: "takos.deploy-result@v1",
+      surface: "yurucommu-integration-auth",
+      target: `cloudflare-worker:${selectedTarget.workerName}`,
+      environment: "integration",
+      accountId: selectedTarget.accountId,
+      workerName: selectedTarget.workerName,
+      route: selectedTarget.publicOrigin,
+      commit: source.commit,
+      bundleDigest: predecessorCode.sha256,
+      previousDeploymentId: predecessor.id,
+      previousVersionId: predecessor.versionId,
+      deploymentId: candidate.id,
+      versionId: candidate.versionId,
+      login: "PASSED",
+      status: "PUBLISHED",
+    };
+  } catch (error) {
+    let message =
+      error instanceof Error ? error.message : "integration auth reset failed";
+    for (const secret of [password, secretHash]) {
+      if (typeof secret === "string" && secret.length > 0) {
+        message = message.replaceAll(secret, "[REDACTED]");
+      }
+    }
+    throw new YurucommuWorkerReleaseFailure(message, {
+      phase,
+      evidence: {
+        environment: "integration",
+        ...(selectedTarget
+          ? {
+              accountId: selectedTarget.accountId,
+              workerName: selectedTarget.workerName,
+              route: selectedTarget.publicOrigin,
+            }
+          : {}),
+        commit: commit ?? null,
+        ...(predecessor
+          ? {
+              previousDeploymentId: predecessor.id,
+              previousVersionId: predecessor.versionId,
+            }
+          : {}),
+        ...(candidate
+          ? {
+              deploymentId: candidate.id,
+              versionId: candidate.versionId,
+            }
+          : {}),
+      },
+      // In particular, never retain an exception cause or provider body
+      // around the hash-bearing PUT or password-bearing login request.
+      provider: null,
+    });
+  }
+}
+
 export function reportYurucommuWorkerReleaseFailure(error) {
   const failure =
     error instanceof YurucommuWorkerReleaseFailure
@@ -1967,20 +2549,29 @@ export function reportYurucommuWorkerReleaseFailure(error) {
   if (
     failure.phase === "POST_UPLOAD_INDETERMINATE" ||
     failure.phase === "POST_DEPLOY_INDETERMINATE" ||
-    failure.phase === "POST_CONDITION_INDETERMINATE"
+    failure.phase === "POST_CONDITION_INDETERMINATE" ||
+    failure.phase === "POST_AUTH_INDETERMINATE"
   ) {
     process.stderr.write(
       "Provider mutation may have completed. Read the authoritative active Deployment and Version before any retry; this entrypoint did not retry.\n",
     );
   }
   const status =
-    failure.phase === "PRE_UPLOAD_FAILURE" ? "BLOCKED" : "INDETERMINATE";
+    failure.phase === "PRE_UPLOAD_FAILURE" ||
+    failure.phase === "PRE_AUTH_FAILURE"
+      ? "BLOCKED"
+      : "INDETERMINATE";
   process.stdout.write(
     `${JSON.stringify(
       {
         kind: "takos.deploy-result@v1",
-        surface: "yurucommu-worker",
-        target: `cloudflare-worker:${WORKER}`,
+        surface:
+          failure.evidence.environment === "integration"
+            ? failure.phase?.includes("AUTH")
+              ? "yurucommu-integration-auth"
+              : "yurucommu-integration-worker"
+            : "yurucommu-worker",
+        target: `cloudflare-worker:${failure.evidence.workerName ?? WORKER}`,
         ...failure.evidence,
         failurePhase: failure.phase,
         status,

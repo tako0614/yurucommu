@@ -1,20 +1,42 @@
-export type WorkerEnvironment = "production";
+export type WorkerEnvironment = "production" | "integration";
 
-export type WorkerDeployTarget = {
+type WorkerDeployTargetBase = {
   kind: "yurucommu.worker-deploy-target@v1";
-  environment: WorkerEnvironment;
   accountId: string;
-  workerName: "yurucommu";
-  publicOrigin: "https://test.yurucommu.com";
-  route: {
-    kind: "custom-domain";
-    hostname: "test.yurucommu.com";
-  };
   config: {
     path: string;
     sha256: string;
   };
 };
+
+export type WorkerDeployTarget = WorkerDeployTargetBase &
+  (
+    | {
+        environment: "production";
+        workerName: "yurucommu";
+        publicOrigin: "https://test.yurucommu.com";
+        route: {
+          kind: "custom-domain";
+          hostname: "test.yurucommu.com";
+        };
+      }
+    | {
+        environment: "integration";
+        workerName: "yurucommu-ga-20261012-0938";
+        publicOrigin: "https://ga-commu-20261012.yurucommu.com";
+        resources: {
+          databaseId: string;
+          kvNamespaceId: string;
+          mediaBucketName: string;
+          deliveryQueueName: string;
+          deliveryDlqName: string;
+        };
+        route: {
+          kind: "custom-domain";
+          hostname: "ga-commu-20261012.yurucommu.com";
+        };
+      }
+  );
 
 export type WorkerDeployment = {
   id: string;
@@ -45,11 +67,18 @@ export type WorkerProvider = {
   domains(): Promise<WorkerDomain[]>;
   activeDeployment(): Promise<WorkerDeployment>;
   version(input: { versionId: string }): Promise<WorkerVersion>;
+  latestVersion(): Promise<string>;
   assertVersionCode(input: {
     versionId: string;
     bundleDigest: `sha256:${string}`;
     bundleByteLength: number;
   }): Promise<{
+    kind: "yurucommu.worker-version-code@v1";
+    versionId: string;
+    sha256: `sha256:${string}`;
+    size: number;
+  }>;
+  snapshotVersionCode(input: { versionId: string }): Promise<{
     kind: "yurucommu.worker-version-code@v1";
     versionId: string;
     sha256: `sha256:${string}`;
@@ -90,6 +119,11 @@ export type WorkerProvider = {
     versionId?: string;
     deploymentId?: string;
   }): Promise<{ status: string; [key: string]: unknown }>;
+  putAuthSecret(input: { hash: string }): Promise<{
+    name: "AUTH_PASSWORD_HASH";
+    type: "secret_text";
+  }>;
+  verifyAuthLogin(input: { password: string }): Promise<{ status: string }>;
 };
 
 export type WorkerCommandResult =
@@ -117,7 +151,9 @@ export type WorkerReleaseFailurePhase =
   | "PRE_UPLOAD_FAILURE"
   | "POST_UPLOAD_INDETERMINATE"
   | "POST_DEPLOY_INDETERMINATE"
-  | "POST_CONDITION_INDETERMINATE";
+  | "POST_CONDITION_INDETERMINATE"
+  | "PRE_AUTH_FAILURE"
+  | "POST_AUTH_INDETERMINATE";
 
 export class YurucommuWorkerReleaseFailure extends Error {
   readonly phase: WorkerReleaseFailurePhase;
@@ -127,17 +163,20 @@ export class YurucommuWorkerReleaseFailure extends Error {
 
 export type WorkerReleaseResult = {
   kind: "takos.deploy-result@v1";
-  surface: "yurucommu-worker";
-  target: "cloudflare-worker:yurucommu";
+  surface: "yurucommu-worker" | "yurucommu-integration-worker";
+  target:
+    | "cloudflare-worker:yurucommu"
+    | "cloudflare-worker:yurucommu-ga-20261012-0938";
   environment: WorkerEnvironment;
   accountId: string;
-  workerName: "yurucommu";
+  workerName: "yurucommu" | "yurucommu-ga-20261012-0938";
   commit: string;
   branch: string;
   remoteRef: "origin/main";
   bundleDigest: `sha256:${string}`;
   configDigest: `sha256:${string}`;
-  route: "https://test.yurucommu.com";
+  route:
+    "https://test.yurucommu.com" | "https://ga-commu-20261012.yurucommu.com";
   previousDeploymentId: string;
   previousVersionId: string;
   deploymentId: string;
@@ -182,5 +221,19 @@ export function deployYurucommuWorker(options: {
   }) => void | Promise<void>;
   provider?: Partial<WorkerProvider>;
 }): Promise<WorkerReleaseResult>;
+
+export function resetYurucommuIntegrationAuth(options: {
+  repo?: string;
+  commit: string;
+  target: WorkerDeployTarget;
+  password?: string;
+  git?: WorkerGit;
+  check?: (input: {
+    repo: string;
+    environment: "integration";
+    commit: string;
+  }) => void | Promise<void>;
+  provider?: Partial<WorkerProvider>;
+}): Promise<Record<string, unknown>>;
 
 export function reportYurucommuWorkerReleaseFailure(error: unknown): void;

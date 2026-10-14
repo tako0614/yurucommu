@@ -176,6 +176,55 @@ describe("post-deploy cleanup readback", () => {
     );
   });
 
+  test("integration probe retains its post and validates repeated unread reads", async () => {
+    const calls: string[] = [];
+    const result = await runFunctionalProbe({
+      launchUrl: "http://127.0.0.1:8787/",
+      sessionCookie: "session=probe",
+      retainPost: true,
+      transport: probeTransport(calls, (path, method, init) => {
+        if (path === "/api/posts" && method === "POST") {
+          const body = JSON.parse(String(init.body));
+          expect(body.visibility).toBe("direct");
+          expect(body.content).not.toContain("@");
+        }
+        return undefined;
+      }),
+    });
+    expect(result.postRetained).toBe(true);
+    expect(result.cleanupVerified).toBeUndefined();
+    expect(result.checks).toContain("posts.readback");
+    expect(result.checks).toContain("unread.polling");
+    expect(
+      calls.filter((call) => call === "GET /api/notifications/unread/count"),
+    ).toHaveLength(3);
+    expect(
+      calls.filter((call) => call === "GET /api/dm/unread/count"),
+    ).toHaveLength(3);
+    expect(calls.some((call) => call.startsWith("DELETE "))).toBe(false);
+  });
+
+  test("integration unread polling refuses 429 and malformed counts without delete", async () => {
+    for (const response of [
+      jsonResponse({ error: "rate limited" }, 429),
+      jsonResponse({ count: -1 }),
+    ]) {
+      const calls: string[] = [];
+      const failure = await runFunctionalProbe({
+        launchUrl: "http://127.0.0.1:8787/",
+        sessionCookie: "session=probe",
+        retainPost: true,
+        transport: probeTransport(calls, (path) =>
+          path === "/api/notifications/unread/count"
+            ? response.clone()
+            : undefined,
+        ),
+      }).catch((error) => error);
+      expect(failure).toBeInstanceOf(Error);
+      expect(calls.some((call) => call.startsWith("DELETE "))).toBe(false);
+    }
+  });
+
   test("qualifies a canonical managed OIDC owner before probing posts", async () => {
     const calls: string[] = [];
     const origin = "https://app.example.test";
@@ -582,7 +631,10 @@ function probeTransport(
         return jsonResponse({ users: [] });
       }
       if (method === "POST" && path === "/api/posts") {
-        const body = JSON.parse(String(init.body)) as { content: string };
+        const body = JSON.parse(String(init.body)) as {
+          content: string;
+          visibility: string;
+        };
         postContent = body.content;
         const created = {
           ap_id: `${origin}/ap/notes/post-1`,
@@ -597,7 +649,7 @@ function probeTransport(
           content: postContent,
           summary: null,
           attachments: [],
-          visibility: "public",
+          visibility: body.visibility,
           published: "2026-09-04T00:00:00.000Z",
           like_count: 0,
           reply_count: 0,
@@ -613,6 +665,12 @@ function probeTransport(
       if (method === "GET" && path === "/api/posts/post-1") {
         if (!postContent) return jsonResponse({ error: "Post not found" }, 404);
         return jsonResponse({ post: { content: postContent } });
+      }
+      if (method === "GET" && path === "/api/notifications/unread/count") {
+        return jsonResponse({ count: 0 });
+      }
+      if (method === "GET" && path === "/api/dm/unread/count") {
+        return jsonResponse({ total: 0, dm: 0, community: 0 });
       }
       if (method === "DELETE" && path === "/api/posts/post-1") {
         postContent = "";
