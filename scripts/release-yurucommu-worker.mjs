@@ -38,10 +38,37 @@ const VERSION_CONTENT_TIMEOUT_MS = 15_000;
 const VERSION_CONTENT_OVERHEAD = 64 * 1024;
 const DOMAIN_PAGE_SIZE = 100;
 const MAX_DOMAIN_PAGES = 8;
+const CORE_SCHEMA_TERM_SEPARATOR = "\nUNION ALL\n";
+const CORE_SCHEMA_TERM_COUNT = 25;
+const CORE_SCHEMA_TERMS_PER_READ = 5;
 const SESSION_HASH_SALT_BINDING = "YURUCOMMU_SESSION_HASH_SALT";
 const SESSION_HASH_SALT_REQUIRED_ERROR =
   "active predecessor Version must expose exactly one YURUCOMMU_SESSION_HASH_SALT secret_text binding; stop and have the operator review existing secret custody before retrying. If no salt was previously configured, adding the first one changes session hashes and existing users will need to log in again.";
 const AUTH_HASH_BINDING = "AUTH_PASSWORD_HASH";
+
+function coreSchemaReadQueries() {
+  const terms = CORE_UPGRADE_SCHEMA_QUERY.split(CORE_SCHEMA_TERM_SEPARATOR);
+  if (
+    terms.length !== CORE_SCHEMA_TERM_COUNT ||
+    terms.some((term) => !/^SELECT\s/iu.test(term)) ||
+    terms.join(CORE_SCHEMA_TERM_SEPARATOR) !== CORE_UPGRADE_SCHEMA_QUERY
+  ) {
+    throw new Error("canonical Core schema preflight query terms changed");
+  }
+  const queries = [];
+  for (
+    let index = 0;
+    index < terms.length;
+    index += CORE_SCHEMA_TERMS_PER_READ
+  ) {
+    queries.push(
+      terms
+        .slice(index, index + CORE_SCHEMA_TERMS_PER_READ)
+        .join(CORE_SCHEMA_TERM_SEPARATOR),
+    );
+  }
+  return queries;
+}
 
 const asText = (value) =>
   typeof value === "string" ? value : Buffer.from(value ?? "").toString("utf8");
@@ -972,12 +999,19 @@ function assertIntegrationResources(version, target) {
   ];
   for (const [name, type, allowedFields, value] of expected) {
     const binding = byName.get(name);
-    const present = targetFields.filter((field) => binding?.[field] != null);
+    const present = targetFields.filter((field) =>
+      binding === undefined ? false : Object.hasOwn(binding, field),
+    );
     if (
       binding?.type !== type ||
-      present.length !== 1 ||
-      !allowedFields.includes(present[0]) ||
-      binding[present[0]] !== value
+      present.length < 1 ||
+      (name !== "DB" && present.length !== 1) ||
+      present.some(
+        (field) =>
+          !allowedFields.includes(field) ||
+          typeof binding[field] !== "string" ||
+          binding[field] !== value,
+      )
     ) {
       throw new Error(
         `isolated integration ${name} binding differs from the private target`,
@@ -1536,6 +1570,7 @@ export function createCloudflareWorkerProvider({
         const entries = [];
         let page = 1;
         let totalPages = 1;
+        let paginationMode = null;
         while (page <= totalPages) {
           const query = new URLSearchParams({
             hostname: selectedTarget.route.hostname,
@@ -1564,14 +1599,51 @@ export function createCloudflareWorkerProvider({
               info === null ||
               !Number.isInteger(info.page) ||
               info.page !== page ||
+              body.result.length > DOMAIN_PAGE_SIZE ||
+              (info.per_page !== undefined &&
+                (!Number.isInteger(info.per_page) ||
+                  info.per_page !== DOMAIN_PAGE_SIZE)) ||
+              (info.count !== undefined &&
+                (!Number.isInteger(info.count) || info.count < 0)) ||
+              (info.total_count !== undefined &&
+                (!Number.isInteger(info.total_count) || info.total_count < 0))
+            ) {
+              throw providerError(
+                "Cloudflare custom-domain readback returned invalid pagination metadata",
+              );
+            }
+            const mode =
+              info.total_pages === undefined ? "page-length" : "total-pages";
+            if (paginationMode !== null && paginationMode !== mode) {
+              throw providerError(
+                "Cloudflare custom-domain pagination mode changed while reading",
+              );
+            }
+            paginationMode = mode;
+            if (mode === "page-length") {
+              if (info.per_page !== DOMAIN_PAGE_SIZE) {
+                throw providerError(
+                  "Cloudflare custom-domain readback omitted bounded page size",
+                );
+              }
+              if (body.result.length === DOMAIN_PAGE_SIZE) {
+                if (page >= MAX_DOMAIN_PAGES) {
+                  throw providerError(
+                    `Cloudflare custom-domain readback exceeds the ${MAX_DOMAIN_PAGES}-page stability bound`,
+                  );
+                }
+                totalPages = page + 1;
+              } else {
+                totalPages = page;
+              }
+            } else if (
               !Number.isInteger(info.total_pages) ||
               info.total_pages < 1
             ) {
               throw providerError(
                 "Cloudflare custom-domain readback returned invalid pagination metadata",
               );
-            }
-            if (page === 1) {
+            } else if (page === 1) {
               totalPages = info.total_pages;
               if (totalPages > MAX_DOMAIN_PAGES) {
                 throw providerError(
@@ -1679,23 +1751,67 @@ export function createCloudflareWorkerProvider({
       if (typeof databaseId !== "string" || !UUID.test(databaseId)) {
         throw new Error("invalid active Worker D1 database id");
       }
-      const body = await request(
-        `/accounts/${account}/d1/database/${encodeURIComponent(databaseId)}/query`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sql: CORE_UPGRADE_SCHEMA_QUERY }),
-        },
-      );
+      const rows = [];
+      for (const sql of coreSchemaReadQueries()) {
+        const body = await request(
+          `/accounts/${account}/d1/database/${encodeURIComponent(databaseId)}/query`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ sql }),
+          },
+        );
+        try {
+          if (!Array.isArray(body?.result) || body.result.length !== 1) {
+            throw new Error(
+              "D1 API must return exactly one Core schema query result",
+            );
+          }
+          const result = body.result[0];
+          const meta = result?.meta;
+          if (
+            typeof result !== "object" ||
+            result === null ||
+            Array.isArray(result) ||
+            result.success !== true ||
+            !Array.isArray(result.results) ||
+            typeof meta !== "object" ||
+            meta === null ||
+            Array.isArray(meta) ||
+            meta.changed_db !== false ||
+            meta.rows_written !== 0
+          ) {
+            throw new Error(
+              "D1 Core schema query returned malformed or write-reported results",
+            );
+          }
+          rows.push(...result.results);
+        } catch (error) {
+          throw providerError(
+            error instanceof Error
+              ? error.message
+              : "Cloudflare D1 Core schema chunk response was invalid",
+            {
+              stderr: JSON.stringify(body),
+              cause: error instanceof Error ? error : undefined,
+            },
+          );
+        }
+      }
       try {
-        return validateCoreUpgradeQueryResults(body?.result);
+        return validateCoreUpgradeQueryResults([
+          {
+            success: true,
+            results: rows,
+            meta: { changed_db: false, rows_written: 0 },
+          },
+        ]);
       } catch (error) {
         throw providerError(
           error instanceof Error
             ? error.message
             : "Cloudflare D1 Core 4.1.12 metadata response was invalid",
           {
-            stderr: JSON.stringify(body),
             cause: error instanceof Error ? error : undefined,
           },
         );
