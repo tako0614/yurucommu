@@ -1961,67 +1961,94 @@ describe("production yurucommu Worker publisher", () => {
       expect(deploys).toBe(1);
     }));
 
-  test("does not report PUBLISHED when another Version is serving after deploy", () =>
+  test("a UUID-only or full POST acknowledgement cannot override a wrong active Deployment", () =>
     cleanFixture(async ({ repo, target }) => {
-      let activeReads = 0;
-      let uploadMessage = "";
-      let deployMessage = "";
-      const failure = await deployYurucommuWorker({
-        repo,
-        environment: "production",
-        commit: COMMIT,
-        target,
-        git: gitSource(),
-        check: async () => {},
-        provider: {
-          assertVersionCode: codeProof,
-          ...UPGRADE_SCHEMA_PROVIDER,
-          assertMediaDeletionSchema: async ({
-            databaseId,
-          }: {
-            databaseId: string;
-          }) => {
-            expect(databaseId).toBe(D1_DATABASE_ID);
-            return MEDIA_DELETION_SCHEMA_QUALIFICATION;
+      for (const acknowledgement of ["uuid-only", "full"] as const) {
+        let activeReads = 0;
+        let deploymentPosts = 0;
+        let uploadMessage = "";
+        let deployMessage = "";
+        const realProvider = createCloudflareWorkerProvider({
+          repo,
+          target,
+          token: "test-token",
+          smokePassword: "test-password",
+          fetcher: async () => {
+            deploymentPosts += 1;
+            return Response.json({
+              success: true,
+              result:
+                acknowledgement === "uuid-only"
+                  ? { id: NEW_DEPLOYMENT }
+                  : deployment(NEW_DEPLOYMENT, NEW_VERSION, deployMessage),
+            });
           },
-          domains: async () => [
-            {
-              hostname: "test.yurucommu.com",
-              service: "yurucommu",
-              environment: "production",
+        });
+        const failure = await deployYurucommuWorker({
+          repo,
+          environment: "production",
+          commit: COMMIT,
+          target,
+          git: gitSource(),
+          check: async () => {},
+          provider: {
+            assertVersionCode: codeProof,
+            ...UPGRADE_SCHEMA_PROVIDER,
+            assertMediaDeletionSchema: async ({
+              databaseId,
+            }: {
+              databaseId: string;
+            }) => {
+              expect(databaseId).toBe(D1_DATABASE_ID);
+              return MEDIA_DELETION_SCHEMA_QUALIFICATION;
             },
-          ],
-          activeDeployment: async () => {
-            activeReads += 1;
-            if (activeReads <= 2) {
-              return deployment(OLD_DEPLOYMENT, OLD_VERSION);
-            }
-            return deployment(
-              CONCURRENT_DEPLOYMENT,
-              UNSERVED_VERSION,
-              deployMessage,
-            );
+            domains: async () => [
+              {
+                hostname: "test.yurucommu.com",
+                service: "yurucommu",
+                environment: "production",
+              },
+            ],
+            activeDeployment: async () => {
+              activeReads += 1;
+              if (activeReads <= 2) {
+                return deployment(OLD_DEPLOYMENT, OLD_VERSION);
+              }
+              return deployment(
+                NEW_DEPLOYMENT,
+                UNSERVED_VERSION,
+                deployMessage,
+              );
+            },
+            upload: async ({ message }: { message: string }) => {
+              uploadMessage = message;
+              return { versionId: NEW_VERSION, workerName: "yurucommu" };
+            },
+            version: async ({ versionId }: { versionId: string }) =>
+              versionDetails(versionId, uploadMessage),
+            deployVersion: async ({
+              versionId,
+              message,
+            }: {
+              versionId: string;
+              message: string;
+            }) => {
+              deployMessage = message;
+              return realProvider.deployVersion({ versionId, message });
+            },
+            smoke: async () => ({ status: "passed" }),
           },
-          upload: async ({ message }: { message: string }) => {
-            uploadMessage = message;
-            return { versionId: NEW_VERSION, workerName: "yurucommu" };
-          },
-          version: async ({ versionId }: { versionId: string }) =>
-            versionDetails(versionId, uploadMessage),
-          deployVersion: async ({ message }: { message: string }) => {
-            deployMessage = message;
-            return {
-              deploymentId: NEW_DEPLOYMENT,
-              workerName: "yurucommu",
-            };
-          },
-          smoke: async () => ({ status: "passed" }),
-        },
-      }).catch((error) => error);
+        }).catch((error) => error);
 
-      expect(failureOf(failure).phase).toBe("POST_DEPLOY_INDETERMINATE");
-      expect(failure.message).toContain("active Deployment does not match");
-      expect(JSON.stringify(failure.evidence)).not.toContain("PUBLISHED");
+        expect(failureOf(failure).phase, acknowledgement).toBe(
+          "POST_DEPLOY_INDETERMINATE",
+        );
+        expect(failure.message, acknowledgement).toContain(
+          "active Deployment does not match",
+        );
+        expect(JSON.stringify(failure.evidence)).not.toContain("PUBLISHED");
+        expect(deploymentPosts).toBe(1);
+      }
     }));
 
   test("does not report PUBLISHED when a concurrent Deployment lands during smoke", () =>
@@ -2576,6 +2603,35 @@ describe("production yurucommu Worker publisher", () => {
         ]),
       );
       expect(writeCalls).toBe(2);
+    }));
+
+  test("Deployment POST rejects missing or invalid acknowledgement ids without lookup or retry", () =>
+    cleanFixture(async ({ repo, target }) => {
+      for (const result of [
+        null,
+        {},
+        { id: "bad" },
+        { id: [NEW_DEPLOYMENT] },
+      ]) {
+        let calls = 0;
+        const provider = createCloudflareWorkerProvider({
+          repo,
+          target,
+          token: "test-token",
+          smokePassword: "test-password",
+          fetcher: async () => {
+            calls += 1;
+            return Response.json({ success: true, result });
+          },
+        });
+        const failure = await provider
+          .deployVersion({ versionId: NEW_VERSION, message: "test deployment" })
+          .catch((error) => error);
+        expect(failure.message).toContain(
+          "Cloudflare Deployment acknowledgement names no valid Deployment",
+        );
+        expect(calls).toBe(1);
+      }
     }));
 
   test("latest Version list rejects an absent or ambiguous first item", () =>
@@ -3898,8 +3954,31 @@ describe("isolated integration Worker code publisher", () => {
       let activeReads = 0;
       let domainReads = 0;
       let codeReads = 0;
+      let deploymentPosts = 0;
       let message = "";
       let deploymentMessage = "";
+      const realProvider = createCloudflareWorkerProvider({
+        repo: value.repo,
+        target,
+        token: "test-token",
+        smokePassword: "test-password",
+        fetcher: async (input, init) => {
+          expect(String(input)).toBe(
+            `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/workers/scripts/${target.workerName}/deployments`,
+          );
+          expect(init?.method).toBe("POST");
+          expect(JSON.parse(String(init?.body))).toEqual({
+            strategy: "percentage",
+            versions: [{ version_id: NEW_VERSION, percentage: 100 }],
+            annotations: { "workers/message": deploymentMessage },
+          });
+          deploymentPosts += 1;
+          return Response.json({
+            success: true,
+            result: { id: NEW_DEPLOYMENT },
+          });
+        },
+      });
       const result = await deployYurucommuWorker({
         repo: value.repo,
         environment: "integration",
@@ -3961,15 +4040,17 @@ describe("isolated integration Worker code publisher", () => {
             return { versionId: NEW_VERSION, workerName: target.workerName };
           },
           deployVersion: async ({
+            versionId,
             message: nextMessage,
           }: {
+            versionId: string;
             message: string;
           }) => {
             deploymentMessage = nextMessage;
-            return {
-              deploymentId: NEW_DEPLOYMENT,
-              workerName: target.workerName,
-            };
+            return realProvider.deployVersion({
+              versionId,
+              message: nextMessage,
+            });
           },
           smoke: async () => ({ status: "passed", postRetained: true }),
         },
@@ -3982,6 +4063,7 @@ describe("isolated integration Worker code publisher", () => {
         previousDeploymentId: OLD_DEPLOYMENT,
         status: "PUBLISHED",
       });
+      expect(deploymentPosts).toBe(1);
       expect(activeReads).toBe(5);
       expect(domainReads).toBe(3);
       expect(codeReads).toBe(3);

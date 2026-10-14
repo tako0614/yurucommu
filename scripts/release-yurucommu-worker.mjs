@@ -1885,17 +1885,9 @@ export function createCloudflareWorkerProvider({
         },
       );
       const deploymentId = body?.result?.id;
-      if (
-        typeof deploymentId !== "string" ||
-        !UUID.test(deploymentId) ||
-        body.result.strategy !== "percentage" ||
-        !Array.isArray(body.result.versions) ||
-        body.result.versions.length !== 1 ||
-        body.result.versions[0]?.version_id !== versionId ||
-        body.result.versions[0]?.percentage !== 100
-      ) {
+      if (typeof deploymentId !== "string" || !UUID.test(deploymentId)) {
         throw providerError(
-          "Cloudflare Deployment acknowledgement does not bind the selected Version at 100 percent",
+          "Cloudflare Deployment acknowledgement names no valid Deployment",
         );
       }
       return {
