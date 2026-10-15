@@ -620,7 +620,7 @@ const translations = {
     "firstFeed.copyAddress": "コピー",
     "firstFeed.copied": "コピーしました",
     "firstFeed.copyFailed":
-      "アドレスを選択しました。長押しまたは Ctrl+C でコピーしてください",
+      "アドレスを選択しました。長押しするか、Ctrl+C（Mac は ⌘C）でコピーしてください",
     "firstFeed.qrHint":
       "QRコードは、相手も Yurucommu を使っているときの交換用です。",
     "firstFeed.qrFailed":
@@ -1426,7 +1426,7 @@ const translations = {
     "firstFeed.copyAddress": "Copy",
     "firstFeed.copied": "Copied",
     "firstFeed.copyFailed":
-      "Address selected. Long-press or press Ctrl+C to copy it",
+      "Address selected. Long-press it, or press Ctrl+C (⌘C on Mac), to copy it",
     "firstFeed.qrHint":
       "The QR code is for exchanging with someone who also uses Yurucommu.",
     "firstFeed.qrFailed": "Couldn't open the QR code. Reload the page",
