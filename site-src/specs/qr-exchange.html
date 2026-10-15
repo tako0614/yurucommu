@@ -20,8 +20,7 @@
         <span class="spec-status experimental">現行実装</span>
         <h1>QRでアカウント交換</h1>
         <p class="lead">
-          自分のプロフィールURLをQRコードで見せ、相手が読み取って
-          プロフィールを確認してからフォローできます。
+          自分のプロフィールURLをQRコードで見せ、相手が読み取ってプロフィールを確認してからフォローできます。
         </p>
 
         <h2>使い方</h2>
@@ -33,14 +32,12 @@
           <li>フォローボタンを押す</li>
         </ol>
         <p>
-          読み取っただけではフォローしません。非公開のローカルアカウントや
-          リモートアカウントへのフォローは、相手の承認待ちになる場合があります。
+          読み取っただけではフォローしません。非公開のローカルアカウントやリモートアカウントへのフォローは、相手の承認待ちになる場合があります。
         </p>
 
         <h2>QRコードに入るURL</h2>
         <p>
-          QRコードには秘密情報やログイン情報ではなく、次の形のプロフィールURLだけを
-          入れます。
+          QRコードには秘密情報やログイン情報ではなく、次の形のプロフィールURLだけを入れます。
         </p>
         <pre><code>https://example.com/profile/https%3A%2F%2Fexample.com%2Fap%2Fusers%2Falice#alice</code></pre>
         <div
@@ -60,14 +57,13 @@
               <tr>
                 <td><code>/profile/:actorId</code></td>
                 <td>
-                  URLエンコードしたActivityPubアクターID。
-                  同じサーバー内のプロフィール取得に使用
+                  URLエンコードしたActivityPubアクターID。同じサーバー内のプロフィール取得に使用
                 </td>
               </tr>
               <tr>
                 <td><code>#alice</code></td>
                 <td>
-                  アカウント名。別サーバーから読み取ったとき、 QR
+                  アカウント名。別サーバーから読み取ったとき、QR
                   URLのhostと組み合わせてWebFinger検索に使用
                 </td>
               </tr>
@@ -78,15 +74,13 @@
         <h2>読み取り後の解決</h2>
         <h3>同じサーバーのURL</h3>
         <p>
-          <code>:actorId</code>をデコードし、ローカルのプロフィールAPIから
-          アクターを取得します。
+          <code>:actorId</code
+          >をデコードし、ローカルのプロフィールAPIからアクターを取得します。
         </p>
 
         <h3>別のサーバーのURL</h3>
         <p>
-          URLのhashにある名前とhostから<code>@alice@example.com</code>を作り、
-          リモート検索でアクターを取得します。hashに名前がないURLは、
-          現在のスキャナーではリモートアカウントとして解決できません。
+          URLのhashにある名前とhostから<code>@alice@example.com</code>を作り、リモート検索でアクターを取得します。hashに名前がないURLは、現在のスキャナーではリモートアカウントとして解決できません。
         </p>
 
         <h2>対応している範囲</h2>
@@ -104,8 +98,7 @@
         <div class="callout callout-info">
           <strong>注意:</strong>
           QRコード自体は一般的なURLですが、URLの組み立て方と読み取り方は
-          yurucommuの現在のクライアント規約です。他のActivityPubソフトウェアが
-          このQRをアカウント交換用として解釈する保証はありません。
+          yurucommuの現在のクライアント規約です。他のActivityPubソフトウェアがこのQRをアカウント交換用として解釈する保証はありません。
         </div>
         <p>
           スマートフォンの標準カメラで読み取った場合は、対応していれば

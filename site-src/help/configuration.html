@@ -19,22 +19,18 @@
       <main class="docs-content" id="main">
         <h1>設定</h1>
         <p class="lead">
-          ローカルでは設定なしで試せます。本番では、公開URL、暗号化キー、
-          ログイン方法を最初に設定します。
+          ローカルでは設定なしで試せます。本番では、公開URL、暗号化キー、ログイン方法を最初に設定します。
         </p>
 
         <h2>ローカルで試す</h2>
         <pre><code>bun run dev:mock</code></pre>
         <p>
-          モックAPIとWeb画面が一緒に起動します。Cloudflareのbindingや
-          シークレットは必要ありません。ログアウト状態から試す場合は次のように
-          起動します。
+          モックAPIとWeb画面が一緒に起動します。Cloudflareのbindingやシークレットは必要ありません。ログアウト状態から試す場合は次のように起動します。
         </p>
         <pre><code>YURUCOMMU_MOCK_AUTH=signed-out bun run dev:mock</code></pre>
         <p>
           <code>bun run dev</code>
-          はWeb画面だけを起動します。既存のAPIへ接続する
-          場合にだけ、接続先を指定してください。
+          はWeb画面だけを起動します。既存のAPIへ接続する場合にだけ、接続先を指定してください。
         </p>
         <pre><code>YURUCOMMU_DEV_PROXY_TARGET=http://localhost:8787 bun run dev</code></pre>
 
@@ -74,8 +70,8 @@
               <tr>
                 <td>ログイン方法</td>
                 <td>
-                  パスワード、Google/X OAuth、OIDCのうち、少なくとも1つを
-                  設定します。
+                  パスワード、Google/X
+                  OAuth、OIDCのうち、少なくとも1つを設定します。
                 </td>
                 <td>IDは公開可、パスワードやSecretはシークレット</td>
               </tr>
@@ -86,8 +82,9 @@
         <h2>実行環境との接続</h2>
         <p>
           次の名前でサービスをアプリへ接続します。管理ホストでは
-          <code>deploy/takoform</code> が必要な接続を宣言します。Cloudflareでは
-          ルートの <code>main.tf</code> または <code>wrangler.jsonc</code>
+          <code>deploy/takoform</code>
+          が必要な接続を宣言します。Cloudflareではルートの
+          <code>main.tf</code> または <code>wrangler.jsonc</code>
           で接続します。
         </p>
         <div
@@ -136,8 +133,7 @@
 
         <h2>ログイン方法</h2>
         <p>
-          使わない方式の変数は設定しなくて構いません。クライアントIDとSecretが
-          対になっている方式は、片方だけ設定しないでください。
+          使わない方式の変数は設定しなくて構いません。クライアントIDとSecretが対になっている方式は、片方だけ設定しないでください。
         </p>
         <div
           class="docs-table-scroll"
@@ -158,8 +154,7 @@
                 <td><code>AUTH_PASSWORD_HASH</code></td>
                 <td>パスワード認証で使う値</td>
                 <td>
-                  PBKDF2の<code>salt:hash</code>、または導入時に発行された
-                  一時的なログイン用シークレット
+                  PBKDF2の<code>salt:hash</code>、または導入時に発行された一時的なログイン用シークレット
                 </td>
               </tr>
               <tr>
@@ -188,9 +183,8 @@
 
         <h3>OIDC</h3>
         <p>
-          OpenID Connectに対応するログインサービスを指定できます。
-          パブリッククライアントとして登録した場合は、クライアントSecretは
-          不要です。
+          OpenID
+          Connectに対応するログインサービスを指定できます。パブリッククライアントとして登録した場合は、クライアントSecretは不要です。
         </p>
         <div
           class="docs-table-scroll"
@@ -238,16 +232,18 @@
           </table>
         </div>
         <p>
-          <code>OIDC_OWNER_SUB</code>を事前に確認できない場合だけ、
-          <code>ALLOW_UNPINNED_OWNER_CLAIM=true</code>
-          を使えます。この間は最初にログインした人がオーナーになります。初回ログイン
-          後はsubjectを固定し、この設定を解除してください。
+          <code>OIDC_OWNER_SUB</code>を事前に確認できない場合だけ、<code
+            >ALLOW_UNPINNED_OWNER_CLAIM=true</code
+          >
+          を使えます。この間は最初にログインした人がオーナーになります。初回ログイン後はsubjectを固定し、この設定を解除してください。
         </p>
 
         <h2>Takos連携（任意）</h2>
         <p>
-          TakosはYurucommuのログイン方法ではありません。
-          <code>ENABLE_TAKOS_TOOLS=true</code> にすると、AIエージェントが
+          TakosはYurucommuのログイン方法ではありません。<code
+            >ENABLE_TAKOS_TOOLS=true</code
+          >
+          にすると、AIエージェントが
           <code>POST /.takos/tools/:name</code>
           経由で投稿、検索、フォローなどを呼び出せるようになります。
         </p>
@@ -283,9 +279,8 @@
         <h3>Takosumiなどの管理ホスト</h3>
         <p>
           <code>deploy/takoform</code>
-          を読み込んだホストの設定画面から値を渡します。データベースや
-          ストレージの接続、シークレット、公開URLはホスト側で管理します。
-          Cloudflare用の <code>wrangler.jsonc</code> は使いません。
+          を読み込んだホストの設定画面から値を渡します。データベースやストレージの接続、シークレット、公開URLはホスト側で管理します。Cloudflare用の
+          <code>wrangler.jsonc</code> は使いません。
         </p>
 
         <h3>CloudflareとWrangler</h3>
@@ -304,18 +299,17 @@
 bunx wrangler secret put ENCRYPTION_KEY
 bunx wrangler secret put OIDC_CLIENT_SECRET</code></pre>
         <p>
-          Secretの登録はWorkerの新しいバージョンを作ります。運用中の環境では、
-          対象のWorkerと戻し方を確認してから実行してください。ルートの
-          <code>main.tf</code> を使う場合は、同じ値をOpenTofuの機密入力として
-          渡します。
+          Secretの登録はWorkerの新しいバージョンを作ります。運用中の環境では、対象のWorkerと戻し方を確認してから実行してください。ルートの
+          <code>main.tf</code>
+          を使う場合は、同じ値をOpenTofuの機密入力として渡します。
         </p>
 
         <h2>設定を確認する</h2>
         <pre><code>bunx wrangler secret list</code></pre>
         <p>
           Secretの一覧には値は表示されません。公開後は <code>/healthz</code> と
-          <code>/readyz</code> を開き、必要な接続、公開URL、暗号化キー、ログイン
-          方法がそろっているか確認してください。
+          <code>/readyz</code>
+          を開き、必要な接続、公開URL、暗号化キー、ログイン方法がそろっているか確認してください。
         </p>
       </main>
     </div>

@@ -137,14 +137,13 @@
       <main class="docs-content" id="main">
         <h1>Cloudflare設定</h1>
         <p class="lead">
-          Cloudflareでセルフホストする人向けのページです。Takosumiなどの管理ホスト
-          で動かす場合は、この設定を使いません。
+          Cloudflareでセルフホストする人向けのページです。Takosumiなどの管理ホストで動かす場合は、この設定を使いません。
         </p>
 
         <p>
-          管理ホストを使う場合は
-          <a href="/help/deployment.html">デプロイガイド</a>の
-          <code>deploy/takoform</code> の手順へ進んでください。
+          管理ホストを使う場合は<a href="/help/deployment.html"
+            >デプロイガイド</a
+          >の <code>deploy/takoform</code> の手順へ進んでください。
         </p>
 
         <h2>用意するもの</h2>
@@ -195,8 +194,7 @@
           Workerの設定を管理するか、先に決めてください。
         </p>
         <p>
-          ルートのOpenTofu設定は、Cloudflare上の変更を初期状態では行いません。
-          作成内容を確認したうえで
+          ルートのOpenTofu設定は、Cloudflare上の変更を初期状態では行いません。作成内容を確認したうえで
           <code>enable_cloudflare_resources=true</code> と
           <code>enable_cloudflare_worker_script=true</code> を指定します。
         </p>
@@ -255,9 +253,7 @@
         <pre><code>bunx wrangler login
 bunx wrangler whoami</code></pre>
         <p>
-          CIやOpenTofuでAPIトークンを使う場合は、必要な操作だけに権限を絞り、
-          リポジトリへ保存しません。実行前に対象のCloudflareアカウントを
-          確認してください。
+          CIやOpenTofuでAPIトークンを使う場合は、必要な操作だけに権限を絞り、リポジトリへ保存しません。実行前に対象のCloudflareアカウントを確認してください。
         </p>
 
         <h2>公開URLとログインを設定する</h2>
@@ -270,23 +266,21 @@ bunx wrangler whoami</code></pre>
           </li>
         </ul>
         <p>
-          公開してよい値とシークレットを分けます。Wranglerを使う場合、
-          シークレットは次のように対話形式で登録できます。
+          公開してよい値とシークレットを分けます。Wranglerを使う場合、シークレットは次のように対話形式で登録できます。
         </p>
         <pre><code>bunx wrangler secret put ENCRYPTION_KEY
 bunx wrangler secret put AUTH_PASSWORD_HASH</code></pre>
         <p>
           Secretの登録はWorkerの新しいバージョンを作ります。すでに運用中の
-          Workerでは、対象と戻し方を確認してから実行してください。OpenTofuを
-          使う場合は、<code>main.tf</code> の機密入力として渡します。
+          Workerでは、対象と戻し方を確認してから実行してください。OpenTofuを使う場合は、<code
+            >main.tf</code
+          >
+          の機密入力として渡します。
         </p>
 
         <h2>データベースを別に扱う</h2>
         <p>
-          Workerの公開だけではD1のマイグレーションは実行されません。既存環境では
-          マイグレーション履歴を確認し、バックアップと復旧方法を用意してから
-          スキーマを変更してください。コード公開とデータベース更新を一度に
-          試し直さないようにします。
+          Workerの公開だけではD1のマイグレーションは実行されません。既存環境ではマイグレーション履歴を確認し、バックアップと復旧方法を用意してからスキーマを変更してください。コード公開とデータベース更新を一度に試し直さないようにします。
         </p>
 
         <h2>動作確認</h2>
@@ -303,8 +297,7 @@ bunx wrangler secret put AUTH_PASSWORD_HASH</code></pre>
         <h3>認証エラーが出る</h3>
         <p>
           <code>bunx wrangler whoami</code>
-          でログイン中のアカウントを確認します。APIトークンを使う場合は、
-          アカウントIDと権限の対象が一致しているか確認します。
+          でログイン中のアカウントを確認します。APIトークンを使う場合は、アカウントIDと権限の対象が一致しているか確認します。
         </p>
 
         <h3>接続が不足している</h3>
@@ -317,8 +310,7 @@ bunx wrangler secret put AUTH_PASSWORD_HASH</code></pre>
 
         <h3>外部サーバーへの配信が止まる</h3>
         <p>
-          通常の配信キューと失敗キューの両方を確認します。手動で何度も再送する
-          前に、失敗理由と試行回数を記録してください。
+          通常の配信キューと失敗キューの両方を確認します。手動で何度も再送する前に、失敗理由と試行回数を記録してください。
         </p>
       </main>
     </div>

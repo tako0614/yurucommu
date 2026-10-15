@@ -129,12 +129,10 @@
       <main class="docs-content" id="main">
         <h1>主要APIの概要</h1>
         <p class="lead">
-          yurucommuのクライアントを作る人に向けて、接続先の確認、認証、ページング、よく使うAPIを説明します。
-          すべてのエンドポイントを列挙した契約書ではありません。
+          yurucommuのクライアントを作る人に向けて、接続先の確認、認証、ページング、よく使うAPIを説明します。すべてのエンドポイントを列挙した契約書ではありません。
         </p>
         <p>
-          APIはインスタンスごとに提供されます。まず接続先から情報を取得し、返されたURLを使ってください。
-          レスポンスの型を利用できる
+          APIはインスタンスごとに提供されます。まず接続先から情報を取得し、返されたURLを使ってください。レスポンスの型を利用できる
           <code>@takosjp/yurucommu-api</code>
           が、通常のクライアント実装では第一候補です。
         </p>
@@ -142,9 +140,10 @@
         <h2>1. 接続先を確認する</h2>
         <h3>GET /.well-known/social-server</h3>
         <p>
-          最初にこのURLを取得します。APIの基準URL、利用できる認証方法、主要なエンドポイント、
-          サーバーが対応する機能が返ります。
-          <code>/.well-known/yurucommu</code> も同じ情報を返す互換URLです。
+          最初にこのURLを取得します。APIの基準URL、利用できる認証方法、主要なエンドポイント、サーバーが対応する機能が返ります。<code
+            >/.well-known/yurucommu</code
+          >
+          も同じ情報を返す互換URLです。
         </p>
         <pre><code>{
   "product": "yurucommu",
@@ -161,8 +160,9 @@
   }
 }</code></pre>
         <p>
-          クライアント側で <code>/api</code> の場所や認証方法を決め打ちせず、
-          このレスポンスを起点にすると、別ドメインで動くインスタンスにも接続できます。
+          クライアント側で
+          <code>/api</code>
+          の場所や認証方法を決め打ちせず、このレスポンスを起点にすると、別ドメインで動くインスタンスにも接続できます。
         </p>
         <pre><code>const serverOrigin = "https://social.example.com";
 const discovery = await fetch(
@@ -172,8 +172,8 @@ const discovery = await fetch(
         <h2>2. TypeScriptクライアント</h2>
         <p>
           TypeScriptでは
-          <code>@takosjp/yurucommu-api</code> の利用を推奨します。
-          投稿、プロフィール、コミュニティ、DM、通知などの型とリクエスト関数をまとめて利用できます。
+          <code>@takosjp/yurucommu-api</code>
+          の利用を推奨します。投稿、プロフィール、コミュニティ、DM、通知などの型とリクエスト関数をまとめて利用できます。
         </p>
         <pre><code>import {
   fetchTimeline,
@@ -190,17 +190,15 @@ setYurucommuApiTransport({
 
 const page = await fetchTimeline({ limit: 20 });</code></pre>
         <p>
-          サーバーの新しいAPIが、公開済みSDKより先に使えるようになることがあります。
-          SDKにまだ関数がない場合は、そのルートだけ
+          サーバーの新しいAPIが、公開済みSDKより先に使えるようになることがあります。SDKにまだ関数がない場合は、そのルートだけ
           <code>fetch</code> で呼び出してください。たとえば
-          <code>GET /api/timeline/following</code> はサーバー側にあり、
-          SDKの公開状況によっては直接呼び出す必要があります。
+          <code>GET /api/timeline/following</code>
+          はサーバー側にあり、SDKの公開状況によっては直接呼び出す必要があります。
         </p>
 
         <h2>3. 認証</h2>
         <p>
-          yurucommuの通常APIはセッションで利用者を識別します。
-          ブラウザとネイティブアプリでは、同じセッションを異なる方法で送ります。
+          yurucommuの通常APIはセッションで利用者を識別します。ブラウザとネイティブアプリでは、同じセッションを異なる方法で送ります。
         </p>
         <div
           class="docs-table-scroll"
@@ -243,9 +241,10 @@ const page = await fetchTimeline({ limit: 20 });</code></pre>
         </div>
         <p>
           モバイルの
-          <code>access_token</code> は、そのyurucommuインスタンスが発行する
-          セッション情報です。外部のOAuthアクセストークンではありません。
-          <code>GET /api/auth/me</code>
+          <code>access_token</code>
+          は、そのyurucommuインスタンスが発行するセッション情報です。外部のOAuthアクセストークンではありません。<code
+            >GET /api/auth/me</code
+          >
           で、現在の利用者とセッションの有効性を確認できます。
         </p>
 
@@ -265,33 +264,33 @@ Content-Type: application/json
 
         <h3>CSRF保護</h3>
         <p>
-          Cookieを使う <code>POST</code>、<code>PUT</code>、<code>PATCH</code>、
-          <code>DELETE</code> はCSRF検証の対象です。 <code>Origin</code>、または
-          <code>Referer</code> のoriginが、 インスタンスの
+          Cookieを使う
+          <code>POST</code>、<code>PUT</code>、<code>PATCH</code>、<code
+            >DELETE</code
+          >
+          はCSRF検証の対象です。<code>Origin</code>、または
+          <code>Referer</code> のoriginが、インスタンスの
           <code>APP_URL</code> か、運用者が
           <code>CSRF_ALLOWED_ORIGINS</code>
           に登録したURLと一致する必要があります。
         </p>
         <p>
           Cookieを付けずにモバイル用セッションを
-          <code>Authorization</code> ヘッダーで送るリクエストは、
-          Cookieを利用したCSRFの対象ではありません。CookieとBearerを同時に送ると
+          <code>Authorization</code>
+          ヘッダーで送るリクエストは、Cookieを利用したCSRFの対象ではありません。CookieとBearerを同時に送ると
           Cookieが優先され、CSRF検証も行われます。
         </p>
 
         <h3>用途が限定されたOAuthトークン</h3>
         <p>
           <code>POST /api/apps/:name/deploy</code>
-          は通常の利用者セッションではなく、
-          <code>apps:deploy</code>
-          スコープを持つOAuthアクセストークンを使います。
-          このトークンと、モバイルログインで返るセッショントークンは交換できません。
+          は通常の利用者セッションではなく、<code>apps:deploy</code>
+          スコープを持つOAuthアクセストークンを使います。このトークンと、モバイルログインで返るセッショントークンは交換できません。
         </p>
 
         <h2>4. アカウントの切り替え</h2>
         <p>
-          1つのインスタンスにはルートのownerアカウントがあり、ownerは最大20個の
-          サブアカウントを作成できます。
+          1つのインスタンスにはルートのownerアカウントがあり、ownerは最大20個のサブアカウントを作成できます。
         </p>
         <div
           class="docs-table-scroll"
@@ -327,8 +326,7 @@ Content-Type: application/json
           </table>
         </div>
         <p>
-          別のownerが持つアカウントへは切り替えられません。切り替え時には古いセッションが破棄され、
-          新しいセッションが発行されます。現在の
+          別のownerが持つアカウントへは切り替えられません。切り替え時には古いセッションが破棄され、新しいセッションが発行されます。現在の
           <code>/api/auth/switch</code> はブラウザのCookieセッション専用です。
         </p>
         <pre><code>{
@@ -358,9 +356,10 @@ Content-Type: application/json
 
         <h3>ページを続けて取得する</h3>
         <p>
-          <code>limit</code> の初期値は20、最大値は90です。
-          次のページがあるときは <code>next_cursor</code> が返ります。
-          その値を変更せず、次のリクエストの
+          <code>limit</code>
+          の初期値は20、最大値は90です。次のページがあるときは
+          <code>next_cursor</code>
+          が返ります。その値を変更せず、次のリクエストの
           <code>before</code> に渡してください。
         </p>
         <pre><code>{
@@ -377,8 +376,9 @@ const nextPage = await fetch(
   `${discovery.apiBaseUrl}/api/timeline?${params}`,
 ).then((response) =&gt; response.json());</code></pre>
         <p>
-          <code>next_cursor</code> はサーバーだけが解釈する不透明な値です。
-          日時や <code>ap_id</code> として分解したり、最後の投稿の
+          <code>next_cursor</code>
+          はサーバーだけが解釈する不透明な値です。日時や
+          <code>ap_id</code> として分解したり、最後の投稿の
           <code>ap_id</code> で置き換えたりしないでください。
         </p>
 
@@ -393,8 +393,9 @@ const nextPage = await fetch(
 const dmPath =
   `/api/dm/user/${encodeURIComponent(otherActor.ap_id)}/messages`;</code></pre>
         <p>
-          クエリに入れる場合は <code>URLSearchParams</code> を使います。
-          URLを文字列連結だけで組み立てると、<code>:</code> や
+          クエリに入れる場合は
+          <code>URLSearchParams</code>
+          を使います。URLを文字列連結だけで組み立てると、<code>:</code> や
           <code>/</code> が別のパスとして解釈されるため注意してください。
         </p>
 
@@ -565,15 +566,14 @@ const dmPath =
           </table>
         </div>
         <p>
-          上の短いパスはすべて <code>/api/communities</code> に続きます。
-          管理操作にはownerまたはmoderatorの権限が必要です。
-          最後のownerを削除したり、owner以外へ変更したりすることはできません。
+          上の短いパスはすべて
+          <code>/api/communities</code>
+          に続きます。管理操作にはownerまたはmoderatorの権限が必要です。最後のownerを削除したり、owner以外へ変更したりすることはできません。
         </p>
 
         <h2>9. 変更リクエストの読み方</h2>
         <p>
-          変更系APIを調べるときは、認証、送信するbody、成功レスポンス、
-          エラーの4点を確認してください。投稿作成を例にします。
+          変更系APIを調べるときは、認証、送信するbody、成功レスポンス、エラーの4点を確認してください。投稿作成を例にします。
         </p>
 
         <h3>POST /api/posts</h3>
@@ -598,9 +598,9 @@ const dmPath =
 }</code></pre>
         <p>
           <code>content</code> だけが必須です。<code>visibility</code> は
-          <code>public</code>、<code>unlisted</code>、
-          <code>followers</code>、<code>direct</code> を使用できます。
-          コミュニティを指定した場合は、そのコミュニティの参加状態と投稿ルールも確認されます。
+          <code>public</code
+          >、<code>unlisted</code>、<code>followers</code>、<code>direct</code>
+          を使用できます。コミュニティを指定した場合は、そのコミュニティの参加状態と投稿ルールも確認されます。
         </p>
         <p><strong>成功レスポンス:</strong></p>
         <pre><code>{
@@ -699,8 +699,7 @@ const dmPath =
           </table>
         </div>
         <p>
-          この表にある通常の変更APIは、すべて利用者セッションが必要です。
-          ブラウザでは前述のCSRF条件も適用されます。
+          この表にある通常の変更APIは、すべて利用者セッションが必要です。ブラウザでは前述のCSRF条件も適用されます。
         </p>
 
         <h2>10. アプリを配置するAPI</h2>
@@ -731,17 +730,21 @@ const dmPath =
 }</code></pre>
         <p>
           <strong>主なエラー:</strong>
-          <code>401 unauthorized</code> / <code>invalid_token</code>、
-          <code>403 insufficient_scope</code>、不正なbodyの
+          <code>401 unauthorized</code> / <code>invalid_token</code>、<code
+            >403 insufficient_scope</code
+          >、不正なbodyの
           <code>400 invalid_request</code>、ストレージを利用できない場合の
           <code>503 object_storage_unavailable</code> です。
         </p>
 
         <h2>ActivityPubとの関係</h2>
         <p>
-          このページの <code>/api/*</code> はクライアント向けAPIです。
-          サーバー間連合で使うActivityPubのURLや、yurucommuが追加するオブジェクトについては
-          <a href="/specs/">連合の仕組み</a>を参照してください。
+          このページの
+          <code>/api/*</code>
+          はクライアント向けAPIです。サーバー間連合で使うActivityPubのURLや、yurucommuが追加するオブジェクトについては<a
+            href="/specs/"
+            >連合の仕組み</a
+          >を参照してください。
         </p>
       </main>
     </div>
