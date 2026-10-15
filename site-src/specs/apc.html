@@ -30,9 +30,7 @@
 
         <h2>公開されるGroupアクター</h2>
         <p>
-          公開中で削除されていないコミュニティだけが
-          <code>/ap/groups/:name</code
-          >で取得できます。非公開コミュニティはActivityPubのアクターとして公開されず、このURLは<code>404</code>を返します。<code>@name@host</code>はWebFingerでこのアクターに解決されます。
+          公開中で削除されていないコミュニティだけが<code>/ap/groups/:name</code>で取得できます。非公開コミュニティはActivityPubのアクターとして公開されず、このURLは<code>404</code>を返します。<code>@name@host</code>はWebFingerでこのアクターに解決されます。
         </p>
         <pre><code>{
   "@context": "https://www.w3.org/ns/activitystreams",
@@ -57,9 +55,7 @@
 
         <h2>参加と退出</h2>
         <p>
-          リモートアクターはコミュニティの<code>inbox</code>へ
-          <code>Follow</code
-          >を送ります。応答はコミュニティ自身の鍵で署名されます。
+          リモートアクターはコミュニティの<code>inbox</code>へ<code>Follow</code>を送ります。応答はコミュニティ自身の鍵で署名されます。
         </p>
         <div
           class="docs-table-scroll"
@@ -93,21 +89,15 @@
           </table>
         </div>
         <p>
-          退出は、参加時の<code>Follow</code>を対象にした
-          <code>Undo</code>で表します。公開コミュニティ以外の
-          <code>inbox</code>は連合向けに公開されません。
+          退出は、参加時の<code>Follow</code>を対象にした<code>Undo</code>で表します。公開コミュニティ以外の<code>inbox</code>は連合向けに公開されません。
         </p>
 
         <h2>投稿の配信</h2>
         <p>
-          コミュニティのフィードに作成した投稿は、投稿者を
-          <code>actor</code
-          >とする<code>Create(Note)</code>として保存されます。配信先はそのコミュニティのメンバーと、Groupアクターをフォローしているリモートアクターです。
+          コミュニティのフィードに作成した投稿は、投稿者を<code>actor</code>とする<code>Create(Note)</code>として保存されます。配信先はそのコミュニティのメンバーと、Groupアクターをフォローしているリモートアクターです。
         </p>
         <p>
-          公開コミュニティからリモートへ届けるときは、Groupアクターが投稿を
-          <code>Announce</code>します。ローカルメンバーには元の
-          <code>Create</code>が渡ります。
+          公開コミュニティからリモートへ届けるときは、Groupアクターが投稿を<code>Announce</code>します。ローカルメンバーには元の<code>Create</code>が渡ります。
         </p>
         <pre><code>{
   "@context": "https://www.w3.org/ns/activitystreams",
@@ -121,9 +111,7 @@
 
         <h2>コミュニティのチャット</h2>
         <p>
-          画面上のコミュニティチャットは、現在は主に同じインスタンス内のメンバー向け機能です。コミュニティのフィード投稿と同じ
-          <code>Announce</code
-          >配信を行うとは限りません。外部サーバーからGroupの<code>inbox</code>へ任意の<code>Create</code>を送ればチャットに参加できる、という契約もありません。
+          画面上のコミュニティチャットは、現在は主に同じインスタンス内のメンバー向け機能です。コミュニティのフィード投稿と同じ<code>Announce</code>配信を行うとは限りません。外部サーバーからGroupの<code>inbox</code>へ任意の<code>Create</code>を送ればチャットに参加できる、という契約もありません。
         </p>
 
         <h2>現在使っていないAPC語彙</h2>
