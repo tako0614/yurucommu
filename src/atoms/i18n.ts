@@ -606,10 +606,26 @@ const translations = {
       "あなたのサーバーは現在利用できません。再構築するか、デプロイ手順を確認してください。",
     "instance.reasons": "詳細",
     "instance.deployDocs": "デプロイ手順を見る",
-    "firstFeed.title": "ここがあなたの居場所のはじまり",
+    "firstFeed.title": "ほかのサーバーの人をフォロー",
     "firstFeed.description":
-      "まだ何も流れていません。届く範囲は、あなたが広げたつながりの中で育っていきます。",
+      "フォローした人の新しい投稿が、このホームに届きます。ActivityPub に対応したほかのサーバーの人も、アドレスでフォローできます。",
     "firstFeed.findPeople": "フォローする人を探す",
+    "firstFeed.addressPlaceholder": "@alice@mastodon.social",
+    "firstFeed.search": "探す",
+    "firstFeed.addressHint":
+      "ほかのサーバーの人は「@ユーザー名@サーバー」の形で入力します。プロフィールのURLを貼り付けても探せます。",
+    "firstFeed.yourAddress": "あなたのアドレス",
+    "firstFeed.yourAddressHint":
+      "相手のサーバーでこのアドレスを検索してもらうと、あなたをフォローできます。",
+    "firstFeed.copyAddress": "コピー",
+    "firstFeed.copied": "コピーしました",
+    "firstFeed.copyFailed":
+      "コピーできませんでした。選択したアドレスをコピーしてください",
+    "firstFeed.qrHint":
+      "QRコードは、相手も Yurucommu を使っているときの交換用です。",
+    "firstFeed.qrFailed": "QRコードを開けませんでした",
+    "firstFeed.showQr": "QRコード",
+    "firstFeed.moreActions": "ほかにできること",
     "firstFeed.createCommunity": "コミュニティを作る",
     "firstFeed.discoverCommunities": "コミュニティを探す",
     "firstFeed.firstStory": "最初のストーリーを作る",
@@ -1395,10 +1411,26 @@ const translations = {
       "Your instance is currently unavailable. Rebuild it or check the deploy docs.",
     "instance.reasons": "Details",
     "instance.deployDocs": "View deploy docs",
-    "firstFeed.title": "This is where your place begins",
+    "firstFeed.title": "Follow people on other servers",
     "firstFeed.description":
-      "Nothing here yet. Your reach grows within the circle of people you connect with.",
+      "New posts from people you follow arrive here. You can follow people on other ActivityPub servers by their address.",
     "firstFeed.findPeople": "Find people to follow",
+    "firstFeed.addressPlaceholder": "@alice@mastodon.social",
+    "firstFeed.search": "Search",
+    "firstFeed.addressHint":
+      "For someone on another server, enter @username@server. Pasting their profile URL works too.",
+    "firstFeed.yourAddress": "Your address",
+    "firstFeed.yourAddressHint":
+      "Others can follow you by searching for this address on their server.",
+    "firstFeed.copyAddress": "Copy",
+    "firstFeed.copied": "Copied",
+    "firstFeed.copyFailed":
+      "Couldn't copy. The address is selected; copy it yourself",
+    "firstFeed.qrHint":
+      "The QR code is for exchanging with someone who also uses Yurucommu.",
+    "firstFeed.qrFailed": "Couldn't open the QR code",
+    "firstFeed.showQr": "QR code",
+    "firstFeed.moreActions": "More to do",
     "firstFeed.createCommunity": "Create a community",
     "firstFeed.discoverCommunities": "Discover communities",
     "firstFeed.firstStory": "Create your first Story",
