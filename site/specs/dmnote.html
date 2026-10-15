@@ -37,7 +37,7 @@
       href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="../styles.css?v=2" />
+    <link rel="stylesheet" href="../styles.css?v=3" />
   </head>
   <body>
     <a class="skip" href="#main">Skip to content</a>
@@ -67,46 +67,70 @@
     </header>
 
     <div class="docs-layout">
-      <aside class="docs-sidebar">
-        <p class="docs-sidebar-title">ドキュメント</p>
-        <ul class="docs-sidebar-nav">
-          <li><a href="/specs/">概要</a></li>
-          <li><a href="/specs/yurucommu.html">使い方</a></li>
-          <li><a href="/specs/activitypub.html">現在の連合形式</a></li>
-          <li><a href="/specs/namespace.html">データ語彙</a></li>
-        </ul>
+      <nav class="docs-sidebar" aria-label="仕様のページ">
+        <details class="docs-menu">
+          <summary class="docs-menu-toggle">
+            <span class="docs-menu-scope">Specs</span>
+            <span class="docs-menu-label">ページ一覧</span>
+            <svg
+              class="docs-menu-chevron"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              aria-hidden="true"
+            >
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </summary>
+          <div class="docs-menu-body">
+            <p class="docs-sidebar-title">ドキュメント</p>
+            <ul class="docs-sidebar-nav">
+              <li><a href="/specs/">概要</a></li>
+              <li><a href="/specs/yurucommu.html">使い方</a></li>
+              <li><a href="/specs/activitypub.html">現在の連合形式</a></li>
+              <li><a href="/specs/namespace.html">データ語彙</a></li>
+            </ul>
 
-        <div class="docs-sidebar-section">
-          <p class="docs-sidebar-title">現在の連合形式</p>
-          <ul class="docs-sidebar-nav">
-            <li><a href="/specs/apc.html">コミュニティ</a></li>
-            <li><a href="/specs/story.html">Story</a></li>
-            <li><a href="/specs/dmnote.html" class="active">DM</a></li>
-          </ul>
-        </div>
+            <div class="docs-sidebar-section">
+              <p class="docs-sidebar-title">現在の連合形式</p>
+              <ul class="docs-sidebar-nav">
+                <li><a href="/specs/apc.html">コミュニティ</a></li>
+                <li><a href="/specs/story.html">Story</a></li>
+                <li><a href="/specs/dmnote.html" class="active">DM</a></li>
+              </ul>
+            </div>
 
-        <div class="docs-sidebar-section">
-          <p class="docs-sidebar-title">使い方</p>
-          <ul class="docs-sidebar-nav">
-            <li><a href="/specs/single-user.html">アカウント構成</a></li>
-            <li><a href="/specs/qr-exchange.html">QRでアカウント交換</a></li>
-          </ul>
-        </div>
+            <div class="docs-sidebar-section">
+              <p class="docs-sidebar-title">使い方</p>
+              <ul class="docs-sidebar-nav">
+                <li><a href="/specs/single-user.html">アカウント構成</a></li>
+                <li>
+                  <a href="/specs/qr-exchange.html">QRでアカウント交換</a>
+                </li>
+              </ul>
+            </div>
 
-        <div class="docs-sidebar-section">
-          <p class="docs-sidebar-title">リソース</p>
-          <ul class="docs-sidebar-nav">
-            <li>
-              <a href="https://www.w3.org/TR/activitypub/">ActivityPub (W3C)</a>
-            </li>
-            <li>
-              <a href="https://www.w3.org/TR/activitystreams-core/"
-                >Activity Streams 2.0</a
-              >
-            </li>
-          </ul>
-        </div>
-      </aside>
+            <div class="docs-sidebar-section">
+              <p class="docs-sidebar-title">リソース</p>
+              <ul class="docs-sidebar-nav">
+                <li>
+                  <a href="https://www.w3.org/TR/activitypub/"
+                    >ActivityPub (W3C)</a
+                  >
+                </li>
+                <li>
+                  <a href="https://www.w3.org/TR/activitystreams-core/"
+                    >Activity Streams 2.0</a
+                  >
+                </li>
+              </ul>
+            </div>
+          </div>
+        </details>
+      </nav>
 
       <main class="docs-content" id="main">
         <span class="spec-status experimental">現行実装</span>
@@ -178,37 +202,39 @@
         </p>
 
         <h2>保存期間と削除</h2>
-        <table class="docs-table">
-          <thead>
-            <tr>
-              <th>操作</th>
-              <th>現在の挙動</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>何もしない</td>
-              <td>
-                メッセージは期限なしで保存。<code>endTime</code>による自動非表示や
-                自動削除は行わない
-              </td>
-            </tr>
-            <tr>
-              <td>自分のメッセージを削除</td>
-              <td>
-                ローカルのオブジェクト、通知用データ、添付メディアを削除。
-                現在はリモートへ<code>Delete</code>を配送しない
-              </td>
-            </tr>
-            <tr>
-              <td>自分のメッセージを編集</td>
-              <td>
-                ローカルの内容を更新。現在はリモートへ
-                <code>Update</code>を配送しない
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <div class="docs-table-scroll">
+          <table class="docs-table">
+            <thead>
+              <tr>
+                <th>操作</th>
+                <th>現在の挙動</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>何もしない</td>
+                <td>
+                  メッセージは期限なしで保存。<code>endTime</code>による自動非表示や
+                  自動削除は行わない
+                </td>
+              </tr>
+              <tr>
+                <td>自分のメッセージを削除</td>
+                <td>
+                  ローカルのオブジェクト、通知用データ、添付メディアを削除。
+                  現在はリモートへ<code>Delete</code>を配送しない
+                </td>
+              </tr>
+              <tr>
+                <td>自分のメッセージを編集</td>
+                <td>
+                  ローカルの内容を更新。現在はリモートへ
+                  <code>Update</code>を配送しない
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
         <p>
           相手が別サーバーの場合、送信後の編集や削除で相手側のコピーが変わるとは
           限りません。機密情報は「後から消せる」ことを前提に送らないでください。

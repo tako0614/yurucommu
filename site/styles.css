@@ -19,8 +19,13 @@
   --line-2: #26262d;
   --accent: #9aa6d6;
   --accent-soft: rgba(154, 166, 214, 0.1);
+  --glass: rgba(10, 10, 12, 0.72);
+  --glass-strong: rgba(10, 10, 12, 0.94);
   --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
   --w: 1180px;
+  --header-h: 4rem;
+  --menu-h: 3rem;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 
   /* back-compat aliases for existing docs markup */
   --bg-primary: var(--bg);
@@ -34,6 +39,7 @@
 
 html {
   scroll-behavior: smooth;
+  scroll-padding-top: calc(var(--header-h) + 1rem);
 }
 
 body {
@@ -63,15 +69,16 @@ a {
   position: fixed;
   inset: 0 0 auto 0;
   z-index: 100;
-  background: rgba(10, 10, 12, 0.72);
+  background: var(--glass);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--line);
 }
 
 .header-inner {
   max-width: var(--w);
+  height: var(--header-h);
   margin: 0 auto;
-  padding: 1.1rem 1.75rem;
+  padding: 0 1.75rem;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -149,7 +156,7 @@ a {
   min-height: 100vh;
   max-width: var(--w);
   margin: 0 auto;
-  padding-top: 3.75rem;
+  padding-top: var(--header-h);
 }
 
 .docs-sidebar {
@@ -158,10 +165,70 @@ a {
   border-right: 1px solid var(--line);
   padding: 2.5rem 1.5rem;
   position: sticky;
-  top: 3.75rem;
+  top: var(--header-h);
   align-self: flex-start;
-  height: calc(100vh - 3.75rem);
+  height: calc(100vh - var(--header-h));
   overflow-y: auto;
+}
+
+/* The page list is a <details> so phones get a native, script-free toggle.
+   Wide screens hide the toggle and keep the list open; a browser without
+   ::details-content keeps the toggle instead of losing the list. */
+.docs-menu-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-height: var(--menu-h);
+  padding: 0 0.75rem;
+  border-radius: 0.5rem;
+  color: var(--ink);
+  font-size: 0.9rem;
+  font-weight: 500;
+  list-style: none;
+  cursor: pointer;
+}
+
+.docs-menu-toggle::-webkit-details-marker {
+  display: none;
+}
+
+.docs-menu-scope {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.docs-menu-chevron {
+  margin-left: auto;
+  color: var(--dim);
+  transition: transform 150ms var(--ease-out);
+}
+
+.docs-menu[open] .docs-menu-chevron {
+  transform: rotate(180deg);
+}
+
+.docs-menu-toggle:hover .docs-menu-chevron {
+  color: var(--ink);
+}
+
+.docs-menu-toggle:focus-visible,
+.docs-sidebar-nav a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (min-width: 901px) {
+  @supports selector(::details-content) {
+    .docs-menu-toggle {
+      display: none;
+    }
+    .docs-menu::details-content {
+      content-visibility: visible;
+    }
+  }
 }
 
 .docs-sidebar-title {
@@ -263,6 +330,7 @@ a {
 }
 
 .docs-content code {
+  overflow-wrap: anywhere;
   font-family: var(--mono);
   font-size: 0.85em;
   background: var(--bg-2);
@@ -301,10 +369,16 @@ a {
 }
 
 /* ---- Tables ---- */
+/* Wide tables scroll inside their own box instead of widening the page. */
+.docs-table-scroll {
+  margin: 1.5rem 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+
 .docs-table {
   width: 100%;
   border-collapse: collapse;
-  margin: 1.5rem 0;
   font-size: 0.9rem;
 }
 
@@ -517,8 +591,40 @@ a {
 
 /* ---- Responsive ---- */
 @media (max-width: 900px) {
+  html {
+    scroll-padding-top: calc(var(--header-h) + var(--menu-h) + 1rem);
+  }
+  .docs-layout {
+    display: block;
+  }
   .docs-sidebar {
-    display: none;
+    position: sticky;
+    top: var(--header-h);
+    z-index: 50;
+    width: auto;
+    height: auto;
+    padding: 0 0.75rem;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+    background: var(--glass-strong);
+    backdrop-filter: blur(12px);
+    overflow: visible;
+  }
+  .docs-menu-body {
+    max-height: calc(100dvh - var(--header-h) - var(--menu-h));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 0.5rem 0 1.5rem;
+  }
+  .docs-sidebar-nav a {
+    padding: 0.6rem 0.75rem;
+    font-size: 0.95rem;
+  }
+  .docs-sidebar-title {
+    padding: 0 0.75rem;
+  }
+  .docs-sidebar-section {
+    margin-top: 1.5rem;
   }
   .docs-content {
     padding: 2.5rem 1.5rem 4rem;
@@ -531,6 +637,15 @@ a {
 @media (max-width: 600px) {
   .docs-content h1 {
     font-size: 1.85rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  .docs-menu-chevron {
+    transition: none;
   }
 }
 

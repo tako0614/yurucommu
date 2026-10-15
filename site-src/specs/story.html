@@ -83,40 +83,42 @@
 }</code></pre>
 
         <h2>プロパティ</h2>
-        <table class="docs-table">
-          <thead>
-            <tr>
-              <th>名前</th>
-              <th>現在の扱い</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><code>type</code></td>
-              <td><code>["Story", "Note"]</code></td>
-            </tr>
-            <tr>
-              <td><code>endTime</code></td>
-              <td>ローカル作成時は公開時刻から24時間後</td>
-            </tr>
-            <tr>
-              <td><code>attachment</code></td>
-              <td>画像または動画を1つだけ使用</td>
-            </tr>
-            <tr>
-              <td><code>content</code></td>
-              <td>任意のキャプション。ローカル作成は最大500文字</td>
-            </tr>
-            <tr>
-              <td><code>displayDuration</code></td>
-              <td>ISO 8601 duration。未指定時の表示値は<code>PT5S</code></td>
-            </tr>
-            <tr>
-              <td><code>overlays</code></td>
-              <td>最大20件。現在の作成画面はテキスト、リンク、投票に対応</td>
-            </tr>
-          </tbody>
-        </table>
+        <div class="docs-table-scroll">
+          <table class="docs-table">
+            <thead>
+              <tr>
+                <th>名前</th>
+                <th>現在の扱い</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>type</code></td>
+                <td><code>["Story", "Note"]</code></td>
+              </tr>
+              <tr>
+                <td><code>endTime</code></td>
+                <td>ローカル作成時は公開時刻から24時間後</td>
+              </tr>
+              <tr>
+                <td><code>attachment</code></td>
+                <td>画像または動画を1つだけ使用</td>
+              </tr>
+              <tr>
+                <td><code>content</code></td>
+                <td>任意のキャプション。ローカル作成は最大500文字</td>
+              </tr>
+              <tr>
+                <td><code>displayDuration</code></td>
+                <td>ISO 8601 duration。未指定時の表示値は<code>PT5S</code></td>
+              </tr>
+              <tr>
+                <td><code>overlays</code></td>
+                <td>最大20件。現在の作成画面はテキスト、リンク、投票に対応</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
 
         <h2>オーバーレイの座標</h2>
         <p>
@@ -152,33 +154,37 @@
         </p>
 
         <h2>24時間経過と手動削除の違い</h2>
-        <table class="docs-table">
-          <thead>
-            <tr>
-              <th>きっかけ</th>
-              <th>ローカルでの結果</th>
-              <th>連合への通知</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><code>endTime</code>を過ぎる</td>
-              <td>
-                読み取り結果から直ちに除外。期限切れデータとメディアは
-                後続の保持期間処理で削除
-              </td>
-              <td>
-                期限切れだけを理由に<code>Delete</code>は送らない。
-                受信側は<code>endTime</code>を見て非表示にする必要がある
-              </td>
-            </tr>
-            <tr>
-              <td>投稿者が手動で削除</td>
-              <td>Story本体、関連データ、保存メディアを削除</td>
-              <td>元の公開範囲へ<code>Delete</code>を配送して削除を知らせる</td>
-            </tr>
-          </tbody>
-        </table>
+        <div class="docs-table-scroll">
+          <table class="docs-table">
+            <thead>
+              <tr>
+                <th>きっかけ</th>
+                <th>ローカルでの結果</th>
+                <th>連合への通知</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>endTime</code>を過ぎる</td>
+                <td>
+                  読み取り結果から直ちに除外。期限切れデータとメディアは
+                  後続の保持期間処理で削除
+                </td>
+                <td>
+                  期限切れだけを理由に<code>Delete</code>は送らない。
+                  受信側は<code>endTime</code>を見て非表示にする必要がある
+                </td>
+              </tr>
+              <tr>
+                <td>投稿者が手動で削除</td>
+                <td>Story本体、関連データ、保存メディアを削除</td>
+                <td>
+                  元の公開範囲へ<code>Delete</code>を配送して削除を知らせる
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
         <p>
           したがって「24時間後に全サーバーから物理的に消える」とは保証できません。
           相手が<code>endTime</code>を解釈しない場合や、すでに複製したデータの扱いは

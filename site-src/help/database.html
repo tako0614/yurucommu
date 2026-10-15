@@ -23,41 +23,45 @@
         </p>
 
         <h2>保存先ごとの役割</h2>
-        <table class="docs-table">
-          <thead>
-            <tr>
-              <th>保存先</th>
-              <th>主なデータ</th>
-              <th>実行環境での対応</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>SQLデータベース</td>
-              <td>
-                アカウント、投稿、フォロー、メッセージ、通知、ActivityPubの受信記録
-              </td>
-              <td>管理ホストではSQLite互換データベース、CloudflareではD1</td>
-            </tr>
-            <tr>
-              <td>オブジェクトストレージ</td>
-              <td>投稿、プロフィール、ストーリーなどで使う画像や動画</td>
-              <td>管理ホストではオブジェクトストレージ、CloudflareではR2</td>
-            </tr>
-            <tr>
-              <td>キー・バリューストア</td>
-              <td>認証フローの一時状態、ログイン試行制限、レート制限</td>
-              <td>
-                管理ホストではキー・バリューストア、CloudflareではWorkers KV
-              </td>
-            </tr>
-            <tr>
-              <td>キュー</td>
-              <td>ActivityPubなどの非同期配送、再試行、処理できなかった配送</td>
-              <td>通常の配送キューと、失敗した配送を受け取るキューの2本</td>
-            </tr>
-          </tbody>
-        </table>
+        <div class="docs-table-scroll">
+          <table class="docs-table">
+            <thead>
+              <tr>
+                <th>保存先</th>
+                <th>主なデータ</th>
+                <th>実行環境での対応</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>SQLデータベース</td>
+                <td>
+                  アカウント、投稿、フォロー、メッセージ、通知、ActivityPubの受信記録
+                </td>
+                <td>管理ホストではSQLite互換データベース、CloudflareではD1</td>
+              </tr>
+              <tr>
+                <td>オブジェクトストレージ</td>
+                <td>投稿、プロフィール、ストーリーなどで使う画像や動画</td>
+                <td>管理ホストではオブジェクトストレージ、CloudflareではR2</td>
+              </tr>
+              <tr>
+                <td>キー・バリューストア</td>
+                <td>認証フローの一時状態、ログイン試行制限、レート制限</td>
+                <td>
+                  管理ホストではキー・バリューストア、CloudflareではWorkers KV
+                </td>
+              </tr>
+              <tr>
+                <td>キュー</td>
+                <td>
+                  ActivityPubなどの非同期配送、再試行、処理できなかった配送
+                </td>
+                <td>通常の配送キューと、失敗した配送を受け取るキューの2本</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
         <p>
           SQLのバックアップだけでは、画像や動画まで含む完全な復旧にはなりません。
           反対に、キューは配送中の作業を運ぶ場所であり、投稿や配送結果を保存する

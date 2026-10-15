@@ -43,7 +43,7 @@
       href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="../styles.css?v=2" />
+    <link rel="stylesheet" href="../styles.css?v=3" />
   </head>
   <body>
     <a class="skip" href="#main">Skip to content</a>
@@ -73,46 +73,66 @@
     </header>
 
     <div class="docs-layout">
-      <aside class="docs-sidebar">
-        <p class="docs-sidebar-title">はじめに</p>
-        <ul class="docs-sidebar-nav">
-          <li><a href="/help/">概要</a></li>
-          <li><a href="/help/getting-started.html">クイックスタート</a></li>
-          <li><a href="/help/requirements.html">必要な環境</a></li>
-        </ul>
+      <nav class="docs-sidebar" aria-label="ドキュメントのページ">
+        <details class="docs-menu">
+          <summary class="docs-menu-toggle">
+            <span class="docs-menu-scope">Docs</span>
+            <span class="docs-menu-label">ページ一覧</span>
+            <svg
+              class="docs-menu-chevron"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              aria-hidden="true"
+            >
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </summary>
+          <div class="docs-menu-body">
+            <p class="docs-sidebar-title">はじめに</p>
+            <ul class="docs-sidebar-nav">
+              <li><a href="/help/">概要</a></li>
+              <li><a href="/help/getting-started.html">クイックスタート</a></li>
+              <li><a href="/help/requirements.html">必要な環境</a></li>
+            </ul>
 
-        <div class="docs-sidebar-section">
-          <p class="docs-sidebar-title">セットアップ</p>
-          <ul class="docs-sidebar-nav">
-            <li>
-              <a href="/help/cloudflare-setup.html" class="active"
-                >Cloudflare設定</a
-              >
-            </li>
-            <li><a href="/help/deployment.html">デプロイ</a></li>
-            <li><a href="/help/configuration.html">設定</a></li>
-            <li><a href="/help/custom-domain.html">カスタムドメイン</a></li>
-          </ul>
-        </div>
+            <div class="docs-sidebar-section">
+              <p class="docs-sidebar-title">セットアップ</p>
+              <ul class="docs-sidebar-nav">
+                <li>
+                  <a href="/help/cloudflare-setup.html" class="active"
+                    >Cloudflare設定</a
+                  >
+                </li>
+                <li><a href="/help/deployment.html">デプロイ</a></li>
+                <li><a href="/help/configuration.html">設定</a></li>
+                <li><a href="/help/custom-domain.html">カスタムドメイン</a></li>
+              </ul>
+            </div>
 
-        <div class="docs-sidebar-section">
-          <p class="docs-sidebar-title">使い方</p>
-          <ul class="docs-sidebar-nav">
-            <li><a href="/help/first-post.html">最初の投稿</a></li>
-            <li><a href="/help/following.html">フォローする</a></li>
-            <li><a href="/help/communities.html">コミュニティ</a></li>
-          </ul>
-        </div>
+            <div class="docs-sidebar-section">
+              <p class="docs-sidebar-title">使い方</p>
+              <ul class="docs-sidebar-nav">
+                <li><a href="/help/first-post.html">最初の投稿</a></li>
+                <li><a href="/help/following.html">フォローする</a></li>
+                <li><a href="/help/communities.html">コミュニティ</a></li>
+              </ul>
+            </div>
 
-        <div class="docs-sidebar-section">
-          <p class="docs-sidebar-title">リファレンス</p>
-          <ul class="docs-sidebar-nav">
-            <li><a href="/help/api.html">API</a></li>
-            <li><a href="/help/database.html">データベース</a></li>
-            <li><a href="/specs/">連合の仕組み</a></li>
-          </ul>
-        </div>
-      </aside>
+            <div class="docs-sidebar-section">
+              <p class="docs-sidebar-title">リファレンス</p>
+              <ul class="docs-sidebar-nav">
+                <li><a href="/help/api.html">API</a></li>
+                <li><a href="/help/database.html">データベース</a></li>
+                <li><a href="/specs/">連合の仕組み</a></li>
+              </ul>
+            </div>
+          </div>
+        </details>
+      </nav>
 
       <main class="docs-content" id="main">
         <h1>Cloudflare設定</h1>
@@ -144,24 +164,26 @@
         </ul>
 
         <h2>設定方法を選ぶ</h2>
-        <table class="docs-table">
-          <thead>
-            <tr>
-              <th>状況</th>
-              <th>使うファイル</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>必要なリソースを新しくまとめて作る</td>
-              <td>ルートの<code>main.tf</code></td>
-            </tr>
-            <tr>
-              <td>作成済みのリソースへWorkerを接続する</td>
-              <td><code>wrangler.jsonc</code></td>
-            </tr>
-          </tbody>
-        </table>
+        <div class="docs-table-scroll">
+          <table class="docs-table">
+            <thead>
+              <tr>
+                <th>状況</th>
+                <th>使うファイル</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>必要なリソースを新しくまとめて作る</td>
+                <td>ルートの<code>main.tf</code></td>
+              </tr>
+              <tr>
+                <td>作成済みのリソースへWorkerを接続する</td>
+                <td><code>wrangler.jsonc</code></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
         <p>
           <code>main.tf</code> と <code>wrangler.jsonc</code>
           は、同時に使うことを前提にした手順ではありません。どちらがリソースと
@@ -175,47 +197,49 @@
         </p>
 
         <h2>必要なCloudflareサービス</h2>
-        <table class="docs-table">
-          <thead>
-            <tr>
-              <th>サービス</th>
-              <th>役割</th>
-              <th>Workerから見える名前</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>Workers</td>
-              <td>Web画面とAPIを実行</td>
-              <td>-</td>
-            </tr>
-            <tr>
-              <td>D1</td>
-              <td>アカウント、投稿、メッセージなどを保存</td>
-              <td><code>DB</code></td>
-            </tr>
-            <tr>
-              <td>R2</td>
-              <td>画像と動画を保存</td>
-              <td><code>MEDIA</code></td>
-            </tr>
-            <tr>
-              <td>Workers KV</td>
-              <td>セッションや試行回数を保存</td>
-              <td><code>KV</code></td>
-            </tr>
-            <tr>
-              <td>Queues</td>
-              <td>ActivityPubの配信と、失敗した配信の退避</td>
-              <td><code>DELIVERY_QUEUE</code>、<code>DELIVERY_DLQ</code></td>
-            </tr>
-            <tr>
-              <td>Cron Triggers</td>
-              <td>期限切れデータを定期的に整理</td>
-              <td>1時間ごとの実行</td>
-            </tr>
-          </tbody>
-        </table>
+        <div class="docs-table-scroll">
+          <table class="docs-table">
+            <thead>
+              <tr>
+                <th>サービス</th>
+                <th>役割</th>
+                <th>Workerから見える名前</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Workers</td>
+                <td>Web画面とAPIを実行</td>
+                <td>-</td>
+              </tr>
+              <tr>
+                <td>D1</td>
+                <td>アカウント、投稿、メッセージなどを保存</td>
+                <td><code>DB</code></td>
+              </tr>
+              <tr>
+                <td>R2</td>
+                <td>画像と動画を保存</td>
+                <td><code>MEDIA</code></td>
+              </tr>
+              <tr>
+                <td>Workers KV</td>
+                <td>セッションや試行回数を保存</td>
+                <td><code>KV</code></td>
+              </tr>
+              <tr>
+                <td>Queues</td>
+                <td>ActivityPubの配信と、失敗した配信の退避</td>
+                <td><code>DELIVERY_QUEUE</code>、<code>DELIVERY_DLQ</code></td>
+              </tr>
+              <tr>
+                <td>Cron Triggers</td>
+                <td>期限切れデータを定期的に整理</td>
+                <td>1時間ごとの実行</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
 
         <h2>認証を確認する</h2>
         <pre><code>bunx wrangler login
