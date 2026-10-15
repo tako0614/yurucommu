@@ -46,24 +46,31 @@
         </ul>
 
         <h2>設定方法を選ぶ</h2>
-        <table class="docs-table">
-          <thead>
-            <tr>
-              <th>状況</th>
-              <th>使うファイル</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>必要なリソースを新しくまとめて作る</td>
-              <td>ルートの<code>main.tf</code></td>
-            </tr>
-            <tr>
-              <td>作成済みのリソースへWorkerを接続する</td>
-              <td><code>wrangler.jsonc</code></td>
-            </tr>
-          </tbody>
-        </table>
+        <div
+          class="docs-table-scroll"
+          role="region"
+          tabindex="0"
+          aria-label="表：設定方法を選ぶ"
+        >
+          <table class="docs-table">
+            <thead>
+              <tr>
+                <th>状況</th>
+                <th>使うファイル</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>必要なリソースを新しくまとめて作る</td>
+                <td>ルートの<code>main.tf</code></td>
+              </tr>
+              <tr>
+                <td>作成済みのリソースへWorkerを接続する</td>
+                <td><code>wrangler.jsonc</code></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
         <p>
           <code>main.tf</code> と <code>wrangler.jsonc</code>
           は、同時に使うことを前提にした手順ではありません。どちらがリソースと
@@ -77,47 +84,54 @@
         </p>
 
         <h2>必要なCloudflareサービス</h2>
-        <table class="docs-table">
-          <thead>
-            <tr>
-              <th>サービス</th>
-              <th>役割</th>
-              <th>Workerから見える名前</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>Workers</td>
-              <td>Web画面とAPIを実行</td>
-              <td>-</td>
-            </tr>
-            <tr>
-              <td>D1</td>
-              <td>アカウント、投稿、メッセージなどを保存</td>
-              <td><code>DB</code></td>
-            </tr>
-            <tr>
-              <td>R2</td>
-              <td>画像と動画を保存</td>
-              <td><code>MEDIA</code></td>
-            </tr>
-            <tr>
-              <td>Workers KV</td>
-              <td>セッションや試行回数を保存</td>
-              <td><code>KV</code></td>
-            </tr>
-            <tr>
-              <td>Queues</td>
-              <td>ActivityPubの配信と、失敗した配信の退避</td>
-              <td><code>DELIVERY_QUEUE</code>、<code>DELIVERY_DLQ</code></td>
-            </tr>
-            <tr>
-              <td>Cron Triggers</td>
-              <td>期限切れデータを定期的に整理</td>
-              <td>1時間ごとの実行</td>
-            </tr>
-          </tbody>
-        </table>
+        <div
+          class="docs-table-scroll"
+          role="region"
+          tabindex="0"
+          aria-label="表：必要なCloudflareサービス"
+        >
+          <table class="docs-table">
+            <thead>
+              <tr>
+                <th>サービス</th>
+                <th>役割</th>
+                <th>Workerから見える名前</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Workers</td>
+                <td>Web画面とAPIを実行</td>
+                <td>-</td>
+              </tr>
+              <tr>
+                <td>D1</td>
+                <td>アカウント、投稿、メッセージなどを保存</td>
+                <td><code>DB</code></td>
+              </tr>
+              <tr>
+                <td>R2</td>
+                <td>画像と動画を保存</td>
+                <td><code>MEDIA</code></td>
+              </tr>
+              <tr>
+                <td>Workers KV</td>
+                <td>セッションや試行回数を保存</td>
+                <td><code>KV</code></td>
+              </tr>
+              <tr>
+                <td>Queues</td>
+                <td>ActivityPubの配信と、失敗した配信の退避</td>
+                <td><code>DELIVERY_QUEUE</code>、<code>DELIVERY_DLQ</code></td>
+              </tr>
+              <tr>
+                <td>Cron Triggers</td>
+                <td>期限切れデータを定期的に整理</td>
+                <td>1時間ごとの実行</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
 
         <h2>認証を確認する</h2>
         <pre><code>bunx wrangler login

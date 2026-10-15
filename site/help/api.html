@@ -37,7 +37,7 @@
       href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="../styles.css?v=2" />
+    <link rel="stylesheet" href="../styles.css?v=3" />
   </head>
   <body>
     <a class="skip" href="#main">Skip to content</a>
@@ -67,42 +67,64 @@
     </header>
 
     <div class="docs-layout">
-      <aside class="docs-sidebar">
-        <p class="docs-sidebar-title">はじめに</p>
-        <ul class="docs-sidebar-nav">
-          <li><a href="/help/">概要</a></li>
-          <li><a href="/help/getting-started.html">クイックスタート</a></li>
-          <li><a href="/help/requirements.html">必要な環境</a></li>
-        </ul>
+      <nav class="docs-sidebar" aria-label="ドキュメントのページ">
+        <details class="docs-menu">
+          <summary class="docs-menu-toggle">
+            <span class="docs-menu-scope">Docs</span>
+            <span class="docs-menu-label">ページ一覧</span>
+            <svg
+              class="docs-menu-chevron"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              aria-hidden="true"
+            >
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </summary>
+          <div class="docs-menu-body">
+            <p class="docs-sidebar-title">はじめに</p>
+            <ul class="docs-sidebar-nav">
+              <li><a href="/help/">概要</a></li>
+              <li><a href="/help/getting-started.html">クイックスタート</a></li>
+              <li><a href="/help/requirements.html">必要な環境</a></li>
+            </ul>
 
-        <div class="docs-sidebar-section">
-          <p class="docs-sidebar-title">セットアップ</p>
-          <ul class="docs-sidebar-nav">
-            <li><a href="/help/cloudflare-setup.html">Cloudflare設定</a></li>
-            <li><a href="/help/deployment.html">デプロイ</a></li>
-            <li><a href="/help/configuration.html">設定</a></li>
-            <li><a href="/help/custom-domain.html">カスタムドメイン</a></li>
-          </ul>
-        </div>
+            <div class="docs-sidebar-section">
+              <p class="docs-sidebar-title">セットアップ</p>
+              <ul class="docs-sidebar-nav">
+                <li>
+                  <a href="/help/cloudflare-setup.html">Cloudflare設定</a>
+                </li>
+                <li><a href="/help/deployment.html">デプロイ</a></li>
+                <li><a href="/help/configuration.html">設定</a></li>
+                <li><a href="/help/custom-domain.html">カスタムドメイン</a></li>
+              </ul>
+            </div>
 
-        <div class="docs-sidebar-section">
-          <p class="docs-sidebar-title">使い方</p>
-          <ul class="docs-sidebar-nav">
-            <li><a href="/help/first-post.html">最初の投稿</a></li>
-            <li><a href="/help/following.html">フォローする</a></li>
-            <li><a href="/help/communities.html">コミュニティ</a></li>
-          </ul>
-        </div>
+            <div class="docs-sidebar-section">
+              <p class="docs-sidebar-title">使い方</p>
+              <ul class="docs-sidebar-nav">
+                <li><a href="/help/first-post.html">最初の投稿</a></li>
+                <li><a href="/help/following.html">フォローする</a></li>
+                <li><a href="/help/communities.html">コミュニティ</a></li>
+              </ul>
+            </div>
 
-        <div class="docs-sidebar-section">
-          <p class="docs-sidebar-title">リファレンス</p>
-          <ul class="docs-sidebar-nav">
-            <li><a href="/help/api.html" class="active">API</a></li>
-            <li><a href="/help/database.html">データベース</a></li>
-            <li><a href="/specs/">連合の仕組み</a></li>
-          </ul>
-        </div>
-      </aside>
+            <div class="docs-sidebar-section">
+              <p class="docs-sidebar-title">リファレンス</p>
+              <ul class="docs-sidebar-nav">
+                <li><a href="/help/api.html" class="active">API</a></li>
+                <li><a href="/help/database.html">データベース</a></li>
+                <li><a href="/specs/">連合の仕組み</a></li>
+              </ul>
+            </div>
+          </div>
+        </details>
+      </nav>
 
       <main class="docs-content" id="main">
         <h1>主要APIの概要</h1>
@@ -180,38 +202,45 @@ const page = await fetchTimeline({ limit: 20 });</code></pre>
           yurucommuの通常APIはセッションで利用者を識別します。
           ブラウザとネイティブアプリでは、同じセッションを異なる方法で送ります。
         </p>
-        <table>
-          <thead>
-            <tr>
-              <th>用途</th>
-              <th>ログイン</th>
-              <th>以後のリクエスト</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>ブラウザ</td>
-              <td>
-                <code>POST /api/auth/login</code> または
-                <code>GET /api/auth/login/:provider</code>
-              </td>
-              <td>
-                セッションCookie。<code>credentials: "include"</code> を使用
-              </td>
-            </tr>
-            <tr>
-              <td>ネイティブ・モバイル</td>
-              <td>
-                <code>POST /api/auth/mobile/login</code> または
-                <code>POST /api/auth/mobile/oidc</code>
-              </td>
-              <td>
-                返された <code>access_token</code> を
-                <code>Authorization: Bearer ...</code> で送信
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <div
+          class="docs-table-scroll"
+          role="region"
+          tabindex="0"
+          aria-label="表：3. 認証"
+        >
+          <table class="docs-table">
+            <thead>
+              <tr>
+                <th>用途</th>
+                <th>ログイン</th>
+                <th>以後のリクエスト</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>ブラウザ</td>
+                <td>
+                  <code>POST /api/auth/login</code> または
+                  <code>GET /api/auth/login/:provider</code>
+                </td>
+                <td>
+                  セッションCookie。<code>credentials: "include"</code> を使用
+                </td>
+              </tr>
+              <tr>
+                <td>ネイティブ・モバイル</td>
+                <td>
+                  <code>POST /api/auth/mobile/login</code> または
+                  <code>POST /api/auth/mobile/oidc</code>
+                </td>
+                <td>
+                  返された <code>access_token</code> を
+                  <code>Authorization: Bearer ...</code> で送信
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
         <p>
           モバイルの
           <code>access_token</code> は、そのyurucommuインスタンスが発行する
@@ -264,32 +293,39 @@ Content-Type: application/json
           1つのインスタンスにはルートのownerアカウントがあり、ownerは最大20個の
           サブアカウントを作成できます。
         </p>
-        <table>
-          <thead>
-            <tr>
-              <th>API</th>
-              <th>内容</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><code>GET /api/auth/accounts</code></td>
-              <td>
-                ルートアカウントと、そのownerが作成したサブアカウントを取得
-              </td>
-            </tr>
-            <tr>
-              <td><code>POST /api/auth/accounts</code></td>
-              <td>
-                サブアカウントを作成。インスタンスのownerだけが利用でき、上限は20個
-              </td>
-            </tr>
-            <tr>
-              <td><code>POST /api/auth/switch</code></td>
-              <td>同じownerに属するアカウントへ切り替え</td>
-            </tr>
-          </tbody>
-        </table>
+        <div
+          class="docs-table-scroll"
+          role="region"
+          tabindex="0"
+          aria-label="表：4. アカウントの切り替え"
+        >
+          <table class="docs-table">
+            <thead>
+              <tr>
+                <th>API</th>
+                <th>内容</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>GET /api/auth/accounts</code></td>
+                <td>
+                  ルートアカウントと、そのownerが作成したサブアカウントを取得
+                </td>
+              </tr>
+              <tr>
+                <td><code>POST /api/auth/accounts</code></td>
+                <td>
+                  サブアカウントを作成。インスタンスのownerだけが利用でき、上限は20個
+                </td>
+              </tr>
+              <tr>
+                <td><code>POST /api/auth/switch</code></td>
+                <td>同じownerに属するアカウントへ切り替え</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
         <p>
           別のownerが持つアカウントへは切り替えられません。切り替え時には古いセッションが破棄され、
           新しいセッションが発行されます。現在の
@@ -363,98 +399,105 @@ const dmPath =
         </p>
 
         <h2>7. よく使うAPI</h2>
-        <table>
-          <thead>
-            <tr>
-              <th>機能</th>
-              <th>主なAPI</th>
-              <th>認証</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>利用者</td>
-              <td>
-                <code>GET /api/actors/:identifier</code><br />
-                <code>GET /api/actors/:identifier/posts</code><br />
-                <code>PUT /api/actors/me</code>
-              </td>
-              <td>公開情報の取得は不要。プロフィール更新は必要</td>
-            </tr>
-            <tr>
-              <td>投稿</td>
-              <td>
-                <code>GET /api/posts/:encodedApId</code><br />
-                <code>POST /api/posts</code><br />
-                <code>PATCH /api/posts/:encodedApId</code><br />
-                <code>DELETE /api/posts/:encodedApId</code>
-              </td>
-              <td>閲覧範囲に応じる。作成・編集・削除は必要</td>
-            </tr>
-            <tr>
-              <td>リアクション</td>
-              <td>
-                <code>POST|DELETE /api/posts/:encodedApId/like</code><br />
-                <code>POST|DELETE /api/posts/:encodedApId/repost</code><br />
-                <code>POST|DELETE /api/posts/:encodedApId/bookmark</code>
-              </td>
-              <td>必要</td>
-            </tr>
-            <tr>
-              <td>フォロー</td>
-              <td>
-                <code>POST|DELETE /api/follow</code><br />
-                <code>POST /api/follow/accept</code><br />
-                <code>POST /api/follow/reject</code>
-              </td>
-              <td>必要</td>
-            </tr>
-            <tr>
-              <td>DM</td>
-              <td>
-                <code>GET /api/dm/contacts</code><br />
-                <code>GET|POST /api/dm/user/:encodedApId/messages</code><br />
-                <code>POST /api/dm/user/:encodedApId/read</code>
-              </td>
-              <td>必要</td>
-            </tr>
-            <tr>
-              <td>ストーリー</td>
-              <td>
-                <code>GET|POST /api/stories</code><br />
-                <code>POST /api/stories/view</code><br />
-                <code>POST /api/stories/delete</code>
-              </td>
-              <td>必要</td>
-            </tr>
-            <tr>
-              <td>通知</td>
-              <td>
-                <code>GET /api/notifications</code><br />
-                <code>GET /api/notifications/unread/count</code><br />
-                <code>POST /api/notifications/read</code>
-              </td>
-              <td>必要</td>
-            </tr>
-            <tr>
-              <td>検索</td>
-              <td>
-                <code>GET /api/search/actors</code><br />
-                <code>GET /api/search/posts</code><br />
-                <code>GET /api/search/remote</code>
-              </td>
-              <td>検索対象に応じる</td>
-            </tr>
-            <tr>
-              <td>メディア</td>
-              <td>
-                <code>POST /api/media/upload</code><br />
-                <code>GET /media/:filename</code>
-              </td>
-              <td>アップロードは必要。取得はメディアの公開範囲に応じる</td>
-            </tr>
-          </tbody>
-        </table>
+        <div
+          class="docs-table-scroll"
+          role="region"
+          tabindex="0"
+          aria-label="表：7. よく使うAPI"
+        >
+          <table class="docs-table">
+            <thead>
+              <tr>
+                <th>機能</th>
+                <th>主なAPI</th>
+                <th>認証</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>利用者</td>
+                <td>
+                  <code>GET /api/actors/:identifier</code><br />
+                  <code>GET /api/actors/:identifier/posts</code><br />
+                  <code>PUT /api/actors/me</code>
+                </td>
+                <td>公開情報の取得は不要。プロフィール更新は必要</td>
+              </tr>
+              <tr>
+                <td>投稿</td>
+                <td>
+                  <code>GET /api/posts/:encodedApId</code><br />
+                  <code>POST /api/posts</code><br />
+                  <code>PATCH /api/posts/:encodedApId</code><br />
+                  <code>DELETE /api/posts/:encodedApId</code>
+                </td>
+                <td>閲覧範囲に応じる。作成・編集・削除は必要</td>
+              </tr>
+              <tr>
+                <td>リアクション</td>
+                <td>
+                  <code>POST|DELETE /api/posts/:encodedApId/like</code><br />
+                  <code>POST|DELETE /api/posts/:encodedApId/repost</code><br />
+                  <code>POST|DELETE /api/posts/:encodedApId/bookmark</code>
+                </td>
+                <td>必要</td>
+              </tr>
+              <tr>
+                <td>フォロー</td>
+                <td>
+                  <code>POST|DELETE /api/follow</code><br />
+                  <code>POST /api/follow/accept</code><br />
+                  <code>POST /api/follow/reject</code>
+                </td>
+                <td>必要</td>
+              </tr>
+              <tr>
+                <td>DM</td>
+                <td>
+                  <code>GET /api/dm/contacts</code><br />
+                  <code>GET|POST /api/dm/user/:encodedApId/messages</code><br />
+                  <code>POST /api/dm/user/:encodedApId/read</code>
+                </td>
+                <td>必要</td>
+              </tr>
+              <tr>
+                <td>ストーリー</td>
+                <td>
+                  <code>GET|POST /api/stories</code><br />
+                  <code>POST /api/stories/view</code><br />
+                  <code>POST /api/stories/delete</code>
+                </td>
+                <td>必要</td>
+              </tr>
+              <tr>
+                <td>通知</td>
+                <td>
+                  <code>GET /api/notifications</code><br />
+                  <code>GET /api/notifications/unread/count</code><br />
+                  <code>POST /api/notifications/read</code>
+                </td>
+                <td>必要</td>
+              </tr>
+              <tr>
+                <td>検索</td>
+                <td>
+                  <code>GET /api/search/actors</code><br />
+                  <code>GET /api/search/posts</code><br />
+                  <code>GET /api/search/remote</code>
+                </td>
+                <td>検索対象に応じる</td>
+              </tr>
+              <tr>
+                <td>メディア</td>
+                <td>
+                  <code>POST /api/media/upload</code><br />
+                  <code>GET /media/:filename</code>
+                </td>
+                <td>アップロードは必要。取得はメディアの公開範囲に応じる</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
 
         <h2>8. コミュニティのAPI</h2>
         <p>
@@ -462,58 +505,65 @@ const dmPath =
           <code>Group</code> として連合します。REST
           APIは役割ごとに次のまとまりに分かれています。
         </p>
-        <table>
-          <thead>
-            <tr>
-              <th>まとまり</th>
-              <th>パス</th>
-              <th>できること</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>検索・詳細</td>
-              <td>
-                <code>/api/communities</code><br />
-                <code>/api/communities/:identifier</code>
-              </td>
-              <td>公開コミュニティと、参加中の非公開コミュニティを取得</td>
-            </tr>
-            <tr>
-              <td>参加</td>
-              <td>
-                <code>/:identifier/join</code><br />
-                <code>/:identifier/leave</code>
-              </td>
-              <td>公開方針に従って参加、承認待ち、退出</td>
-            </tr>
-            <tr>
-              <td>メンバー</td>
-              <td><code>/:identifier/members</code></td>
-              <td>一覧、削除、役割の変更</td>
-            </tr>
-            <tr>
-              <td>参加申請</td>
-              <td><code>/:identifier/requests</code></td>
-              <td>申請の一覧、承認、却下</td>
-            </tr>
-            <tr>
-              <td>招待</td>
-              <td><code>/:identifier/invites</code></td>
-              <td>招待の作成、一覧、取り消し</td>
-            </tr>
-            <tr>
-              <td>メッセージ</td>
-              <td><code>/:identifier/messages</code></td>
-              <td>コミュニティ内の会話を取得、送信、編集、削除</td>
-            </tr>
-            <tr>
-              <td>設定</td>
-              <td><code>/:identifier/settings</code></td>
-              <td>表示、参加方法、投稿できる役割などを変更</td>
-            </tr>
-          </tbody>
-        </table>
+        <div
+          class="docs-table-scroll"
+          role="region"
+          tabindex="0"
+          aria-label="表：8. コミュニティのAPI"
+        >
+          <table class="docs-table">
+            <thead>
+              <tr>
+                <th>まとまり</th>
+                <th>パス</th>
+                <th>できること</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>検索・詳細</td>
+                <td>
+                  <code>/api/communities</code><br />
+                  <code>/api/communities/:identifier</code>
+                </td>
+                <td>公開コミュニティと、参加中の非公開コミュニティを取得</td>
+              </tr>
+              <tr>
+                <td>参加</td>
+                <td>
+                  <code>/:identifier/join</code><br />
+                  <code>/:identifier/leave</code>
+                </td>
+                <td>公開方針に従って参加、承認待ち、退出</td>
+              </tr>
+              <tr>
+                <td>メンバー</td>
+                <td><code>/:identifier/members</code></td>
+                <td>一覧、削除、役割の変更</td>
+              </tr>
+              <tr>
+                <td>参加申請</td>
+                <td><code>/:identifier/requests</code></td>
+                <td>申請の一覧、承認、却下</td>
+              </tr>
+              <tr>
+                <td>招待</td>
+                <td><code>/:identifier/invites</code></td>
+                <td>招待の作成、一覧、取り消し</td>
+              </tr>
+              <tr>
+                <td>メッセージ</td>
+                <td><code>/:identifier/messages</code></td>
+                <td>コミュニティ内の会話を取得、送信、編集、削除</td>
+              </tr>
+              <tr>
+                <td>設定</td>
+                <td><code>/:identifier/settings</code></td>
+                <td>表示、参加方法、投稿できる役割などを変更</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
         <p>
           上の短いパスはすべて <code>/api/communities</code> に続きます。
           管理操作にはownerまたはmoderatorの権限が必要です。
@@ -587,58 +637,67 @@ const dmPath =
         </p>
 
         <h3>主な変更系API</h3>
-        <table>
-          <thead>
-            <tr>
-              <th>操作</th>
-              <th>body</th>
-              <th>成功</th>
-              <th>よくある失敗</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><code>POST /api/follow</code></td>
-              <td><code>{ "target_ap_id": "..." }</code></td>
-              <td>フォロー状態</td>
-              <td><code>400</code>、<code>401</code>、<code>404</code></td>
-            </tr>
-            <tr>
-              <td><code>POST /api/communities</code></td>
-              <td>
-                <code
-                  >{ "name": "...", "display_name": "...", "summary": "..."
-                  }</code
-                >
-              </td>
-              <td>作成したコミュニティ</td>
-              <td><code>400</code>、<code>401</code>、<code>409</code></td>
-            </tr>
-            <tr>
-              <td><code>POST /api/dm/user/:encodedApId/messages</code></td>
-              <td><code>{ "content": "...", "attachments": [] }</code></td>
-              <td>メッセージと会話ID</td>
-              <td><code>400</code>、<code>401</code>、<code>403</code></td>
-            </tr>
-            <tr>
-              <td><code>POST /api/media/upload</code></td>
-              <td><code>multipart/form-data</code> の <code>file</code></td>
-              <td>
-                <code>url</code>、<code>r2_key</code>、<code>content_type</code>
-              </td>
-              <td><code>400</code>、<code>401</code>、<code>413</code></td>
-            </tr>
-            <tr>
-              <td><code>POST /api/notifications/read</code></td>
-              <td>
-                <code>{ "ids": ["activity-ap-id"] }</code>、または
-                <code>{ "read_all": true }</code>
-              </td>
-              <td><code>{ "success": true }</code></td>
-              <td><code>400</code>、<code>401</code></td>
-            </tr>
-          </tbody>
-        </table>
+        <div
+          class="docs-table-scroll"
+          role="region"
+          tabindex="0"
+          aria-label="表：主な変更系API"
+        >
+          <table class="docs-table docs-table-code-wrap">
+            <thead>
+              <tr>
+                <th>操作</th>
+                <th>body</th>
+                <th>成功</th>
+                <th>よくある失敗</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>POST /api/follow</code></td>
+                <td><code>{ "target_ap_id": "..." }</code></td>
+                <td>フォロー状態</td>
+                <td><code>400</code>、<code>401</code>、<code>404</code></td>
+              </tr>
+              <tr>
+                <td><code>POST /api/communities</code></td>
+                <td>
+                  <code
+                    >{ "name": "...", "display_name": "...", "summary": "..."
+                    }</code
+                  >
+                </td>
+                <td>作成したコミュニティ</td>
+                <td><code>400</code>、<code>401</code>、<code>409</code></td>
+              </tr>
+              <tr>
+                <td><code>POST /api/dm/user/:encodedApId/messages</code></td>
+                <td><code>{ "content": "...", "attachments": [] }</code></td>
+                <td>メッセージと会話ID</td>
+                <td><code>400</code>、<code>401</code>、<code>403</code></td>
+              </tr>
+              <tr>
+                <td><code>POST /api/media/upload</code></td>
+                <td><code>multipart/form-data</code> の <code>file</code></td>
+                <td>
+                  <code>url</code>、<code>r2_key</code>、<code
+                    >content_type</code
+                  >
+                </td>
+                <td><code>400</code>、<code>401</code>、<code>413</code></td>
+              </tr>
+              <tr>
+                <td><code>POST /api/notifications/read</code></td>
+                <td>
+                  <code>{ "ids": ["activity-ap-id"] }</code>、または
+                  <code>{ "read_all": true }</code>
+                </td>
+                <td><code>{ "success": true }</code></td>
+                <td><code>400</code>、<code>401</code></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
         <p>
           この表にある通常の変更APIは、すべて利用者セッションが必要です。
           ブラウザでは前述のCSRF条件も適用されます。

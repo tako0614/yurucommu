@@ -40,7 +40,7 @@
       href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="../styles.css?v=2" />
+    <link rel="stylesheet" href="../styles.css?v=3" />
   </head>
   <body>
     <a class="skip" href="#main">Skip to content</a>
@@ -70,44 +70,68 @@
     </header>
 
     <div class="docs-layout">
-      <aside class="docs-sidebar">
-        <p class="docs-sidebar-title">はじめに</p>
-        <ul class="docs-sidebar-nav">
-          <li><a href="/help/">概要</a></li>
-          <li><a href="/help/getting-started.html">クイックスタート</a></li>
-          <li><a href="/help/requirements.html">必要な環境</a></li>
-        </ul>
+      <nav class="docs-sidebar" aria-label="ドキュメントのページ">
+        <details class="docs-menu">
+          <summary class="docs-menu-toggle">
+            <span class="docs-menu-scope">Docs</span>
+            <span class="docs-menu-label">ページ一覧</span>
+            <svg
+              class="docs-menu-chevron"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              aria-hidden="true"
+            >
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </summary>
+          <div class="docs-menu-body">
+            <p class="docs-sidebar-title">はじめに</p>
+            <ul class="docs-sidebar-nav">
+              <li><a href="/help/">概要</a></li>
+              <li><a href="/help/getting-started.html">クイックスタート</a></li>
+              <li><a href="/help/requirements.html">必要な環境</a></li>
+            </ul>
 
-        <div class="docs-sidebar-section">
-          <p class="docs-sidebar-title">セットアップ</p>
-          <ul class="docs-sidebar-nav">
-            <li><a href="/help/cloudflare-setup.html">Cloudflare設定</a></li>
-            <li><a href="/help/deployment.html">デプロイ</a></li>
-            <li><a href="/help/configuration.html">設定</a></li>
-            <li><a href="/help/custom-domain.html">カスタムドメイン</a></li>
-          </ul>
-        </div>
+            <div class="docs-sidebar-section">
+              <p class="docs-sidebar-title">セットアップ</p>
+              <ul class="docs-sidebar-nav">
+                <li>
+                  <a href="/help/cloudflare-setup.html">Cloudflare設定</a>
+                </li>
+                <li><a href="/help/deployment.html">デプロイ</a></li>
+                <li><a href="/help/configuration.html">設定</a></li>
+                <li><a href="/help/custom-domain.html">カスタムドメイン</a></li>
+              </ul>
+            </div>
 
-        <div class="docs-sidebar-section">
-          <p class="docs-sidebar-title">使い方</p>
-          <ul class="docs-sidebar-nav">
-            <li><a href="/help/first-post.html">最初の投稿</a></li>
-            <li><a href="/help/following.html">フォローする</a></li>
-            <li>
-              <a href="/help/communities.html" class="active">コミュニティ</a>
-            </li>
-          </ul>
-        </div>
+            <div class="docs-sidebar-section">
+              <p class="docs-sidebar-title">使い方</p>
+              <ul class="docs-sidebar-nav">
+                <li><a href="/help/first-post.html">最初の投稿</a></li>
+                <li><a href="/help/following.html">フォローする</a></li>
+                <li>
+                  <a href="/help/communities.html" class="active"
+                    >コミュニティ</a
+                  >
+                </li>
+              </ul>
+            </div>
 
-        <div class="docs-sidebar-section">
-          <p class="docs-sidebar-title">リファレンス</p>
-          <ul class="docs-sidebar-nav">
-            <li><a href="/help/api.html">API</a></li>
-            <li><a href="/help/database.html">データベース</a></li>
-            <li><a href="/specs/">連合の仕組み</a></li>
-          </ul>
-        </div>
-      </aside>
+            <div class="docs-sidebar-section">
+              <p class="docs-sidebar-title">リファレンス</p>
+              <ul class="docs-sidebar-nav">
+                <li><a href="/help/api.html">API</a></li>
+                <li><a href="/help/database.html">データベース</a></li>
+                <li><a href="/specs/">連合の仕組み</a></li>
+              </ul>
+            </div>
+          </div>
+        </details>
+      </nav>
 
       <main class="docs-content" id="main">
         <h1>コミュニティ</h1>
@@ -149,76 +173,97 @@
         <p>
           「誰が内容を見られるか」と「どうやって参加するか」は別々に設定します。
         </p>
-        <table class="docs-table">
-          <thead>
-            <tr>
-              <th>公開範囲</th>
-              <th>説明</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>公開</td>
-              <td>誰でもコミュニティを見つけて内容を閲覧できます</td>
-            </tr>
-            <tr>
-              <td>非公開</td>
-              <td>メンバーだけが内容を閲覧できます</td>
-            </tr>
-          </tbody>
-        </table>
+        <div
+          class="docs-table-scroll"
+          role="region"
+          tabindex="0"
+          aria-label="表：公開範囲"
+        >
+          <table class="docs-table">
+            <thead>
+              <tr>
+                <th>公開範囲</th>
+                <th>説明</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>公開</td>
+                <td>誰でもコミュニティを見つけて内容を閲覧できます</td>
+              </tr>
+              <tr>
+                <td>非公開</td>
+                <td>メンバーだけが内容を閲覧できます</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
 
-        <table class="docs-table">
-          <thead>
-            <tr>
-              <th>参加方法</th>
-              <th>説明</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>オープン</td>
-              <td>誰でもすぐに参加できます</td>
-            </tr>
-            <tr>
-              <td>承認制</td>
-              <td>参加には管理者の承認が必要です</td>
-            </tr>
-            <tr>
-              <td>招待制</td>
-              <td>参加には招待コードが必要です</td>
-            </tr>
-          </tbody>
-        </table>
+        <div
+          class="docs-table-scroll"
+          role="region"
+          tabindex="0"
+          aria-label="表：参加方法"
+        >
+          <table class="docs-table">
+            <thead>
+              <tr>
+                <th>参加方法</th>
+                <th>説明</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>オープン</td>
+                <td>誰でもすぐに参加できます</td>
+              </tr>
+              <tr>
+                <td>承認制</td>
+                <td>参加には管理者の承認が必要です</td>
+              </tr>
+              <tr>
+                <td>招待制</td>
+                <td>参加には招待コードが必要です</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
 
         <h2>誰が投稿できるか</h2>
         <p>コミュニティの管理者は、投稿できる人を次の中から選べます。</p>
-        <table class="docs-table">
-          <thead>
-            <tr>
-              <th>設定</th>
-              <th>説明</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>誰でも</td>
-              <td>コミュニティに参加していない人も投稿できます</td>
-            </tr>
-            <tr>
-              <td>メンバーのみ</td>
-              <td>コミュニティのメンバーが投稿できます</td>
-            </tr>
-            <tr>
-              <td>モデレーター以上</td>
-              <td>モデレーターとオーナーが投稿できます</td>
-            </tr>
-            <tr>
-              <td>オーナーのみ</td>
-              <td>オーナーだけが投稿できます</td>
-            </tr>
-          </tbody>
-        </table>
+        <div
+          class="docs-table-scroll"
+          role="region"
+          tabindex="0"
+          aria-label="表：誰が投稿できるか"
+        >
+          <table class="docs-table">
+            <thead>
+              <tr>
+                <th>設定</th>
+                <th>説明</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>誰でも</td>
+                <td>コミュニティに参加していない人も投稿できます</td>
+              </tr>
+              <tr>
+                <td>メンバーのみ</td>
+                <td>コミュニティのメンバーが投稿できます</td>
+              </tr>
+              <tr>
+                <td>モデレーター以上</td>
+                <td>モデレーターとオーナーが投稿できます</td>
+              </tr>
+              <tr>
+                <td>オーナーのみ</td>
+                <td>オーナーだけが投稿できます</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
 
         <h2>他のサーバーとのつながり</h2>
         <p>

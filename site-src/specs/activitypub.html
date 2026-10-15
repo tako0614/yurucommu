@@ -57,39 +57,46 @@
         </div>
 
         <h2>共通して使うもの</h2>
-        <table class="docs-table">
-          <thead>
-            <tr>
-              <th>用途</th>
-              <th>現在の形式</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>ユーザー</td>
-              <td>
-                各アカウントを<code>Person</code>アクターとして公開し、
-                WebFingerで解決
-              </td>
-            </tr>
-            <tr>
-              <td>通常の投稿</td>
-              <td><code>Create</code>に<code>Note</code>を含めて配信</td>
-            </tr>
-            <tr>
-              <td>フォロー</td>
-              <td>
-                <code>Follow</code>と<code>Accept</code>または<code
-                  >Reject</code
-                >
-              </td>
-            </tr>
-            <tr>
-              <td>署名</td>
-              <td>アクターの公開鍵に対応するHTTP署名を受信時に検証</td>
-            </tr>
-          </tbody>
-        </table>
+        <div
+          class="docs-table-scroll"
+          role="region"
+          tabindex="0"
+          aria-label="表：共通して使うもの"
+        >
+          <table class="docs-table">
+            <thead>
+              <tr>
+                <th>用途</th>
+                <th>現在の形式</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>ユーザー</td>
+                <td>
+                  各アカウントを<code>Person</code>アクターとして公開し、
+                  WebFingerで解決
+                </td>
+              </tr>
+              <tr>
+                <td>通常の投稿</td>
+                <td><code>Create</code>に<code>Note</code>を含めて配信</td>
+              </tr>
+              <tr>
+                <td>フォロー</td>
+                <td>
+                  <code>Follow</code>と<code>Accept</code>または<code
+                    >Reject</code
+                  >
+                </td>
+              </tr>
+              <tr>
+                <td>署名</td>
+                <td>アクターの公開鍵に対応するHTTP署名を受信時に検証</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
 
         <h2>標準語彙と独自語彙</h2>
         <p>

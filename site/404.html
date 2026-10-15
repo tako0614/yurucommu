@@ -37,7 +37,7 @@
       href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="styles.css?v=2" />
+    <link rel="stylesheet" href="styles.css?v=3" />
   </head>
   <body>
     <a class="skip" href="#main">Skip to content</a>
@@ -66,17 +66,19 @@
       </div>
     </header>
 
-    <main class="docs-content" id="main">
-      <h1>404 — ページが見つかりません</h1>
-      <p class="lead">
-        お探しのページは移動したか、削除されたか、はじめから存在しないURLです。
-      </p>
-      <ul>
-        <li><a href="/">ホーム</a></li>
-        <li><a href="/help/">使い方 (Docs)</a></li>
-        <li><a href="/specs/">仕様とデータ形式 (Specs)</a></li>
-      </ul>
-    </main>
+    <div class="docs-layout">
+      <main class="docs-content" id="main" style="margin: 0 auto">
+        <h1>404 — ページが見つかりません</h1>
+        <p class="lead">
+          お探しのページは移動したか、削除されたか、はじめから存在しないURLです。
+        </p>
+        <ul>
+          <li><a href="/">ホーム</a></li>
+          <li><a href="/help/">使い方 (Docs)</a></li>
+          <li><a href="/specs/">仕様とデータ形式 (Specs)</a></li>
+        </ul>
+      </main>
+    </div>
 
     <footer class="footer">
       <div class="footer-inner">

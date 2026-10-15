@@ -67,30 +67,37 @@
           <code>Follow</code
           >を送ります。応答はコミュニティ自身の鍵で署名されます。
         </p>
-        <table class="docs-table">
-          <thead>
-            <tr>
-              <th>コミュニティの設定</th>
-              <th>Followを受け取ったとき</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><code>open</code></td>
-              <td>その場で参加を記録し、<code>Accept</code>を配送</td>
-            </tr>
-            <tr>
-              <td><code>approval</code></td>
-              <td>保留にし、管理者が承認した後に<code>Accept</code>を配送</td>
-            </tr>
-            <tr>
-              <td><code>invite</code></td>
-              <td>
-                外部からのFollowだけでは参加させず、<code>Reject</code>を配送
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <div
+          class="docs-table-scroll"
+          role="region"
+          tabindex="0"
+          aria-label="表：参加と退出"
+        >
+          <table class="docs-table">
+            <thead>
+              <tr>
+                <th>コミュニティの設定</th>
+                <th>Followを受け取ったとき</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>open</code></td>
+                <td>その場で参加を記録し、<code>Accept</code>を配送</td>
+              </tr>
+              <tr>
+                <td><code>approval</code></td>
+                <td>保留にし、管理者が承認した後に<code>Accept</code>を配送</td>
+              </tr>
+              <tr>
+                <td><code>invite</code></td>
+                <td>
+                  外部からのFollowだけでは参加させず、<code>Reject</code>を配送
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
         <p>
           退出は、参加時の<code>Follow</code>を対象にした
           <code>Undo</code>で表します。公開コミュニティ以外の

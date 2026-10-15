@@ -40,7 +40,7 @@
       href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="../styles.css?v=2" />
+    <link rel="stylesheet" href="../styles.css?v=3" />
   </head>
   <body>
     <a class="skip" href="#main">Skip to content</a>
@@ -70,46 +70,72 @@
     </header>
 
     <div class="docs-layout">
-      <aside class="docs-sidebar">
-        <p class="docs-sidebar-title">ドキュメント</p>
-        <ul class="docs-sidebar-nav">
-          <li><a href="/specs/">概要</a></li>
-          <li><a href="/specs/yurucommu.html">使い方</a></li>
-          <li><a href="/specs/activitypub.html">現在の連合形式</a></li>
-          <li><a href="/specs/namespace.html" class="active">データ語彙</a></li>
-        </ul>
+      <nav class="docs-sidebar" aria-label="仕様のページ">
+        <details class="docs-menu">
+          <summary class="docs-menu-toggle">
+            <span class="docs-menu-scope">Specs</span>
+            <span class="docs-menu-label">ページ一覧</span>
+            <svg
+              class="docs-menu-chevron"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              aria-hidden="true"
+            >
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </summary>
+          <div class="docs-menu-body">
+            <p class="docs-sidebar-title">ドキュメント</p>
+            <ul class="docs-sidebar-nav">
+              <li><a href="/specs/">概要</a></li>
+              <li><a href="/specs/yurucommu.html">使い方</a></li>
+              <li><a href="/specs/activitypub.html">現在の連合形式</a></li>
+              <li>
+                <a href="/specs/namespace.html" class="active">データ語彙</a>
+              </li>
+            </ul>
 
-        <div class="docs-sidebar-section">
-          <p class="docs-sidebar-title">現在の連合形式</p>
-          <ul class="docs-sidebar-nav">
-            <li><a href="/specs/apc.html">コミュニティ</a></li>
-            <li><a href="/specs/story.html">Story</a></li>
-            <li><a href="/specs/dmnote.html">DM</a></li>
-          </ul>
-        </div>
+            <div class="docs-sidebar-section">
+              <p class="docs-sidebar-title">現在の連合形式</p>
+              <ul class="docs-sidebar-nav">
+                <li><a href="/specs/apc.html">コミュニティ</a></li>
+                <li><a href="/specs/story.html">Story</a></li>
+                <li><a href="/specs/dmnote.html">DM</a></li>
+              </ul>
+            </div>
 
-        <div class="docs-sidebar-section">
-          <p class="docs-sidebar-title">使い方</p>
-          <ul class="docs-sidebar-nav">
-            <li><a href="/specs/single-user.html">アカウント構成</a></li>
-            <li><a href="/specs/qr-exchange.html">QRでアカウント交換</a></li>
-          </ul>
-        </div>
+            <div class="docs-sidebar-section">
+              <p class="docs-sidebar-title">使い方</p>
+              <ul class="docs-sidebar-nav">
+                <li><a href="/specs/single-user.html">アカウント構成</a></li>
+                <li>
+                  <a href="/specs/qr-exchange.html">QRでアカウント交換</a>
+                </li>
+              </ul>
+            </div>
 
-        <div class="docs-sidebar-section">
-          <p class="docs-sidebar-title">リソース</p>
-          <ul class="docs-sidebar-nav">
-            <li>
-              <a href="https://www.w3.org/TR/activitypub/">ActivityPub (W3C)</a>
-            </li>
-            <li>
-              <a href="https://www.w3.org/TR/activitystreams-core/"
-                >Activity Streams 2.0</a
-              >
-            </li>
-          </ul>
-        </div>
-      </aside>
+            <div class="docs-sidebar-section">
+              <p class="docs-sidebar-title">リソース</p>
+              <ul class="docs-sidebar-nav">
+                <li>
+                  <a href="https://www.w3.org/TR/activitypub/"
+                    >ActivityPub (W3C)</a
+                  >
+                </li>
+                <li>
+                  <a href="https://www.w3.org/TR/activitystreams-core/"
+                    >Activity Streams 2.0</a
+                  >
+                </li>
+              </ul>
+            </div>
+          </div>
+        </details>
+      </nav>
 
       <main class="docs-content" id="main">
         <span class="spec-status draft">実装済み・提案を併記</span>
@@ -120,72 +146,88 @@
         </p>
 
         <h2>公開URL</h2>
-        <table class="docs-table">
-          <thead>
-            <tr>
-              <th>用途</th>
-              <th>URL</th>
-              <th>現在の位置付け</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>まとめて参照</td>
-              <td><code>https://yurucommu.com/ns/context.jsonld</code></td>
-              <td>Story語彙と提案中のコミュニティ語彙を収録</td>
-            </tr>
-            <tr>
-              <td>Story</td>
-              <td>
-                <code>https://yurucommu.com/ns/story/context.jsonld</code>
-              </td>
-              <td>現在のStory出力で使う語彙</td>
-            </tr>
-            <tr>
-              <td>コミュニティ</td>
-              <td><code>https://yurucommu.com/ns/apc/context.jsonld</code></td>
-              <td>公開済みだが、現在のGroupアクターでは未使用の提案語彙</td>
-            </tr>
-          </tbody>
-        </table>
+        <div
+          class="docs-table-scroll"
+          role="region"
+          tabindex="0"
+          aria-label="表：公開URL"
+        >
+          <table class="docs-table">
+            <thead>
+              <tr>
+                <th>用途</th>
+                <th>URL</th>
+                <th>現在の位置付け</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>まとめて参照</td>
+                <td><code>https://yurucommu.com/ns/context.jsonld</code></td>
+                <td>Story語彙と提案中のコミュニティ語彙を収録</td>
+              </tr>
+              <tr>
+                <td>Story</td>
+                <td>
+                  <code>https://yurucommu.com/ns/story/context.jsonld</code>
+                </td>
+                <td>現在のStory出力で使う語彙</td>
+              </tr>
+              <tr>
+                <td>コミュニティ</td>
+                <td>
+                  <code>https://yurucommu.com/ns/apc/context.jsonld</code>
+                </td>
+                <td>公開済みだが、現在のGroupアクターでは未使用の提案語彙</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
 
         <h2>現在使っているStory語彙</h2>
-        <table class="docs-table">
-          <thead>
-            <tr>
-              <th>語彙</th>
-              <th>URI</th>
-              <th>用途</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><code>Story</code></td>
-              <td><code>https://yurucommu.com/ns/story#Story</code></td>
-              <td><code>Note</code>と併記するStoryの型</td>
-            </tr>
-            <tr>
-              <td><code>displayDuration</code></td>
-              <td>
-                <code>https://yurucommu.com/ns/story#displayDuration</code>
-              </td>
-              <td>1枚を表示する時間。値は<code>xsd:duration</code></td>
-            </tr>
-            <tr>
-              <td><code>overlays</code></td>
-              <td><code>https://yurucommu.com/ns/story#overlays</code></td>
-              <td>順序を持つオーバーレイの一覧</td>
-            </tr>
-            <tr>
-              <td><code>position</code></td>
-              <td><code>https://yurucommu.com/ns/story#position</code></td>
-              <td>
-                <code>x</code>、<code>y</code>、<code>width</code>、
-                <code>height</code>を0から1で表す位置
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <div
+          class="docs-table-scroll"
+          role="region"
+          tabindex="0"
+          aria-label="表：現在使っているStory語彙"
+        >
+          <table class="docs-table">
+            <thead>
+              <tr>
+                <th>語彙</th>
+                <th>URI</th>
+                <th>用途</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>Story</code></td>
+                <td><code>https://yurucommu.com/ns/story#Story</code></td>
+                <td><code>Note</code>と併記するStoryの型</td>
+              </tr>
+              <tr>
+                <td><code>displayDuration</code></td>
+                <td>
+                  <code>https://yurucommu.com/ns/story#displayDuration</code>
+                </td>
+                <td>1枚を表示する時間。値は<code>xsd:duration</code></td>
+              </tr>
+              <tr>
+                <td><code>overlays</code></td>
+                <td><code>https://yurucommu.com/ns/story#overlays</code></td>
+                <td>順序を持つオーバーレイの一覧</td>
+              </tr>
+              <tr>
+                <td><code>position</code></td>
+                <td><code>https://yurucommu.com/ns/story#position</code></td>
+                <td>
+                  <code>x</code>、<code>y</code>、<code>width</code>、
+                  <code>height</code>を0から1で表す位置
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
         <p>
           現在の送信処理はStoryオブジェクトに語彙定義を直接含めます。
           受信側が<code>yurucommu.com</code>へコンテキストを取りに来ることを

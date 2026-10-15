@@ -34,7 +34,7 @@
       href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="../styles.css?v=2" />
+    <link rel="stylesheet" href="../styles.css?v=3" />
   </head>
   <body>
     <a class="skip" href="#main">Skip to content</a>
@@ -64,44 +64,66 @@
     </header>
 
     <div class="docs-layout">
-      <aside class="docs-sidebar">
-        <p class="docs-sidebar-title">はじめに</p>
-        <ul class="docs-sidebar-nav">
-          <li><a href="/help/">概要</a></li>
-          <li><a href="/help/getting-started.html">クイックスタート</a></li>
-          <li><a href="/help/requirements.html">必要な環境</a></li>
-        </ul>
+      <nav class="docs-sidebar" aria-label="ドキュメントのページ">
+        <details class="docs-menu">
+          <summary class="docs-menu-toggle">
+            <span class="docs-menu-scope">Docs</span>
+            <span class="docs-menu-label">ページ一覧</span>
+            <svg
+              class="docs-menu-chevron"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              aria-hidden="true"
+            >
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </summary>
+          <div class="docs-menu-body">
+            <p class="docs-sidebar-title">はじめに</p>
+            <ul class="docs-sidebar-nav">
+              <li><a href="/help/">概要</a></li>
+              <li><a href="/help/getting-started.html">クイックスタート</a></li>
+              <li><a href="/help/requirements.html">必要な環境</a></li>
+            </ul>
 
-        <div class="docs-sidebar-section">
-          <p class="docs-sidebar-title">セットアップ</p>
-          <ul class="docs-sidebar-nav">
-            <li><a href="/help/cloudflare-setup.html">Cloudflare設定</a></li>
-            <li><a href="/help/deployment.html">デプロイ</a></li>
-            <li><a href="/help/configuration.html">設定</a></li>
-            <li><a href="/help/custom-domain.html">カスタムドメイン</a></li>
-          </ul>
-        </div>
+            <div class="docs-sidebar-section">
+              <p class="docs-sidebar-title">セットアップ</p>
+              <ul class="docs-sidebar-nav">
+                <li>
+                  <a href="/help/cloudflare-setup.html">Cloudflare設定</a>
+                </li>
+                <li><a href="/help/deployment.html">デプロイ</a></li>
+                <li><a href="/help/configuration.html">設定</a></li>
+                <li><a href="/help/custom-domain.html">カスタムドメイン</a></li>
+              </ul>
+            </div>
 
-        <div class="docs-sidebar-section">
-          <p class="docs-sidebar-title">使い方</p>
-          <ul class="docs-sidebar-nav">
-            <li><a href="/help/first-post.html">最初の投稿</a></li>
-            <li><a href="/help/following.html">フォローする</a></li>
-            <li><a href="/help/communities.html">コミュニティ</a></li>
-          </ul>
-        </div>
+            <div class="docs-sidebar-section">
+              <p class="docs-sidebar-title">使い方</p>
+              <ul class="docs-sidebar-nav">
+                <li><a href="/help/first-post.html">最初の投稿</a></li>
+                <li><a href="/help/following.html">フォローする</a></li>
+                <li><a href="/help/communities.html">コミュニティ</a></li>
+              </ul>
+            </div>
 
-        <div class="docs-sidebar-section">
-          <p class="docs-sidebar-title">リファレンス</p>
-          <ul class="docs-sidebar-nav">
-            <li><a href="/help/api.html">API</a></li>
-            <li>
-              <a href="/help/database.html" class="active">データベース</a>
-            </li>
-            <li><a href="/specs/">連合の仕組み</a></li>
-          </ul>
-        </div>
-      </aside>
+            <div class="docs-sidebar-section">
+              <p class="docs-sidebar-title">リファレンス</p>
+              <ul class="docs-sidebar-nav">
+                <li><a href="/help/api.html">API</a></li>
+                <li>
+                  <a href="/help/database.html" class="active">データベース</a>
+                </li>
+                <li><a href="/specs/">連合の仕組み</a></li>
+              </ul>
+            </div>
+          </div>
+        </details>
+      </nav>
 
       <main class="docs-content" id="main">
         <h1>データベース</h1>
@@ -113,41 +135,50 @@
         </p>
 
         <h2>保存先ごとの役割</h2>
-        <table class="docs-table">
-          <thead>
-            <tr>
-              <th>保存先</th>
-              <th>主なデータ</th>
-              <th>実行環境での対応</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>SQLデータベース</td>
-              <td>
-                アカウント、投稿、フォロー、メッセージ、通知、ActivityPubの受信記録
-              </td>
-              <td>管理ホストではSQLite互換データベース、CloudflareではD1</td>
-            </tr>
-            <tr>
-              <td>オブジェクトストレージ</td>
-              <td>投稿、プロフィール、ストーリーなどで使う画像や動画</td>
-              <td>管理ホストではオブジェクトストレージ、CloudflareではR2</td>
-            </tr>
-            <tr>
-              <td>キー・バリューストア</td>
-              <td>認証フローの一時状態、ログイン試行制限、レート制限</td>
-              <td>
-                管理ホストではキー・バリューストア、CloudflareではWorkers KV
-              </td>
-            </tr>
-            <tr>
-              <td>キュー</td>
-              <td>ActivityPubなどの非同期配送、再試行、処理できなかった配送</td>
-              <td>通常の配送キューと、失敗した配送を受け取るキューの2本</td>
-            </tr>
-          </tbody>
-        </table>
+        <div
+          class="docs-table-scroll"
+          role="region"
+          tabindex="0"
+          aria-label="表：保存先ごとの役割"
+        >
+          <table class="docs-table">
+            <thead>
+              <tr>
+                <th>保存先</th>
+                <th>主なデータ</th>
+                <th>実行環境での対応</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>SQLデータベース</td>
+                <td>
+                  アカウント、投稿、フォロー、メッセージ、通知、ActivityPubの受信記録
+                </td>
+                <td>管理ホストではSQLite互換データベース、CloudflareではD1</td>
+              </tr>
+              <tr>
+                <td>オブジェクトストレージ</td>
+                <td>投稿、プロフィール、ストーリーなどで使う画像や動画</td>
+                <td>管理ホストではオブジェクトストレージ、CloudflareではR2</td>
+              </tr>
+              <tr>
+                <td>キー・バリューストア</td>
+                <td>認証フローの一時状態、ログイン試行制限、レート制限</td>
+                <td>
+                  管理ホストではキー・バリューストア、CloudflareではWorkers KV
+                </td>
+              </tr>
+              <tr>
+                <td>キュー</td>
+                <td>
+                  ActivityPubなどの非同期配送、再試行、処理できなかった配送
+                </td>
+                <td>通常の配送キューと、失敗した配送を受け取るキューの2本</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
         <p>
           SQLのバックアップだけでは、画像や動画まで含む完全な復旧にはなりません。
           反対に、キューは配送中の作業を運ぶ場所であり、投稿や配送結果を保存する

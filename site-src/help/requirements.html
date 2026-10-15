@@ -23,27 +23,34 @@
         </p>
 
         <h2>ローカルで試す</h2>
-        <table class="docs-table">
-          <thead>
-            <tr>
-              <th>項目</th>
-              <th>バージョン</th>
-              <th>備考</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>Bun</td>
-              <td>1.3以降</td>
-              <td><code>bun run dev:mock</code>の実行に必要</td>
-            </tr>
-            <tr>
-              <td>Git</td>
-              <td>任意</td>
-              <td>リポジトリをクローンする場合に必要</td>
-            </tr>
-          </tbody>
-        </table>
+        <div
+          class="docs-table-scroll"
+          role="region"
+          tabindex="0"
+          aria-label="表：ローカルで試す"
+        >
+          <table class="docs-table">
+            <thead>
+              <tr>
+                <th>項目</th>
+                <th>バージョン</th>
+                <th>備考</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Bun</td>
+                <td>1.3以降</td>
+                <td><code>bun run dev:mock</code>の実行に必要</td>
+              </tr>
+              <tr>
+                <td>Git</td>
+                <td>任意</td>
+                <td>リポジトリをクローンする場合に必要</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
         <p>
           モックAPIは同じプロセスで起動するため、Cloudflareアカウント、
           データベース、外部APIは必要ありません。データは終了時に消えます。
@@ -68,40 +75,47 @@
 
         <h2>Cloudflareでセルフホストする場合</h2>
         <p>ルートの設定は、次のCloudflareサービスを使います。</p>
-        <table class="docs-table">
-          <thead>
-            <tr>
-              <th>サービス</th>
-              <th>用途</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>Workers</td>
-              <td>Web画面とAPIの実行</td>
-            </tr>
-            <tr>
-              <td>D1</td>
-              <td>アカウント、投稿、メッセージなどの保存</td>
-            </tr>
-            <tr>
-              <td>R2</td>
-              <td>画像と動画の保存</td>
-            </tr>
-            <tr>
-              <td>Workers KV</td>
-              <td>セッションや試行回数の保存</td>
-            </tr>
-            <tr>
-              <td>Queues</td>
-              <td>ActivityPubの配信、再試行、失敗した配信の退避</td>
-            </tr>
-            <tr>
-              <td>Cron Triggers</td>
-              <td>期限切れデータの定期的な整理</td>
-            </tr>
-          </tbody>
-        </table>
+        <div
+          class="docs-table-scroll"
+          role="region"
+          tabindex="0"
+          aria-label="表：Cloudflareでセルフホストする場合"
+        >
+          <table class="docs-table">
+            <thead>
+              <tr>
+                <th>サービス</th>
+                <th>用途</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Workers</td>
+                <td>Web画面とAPIの実行</td>
+              </tr>
+              <tr>
+                <td>D1</td>
+                <td>アカウント、投稿、メッセージなどの保存</td>
+              </tr>
+              <tr>
+                <td>R2</td>
+                <td>画像と動画の保存</td>
+              </tr>
+              <tr>
+                <td>Workers KV</td>
+                <td>セッションや試行回数の保存</td>
+              </tr>
+              <tr>
+                <td>Queues</td>
+                <td>ActivityPubの配信、再試行、失敗した配信の退避</td>
+              </tr>
+              <tr>
+                <td>Cron Triggers</td>
+                <td>期限切れデータの定期的な整理</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
         <p>
           OpenTofuでルートの <code>main.tf</code> を使う場合はOpenTofu
           1.5以降が必要です。既存のリソースへ

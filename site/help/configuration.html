@@ -43,7 +43,7 @@
       href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="../styles.css?v=2" />
+    <link rel="stylesheet" href="../styles.css?v=3" />
   </head>
   <body>
     <a class="skip" href="#main">Skip to content</a>
@@ -73,42 +73,66 @@
     </header>
 
     <div class="docs-layout">
-      <aside class="docs-sidebar">
-        <p class="docs-sidebar-title">はじめに</p>
-        <ul class="docs-sidebar-nav">
-          <li><a href="/help/">概要</a></li>
-          <li><a href="/help/getting-started.html">クイックスタート</a></li>
-          <li><a href="/help/requirements.html">必要な環境</a></li>
-        </ul>
+      <nav class="docs-sidebar" aria-label="ドキュメントのページ">
+        <details class="docs-menu">
+          <summary class="docs-menu-toggle">
+            <span class="docs-menu-scope">Docs</span>
+            <span class="docs-menu-label">ページ一覧</span>
+            <svg
+              class="docs-menu-chevron"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              aria-hidden="true"
+            >
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </summary>
+          <div class="docs-menu-body">
+            <p class="docs-sidebar-title">はじめに</p>
+            <ul class="docs-sidebar-nav">
+              <li><a href="/help/">概要</a></li>
+              <li><a href="/help/getting-started.html">クイックスタート</a></li>
+              <li><a href="/help/requirements.html">必要な環境</a></li>
+            </ul>
 
-        <div class="docs-sidebar-section">
-          <p class="docs-sidebar-title">セットアップ</p>
-          <ul class="docs-sidebar-nav">
-            <li><a href="/help/cloudflare-setup.html">Cloudflare設定</a></li>
-            <li><a href="/help/deployment.html">デプロイ</a></li>
-            <li><a href="/help/configuration.html" class="active">設定</a></li>
-            <li><a href="/help/custom-domain.html">カスタムドメイン</a></li>
-          </ul>
-        </div>
+            <div class="docs-sidebar-section">
+              <p class="docs-sidebar-title">セットアップ</p>
+              <ul class="docs-sidebar-nav">
+                <li>
+                  <a href="/help/cloudflare-setup.html">Cloudflare設定</a>
+                </li>
+                <li><a href="/help/deployment.html">デプロイ</a></li>
+                <li>
+                  <a href="/help/configuration.html" class="active">設定</a>
+                </li>
+                <li><a href="/help/custom-domain.html">カスタムドメイン</a></li>
+              </ul>
+            </div>
 
-        <div class="docs-sidebar-section">
-          <p class="docs-sidebar-title">使い方</p>
-          <ul class="docs-sidebar-nav">
-            <li><a href="/help/first-post.html">最初の投稿</a></li>
-            <li><a href="/help/following.html">フォローする</a></li>
-            <li><a href="/help/communities.html">コミュニティ</a></li>
-          </ul>
-        </div>
+            <div class="docs-sidebar-section">
+              <p class="docs-sidebar-title">使い方</p>
+              <ul class="docs-sidebar-nav">
+                <li><a href="/help/first-post.html">最初の投稿</a></li>
+                <li><a href="/help/following.html">フォローする</a></li>
+                <li><a href="/help/communities.html">コミュニティ</a></li>
+              </ul>
+            </div>
 
-        <div class="docs-sidebar-section">
-          <p class="docs-sidebar-title">リファレンス</p>
-          <ul class="docs-sidebar-nav">
-            <li><a href="/help/api.html">API</a></li>
-            <li><a href="/help/database.html">データベース</a></li>
-            <li><a href="/specs/">連合の仕組み</a></li>
-          </ul>
-        </div>
-      </aside>
+            <div class="docs-sidebar-section">
+              <p class="docs-sidebar-title">リファレンス</p>
+              <ul class="docs-sidebar-nav">
+                <li><a href="/help/api.html">API</a></li>
+                <li><a href="/help/database.html">データベース</a></li>
+                <li><a href="/specs/">連合の仕組み</a></li>
+              </ul>
+            </div>
+          </div>
+        </details>
+      </nav>
 
       <main class="docs-content" id="main">
         <h1>設定</h1>
@@ -133,40 +157,49 @@
         <pre><code>YURUCOMMU_DEV_PROXY_TARGET=http://localhost:8787 bun run dev</code></pre>
 
         <h2>本番で最初に決める設定</h2>
-        <table class="docs-table">
-          <thead>
-            <tr>
-              <th>設定</th>
-              <th>説明</th>
-              <th>扱い</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><code>APP_URL</code></td>
-              <td>ブラウザで開くHTTPSのURL。末尾のスラッシュは付けません。</td>
-              <td>公開してよい値</td>
-            </tr>
-            <tr>
-              <td><code>ENCRYPTION_KEY</code></td>
-              <td>
-                機密データの暗号化に使う64文字の小文字16進数。<code
-                  >openssl rand -hex 32</code
-                >
-                などで生成します。
-              </td>
-              <td>シークレット</td>
-            </tr>
-            <tr>
-              <td>ログイン方法</td>
-              <td>
-                パスワード、Google/X OAuth、OIDCのうち、少なくとも1つを
-                設定します。
-              </td>
-              <td>IDは公開可、パスワードやSecretはシークレット</td>
-            </tr>
-          </tbody>
-        </table>
+        <div
+          class="docs-table-scroll"
+          role="region"
+          tabindex="0"
+          aria-label="表：本番で最初に決める設定"
+        >
+          <table class="docs-table">
+            <thead>
+              <tr>
+                <th>設定</th>
+                <th>説明</th>
+                <th>扱い</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>APP_URL</code></td>
+                <td>
+                  ブラウザで開くHTTPSのURL。末尾のスラッシュは付けません。
+                </td>
+                <td>公開してよい値</td>
+              </tr>
+              <tr>
+                <td><code>ENCRYPTION_KEY</code></td>
+                <td>
+                  機密データの暗号化に使う64文字の小文字16進数。<code
+                    >openssl rand -hex 32</code
+                  >
+                  などで生成します。
+                </td>
+                <td>シークレット</td>
+              </tr>
+              <tr>
+                <td>ログイン方法</td>
+                <td>
+                  パスワード、Google/X OAuth、OIDCのうち、少なくとも1つを
+                  設定します。
+                </td>
+                <td>IDは公開可、パスワードやSecretはシークレット</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
 
         <h2>実行環境との接続</h2>
         <p>
@@ -175,87 +208,101 @@
           ルートの <code>main.tf</code> または <code>wrangler.jsonc</code>
           で接続します。
         </p>
-        <table class="docs-table">
-          <thead>
-            <tr>
-              <th>名前</th>
-              <th>役割</th>
-              <th>Cloudflareの場合</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><code>DB</code></td>
-              <td>アカウント、投稿、メッセージなど</td>
-              <td>D1</td>
-            </tr>
-            <tr>
-              <td><code>MEDIA</code></td>
-              <td>画像と動画</td>
-              <td>R2</td>
-            </tr>
-            <tr>
-              <td><code>KV</code></td>
-              <td>セッションや試行回数</td>
-              <td>Workers KV</td>
-            </tr>
-            <tr>
-              <td><code>DELIVERY_QUEUE</code></td>
-              <td>ActivityPubの配信</td>
-              <td>Queues</td>
-            </tr>
-            <tr>
-              <td><code>DELIVERY_DLQ</code></td>
-              <td>繰り返し失敗した配信の退避</td>
-              <td>Queues</td>
-            </tr>
-          </tbody>
-        </table>
+        <div
+          class="docs-table-scroll"
+          role="region"
+          tabindex="0"
+          aria-label="表：実行環境との接続"
+        >
+          <table class="docs-table">
+            <thead>
+              <tr>
+                <th>名前</th>
+                <th>役割</th>
+                <th>Cloudflareの場合</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>DB</code></td>
+                <td>アカウント、投稿、メッセージなど</td>
+                <td>D1</td>
+              </tr>
+              <tr>
+                <td><code>MEDIA</code></td>
+                <td>画像と動画</td>
+                <td>R2</td>
+              </tr>
+              <tr>
+                <td><code>KV</code></td>
+                <td>セッションや試行回数</td>
+                <td>Workers KV</td>
+              </tr>
+              <tr>
+                <td><code>DELIVERY_QUEUE</code></td>
+                <td>ActivityPubの配信</td>
+                <td>Queues</td>
+              </tr>
+              <tr>
+                <td><code>DELIVERY_DLQ</code></td>
+                <td>繰り返し失敗した配信の退避</td>
+                <td>Queues</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
 
         <h2>ログイン方法</h2>
         <p>
           使わない方式の変数は設定しなくて構いません。クライアントIDとSecretが
           対になっている方式は、片方だけ設定しないでください。
         </p>
-        <table class="docs-table">
-          <thead>
-            <tr>
-              <th>変数名</th>
-              <th>説明</th>
-              <th>備考</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><code>AUTH_PASSWORD_HASH</code></td>
-              <td>パスワード認証で使う値</td>
-              <td>
-                PBKDF2の<code>salt:hash</code>、または導入時に発行された
-                一時的なログイン用シークレット
-              </td>
-            </tr>
-            <tr>
-              <td><code>GOOGLE_CLIENT_ID</code></td>
-              <td>Google OAuthのクライアントID</td>
-              <td>公開設定可</td>
-            </tr>
-            <tr>
-              <td><code>GOOGLE_CLIENT_SECRET</code></td>
-              <td>Google OAuthのクライアントシークレット</td>
-              <td>Secretで設定</td>
-            </tr>
-            <tr>
-              <td><code>X_CLIENT_ID</code></td>
-              <td>X/Twitter OAuthのクライアントID</td>
-              <td>公開設定可</td>
-            </tr>
-            <tr>
-              <td><code>X_CLIENT_SECRET</code></td>
-              <td>X/Twitter OAuthのクライアントシークレット</td>
-              <td>Secretで設定</td>
-            </tr>
-          </tbody>
-        </table>
+        <div
+          class="docs-table-scroll"
+          role="region"
+          tabindex="0"
+          aria-label="表：ログイン方法"
+        >
+          <table class="docs-table">
+            <thead>
+              <tr>
+                <th>変数名</th>
+                <th>説明</th>
+                <th>備考</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>AUTH_PASSWORD_HASH</code></td>
+                <td>パスワード認証で使う値</td>
+                <td>
+                  PBKDF2の<code>salt:hash</code>、または導入時に発行された
+                  一時的なログイン用シークレット
+                </td>
+              </tr>
+              <tr>
+                <td><code>GOOGLE_CLIENT_ID</code></td>
+                <td>Google OAuthのクライアントID</td>
+                <td>公開設定可</td>
+              </tr>
+              <tr>
+                <td><code>GOOGLE_CLIENT_SECRET</code></td>
+                <td>Google OAuthのクライアントシークレット</td>
+                <td>Secretで設定</td>
+              </tr>
+              <tr>
+                <td><code>X_CLIENT_ID</code></td>
+                <td>X/Twitter OAuthのクライアントID</td>
+                <td>公開設定可</td>
+              </tr>
+              <tr>
+                <td><code>X_CLIENT_SECRET</code></td>
+                <td>X/Twitter OAuthのクライアントシークレット</td>
+                <td>Secretで設定</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
 
         <h3>OIDC</h3>
         <p>
@@ -263,44 +310,51 @@
           パブリッククライアントとして登録した場合は、クライアントSecretは
           不要です。
         </p>
-        <table class="docs-table">
-          <thead>
-            <tr>
-              <th>変数名</th>
-              <th>説明</th>
-              <th>備考</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><code>OIDC_ISSUER_URL</code></td>
-              <td>OIDCプロバイダーのissuer URL</td>
-              <td><code>TAKOSUMI_ACCOUNTS_ISSUER_URL</code>も利用できます</td>
-            </tr>
-            <tr>
-              <td><code>OIDC_CLIENT_ID</code></td>
-              <td>OIDCクライアントID</td>
-              <td><code>TAKOSUMI_ACCOUNTS_CLIENT_ID</code>も利用できます</td>
-            </tr>
-            <tr>
-              <td><code>OIDC_CLIENT_SECRET</code></td>
-              <td>OIDCクライアントシークレット</td>
-              <td>
-                機密クライアントの場合のみ。<code>TAKOSUMI_ACCOUNTS_CLIENT_SECRET</code>も利用できます
-              </td>
-            </tr>
-            <tr>
-              <td><code>OIDC_OWNER_SUB</code></td>
-              <td>最初のオーナーにできるOIDCのsubject</td>
-              <td>最初にログインする人を事前に固定するときに設定</td>
-            </tr>
-            <tr>
-              <td><code>OIDC_ALLOWED_SUBS</code></td>
-              <td>メンバーとして追加を許可するsubjectの一覧</td>
-              <td>未設定では外部ログインによるメンバー追加を許可しません</td>
-            </tr>
-          </tbody>
-        </table>
+        <div
+          class="docs-table-scroll"
+          role="region"
+          tabindex="0"
+          aria-label="表：OIDC"
+        >
+          <table class="docs-table">
+            <thead>
+              <tr>
+                <th>変数名</th>
+                <th>説明</th>
+                <th>備考</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>OIDC_ISSUER_URL</code></td>
+                <td>OIDCプロバイダーのissuer URL</td>
+                <td><code>TAKOSUMI_ACCOUNTS_ISSUER_URL</code>も利用できます</td>
+              </tr>
+              <tr>
+                <td><code>OIDC_CLIENT_ID</code></td>
+                <td>OIDCクライアントID</td>
+                <td><code>TAKOSUMI_ACCOUNTS_CLIENT_ID</code>も利用できます</td>
+              </tr>
+              <tr>
+                <td><code>OIDC_CLIENT_SECRET</code></td>
+                <td>OIDCクライアントシークレット</td>
+                <td>
+                  機密クライアントの場合のみ。<code>TAKOSUMI_ACCOUNTS_CLIENT_SECRET</code>も利用できます
+                </td>
+              </tr>
+              <tr>
+                <td><code>OIDC_OWNER_SUB</code></td>
+                <td>最初のオーナーにできるOIDCのsubject</td>
+                <td>最初にログインする人を事前に固定するときに設定</td>
+              </tr>
+              <tr>
+                <td><code>OIDC_ALLOWED_SUBS</code></td>
+                <td>メンバーとして追加を許可するsubjectの一覧</td>
+                <td>未設定では外部ログインによるメンバー追加を許可しません</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
         <p>
           <code>OIDC_OWNER_SUB</code>を事前に確認できない場合だけ、
           <code>ALLOW_UNPINNED_OWNER_CLAIM=true</code>
@@ -315,24 +369,33 @@
           <code>POST /.takos/tools/:name</code>
           経由で投稿、検索、フォローなどを呼び出せるようになります。
         </p>
-        <table class="docs-table">
-          <thead>
-            <tr>
-              <th>変数名</th>
-              <th>説明</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><code>TAKOS_URL</code></td>
-              <td>連携先のTakos APIのURL。OIDCのissuerとは別の設定です。</td>
-            </tr>
-            <tr>
-              <td><code>ENABLE_TAKOS_TOOLS</code></td>
-              <td><code>true</code>でツール用エンドポイントを有効にします。</td>
-            </tr>
-          </tbody>
-        </table>
+        <div
+          class="docs-table-scroll"
+          role="region"
+          tabindex="0"
+          aria-label="表：Takos連携（任意）"
+        >
+          <table class="docs-table">
+            <thead>
+              <tr>
+                <th>変数名</th>
+                <th>説明</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>TAKOS_URL</code></td>
+                <td>連携先のTakos APIのURL。OIDCのissuerとは別の設定です。</td>
+              </tr>
+              <tr>
+                <td><code>ENABLE_TAKOS_TOOLS</code></td>
+                <td>
+                  <code>true</code>でツール用エンドポイントを有効にします。
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
 
         <h2>設定を渡す場所</h2>
         <h3>Takosumiなどの管理ホスト</h3>

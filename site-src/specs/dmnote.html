@@ -86,37 +86,44 @@
         </p>
 
         <h2>保存期間と削除</h2>
-        <table class="docs-table">
-          <thead>
-            <tr>
-              <th>操作</th>
-              <th>現在の挙動</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>何もしない</td>
-              <td>
-                メッセージは期限なしで保存。<code>endTime</code>による自動非表示や
-                自動削除は行わない
-              </td>
-            </tr>
-            <tr>
-              <td>自分のメッセージを削除</td>
-              <td>
-                ローカルのオブジェクト、通知用データ、添付メディアを削除。
-                現在はリモートへ<code>Delete</code>を配送しない
-              </td>
-            </tr>
-            <tr>
-              <td>自分のメッセージを編集</td>
-              <td>
-                ローカルの内容を更新。現在はリモートへ
-                <code>Update</code>を配送しない
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <div
+          class="docs-table-scroll"
+          role="region"
+          tabindex="0"
+          aria-label="表：保存期間と削除"
+        >
+          <table class="docs-table">
+            <thead>
+              <tr>
+                <th>操作</th>
+                <th>現在の挙動</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>何もしない</td>
+                <td>
+                  メッセージは期限なしで保存。<code>endTime</code>による自動非表示や
+                  自動削除は行わない
+                </td>
+              </tr>
+              <tr>
+                <td>自分のメッセージを削除</td>
+                <td>
+                  ローカルのオブジェクト、通知用データ、添付メディアを削除。
+                  現在はリモートへ<code>Delete</code>を配送しない
+                </td>
+              </tr>
+              <tr>
+                <td>自分のメッセージを編集</td>
+                <td>
+                  ローカルの内容を更新。現在はリモートへ
+                  <code>Update</code>を配送しない
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
         <p>
           相手が別サーバーの場合、送信後の編集や削除で相手側のコピーが変わるとは
           限りません。機密情報は「後から消せる」ことを前提に送らないでください。

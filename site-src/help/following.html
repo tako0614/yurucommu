@@ -81,24 +81,31 @@
         <p>
           相手のプロフィールにある「その他の操作」から選べます。どちらも確認画面が表示されます。
         </p>
-        <table class="docs-table">
-          <thead>
-            <tr>
-              <th>操作</th>
-              <th>結果</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>ミュート</td>
-              <td>相手の投稿がホームに表示されなくなります</td>
-            </tr>
-            <tr>
-              <td>ブロック</td>
-              <td>フォロー関係を解除し、相手の投稿を表示しなくなります</td>
-            </tr>
-          </tbody>
-        </table>
+        <div
+          class="docs-table-scroll"
+          role="region"
+          tabindex="0"
+          aria-label="表：ミュートとブロック"
+        >
+          <table class="docs-table">
+            <thead>
+              <tr>
+                <th>操作</th>
+                <th>結果</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>ミュート</td>
+                <td>相手の投稿がホームに表示されなくなります</td>
+              </tr>
+              <tr>
+                <td>ブロック</td>
+                <td>フォロー関係を解除し、相手の投稿を表示しなくなります</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
 
         <div class="callout callout-info">
           <strong>見つからないとき:</strong>

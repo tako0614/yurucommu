@@ -34,7 +34,7 @@
       href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="../styles.css?v=2" />
+    <link rel="stylesheet" href="../styles.css?v=3" />
   </head>
   <body>
     <a class="skip" href="#main">Skip to content</a>
@@ -64,42 +64,66 @@
     </header>
 
     <div class="docs-layout">
-      <aside class="docs-sidebar">
-        <p class="docs-sidebar-title">はじめに</p>
-        <ul class="docs-sidebar-nav">
-          <li><a href="/help/">概要</a></li>
-          <li><a href="/help/getting-started.html">クイックスタート</a></li>
-          <li><a href="/help/requirements.html">必要な環境</a></li>
-        </ul>
+      <nav class="docs-sidebar" aria-label="ドキュメントのページ">
+        <details class="docs-menu">
+          <summary class="docs-menu-toggle">
+            <span class="docs-menu-scope">Docs</span>
+            <span class="docs-menu-label">ページ一覧</span>
+            <svg
+              class="docs-menu-chevron"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              aria-hidden="true"
+            >
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </summary>
+          <div class="docs-menu-body">
+            <p class="docs-sidebar-title">はじめに</p>
+            <ul class="docs-sidebar-nav">
+              <li><a href="/help/">概要</a></li>
+              <li><a href="/help/getting-started.html">クイックスタート</a></li>
+              <li><a href="/help/requirements.html">必要な環境</a></li>
+            </ul>
 
-        <div class="docs-sidebar-section">
-          <p class="docs-sidebar-title">セットアップ</p>
-          <ul class="docs-sidebar-nav">
-            <li><a href="/help/cloudflare-setup.html">Cloudflare設定</a></li>
-            <li><a href="/help/deployment.html" class="active">デプロイ</a></li>
-            <li><a href="/help/configuration.html">設定</a></li>
-            <li><a href="/help/custom-domain.html">カスタムドメイン</a></li>
-          </ul>
-        </div>
+            <div class="docs-sidebar-section">
+              <p class="docs-sidebar-title">セットアップ</p>
+              <ul class="docs-sidebar-nav">
+                <li>
+                  <a href="/help/cloudflare-setup.html">Cloudflare設定</a>
+                </li>
+                <li>
+                  <a href="/help/deployment.html" class="active">デプロイ</a>
+                </li>
+                <li><a href="/help/configuration.html">設定</a></li>
+                <li><a href="/help/custom-domain.html">カスタムドメイン</a></li>
+              </ul>
+            </div>
 
-        <div class="docs-sidebar-section">
-          <p class="docs-sidebar-title">使い方</p>
-          <ul class="docs-sidebar-nav">
-            <li><a href="/help/first-post.html">最初の投稿</a></li>
-            <li><a href="/help/following.html">フォローする</a></li>
-            <li><a href="/help/communities.html">コミュニティ</a></li>
-          </ul>
-        </div>
+            <div class="docs-sidebar-section">
+              <p class="docs-sidebar-title">使い方</p>
+              <ul class="docs-sidebar-nav">
+                <li><a href="/help/first-post.html">最初の投稿</a></li>
+                <li><a href="/help/following.html">フォローする</a></li>
+                <li><a href="/help/communities.html">コミュニティ</a></li>
+              </ul>
+            </div>
 
-        <div class="docs-sidebar-section">
-          <p class="docs-sidebar-title">リファレンス</p>
-          <ul class="docs-sidebar-nav">
-            <li><a href="/help/api.html">API</a></li>
-            <li><a href="/help/database.html">データベース</a></li>
-            <li><a href="/specs/">連合の仕組み</a></li>
-          </ul>
-        </div>
-      </aside>
+            <div class="docs-sidebar-section">
+              <p class="docs-sidebar-title">リファレンス</p>
+              <ul class="docs-sidebar-nav">
+                <li><a href="/help/api.html">API</a></li>
+                <li><a href="/help/database.html">データベース</a></li>
+                <li><a href="/specs/">連合の仕組み</a></li>
+              </ul>
+            </div>
+          </div>
+        </details>
+      </nav>
 
       <main class="docs-content" id="main">
         <h1>デプロイ</h1>
@@ -109,32 +133,39 @@
         </p>
 
         <h2>どちらを使うか</h2>
-        <table class="docs-table">
-          <thead>
-            <tr>
-              <th>目的</th>
-              <th>使う場所</th>
-              <th>管理する人</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>Takosumiなどのホストで運用する</td>
-              <td><code>deploy/takoform</code></td>
-              <td>選んだホスト</td>
-            </tr>
-            <tr>
-              <td>Cloudflareでセルフホストする</td>
-              <td>ルートの<code>main.tf</code></td>
-              <td>Cloudflareアカウントの所有者</td>
-            </tr>
-            <tr>
-              <td>既存のCloudflareリソースへ接続する</td>
-              <td><code>wrangler.jsonc</code></td>
-              <td>Cloudflareアカウントの所有者</td>
-            </tr>
-          </tbody>
-        </table>
+        <div
+          class="docs-table-scroll"
+          role="region"
+          tabindex="0"
+          aria-label="表：どちらを使うか"
+        >
+          <table class="docs-table">
+            <thead>
+              <tr>
+                <th>目的</th>
+                <th>使う場所</th>
+                <th>管理する人</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Takosumiなどのホストで運用する</td>
+                <td><code>deploy/takoform</code></td>
+                <td>選んだホスト</td>
+              </tr>
+              <tr>
+                <td>Cloudflareでセルフホストする</td>
+                <td>ルートの<code>main.tf</code></td>
+                <td>Cloudflareアカウントの所有者</td>
+              </tr>
+              <tr>
+                <td>既存のCloudflareリソースへ接続する</td>
+                <td><code>wrangler.jsonc</code></td>
+                <td>Cloudflareアカウントの所有者</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
         <p>
           まず <a href="/help/getting-started.html">クイックスタート</a>で
           <code>bun run dev:mock</code> を動かしてから、本番の方法を選ぶのが

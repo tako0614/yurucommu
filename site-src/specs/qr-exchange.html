@@ -43,30 +43,37 @@
           入れます。
         </p>
         <pre><code>https://example.com/profile/https%3A%2F%2Fexample.com%2Fap%2Fusers%2Falice#alice</code></pre>
-        <table class="docs-table">
-          <thead>
-            <tr>
-              <th>部分</th>
-              <th>用途</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><code>/profile/:actorId</code></td>
-              <td>
-                URLエンコードしたActivityPubアクターID。
-                同じサーバー内のプロフィール取得に使用
-              </td>
-            </tr>
-            <tr>
-              <td><code>#alice</code></td>
-              <td>
-                アカウント名。別サーバーから読み取ったとき、 QR
-                URLのhostと組み合わせてWebFinger検索に使用
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <div
+          class="docs-table-scroll"
+          role="region"
+          tabindex="0"
+          aria-label="表：QRコードに入るURL"
+        >
+          <table class="docs-table">
+            <thead>
+              <tr>
+                <th>部分</th>
+                <th>用途</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>/profile/:actorId</code></td>
+                <td>
+                  URLエンコードしたActivityPubアクターID。
+                  同じサーバー内のプロフィール取得に使用
+                </td>
+              </tr>
+              <tr>
+                <td><code>#alice</code></td>
+                <td>
+                  アカウント名。別サーバーから読み取ったとき、 QR
+                  URLのhostと組み合わせてWebFinger検索に使用
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
 
         <h2>読み取り後の解決</h2>
         <h3>同じサーバーのURL</h3>

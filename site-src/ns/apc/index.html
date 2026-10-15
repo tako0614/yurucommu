@@ -30,51 +30,59 @@
         <pre><code><a href="/ns/apc/context.jsonld" style="color: var(--accent); border: none;">https://yurucommu.com/ns/apc/context.jsonld</a></code></pre>
 
         <h2>Proposed terms</h2>
-        <table class="docs-table">
-          <thead>
-            <tr>
-              <th>Term</th>
-              <th>URI</th>
-              <th>Type</th>
-              <th>Description</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><code>rooms</code></td>
-              <td><code>apc:rooms</code></td>
-              <td><code>@id</code></td>
-              <td>Collection of community rooms (sub-channels)</td>
-            </tr>
-            <tr>
-              <td><code>joinPolicy</code></td>
-              <td><code>apc:joinPolicy</code></td>
-              <td>Property</td>
-              <td>
-                How users join the community (<code>open</code>,
-                <code>approval</code>, <code>invite</code>)
-              </td>
-            </tr>
-            <tr>
-              <td><code>postPolicy</code></td>
-              <td><code>apc:postPolicy</code></td>
-              <td>Property</td>
-              <td>
-                Who can post to the community (<code>anyone</code>,
-                <code>members</code>, <code>mods</code>, <code>owners</code>;
-                default <code>members</code>)
-              </td>
-            </tr>
-            <tr>
-              <td><code>visibility</code></td>
-              <td><code>apc:visibility</code></td>
-              <td>Property</td>
-              <td>
-                Community visibility (<code>public</code>, <code>private</code>)
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <div
+          class="docs-table-scroll"
+          role="region"
+          tabindex="0"
+          aria-label="Table: Proposed terms"
+        >
+          <table class="docs-table">
+            <thead>
+              <tr>
+                <th>Term</th>
+                <th>URI</th>
+                <th>Type</th>
+                <th>Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>rooms</code></td>
+                <td><code>apc:rooms</code></td>
+                <td><code>@id</code></td>
+                <td>Collection of community rooms (sub-channels)</td>
+              </tr>
+              <tr>
+                <td><code>joinPolicy</code></td>
+                <td><code>apc:joinPolicy</code></td>
+                <td>Property</td>
+                <td>
+                  How users join the community (<code>open</code>,
+                  <code>approval</code>, <code>invite</code>)
+                </td>
+              </tr>
+              <tr>
+                <td><code>postPolicy</code></td>
+                <td><code>apc:postPolicy</code></td>
+                <td>Property</td>
+                <td>
+                  Who can post to the community (<code>anyone</code>,
+                  <code>members</code>, <code>mods</code>, <code>owners</code>;
+                  default <code>members</code>)
+                </td>
+              </tr>
+              <tr>
+                <td><code>visibility</code></td>
+                <td><code>apc:visibility</code></td>
+                <td>Property</td>
+                <td>
+                  Community visibility (<code>public</code>,
+                  <code>private</code>)
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
 
         <p style="margin-top: 3rem">
           <a href="/specs/apc.html" style="color: var(--accent); border: none"

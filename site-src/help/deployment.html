@@ -21,32 +21,39 @@
         </p>
 
         <h2>どちらを使うか</h2>
-        <table class="docs-table">
-          <thead>
-            <tr>
-              <th>目的</th>
-              <th>使う場所</th>
-              <th>管理する人</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>Takosumiなどのホストで運用する</td>
-              <td><code>deploy/takoform</code></td>
-              <td>選んだホスト</td>
-            </tr>
-            <tr>
-              <td>Cloudflareでセルフホストする</td>
-              <td>ルートの<code>main.tf</code></td>
-              <td>Cloudflareアカウントの所有者</td>
-            </tr>
-            <tr>
-              <td>既存のCloudflareリソースへ接続する</td>
-              <td><code>wrangler.jsonc</code></td>
-              <td>Cloudflareアカウントの所有者</td>
-            </tr>
-          </tbody>
-        </table>
+        <div
+          class="docs-table-scroll"
+          role="region"
+          tabindex="0"
+          aria-label="表：どちらを使うか"
+        >
+          <table class="docs-table">
+            <thead>
+              <tr>
+                <th>目的</th>
+                <th>使う場所</th>
+                <th>管理する人</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Takosumiなどのホストで運用する</td>
+                <td><code>deploy/takoform</code></td>
+                <td>選んだホスト</td>
+              </tr>
+              <tr>
+                <td>Cloudflareでセルフホストする</td>
+                <td>ルートの<code>main.tf</code></td>
+                <td>Cloudflareアカウントの所有者</td>
+              </tr>
+              <tr>
+                <td>既存のCloudflareリソースへ接続する</td>
+                <td><code>wrangler.jsonc</code></td>
+                <td>Cloudflareアカウントの所有者</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
         <p>
           まず <a href="/help/getting-started.html">クイックスタート</a>で
           <code>bun run dev:mock</code> を動かしてから、本番の方法を選ぶのが

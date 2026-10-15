@@ -40,7 +40,7 @@
       href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="../styles.css?v=2" />
+    <link rel="stylesheet" href="../styles.css?v=3" />
   </head>
   <body>
     <a class="skip" href="#main">Skip to content</a>
@@ -70,46 +70,70 @@
     </header>
 
     <div class="docs-layout">
-      <aside class="docs-sidebar">
-        <p class="docs-sidebar-title">ドキュメント</p>
-        <ul class="docs-sidebar-nav">
-          <li><a href="/specs/">概要</a></li>
-          <li><a href="/specs/yurucommu.html" class="active">使い方</a></li>
-          <li><a href="/specs/activitypub.html">現在の連合形式</a></li>
-          <li><a href="/specs/namespace.html">データ語彙</a></li>
-        </ul>
+      <nav class="docs-sidebar" aria-label="仕様のページ">
+        <details class="docs-menu">
+          <summary class="docs-menu-toggle">
+            <span class="docs-menu-scope">Specs</span>
+            <span class="docs-menu-label">ページ一覧</span>
+            <svg
+              class="docs-menu-chevron"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              aria-hidden="true"
+            >
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </summary>
+          <div class="docs-menu-body">
+            <p class="docs-sidebar-title">ドキュメント</p>
+            <ul class="docs-sidebar-nav">
+              <li><a href="/specs/">概要</a></li>
+              <li><a href="/specs/yurucommu.html" class="active">使い方</a></li>
+              <li><a href="/specs/activitypub.html">現在の連合形式</a></li>
+              <li><a href="/specs/namespace.html">データ語彙</a></li>
+            </ul>
 
-        <div class="docs-sidebar-section">
-          <p class="docs-sidebar-title">現在の連合形式</p>
-          <ul class="docs-sidebar-nav">
-            <li><a href="/specs/apc.html">コミュニティ</a></li>
-            <li><a href="/specs/story.html">Story</a></li>
-            <li><a href="/specs/dmnote.html">DM</a></li>
-          </ul>
-        </div>
+            <div class="docs-sidebar-section">
+              <p class="docs-sidebar-title">現在の連合形式</p>
+              <ul class="docs-sidebar-nav">
+                <li><a href="/specs/apc.html">コミュニティ</a></li>
+                <li><a href="/specs/story.html">Story</a></li>
+                <li><a href="/specs/dmnote.html">DM</a></li>
+              </ul>
+            </div>
 
-        <div class="docs-sidebar-section">
-          <p class="docs-sidebar-title">使い方</p>
-          <ul class="docs-sidebar-nav">
-            <li><a href="/specs/single-user.html">アカウント構成</a></li>
-            <li><a href="/specs/qr-exchange.html">QRでアカウント交換</a></li>
-          </ul>
-        </div>
+            <div class="docs-sidebar-section">
+              <p class="docs-sidebar-title">使い方</p>
+              <ul class="docs-sidebar-nav">
+                <li><a href="/specs/single-user.html">アカウント構成</a></li>
+                <li>
+                  <a href="/specs/qr-exchange.html">QRでアカウント交換</a>
+                </li>
+              </ul>
+            </div>
 
-        <div class="docs-sidebar-section">
-          <p class="docs-sidebar-title">リソース</p>
-          <ul class="docs-sidebar-nav">
-            <li>
-              <a href="https://www.w3.org/TR/activitypub/">ActivityPub (W3C)</a>
-            </li>
-            <li>
-              <a href="https://www.w3.org/TR/activitystreams-core/"
-                >Activity Streams 2.0</a
-              >
-            </li>
-          </ul>
-        </div>
-      </aside>
+            <div class="docs-sidebar-section">
+              <p class="docs-sidebar-title">リソース</p>
+              <ul class="docs-sidebar-nav">
+                <li>
+                  <a href="https://www.w3.org/TR/activitypub/"
+                    >ActivityPub (W3C)</a
+                  >
+                </li>
+                <li>
+                  <a href="https://www.w3.org/TR/activitystreams-core/"
+                    >Activity Streams 2.0</a
+                  >
+                </li>
+              </ul>
+            </div>
+          </div>
+        </details>
+      </nav>
 
       <main class="docs-content" id="main">
         <span class="spec-scope local">使い方</span>
@@ -139,48 +163,55 @@
         </div>
 
         <h2>外部へ送るもの、送らないもの</h2>
-        <table class="docs-table">
-          <thead>
-            <tr>
-              <th>機能</th>
-              <th>現在の扱い</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>プロフィール、投稿、フォロー</td>
-              <td>ActivityPubで連合</td>
-            </tr>
-            <tr>
-              <td>1対1のDM本文</td>
-              <td>相手がリモートなら直接宛先のNoteとして連合</td>
-            </tr>
-            <tr>
-              <td>DMの既読位置、入力中、アーカイブ</td>
-              <td>ローカル状態。連合しない</td>
-            </tr>
-            <tr>
-              <td>公開コミュニティとフィード投稿</td>
-              <td>GroupアクターとAnnounceを使って連合</td>
-            </tr>
-            <tr>
-              <td>コミュニティチャット</td>
-              <td>現在は主に同じインスタンス内のメンバー向け</td>
-            </tr>
-            <tr>
-              <td>アカウントの所有関係と切り替え</td>
-              <td>
-                ローカルの管理情報。各アカウント自体は別々のPersonとして連合
-              </td>
-            </tr>
-            <tr>
-              <td>QRコード</td>
-              <td>
-                プロフィールURLの共有。QRデータそのものはActivityPubで配信しない
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <div
+          class="docs-table-scroll"
+          role="region"
+          tabindex="0"
+          aria-label="表：外部へ送るもの、送らないもの"
+        >
+          <table class="docs-table">
+            <thead>
+              <tr>
+                <th>機能</th>
+                <th>現在の扱い</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>プロフィール、投稿、フォロー</td>
+                <td>ActivityPubで連合</td>
+              </tr>
+              <tr>
+                <td>1対1のDM本文</td>
+                <td>相手がリモートなら直接宛先のNoteとして連合</td>
+              </tr>
+              <tr>
+                <td>DMの既読位置、入力中、アーカイブ</td>
+                <td>ローカル状態。連合しない</td>
+              </tr>
+              <tr>
+                <td>公開コミュニティとフィード投稿</td>
+                <td>GroupアクターとAnnounceを使って連合</td>
+              </tr>
+              <tr>
+                <td>コミュニティチャット</td>
+                <td>現在は主に同じインスタンス内のメンバー向け</td>
+              </tr>
+              <tr>
+                <td>アカウントの所有関係と切り替え</td>
+                <td>
+                  ローカルの管理情報。各アカウント自体は別々のPersonとして連合
+                </td>
+              </tr>
+              <tr>
+                <td>QRコード</td>
+                <td>
+                  プロフィールURLの共有。QRデータそのものはActivityPubで配信しない
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
 
         <h2>連合形式を確認する</h2>
         <p>

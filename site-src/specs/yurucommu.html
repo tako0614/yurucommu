@@ -44,48 +44,55 @@
         </div>
 
         <h2>外部へ送るもの、送らないもの</h2>
-        <table class="docs-table">
-          <thead>
-            <tr>
-              <th>機能</th>
-              <th>現在の扱い</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>プロフィール、投稿、フォロー</td>
-              <td>ActivityPubで連合</td>
-            </tr>
-            <tr>
-              <td>1対1のDM本文</td>
-              <td>相手がリモートなら直接宛先のNoteとして連合</td>
-            </tr>
-            <tr>
-              <td>DMの既読位置、入力中、アーカイブ</td>
-              <td>ローカル状態。連合しない</td>
-            </tr>
-            <tr>
-              <td>公開コミュニティとフィード投稿</td>
-              <td>GroupアクターとAnnounceを使って連合</td>
-            </tr>
-            <tr>
-              <td>コミュニティチャット</td>
-              <td>現在は主に同じインスタンス内のメンバー向け</td>
-            </tr>
-            <tr>
-              <td>アカウントの所有関係と切り替え</td>
-              <td>
-                ローカルの管理情報。各アカウント自体は別々のPersonとして連合
-              </td>
-            </tr>
-            <tr>
-              <td>QRコード</td>
-              <td>
-                プロフィールURLの共有。QRデータそのものはActivityPubで配信しない
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <div
+          class="docs-table-scroll"
+          role="region"
+          tabindex="0"
+          aria-label="表：外部へ送るもの、送らないもの"
+        >
+          <table class="docs-table">
+            <thead>
+              <tr>
+                <th>機能</th>
+                <th>現在の扱い</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>プロフィール、投稿、フォロー</td>
+                <td>ActivityPubで連合</td>
+              </tr>
+              <tr>
+                <td>1対1のDM本文</td>
+                <td>相手がリモートなら直接宛先のNoteとして連合</td>
+              </tr>
+              <tr>
+                <td>DMの既読位置、入力中、アーカイブ</td>
+                <td>ローカル状態。連合しない</td>
+              </tr>
+              <tr>
+                <td>公開コミュニティとフィード投稿</td>
+                <td>GroupアクターとAnnounceを使って連合</td>
+              </tr>
+              <tr>
+                <td>コミュニティチャット</td>
+                <td>現在は主に同じインスタンス内のメンバー向け</td>
+              </tr>
+              <tr>
+                <td>アカウントの所有関係と切り替え</td>
+                <td>
+                  ローカルの管理情報。各アカウント自体は別々のPersonとして連合
+                </td>
+              </tr>
+              <tr>
+                <td>QRコード</td>
+                <td>
+                  プロフィールURLの共有。QRデータそのものはActivityPubで配信しない
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
 
         <h2>連合形式を確認する</h2>
         <p>
