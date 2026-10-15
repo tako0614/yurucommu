@@ -3,6 +3,7 @@ import type { Actor, ActorNote } from "../../types/index.ts";
 import { useI18n } from "../../lib/i18n.tsx";
 import { useDialog } from "../../lib/useDialog.ts";
 import { UserAvatar } from "../UserAvatar.tsx";
+import { WordBreakText } from "../WordBreakText.tsx";
 
 interface NoteBarProps {
   actor: Actor;
@@ -52,7 +53,15 @@ function NoteTile(props: {
               : "border-neutral-800 bg-neutral-900 text-white group-hover:border-neutral-700 group-hover:bg-neutral-800"
           }`}
         >
-          <p class="line-clamp-2 text-[11px] leading-tight">{props.content}</p>
+          <p class="line-clamp-2 text-[11px] leading-tight">
+            {/* The add prompt is fixed UI copy: break it between words
+                (ノートを / 書く). Notes are user text and wrap as usual. */}
+            <Show when={props.add} fallback={props.content}>
+              <span class="break-keep wrap-anywhere">
+                <WordBreakText text={props.content} />
+              </span>
+            </Show>
+          </p>
           <span
             class={`absolute -bottom-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 border-b border-r ${
               props.add
@@ -68,6 +77,7 @@ function NoteTile(props: {
           avatarUrl={props.avatarUrl ?? null}
           name={props.name}
           size={44}
+          decorative
         />
         <Show when={props.add}>
           <div class="absolute -bottom-0.5 -right-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-accent text-white ring-2 ring-neutral-900">

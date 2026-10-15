@@ -87,6 +87,21 @@ type EmptyStateAction = {
 };
 
 /**
+ * `@user@host` with a line break offered before the host, so a narrow screen
+ * wraps "@you / @social.example" instead of mid-word.
+ */
+function AddressText(props: { address: string }) {
+  const split = () => props.address.lastIndexOf("@");
+  return (
+    <Show when={split() > 0} fallback={props.address}>
+      {props.address.slice(0, split())}
+      <wbr />
+      {props.address.slice(split())}
+    </Show>
+  );
+}
+
+/**
  * Personal-scope first run. A new single-owner server has nobody to read yet,
  * and Yurucommu's point is reaching people on other ActivityPub servers, so the
  * empty home leads with the two things that make a first connection: follow
@@ -114,10 +129,13 @@ function FirstConnection(props: {
 
   const announce = (next: "copied" | "copyFailed" | "qrFailed") => {
     clearTimeout(noticeReset);
-    // Clear first so a repeated message is announced again.
+    // Clear first, then set after a beat, so a repeated message is a new
+    // announcement rather than a no-op change screen readers may merge.
     setNotice(null);
-    queueMicrotask(() => setNotice(next));
-    noticeReset = setTimeout(() => setNotice(null), 3000);
+    noticeReset = setTimeout(() => {
+      setNotice(next);
+      noticeReset = setTimeout(() => setNotice(null), 3000);
+    }, 100);
   };
 
   // `username` is the federated handle (user@host) others search for.
@@ -193,7 +211,7 @@ function FirstConnection(props: {
   return (
     <section
       aria-labelledby="first-connection-title"
-      class="mx-auto w-full max-w-md px-6 pt-10 pb-24"
+      class="mx-auto w-full max-w-md px-4 pt-10 pb-24 sm:px-6"
     >
       <h2
         id="first-connection-title"
@@ -225,7 +243,7 @@ function FirstConnection(props: {
             onInput={(e) => setQuery(e.currentTarget.value)}
             placeholder={t("firstFeed.addressPlaceholder")}
             aria-describedby="first-connection-address-hint"
-            class="min-w-0 flex-1 rounded-full border border-neutral-700 bg-neutral-900 px-4 py-2.5 text-sm text-neutral-100 placeholder-neutral-500 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
+            class="min-w-0 flex-1 rounded-full border border-neutral-700 bg-neutral-900 px-3 py-2.5 text-sm sm:px-4 text-neutral-100 placeholder-neutral-500 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
           />
           <button
             type="submit"
@@ -253,9 +271,9 @@ function FirstConnection(props: {
             </p>
             <p
               ref={addressText}
-              class="mt-1 break-all text-base text-neutral-100 select-all"
+              class="mt-1 text-base text-neutral-100 select-all wrap-anywhere"
             >
-              {address()}
+              <AddressText address={address()} />
             </p>
             <p class="mt-1 text-xs leading-relaxed text-neutral-400">
               {t("firstFeed.yourAddressHint")}

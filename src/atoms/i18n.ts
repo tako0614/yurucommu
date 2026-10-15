@@ -620,10 +620,11 @@ const translations = {
     "firstFeed.copyAddress": "コピー",
     "firstFeed.copied": "コピーしました",
     "firstFeed.copyFailed":
-      "コピーできませんでした。選択したアドレスをコピーしてください",
+      "アドレスを選択しました。長押しするか、Ctrl+C（Mac は ⌘C）でコピーしてください",
     "firstFeed.qrHint":
       "QRコードは、相手も Yurucommu を使っているときの交換用です。",
-    "firstFeed.qrFailed": "QRコードを開けませんでした",
+    "firstFeed.qrFailed":
+      "QRコードを開けませんでした。ページを再読み込みしてください",
     "firstFeed.showQr": "QRコード",
     "firstFeed.moreActions": "ほかにできること",
     "firstFeed.createCommunity": "コミュニティを作る",
@@ -1416,7 +1417,7 @@ const translations = {
       "New posts from people you follow arrive here. You can follow people on other ActivityPub servers by their address.",
     "firstFeed.findPeople": "Find people to follow",
     "firstFeed.addressPlaceholder": "@alice@mastodon.social",
-    "firstFeed.search": "Search",
+    "firstFeed.search": "Find",
     "firstFeed.addressHint":
       "For someone on another server, enter @username@server. Pasting their profile URL works too.",
     "firstFeed.yourAddress": "Your address",
@@ -1425,10 +1426,10 @@ const translations = {
     "firstFeed.copyAddress": "Copy",
     "firstFeed.copied": "Copied",
     "firstFeed.copyFailed":
-      "Couldn't copy. The address is selected; copy it yourself",
+      "Address selected. Long-press it, or press Ctrl+C (⌘C on Mac), to copy it",
     "firstFeed.qrHint":
       "The QR code is for exchanging with someone who also uses Yurucommu.",
-    "firstFeed.qrFailed": "Couldn't open the QR code",
+    "firstFeed.qrFailed": "Couldn't open the QR code. Reload the page",
     "firstFeed.showQr": "QR code",
     "firstFeed.moreActions": "More to do",
     "firstFeed.createCommunity": "Create a community",

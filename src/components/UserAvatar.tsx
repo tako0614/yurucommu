@@ -5,6 +5,9 @@ interface UserAvatarProps {
   name: string;
   size?: number | "small" | "medium" | "large";
   class?: string;
+  /** The name is already shown next to the avatar: hide it from screen
+   * readers so the surrounding control is not named twice. */
+  decorative?: boolean;
 }
 
 export function UserAvatar(props: UserAvatarProps) {
@@ -41,14 +44,17 @@ export function UserAvatar(props: UserAvatarProps) {
       <Show
         when={props.avatarUrl}
         fallback={
-          <span class={`text-neutral-300 ${fontSize()}`}>
+          <span
+            class={`text-neutral-300 ${fontSize()}`}
+            aria-hidden={props.decorative ? "true" : undefined}
+          >
             {getInitial(props.name)}
           </span>
         }
       >
         <img
           src={props.avatarUrl!}
-          alt={props.name}
+          alt={props.decorative ? "" : props.name}
           loading="lazy"
           decoding="async"
           class="w-full h-full object-cover"
