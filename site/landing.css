@@ -411,7 +411,8 @@ figcaption {
   left: 50%;
   width: 230%;
   max-width: none;
-  transform: translate(-50%, -50%);
+  /* Slightly above centre so the post behind the menu does not peek in. */
+  transform: translate(-50%, -50.8%);
 }
 
 .server-inner {
@@ -590,8 +591,9 @@ figcaption {
     aspect-ratio: 390 / 470;
   }
 
+  /* Start below the (two-line) story labels, above Akari's post. */
   .timeline-screen img {
-    transform: translateY(-24%);
+    transform: translateY(-25.5%);
   }
 
   .principles {
