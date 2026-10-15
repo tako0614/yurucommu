@@ -642,6 +642,15 @@ describe("private local journal and runtime guards", () => {
     expect(ORDER).toHaveLength(15);
     expect(new Set(ORDER.map(form)).size).toBe(13);
     expect(form("version")).toContain("/0.5.0/");
+    expect(form("database")).toBe(
+      "https://edge.forms.takoform.com/forms/SQLiteDatabase/0.2.0/",
+    );
+    expect(form("schema")).toBe(
+      "https://edge.forms.takoform.com/forms/SQLiteMigrationSet/0.4.0/",
+    );
+    expect(form("schema-application")).toBe(
+      "https://edge.forms.takoform.com/forms/SQLiteMigrationApplication/0.4.0/",
+    );
   });
 });
 async function receiptFixture() {

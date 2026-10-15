@@ -1,4 +1,6 @@
-// Current public Host v2 contracts inspected at takoserver 1b44eb09.
+// Base public Host v2 identities were inspected at takoserver 1b44eb09.
+// SQLite migration 0.4 follows owning Forms source 5842d749; Host/runtime
+// qualification of this integration candidate remains separate.
 // This adapter is independent of the product's retained v1 Provider profile.
 export const API = "forms.takoform.com/v2";
 export const APP_SUFFIX = ".app-staging.takos.jp";
@@ -9,8 +11,8 @@ export const FORMS = {
   deployment: "WorkerDeployment/0.4.0",
   endpoint: "WorkerEndpoint/0.3.0",
   database: "SQLiteDatabase/0.2.0",
-  schema: "SQLiteMigrationSet/0.2.0",
-  "schema-application": "SQLiteMigrationApplication/0.2.0",
+  schema: "SQLiteMigrationSet/0.4.0",
+  "schema-application": "SQLiteMigrationApplication/0.4.0",
   cache: "EdgeKVNamespace/0.2.0",
   media: "ObjectBucket/0.2.0",
   delivery: "AtLeastOnceQueue/0.2.0",

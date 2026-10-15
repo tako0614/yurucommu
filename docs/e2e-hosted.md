@@ -133,8 +133,20 @@ receipt. No credential is sent to an artifact URL.
 [15 resource roles](../deploy/product-resources.json) to 13 exact v2 Form URLs.
 The mapped WorkerVersion is `0.5.0`; ModuleWorker and WorkerEndpoint are
 `0.3.0`, WorkerDeployment `0.4.0`, QueueConsumer and WorkerCronTrigger
-`0.3.0`, and artifact/SQLite/KV/ObjectBucket/Queue Forms `0.2.0`.
-These identities were inspected in public Takoserver source at `1b44eb09`.
+`0.3.0`, and WorkerBundle/SQLiteDatabase/KV/ObjectBucket/Queue Forms `0.2.0`.
+SQLiteMigrationSet and SQLiteMigrationApplication use `0.4.0`, following the
+merged owning definitions at `takoform-forms` commit
+`5842d74942428ba8b35b0b6fd7976291918d21f3`:
+[Set](https://github.com/tako0614/takoform-forms/blob/5842d74942428ba8b35b0b6fd7976291918d21f3/spec/forms/SQLiteMigrationSet/0.4.0/index.md)
+and
+[Application](https://github.com/tako0614/takoform-forms/blob/5842d74942428ba8b35b0b6fd7976291918d21f3/spec/forms/SQLiteMigrationApplication/0.4.0/index.md).
+The Application still requires SQLiteDatabase `0.2.0`. These two migration
+selectors are source-preparation candidates; they do not claim Host support or
+completed artifact, native SQL, or Worker qualification. Exact Host support is
+checked before any Resource write. This selector update leaves all 35 checked
+SQL files, their schema bundle, the owning artifact emitter, lockfile, and
+Worker build inputs unchanged; it does not issue a new build witness.
+The other identities retain the public Takoserver source snapshot at `1b44eb09`.
 The adapter uses v2 `resourceUid` references, camelCase specifications and
 typed binding arrays. It never translates or claims support for the legacy
 FormRefs in `deploy/takoform/host-support-profile.json` or Provider `4.1.0`.
