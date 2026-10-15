@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer } from "node:net";
 import { resolve } from "node:path";
+import { stripVTControlCharacters } from "node:util";
 import {
   createStoryIntentCoordinator,
   type StoryCreatePayload,
@@ -20,6 +21,12 @@ class MemoryStorage implements StoryIntentStorage {
     this.values.delete(key);
   }
 }
+
+test("dev:mock recognizes a colorized Vite origin", () => {
+  const output =
+    "  \u001b[32m➜\u001b[39m  \u001b[1mLocal\u001b[22m:   \u001b[36mhttp://localhost:\u001b[1m5173\u001b[22m/\u001b[39m\n";
+  expect(viteOrigin(output)).toBe("http://localhost:5173");
+});
 
 test("dev:mock keeps actor identity on Vite origin and acknowledges story writes", async () => {
   const appRoot = resolve(import.meta.dir, "..");
@@ -227,7 +234,7 @@ async function waitForViteOrigin(child: ChildProcess, getOutput: () => string) {
   const deadline = Date.now() + 30_000;
   let origin: string | undefined;
   while (Date.now() < deadline) {
-    origin ??= getOutput().match(/Local:\s+(http:\/\/localhost:\d+)/)?.[1];
+    origin ??= viteOrigin(getOutput());
     if (origin) {
       try {
         const response = await fetch(`${origin}/api/auth/me`, {
@@ -243,6 +250,12 @@ async function waitForViteOrigin(child: ChildProcess, getOutput: () => string) {
     await Bun.sleep(100);
   }
   throw new Error(`dev:mock did not become ready: ${getOutput()}`);
+}
+
+function viteOrigin(output: string) {
+  return stripVTControlCharacters(output).match(
+    /Local:\s+(http:\/\/localhost:\d+)/,
+  )?.[1];
 }
 
 async function unusedPort() {
