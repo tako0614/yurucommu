@@ -35,7 +35,7 @@ const CHECK_ROWS: Array<{
  * on an interval, and surfaces a rebuild action once provisioning stalls.
  */
 export function InstancePendingScreen(props: InstancePendingScreenProps) {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const [polls, setPolls] = createSignal(0);
   const [rebuilding, setRebuilding] = createSignal(false);
 
@@ -119,7 +119,9 @@ export function InstancePendingScreen(props: InstancePendingScreenProps) {
                 <li class="pt-1 text-xs text-neutral-600">
                   {t("instance.lastChecked").replace(
                     "{time}",
-                    new Date(health().checked_at).toLocaleTimeString(),
+                    new Date(health().checked_at).toLocaleTimeString(
+                      language(),
+                    ),
                   )}
                 </li>
               </Show>
