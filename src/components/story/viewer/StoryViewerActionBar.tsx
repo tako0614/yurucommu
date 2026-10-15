@@ -83,6 +83,11 @@ export function StoryViewerActionBar(props: StoryViewerActionBarProps) {
           </button>
         </div>
       </Show>
+      {/* Without a reply field (your own story), keep like/share on the right:
+          the insights button sits over the bar's left edge. */}
+      <Show when={!props.onReply}>
+        <div class="flex-1" />
+      </Show>
       <button
         class={`p-2 transition-colors ${
           props.isLiked ? "text-red-400" : "text-white hover:text-red-400"
