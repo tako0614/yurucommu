@@ -333,7 +333,7 @@ const translations = {
     "story.overlay.invalidUrl": "URL が正しくありません",
     "story.textPlaceholder": "テキストを入力",
     "story.captionPlaceholder": "キャプションを追加...",
-    "story.shareToStory": "ストーリーに投稿",
+    "story.shareToStory": "ストーリーズに投稿",
     "story.shareToCommunity": "{name} に投稿",
     "story.replyPlaceholder": "メッセージを送信...",
     "story.replySent": "メッセージを送信しました",
@@ -577,7 +577,7 @@ const translations = {
     "setup.usernameTakenError": "このユーザー名は既に使用されています",
     "setup.instanceTitle": "あなたのサーバーを立ち上げる",
     "setup.instanceDescription":
-      "@ハンドルを決めると、ActivityPub でつながる、あなた専用の居場所が作られます。",
+      "@ハンドルを決めると、ActivityPub でつながるあなた専用の居場所が作られます。",
     "setup.handleLabel": "ハンドル",
     "setup.handlePlaceholder": "your_handle",
     "setup.handlePreview": "あなたのアドレス",
@@ -585,7 +585,7 @@ const translations = {
     "setup.createInstance": "サーバーを立ち上げる",
     "instance.pendingTitle": "あなたのサーバーを準備しています",
     "instance.pendingDescription":
-      "必要なサービスを用意しています。数分かかることがあります。",
+      "データベースやストレージなど、必要なものを用意しています。数分かかることがあります。",
     "instance.checkWorker": "Worker",
     "instance.checkD1": "データベース",
     "instance.checkR2": "メディアストレージ",
