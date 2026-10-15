@@ -69,6 +69,7 @@ a {
   position: fixed;
   inset: 0 0 auto 0;
   z-index: 100;
+  height: var(--header-h);
   background: var(--glass);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--line);
@@ -76,7 +77,7 @@ a {
 
 .header-inner {
   max-width: var(--w);
-  height: var(--header-h);
+  height: 100%;
   margin: 0 auto;
   padding: 0 1.75rem;
   display: flex;
@@ -194,9 +195,8 @@ a {
 
 .docs-menu-scope {
   font-family: var(--mono);
-  font-size: 0.7rem;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
   color: var(--faint);
 }
 
@@ -220,7 +220,7 @@ a {
   outline-offset: 2px;
 }
 
-@media (min-width: 901px) {
+@media (width > 900px) {
   @supports selector(::details-content) {
     .docs-menu-toggle {
       display: none;
@@ -401,6 +401,11 @@ a {
 
 .docs-table code {
   white-space: nowrap;
+}
+
+/* Long JSON bodies would otherwise push later columns out of view. */
+.docs-table-code-wrap code {
+  white-space: normal;
 }
 
 /* ---- Callouts ---- */
@@ -620,6 +625,10 @@ a {
     padding: 0.6rem 0.75rem;
     font-size: 0.95rem;
   }
+  /* The scrolling menu clips anything drawn outside it. */
+  .docs-sidebar-nav a:focus-visible {
+    outline-offset: -2px;
+  }
   .docs-sidebar-title {
     padding: 0 0.75rem;
   }
@@ -637,6 +646,12 @@ a {
 @media (max-width: 600px) {
   .docs-content h1 {
     font-size: 1.85rem;
+  }
+}
+
+@media print {
+  .docs-sidebar {
+    display: none;
   }
 }
 
