@@ -369,11 +369,18 @@ a {
 }
 
 /* ---- Tables ---- */
-/* Wide tables scroll inside their own box instead of widening the page. */
+/* Wide tables scroll inside their own box instead of widening the page.
+   The box is a named, focusable region so keyboard users can scroll it in
+   browsers that do not focus scroll containers on their own (Safari). */
 .docs-table-scroll {
   margin: 1.5rem 0;
   overflow-x: auto;
   overscroll-behavior-x: contain;
+}
+
+.docs-table-scroll:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .docs-table {
