@@ -620,10 +620,11 @@ const translations = {
     "firstFeed.copyAddress": "コピー",
     "firstFeed.copied": "コピーしました",
     "firstFeed.copyFailed":
-      "コピーできませんでした。選択したアドレスをコピーしてください",
+      "アドレスを選択しました。長押しまたは Ctrl+C でコピーしてください",
     "firstFeed.qrHint":
       "QRコードは、相手も Yurucommu を使っているときの交換用です。",
-    "firstFeed.qrFailed": "QRコードを開けませんでした",
+    "firstFeed.qrFailed":
+      "QRコードを開けませんでした。ページを再読み込みしてください",
     "firstFeed.showQr": "QRコード",
     "firstFeed.moreActions": "ほかにできること",
     "firstFeed.createCommunity": "コミュニティを作る",
@@ -1425,10 +1426,10 @@ const translations = {
     "firstFeed.copyAddress": "Copy",
     "firstFeed.copied": "Copied",
     "firstFeed.copyFailed":
-      "Couldn't copy. The address is selected; copy it yourself",
+      "Address selected. Long-press or press Ctrl+C to copy it",
     "firstFeed.qrHint":
       "The QR code is for exchanging with someone who also uses Yurucommu.",
-    "firstFeed.qrFailed": "Couldn't open the QR code",
+    "firstFeed.qrFailed": "Couldn't open the QR code. Reload the page",
     "firstFeed.showQr": "QR code",
     "firstFeed.moreActions": "More to do",
     "firstFeed.createCommunity": "Create a community",
