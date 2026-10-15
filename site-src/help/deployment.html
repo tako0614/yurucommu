@@ -16,8 +16,7 @@
       <main class="docs-content" id="main">
         <h1>デプロイ</h1>
         <p class="lead">
-          管理ホストに任せる方法と、Cloudflareで自分で運用する方法があります。
-          2つの設定は別々です。
+          管理ホストに任せる方法と、Cloudflareで自分で運用する方法があります。2つの設定は別々です。
         </p>
 
         <h2>どちらを使うか</h2>
@@ -55,16 +54,15 @@
           </table>
         </div>
         <p>
-          まず <a href="/help/getting-started.html">クイックスタート</a>で
-          <code>bun run dev:mock</code> を動かしてから、本番の方法を選ぶのが
-          おすすめです。
+          まず<a href="/help/getting-started.html">クイックスタート</a>で
+          <code>bun run dev:mock</code>
+          を動かしてから、本番の方法を選ぶのがおすすめです。
         </p>
 
         <h2>Takosumiなどの管理ホストに入れる</h2>
         <p>
-          <code>deploy/takoform</code> には、Yurucommuが必要とするWebサービス、
-          SQLデータベース、ファイル保存先、キーバリューストア、キュー、
-          定期実行の定義があります。Cloudflare固有のIDや認証情報は含みません。
+          <code>deploy/takoform</code>
+          には、Yurucommuが必要とするWebサービス、SQLデータベース、ファイル保存先、キーバリューストア、キュー、定期実行の定義があります。Cloudflare固有のIDや認証情報は含みません。
         </p>
 
         <h3>指定する内容</h3>
@@ -83,26 +81,22 @@ path: deploy/takoform</code></pre>
           </li>
         </ol>
         <p>
-          Takoserverのmanaged resourceを使う場合も、Takosumiの追加画面から
-          Gitの取得元を指定してください。 ホスト向けの詳しい契約は
-          <a
+          Takoserverのmanaged
+          resourceを使う場合も、Takosumiの追加画面からGitの取得元を指定してください。ホスト向けの詳しい契約は<a
             href="https://github.com/tako0614/yurucommu/tree/main/deploy/takoform"
             >deploy/takoformのREADME</a
-          >
-          にあります。
+          >にあります。
         </p>
 
         <h2>Cloudflareでセルフホストする</h2>
         <p>
-          Cloudflareアカウントの所有者が、Workerとデータを自分で管理する方法です。
-          YurucommuにはワンクリックのCloudflareデプロイはありません。
+          Cloudflareアカウントの所有者が、Workerとデータを自分で管理する方法です。YurucommuにはワンクリックのCloudflareデプロイはありません。
         </p>
 
         <h3>新しくリソースを作る</h3>
         <p>
           ルートの <code>main.tf</code> を使います。Worker、D1、R2、Workers
-          KV、通常の配信用キュー、失敗した配信用のキュー、定期実行をまとめて
-          確認できます。
+          KV、通常の配信用キュー、失敗した配信用のキュー、定期実行をまとめて確認できます。
         </p>
         <p>主に指定する内容は次のとおりです。</p>
         <ul>
@@ -117,43 +111,37 @@ path: deploy/takoform</code></pre>
         </ul>
         <p>
           <code>tofu plan</code>
-          で作成・変更されるものを確認してから適用します。
-          2つの有効化設定は初期値が <code>false</code>
-          なので、作成内容を確認したあと明示的に有効にします。シークレットは
-          リポジトリや通常の変数ファイルへ保存しないでください。
+          で作成・変更されるものを確認してから適用します。2つの有効化設定は初期値が
+          <code>false</code>
+          なので、作成内容を確認したあと明示的に有効にします。シークレットはリポジトリや通常の変数ファイルへ保存しないでください。
         </p>
 
         <h3>すでにあるリソースへ接続する</h3>
         <p>
-          <code>wrangler.jsonc</code> は、Cloudflare上に用意済みのD1、R2、
-          Workers
-          KV、2つのキューへWorkerを接続するための設定です。テンプレートを
-          そのまま本番へ公開せず、実際のリソースIDや名前、公開URLを反映した設定を
-          用意してください。
+          <code>wrangler.jsonc</code>
+          は、Cloudflare上に用意済みのD1、R2、Workers
+          KV、2つのキューへWorkerを接続するための設定です。テンプレートをそのまま本番へ公開せず、実際のリソースIDや名前、公開URLを反映した設定を用意してください。
         </p>
         <p>
           認証は
           <code>bunx wrangler whoami</code> で確認できます。シークレットは
-          <code>bunx wrangler secret put</code> で設定できますが、この操作は
-          Workerの新しいバージョンを作るため、実行前に対象のWorkerと戻し方を
-          確認してください。
+          <code>bunx wrangler secret put</code>
+          で設定できますが、この操作はWorkerの新しいバージョンを作るため、実行前に対象のWorkerと戻し方を確認してください。
         </p>
 
         <h2>公開前の確認</h2>
         <pre><code>bun install
 bun run check</code></pre>
         <p>
-          <code>bun run check</code> は、フォーマット、型、OpenTofuの定義、
-          テスト、Workerのビルドをまとめて確認します。生成される
+          <code>bun run check</code>
+          は、フォーマット、型、OpenTofuの定義、テスト、Workerのビルドをまとめて確認します。生成される
           <code>dist/yurucommu-worker.js</code> はコミットしません。
         </p>
 
         <h2>データベースの更新</h2>
         <p>
-          Workerの公開とデータベースの更新は別の作業です。Workerを更新しても、
-          SQLの変更は自動では適用されません。既存環境を更新する前に、現在の
-          マイグレーション履歴、バックアップ、復旧方法を確認してください。
-          SQLの正とする情報は <code>@takosjp/yurucommu-core</code> にあります。
+          Workerの公開とデータベースの更新は別の作業です。Workerを更新しても、SQLの変更は自動では適用されません。既存環境を更新する前に、現在のマイグレーション履歴、バックアップ、復旧方法を確認してください。SQLの正とする情報は
+          <code>@takosjp/yurucommu-core</code> にあります。
         </p>
 
         <h2>公開後の確認</h2>
@@ -165,25 +153,23 @@ bun run check</code></pre>
           <li>外部サーバーへの配信と失敗キューを確認する</li>
         </ol>
         <p>
-          <code>/healthz</code> は一部の機能が不足していても応答することが
-          あります。HTTPステータスだけでなく、本文の <code>status</code> と
+          <code>/healthz</code>
+          は一部の機能が不足していても応答することがあります。HTTPステータスだけでなく、本文の
+          <code>status</code> と
           <code>missingBindings</code> も確認してください。
         </p>
 
         <h2>戻す準備</h2>
         <p>
-          更新前のWorkerバージョン、OpenTofuの状態、データベースの復旧地点を
-          記録します。コードだけを戻せる場合と、データベースも戻す必要がある場合を
-          分けて判断してください。管理ホストを使う場合は、そのホストの更新履歴と
-          復旧手順を使います。
+          更新前のWorkerバージョン、OpenTofuの状態、データベースの復旧地点を記録します。コードだけを戻せる場合と、データベースも戻す必要がある場合を分けて判断してください。管理ホストを使う場合は、そのホストの更新履歴と復旧手順を使います。
         </p>
 
         <h2>よくあるエラー</h2>
 
         <h3><code>/readyz</code>が準備未完了になる</h3>
         <p>
-          <code>DB</code>、<code>KV</code>、<code>APP_URL</code>、
-          <code>ENCRYPTION_KEY</code>、認証方法を確認します。
+          <code>DB</code
+          >、<code>KV</code>、<code>APP_URL</code>、<code>ENCRYPTION_KEY</code>、認証方法を確認します。
         </p>
 
         <h3>投稿はできるが外部へ届かない</h3>
@@ -194,8 +180,8 @@ bun run check</code></pre>
 
         <h3>画像をアップロードできない</h3>
         <p>
-          <code>MEDIA</code> の接続先と権限を確認します。Cloudflareでは
-          R2バケットの名前とWorkerのbindingを確認してください。
+          <code>MEDIA</code>
+          の接続先と権限を確認します。CloudflareではR2バケットの名前とWorkerのbindingを確認してください。
         </p>
       </main>
     </div>

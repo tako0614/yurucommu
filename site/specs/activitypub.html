@@ -143,38 +143,32 @@
         <span class="spec-status experimental">現行実装</span>
         <h1>現在の連合形式</h1>
         <p class="lead">
-          yurucommuが現在、外部サーバーとの間で送受信しているActivityPubの形を
-          機能ごとに説明します。
+          yurucommuが現在、外部サーバーとの間で送受信しているActivityPubの形を機能ごとに説明します。
         </p>
 
         <div class="callout callout-info">
           <strong>保証範囲:</strong>
-          ここで「送受信する」と書いているのはyurucommu同士を含む現行コードの挙動です。
-          Mastodon、Misskey、Lemmyなど個別製品との適合試験結果を示すものではありません。
-          相手が未知の型やプロパティをどう表示するかは、相手側の実装に依存します。
+          ここで「送受信する」と書いているのはyurucommu同士を含む現行コードの挙動です。Mastodon、Misskey、Lemmyなど個別製品との適合試験結果を示すものではありません。相手が未知の型やプロパティをどう表示するかは、相手側の実装に依存します。
         </div>
 
         <div class="card-grid">
           <a href="/specs/apc.html" class="card">
             <h2 class="card-title">コミュニティ</h2>
             <p class="card-description">
-              公開コミュニティを<code>Group</code>アクターとして公開します。
-              参加は<code>Follow</code>、投稿の外向け配信はGroupによる
-              <code>Announce</code>が中心です。
+              公開コミュニティを<code>Group</code>アクターとして公開します。参加は<code>Follow</code>、投稿の外向け配信はGroupによる<code>Announce</code>が中心です。
             </p>
           </a>
           <a href="/specs/story.html" class="card">
             <h2 class="card-title">Story</h2>
             <p class="card-description">
-              <code>["Story", "Note"]</code>、<code>endTime</code>、
-              1つのメディアと表示用プロパティを持つオブジェクトです。
+              <code>["Story", "Note"]</code
+              >、<code>endTime</code>、1つのメディアと表示用プロパティを持つオブジェクトです。
             </p>
           </a>
           <a href="/specs/dmnote.html" class="card">
             <h2 class="card-title">DM</h2>
             <p class="card-description">
-              宛先1人だけを<code>to</code>に入れた
-              <code>Note</code>です。独自のDM型や有効期限は使いません。
+              宛先1人だけを<code>to</code>に入れた<code>Note</code>です。独自のDM型や有効期限は使いません。
             </p>
           </a>
         </div>
@@ -197,8 +191,7 @@
               <tr>
                 <td>ユーザー</td>
                 <td>
-                  各アカウントを<code>Person</code>アクターとして公開し、
-                  WebFingerで解決
+                  各アカウントを<code>Person</code>アクターとして公開し、WebFingerで解決
                 </td>
               </tr>
               <tr>
@@ -223,11 +216,10 @@
 
         <h2>標準語彙と独自語彙</h2>
         <p>
-          DMとコミュニティの基本部分はActivityStreamsの型を使います。
-          Storyの<code>Story</code>、<code>displayDuration</code>、
-          <code>overlays</code>、<code>position</code>はyurucommuの語彙です。
-          公開している語彙のうち、現在の出力で使っていないものもあります。詳しくは
-          <a href="/specs/namespace.html">データ語彙</a>を参照してください。
+          DMとコミュニティの基本部分はActivityStreamsの型を使います。Storyの<code>Story</code>、<code>displayDuration</code>、<code>overlays</code>、<code>position</code>はyurucommuの語彙です。公開している語彙のうち、現在の出力で使っていないものもあります。詳しくは<a
+            href="/specs/namespace.html"
+            >データ語彙</a
+          >を参照してください。
         </p>
       </main>
     </div>

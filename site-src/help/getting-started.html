@@ -36,8 +36,7 @@ bun install
 bun run dev:mock</code></pre>
         <p>
           ブラウザで <code>http://localhost:5173</code>
-          を開きます。モックのデータはメモリに保存されるため、コマンドを止めると
-          消えます。
+          を開きます。モックのデータはメモリに保存されるため、コマンドを止めると消えます。
         </p>
 
         <h3>ログアウト状態から試す</h3>
@@ -45,15 +44,15 @@ bun run dev:mock</code></pre>
 
         <h3>既存のAPIにつなぐ</h3>
         <p>
-          <code>bun run dev</code> はWeb画面だけを起動します。すでに動いている
-          Yurucommu APIへ接続する場合は、接続先を指定します。
+          <code>bun run dev</code>
+          はWeb画面だけを起動します。すでに動いているYurucommu
+          APIへ接続する場合は、接続先を指定します。
         </p>
         <pre><code>YURUCOMMU_DEV_PROXY_TARGET=http://localhost:8787 bun run dev</code></pre>
 
         <h2>本番で使う場所を選ぶ</h2>
         <p>
-          ローカルのモックは試用向けです。データを残して使うときは、次のどちらかを
-          選びます。
+          ローカルのモックは試用向けです。データを残して使うときは、次のどちらかを選びます。
         </p>
 
         <h3>Takosumiなどの管理ホスト</h3>
@@ -62,21 +61,22 @@ bun run dev:mock</code></pre>
 ref: 安定版のタグ、または確認済みのコミット
 path: deploy/takoform</code></pre>
         <p>
-          ホストが作成するサービスを表示したら内容を確認し、適用します。
-          Cloudflare用のルート設定はこの方法では使いません。
+          ホストが作成するサービスを表示したら内容を確認し、適用します。Cloudflare用のルート設定はこの方法では使いません。
         </p>
 
         <h3>Cloudflareでセルフホスト</h3>
         <p>
-          ルートの <code>main.tf</code> は、Worker、データベース、
-          ストレージ、キーバリューストア、キューをまとめて作るための設定です。
-          すでにCloudflare上のリソースを用意している場合は
+          ルートの
+          <code>main.tf</code>
+          は、Worker、データベース、ストレージ、キーバリューストア、キューをまとめて作るための設定です。すでにCloudflare上のリソースを用意している場合は
           <code>wrangler.jsonc</code> を使えます。
         </p>
         <p>
-          必要なCloudflareサービス、認証、データ移行を自分で管理します。詳しくは
-          <a href="/help/cloudflare-setup.html">Cloudflare設定</a>と
-          <a href="/help/deployment.html">デプロイガイド</a>を参照してください。
+          必要なCloudflareサービス、認証、データ移行を自分で管理します。詳しくは<a
+            href="/help/cloudflare-setup.html"
+            >Cloudflare設定</a
+          >と<a href="/help/deployment.html">デプロイガイド</a
+          >を参照してください。
         </p>
 
         <h2>公開後に確認する</h2>

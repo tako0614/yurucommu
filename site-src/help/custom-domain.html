@@ -21,39 +21,29 @@
 
         <div class="callout callout-warning">
           <strong>重要:</strong>
-          ActivityPubではユーザーや投稿のURLにドメインが入ります。運用開始後の変更は、
-          既存のフォローや投稿への参照に影響するため、公開前に決めてください。
+          ActivityPubではユーザーや投稿のURLにドメインが入ります。運用開始後の変更は、既存のフォローや投稿への参照に影響するため、公開前に決めてください。
         </div>
 
         <h2>最初に確認すること</h2>
         <p>
-          ブラウザで開くURL、Workerに渡す<code>APP_URL</code>、ActivityPubが公開する
-          ユーザーや投稿のURLは、同じHTTPS originにそろえます。
+          ブラウザで開くURL、Workerに渡す<code>APP_URL</code>、ActivityPubが公開するユーザーや投稿のURLは、同じHTTPS
+          originにそろえます。
         </p>
 
         <h2>Takosumiで運用する場合</h2>
         <p>
-          インストール時に公開URLを指定するか、ホストが割り当てたURLを使います。
-          PlanでURLを確認してからApplyしてください。Apply後はTakosumiのApps画面に
-          表示されたリンクを開き、<code>/.well-known/social-server</code>が同じ
-          originを返すことを確認します。
+          インストール時に公開URLを指定するか、ホストが割り当てたURLを使います。PlanでURLを確認してからApplyしてください。Apply後はTakosumiのApps画面に表示されたリンクを開き、<code>/.well-known/social-server</code>が同じoriginを返すことを確認します。
         </p>
 
         <h2>Cloudflareでセルフホストする場合</h2>
         <p>
-          WorkerのCustom Domainまたはrouteを設定し、同じURLを
-          <code>APP_URL</code
-          >に設定します。ルートのOpenTofuモジュールを使う場合は
-          <code>app_url</code>とrouteのPlanを確認します。既存のWorkerへ
-          <code>wrangler.jsonc</code
-          >で接続する場合は、routeとSecretを別途用意します。
+          WorkerのCustom
+          Domainまたはrouteを設定し、同じURLを<code>APP_URL</code>に設定します。ルートのOpenTofuモジュールを使う場合は<code>app_url</code>とrouteのPlanを確認します。既存のWorkerへ<code>wrangler.jsonc</code>で接続する場合は、routeとSecretを別途用意します。
         </p>
 
         <h2>外部DNSを使う場合</h2>
         <p>
-          先にホストまたはCloudflareが割り当てた公開先を確認し、DNSプロバイダ側で
-          CNAMEなど必要なレコードを作ります。使うレコードと証明書の設定は
-          公開先によって異なるため、ホストの案内を優先してください。
+          先にホストまたはCloudflareが割り当てた公開先を確認し、DNSプロバイダ側でCNAMEなど必要なレコードを作ります。使うレコードと証明書の設定は公開先によって異なるため、ホストの案内を優先してください。
         </p>
         <pre><code>タイプ: CNAME
 名前: yurucommu（サブドメイン部分）
@@ -61,9 +51,8 @@
 
         <h2>SSL/TLS設定</h2>
         <p>
-          公開URLにはHTTPSが必要です。Cloudflareや管理ホストで証明書が有効になってから
-          Yurucommuを公開してください。HTTPのままでは認証、Web Push、
-          ActivityPubの署名付き通信が正しく動きません。
+          公開URLにはHTTPSが必要です。Cloudflareや管理ホストで証明書が有効になってからYurucommuを公開してください。HTTPのままでは認証、Web
+          Push、ActivityPubの署名付き通信が正しく動きません。
         </p>
 
         <h2>サブドメインの選択</h2>
@@ -90,9 +79,7 @@
           </ul>
         </div>
         <p>
-          変更が必要な場合は、バックアップを取り、アカウント移行機能を使えるか確認し、
-          事前に利用者へ告知してください。DNSだけを先に変えず、旧URLからの移行方法と
-          新しいURLの<code>/.well-known</code>応答を確認してから切り替えます。
+          変更が必要な場合は、バックアップを取り、アカウント移行機能を使えるか確認し、事前に利用者へ告知してください。DNSだけを先に変えず、旧URLからの移行方法と新しいURLの<code>/.well-known</code>応答を確認してから切り替えます。
         </p>
 
         <h2>困ったとき</h2>
@@ -103,9 +90,7 @@
         </p>
         <h3>ほかのサーバーから見つからない</h3>
         <p>
-          DNSと証明書に続いて、<code>/.well-known/webfinger</code>と
-          <code>/.well-known/social-server</code
-          >が新しいoriginから返るか確認します。
+          DNSと証明書に続いて、<code>/.well-known/webfinger</code>と<code>/.well-known/social-server</code>が新しいoriginから返るか確認します。
         </p>
       </main>
     </div>

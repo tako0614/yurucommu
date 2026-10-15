@@ -139,17 +139,13 @@
         <span class="spec-status experimental">現行実装</span>
         <h1>Storyの連合形式</h1>
         <p class="lead">
-          Storyは、24時間の期限を持つ1枚の画像または動画です。
-          ActivityPubでは<code>Story</code>と<code>Note</code>の両方の型を持つ
-          オブジェクトとして送信します。
+          Storyは、24時間の期限を持つ1枚の画像または動画です。ActivityPubでは<code>Story</code>と<code>Note</code>の両方の型を持つオブジェクトとして送信します。
         </p>
 
         <div class="callout callout-info">
           <strong>相互運用について:</strong>
-          <code>Story</code>と表示用プロパティはyurucommu独自語彙です。
-          相手が未対応の場合に同じStory画面で表示される保証はありません。
-          <code>Note</code>、<code>content</code>、<code>attachment</code>、
-          <code>endTime</code>はActivityStreamsの語彙です。
+          <code>Story</code
+          >と表示用プロパティはyurucommu独自語彙です。相手が未対応の場合に同じStory画面で表示される保証はありません。<code>Note</code>、<code>content</code>、<code>attachment</code>、<code>endTime</code>はActivityStreamsの語彙です。
         </div>
 
         <h2>送信するオブジェクト</h2>
@@ -243,11 +239,8 @@
 
         <h2>オーバーレイの座標</h2>
         <p>
-          <code>position</code>の<code>x</code>、<code>y</code>、
-          <code>width</code>、<code>height</code>は、すべて
-          <code>0.0</code>から<code>1.0</code>までの正規化した数値です。
-          ピクセル数ではありません。<code>x</code>と<code>y</code>は
-          オーバーレイの中心を表します。
+          <code>position</code
+          >の<code>x</code>、<code>y</code>、<code>width</code>、<code>height</code>は、すべて<code>0.0</code>から<code>1.0</code>までの正規化した数値です。ピクセル数ではありません。<code>x</code>と<code>y</code>はオーバーレイの中心を表します。
         </p>
         <pre><code>{
   "type": "Link",
@@ -268,10 +261,7 @@
 
         <h2>公開範囲</h2>
         <p>
-          個人のStoryは本人と承認済みフォロワーだけが読み取れます。
-          コミュニティ内で作成したStoryは、そのコミュニティの承認済みメンバー向けです。
-          外部への配送先も、個人Storyは本人のfollowers、コミュニティStoryは
-          コミュニティの範囲に合わせます。
+          個人のStoryは本人と承認済みフォロワーだけが読み取れます。コミュニティ内で作成したStoryは、そのコミュニティの承認済みメンバー向けです。外部への配送先も、個人Storyは本人のfollowers、コミュニティStoryはコミュニティの範囲に合わせます。
         </p>
 
         <h2>24時間経過と手動削除の違い</h2>
@@ -293,12 +283,10 @@
               <tr>
                 <td><code>endTime</code>を過ぎる</td>
                 <td>
-                  読み取り結果から直ちに除外。期限切れデータとメディアは
-                  後続の保持期間処理で削除
+                  読み取り結果から直ちに除外。期限切れデータとメディアは後続の保持期間処理で削除
                 </td>
                 <td>
-                  期限切れだけを理由に<code>Delete</code>は送らない。
-                  受信側は<code>endTime</code>を見て非表示にする必要がある
+                  期限切れだけを理由に<code>Delete</code>は送らない。受信側は<code>endTime</code>を見て非表示にする必要がある
                 </td>
               </tr>
               <tr>
@@ -312,18 +300,12 @@
           </table>
         </div>
         <p>
-          したがって「24時間後に全サーバーから物理的に消える」とは保証できません。
-          相手が<code>endTime</code>を解釈しない場合や、すでに複製したデータの扱いは
-          相手側に依存します。
+          したがって「24時間後に全サーバーから物理的に消える」とは保証できません。相手が<code>endTime</code>を解釈しない場合や、すでに複製したデータの扱いは相手側に依存します。
         </p>
 
         <h2>受信時の扱い</h2>
         <p>
-          受信したStoryにも期限が必要です。欠落または不正な
-          <code>endTime</code
-          >は、受信側で公開時刻からおよそ25時間以内に収まる値へ
-          補正します。添付がないStoryは保存しません。オーバーレイは最大20件まで
-          取り込み、過大な付加情報は落として基本のメディアとキャプションを優先します。
+          受信したStoryにも期限が必要です。欠落または不正な<code>endTime</code>は、受信側で公開時刻からおよそ25時間以内に収まる値へ補正します。添付がないStoryは保存しません。オーバーレイは最大20件まで取り込み、過大な付加情報は落として基本のメディアとキャプションを優先します。
         </p>
 
         <h2>機械可読な例</h2>
