@@ -613,13 +613,17 @@ const translations = {
     "firstFeed.addressPlaceholder": "@alice@mastodon.social",
     "firstFeed.search": "探す",
     "firstFeed.addressHint":
-      "ほかのサーバーの人は「@ユーザー名@サーバー」の形で入力します。このサーバーの人は名前でも探せます。",
+      "ほかのサーバーの人は「@ユーザー名@サーバー」の形で入力します。プロフィールのURLを貼り付けても探せます。",
     "firstFeed.yourAddress": "あなたのアドレス",
     "firstFeed.yourAddressHint":
       "相手のサーバーでこのアドレスを検索してもらうと、あなたをフォローできます。",
     "firstFeed.copyAddress": "コピー",
     "firstFeed.copied": "コピーしました",
-    "firstFeed.copyFailed": "コピーできませんでした",
+    "firstFeed.copyFailed":
+      "コピーできませんでした。選択したアドレスをコピーしてください",
+    "firstFeed.qrHint":
+      "QRコードは、相手も Yurucommu を使っているときの交換用です。",
+    "firstFeed.qrFailed": "QRコードを開けませんでした",
     "firstFeed.showQr": "QRコード",
     "firstFeed.moreActions": "ほかにできること",
     "firstFeed.createCommunity": "コミュニティを作る",
@@ -1414,13 +1418,17 @@ const translations = {
     "firstFeed.addressPlaceholder": "@alice@mastodon.social",
     "firstFeed.search": "Search",
     "firstFeed.addressHint":
-      "For someone on another server, enter @username@server. People on this server can also be found by name.",
+      "For someone on another server, enter @username@server. Pasting their profile URL works too.",
     "firstFeed.yourAddress": "Your address",
     "firstFeed.yourAddressHint":
       "Others can follow you by searching for this address on their server.",
     "firstFeed.copyAddress": "Copy",
     "firstFeed.copied": "Copied",
-    "firstFeed.copyFailed": "Couldn't copy",
+    "firstFeed.copyFailed":
+      "Couldn't copy. The address is selected; copy it yourself",
+    "firstFeed.qrHint":
+      "The QR code is for exchanging with someone who also uses Yurucommu.",
+    "firstFeed.qrFailed": "Couldn't open the QR code",
     "firstFeed.showQr": "QR code",
     "firstFeed.moreActions": "More to do",
     "firstFeed.createCommunity": "Create a community",

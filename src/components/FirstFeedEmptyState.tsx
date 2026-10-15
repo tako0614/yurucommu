@@ -1,4 +1,12 @@
-import { createSignal, For, lazy, onCleanup, Show, Suspense } from "solid-js";
+import {
+  createSignal,
+  ErrorBoundary,
+  For,
+  lazy,
+  onCleanup,
+  Show,
+  Suspense,
+} from "solid-js";
 import type { JSX } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import { useAtomValue } from "solid-jotai";
@@ -94,13 +102,23 @@ function FirstConnection(props: {
   const navigate = useNavigate();
   const actor = useAtomValue(actorAtom);
   const [query, setQuery] = createSignal("");
-  const [copyState, setCopyState] = createSignal<"idle" | "copied" | "failed">(
-    "idle",
-  );
+  // Short-lived status next to the address buttons (also announced).
+  const [notice, setNotice] = createSignal<
+    "copied" | "copyFailed" | "qrFailed" | null
+  >(null);
   const [showQr, setShowQr] = createSignal(false);
   let addressInput!: HTMLInputElement;
-  let copyReset: ReturnType<typeof setTimeout> | undefined;
-  onCleanup(() => clearTimeout(copyReset));
+  let addressText: HTMLParagraphElement | undefined;
+  let noticeReset: ReturnType<typeof setTimeout> | undefined;
+  onCleanup(() => clearTimeout(noticeReset));
+
+  const announce = (next: "copied" | "copyFailed" | "qrFailed") => {
+    clearTimeout(noticeReset);
+    // Clear first so a repeated message is announced again.
+    setNotice(null);
+    queueMicrotask(() => setNotice(next));
+    noticeReset = setTimeout(() => setNotice(null), 3000);
+  };
 
   // `username` is the federated handle (user@host) others search for.
   const ownAddress = () => {
@@ -121,25 +139,38 @@ function FirstConnection(props: {
     navigate(`/search?search=${encodeURIComponent(search)}`);
   };
 
+  const noticeText = () => {
+    switch (notice()) {
+      case "copied":
+        return t("firstFeed.copied");
+      case "copyFailed":
+        return t("firstFeed.copyFailed");
+      case "qrFailed":
+        return t("firstFeed.qrFailed");
+      default:
+        return "";
+    }
+  };
+
   const copyAddress = async () => {
     const address = ownAddress();
     if (!address) return;
     try {
       await navigator.clipboard.writeText(address);
-      setCopyState("copied");
+      announce("copied");
     } catch {
-      setCopyState("failed");
+      // No clipboard (e.g. a plain-HTTP self-host): select the address so it
+      // can be copied by hand.
+      if (addressText) {
+        const range = document.createRange();
+        range.selectNodeContents(addressText);
+        const selection = window.getSelection();
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+      }
+      announce("copyFailed");
     }
-    clearTimeout(copyReset);
-    copyReset = setTimeout(() => setCopyState("idle"), 2000);
   };
-
-  const copyLabel = () =>
-    copyState() === "copied"
-      ? t("firstFeed.copied")
-      : copyState() === "failed"
-        ? t("firstFeed.copyFailed")
-        : t("firstFeed.copyAddress");
 
   const secondaryActions = (): EmptyStateAction[] => [
     {
@@ -162,7 +193,7 @@ function FirstConnection(props: {
   return (
     <section
       aria-labelledby="first-connection-title"
-      class="mx-auto w-full max-w-md px-6 py-10"
+      class="mx-auto w-full max-w-md px-6 pt-10 pb-24"
     >
       <h2
         id="first-connection-title"
@@ -200,13 +231,15 @@ function FirstConnection(props: {
             type="submit"
             class="flex shrink-0 items-center gap-2 rounded-full bg-accent px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[var(--accent-hover)]"
           >
-            <SearchIcon />
+            <span class="hidden sm:inline-flex">
+              <SearchIcon />
+            </span>
             {t("firstFeed.search")}
           </button>
         </div>
         <p
           id="first-connection-address-hint"
-          class="mt-2 text-xs leading-relaxed text-neutral-500"
+          class="mt-2 text-xs leading-relaxed text-neutral-400"
         >
           {t("firstFeed.addressHint")}
         </p>
@@ -218,8 +251,13 @@ function FirstConnection(props: {
             <p class="text-sm font-medium text-neutral-200">
               {t("firstFeed.yourAddress")}
             </p>
-            <p class="mt-1 break-all text-base text-neutral-100">{address()}</p>
-            <p class="mt-1 text-xs leading-relaxed text-neutral-500">
+            <p
+              ref={addressText}
+              class="mt-1 break-all text-base text-neutral-100 select-all"
+            >
+              {address()}
+            </p>
+            <p class="mt-1 text-xs leading-relaxed text-neutral-400">
               {t("firstFeed.yourAddressHint")}
             </p>
             <div class="mt-3 flex flex-wrap gap-2">
@@ -228,7 +266,7 @@ function FirstConnection(props: {
                 onClick={() => void copyAddress()}
                 class="rounded-full border border-neutral-700 px-4 py-2 text-sm font-medium text-neutral-200 transition-colors hover:bg-neutral-800"
               >
-                {copyLabel()}
+                {t("firstFeed.copyAddress")}
               </button>
               <button
                 type="button"
@@ -238,16 +276,19 @@ function FirstConnection(props: {
               >
                 {t("firstFeed.showQr")}
               </button>
+              <span role="status" class="self-center text-xs text-neutral-300">
+                {noticeText()}
+              </span>
             </div>
-            <span class="sr-only" aria-live="polite">
-              {copyState() === "idle" ? "" : copyLabel()}
-            </span>
+            <p class="mt-2 text-xs leading-relaxed text-neutral-400">
+              {t("firstFeed.qrHint")}
+            </p>
           </div>
         )}
       </Show>
 
       <div class="mt-8 border-t border-neutral-800 pt-4">
-        <p class="text-xs text-neutral-500">{t("firstFeed.moreActions")}</p>
+        <p class="text-xs text-neutral-400">{t("firstFeed.moreActions")}</p>
         <div class="mt-2 flex flex-wrap gap-2">
           <For each={secondaryActions()}>
             {(action) => (
@@ -266,9 +307,20 @@ function FirstConnection(props: {
 
       <Show when={showQr() && actor()}>
         {(owner) => (
-          <Suspense>
-            <QRCodeModal actor={owner()} onClose={() => setShowQr(false)} />
-          </Suspense>
+          <ErrorBoundary
+            fallback={() => {
+              // The QR chunk failed to load: close instead of crashing home.
+              queueMicrotask(() => {
+                setShowQr(false);
+                announce("qrFailed");
+              });
+              return null;
+            }}
+          >
+            <Suspense>
+              <QRCodeModal actor={owner()} onClose={() => setShowQr(false)} />
+            </Suspense>
+          </ErrorBoundary>
         )}
       </Show>
     </section>
