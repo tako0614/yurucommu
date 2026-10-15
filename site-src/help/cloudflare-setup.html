@@ -72,8 +72,7 @@
         </div>
         <p>
           <code>main.tf</code> と <code>wrangler.jsonc</code>
-          は、同時に使うことを前提にした手順ではありません。どちらがリソースと
-          Workerの設定を管理するか、先に決めてください。
+          は、同時に使うことを前提にした手順ではありません。どちらがリソースとWorkerの設定を管理するか、先に決めてください。
         </p>
         <p>
           ルートのOpenTofu設定は、Cloudflare上の変更を初期状態では行いません。作成内容を確認したうえで
@@ -153,8 +152,7 @@ bunx wrangler whoami</code></pre>
         <pre><code>bunx wrangler secret put ENCRYPTION_KEY
 bunx wrangler secret put AUTH_PASSWORD_HASH</code></pre>
         <p>
-          Secretの登録はWorkerの新しいバージョンを作ります。すでに運用中の
-          Workerでは、対象と戻し方を確認してから実行してください。OpenTofuを使う場合は、<code
+          Secretの登録はWorkerの新しいバージョンを作ります。すでに運用中のWorkerでは、対象と戻し方を確認してから実行してください。OpenTofuを使う場合は、<code
             >main.tf</code
           >
           の機密入力として渡します。

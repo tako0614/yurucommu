@@ -193,13 +193,11 @@ path: deploy/takoform</code></pre>
           </li>
         </ol>
         <p>
-          Takoserverのmanaged resourceを使う場合も、Takosumiの追加画面から
-          Gitの取得元を指定してください。ホスト向けの詳しい契約は
-          <a
+          Takoserverのmanaged
+          resourceを使う場合も、Takosumiの追加画面からGitの取得元を指定してください。ホスト向けの詳しい契約は<a
             href="https://github.com/tako0614/yurucommu/tree/main/deploy/takoform"
             >deploy/takoformのREADME</a
-          >
-          にあります。
+          >にあります。
         </p>
 
         <h2>Cloudflareでセルフホストする</h2>
@@ -239,8 +237,8 @@ path: deploy/takoform</code></pre>
         <p>
           認証は
           <code>bunx wrangler whoami</code> で確認できます。シークレットは
-          <code>bunx wrangler secret put</code> で設定できますが、この操作は
-          Workerの新しいバージョンを作るため、実行前に対象のWorkerと戻し方を確認してください。
+          <code>bunx wrangler secret put</code>
+          で設定できますが、この操作はWorkerの新しいバージョンを作るため、実行前に対象のWorkerと戻し方を確認してください。
         </p>
 
         <h2>公開前の確認</h2>
@@ -294,8 +292,8 @@ bun run check</code></pre>
 
         <h3>画像をアップロードできない</h3>
         <p>
-          <code>MEDIA</code> の接続先と権限を確認します。Cloudflareでは
-          R2バケットの名前とWorkerのbindingを確認してください。
+          <code>MEDIA</code>
+          の接続先と権限を確認します。CloudflareではR2バケットの名前とWorkerのbindingを確認してください。
         </p>
       </main>
     </div>

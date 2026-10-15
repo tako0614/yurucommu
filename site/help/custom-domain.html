@@ -152,8 +152,7 @@
 
         <h2>Takosumiで運用する場合</h2>
         <p>
-          インストール時に公開URLを指定するか、ホストが割り当てたURLを使います。PlanでURLを確認してからApplyしてください。Apply後はTakosumiのApps画面に表示されたリンクを開き、<code>/.well-known/social-server</code>が同じ
-          originを返すことを確認します。
+          インストール時に公開URLを指定するか、ホストが割り当てたURLを使います。PlanでURLを確認してからApplyしてください。Apply後はTakosumiのApps画面に表示されたリンクを開き、<code>/.well-known/social-server</code>が同じoriginを返すことを確認します。
         </p>
 
         <h2>Cloudflareでセルフホストする場合</h2>
@@ -168,8 +167,7 @@
 
         <h2>外部DNSを使う場合</h2>
         <p>
-          先にホストまたはCloudflareが割り当てた公開先を確認し、DNSプロバイダ側で
-          CNAMEなど必要なレコードを作ります。使うレコードと証明書の設定は公開先によって異なるため、ホストの案内を優先してください。
+          先にホストまたはCloudflareが割り当てた公開先を確認し、DNSプロバイダ側でCNAMEなど必要なレコードを作ります。使うレコードと証明書の設定は公開先によって異なるため、ホストの案内を優先してください。
         </p>
         <pre><code>タイプ: CNAME
 名前: yurucommu（サブドメイン部分）
@@ -177,8 +175,7 @@
 
         <h2>SSL/TLS設定</h2>
         <p>
-          公開URLにはHTTPSが必要です。Cloudflareや管理ホストで証明書が有効になってから
-          Yurucommuを公開してください。HTTPのままでは認証、Web
+          公開URLにはHTTPSが必要です。Cloudflareや管理ホストで証明書が有効になってからYurucommuを公開してください。HTTPのままでは認証、Web
           Push、ActivityPubの署名付き通信が正しく動きません。
         </p>
 
