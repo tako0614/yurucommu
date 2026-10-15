@@ -32,17 +32,23 @@ function WordBreakLabel(props: { text: string }) {
     const segmenter = new Intl.Segmenter(language(), { granularity: "word" });
     return Array.from(segmenter.segment(props.text), (part) => part.segment);
   };
+  // Screen readers get the label as one string, not one stop per word.
   return (
-    <For each={words()}>
-      {(word, index) => (
-        <>
-          <Show when={index() > 0}>
-            <wbr />
-          </Show>
-          {word}
-        </>
-      )}
-    </For>
+    <>
+      <span aria-hidden="true">
+        <For each={words()}>
+          {(word, index) => (
+            <>
+              <Show when={index() > 0}>
+                <wbr />
+              </Show>
+              {word}
+            </>
+          )}
+        </For>
+      </span>
+      <span class="sr-only">{props.text}</span>
+    </>
   );
 }
 
@@ -153,7 +159,7 @@ export function StoryBar(props: StoryBarProps) {
                     </div>
                   </div>
                   <span class="w-16 text-center text-xs leading-tight text-neutral-400 line-clamp-2 break-keep wrap-anywhere">
-                    <WordBreakLabel text={t("story.yourStory")} />
+                    <WordBreakLabel text={t("story.addStory")} />
                   </span>
                 </button>
               </div>
