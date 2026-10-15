@@ -268,11 +268,12 @@ a:focus-visible {
   border-radius: var(--radius-screen);
 }
 
-/* Focus the desktop capture on its feed; the mobile source uses its full UI. */
+/* Focus the desktop capture on its feed; the mobile source uses its full UI.
+ * The 1188x720 capture's feed column is x289..867 (578px wide). */
 .hero-screen img {
-  width: 221.453%;
+  width: 205.536%;
   max-width: none;
-  transform: translateX(-26.5625%);
+  transform: translateX(-24.327%);
 }
 
 figcaption {
