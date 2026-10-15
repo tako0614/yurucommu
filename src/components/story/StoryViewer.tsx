@@ -720,9 +720,11 @@ export function StoryViewer(props: StoryViewerProps) {
 
             {/* Caption (user-authored text shown over the story). Sits above
                 the bottom controls (reply field / insights button), which
-                take the lowest ~70px of the card. */}
+                take the lowest ~70px of the card, and stops short of the
+                header: a near-maximum caption on a short card is cut at the
+                end instead of running under either. */}
             <Show when={currentStory()!.caption}>
-              <div class="absolute bottom-20 left-0 right-0 px-4 pointer-events-none">
+              <div class="absolute bottom-20 left-0 right-0 max-h-[calc(100%-10rem)] overflow-hidden px-4 pointer-events-none">
                 <p class="text-white text-sm leading-snug whitespace-pre-wrap drop-shadow-[0_1px_3px_rgba(0,0,0,0.8)]">
                   {currentStory()!.caption}
                 </p>
