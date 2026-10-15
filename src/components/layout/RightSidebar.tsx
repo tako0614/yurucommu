@@ -1,11 +1,14 @@
 import { createEffect, createSignal, For, on, onCleanup, Show } from "solid-js";
-import { A } from "@solidjs/router";
+import { A, useLocation } from "@solidjs/router";
 import { useSetAtom } from "solid-jotai";
 import { useRequiredActor } from "../../hooks/useRequiredActor.ts";
 import type { RecommendedUser } from "../../lib/api/recommendations.ts";
 import { fetchRecommendedUsers, follow } from "../../lib/api.ts";
 import { UserAvatar } from "../UserAvatar.tsx";
 import { PluginSlot } from "../PluginSlot.tsx";
+import { FollowByAddressForm } from "../connect/FollowByAddressForm.tsx";
+import { OwnAddressPanel } from "../connect/OwnAddressPanel.tsx";
+import { firstConnectionOnScreen } from "../connect/presence.ts";
 import { useI18n } from "../../lib/i18n.tsx";
 import { pushToast, toastsAtom } from "../../atoms/toast.ts";
 
@@ -134,6 +137,16 @@ export function RightSidebar() {
   };
 
   const showRecommendations = () => loading() || users().length > 0;
+  // Recommendations are friends-of-friends from this server's follow table,
+  // so on a single-owner server they are almost always empty and the column
+  // stayed blank. Offer the two ways to grow connections instead, except where
+  // the page already shows them: the empty home's first-connection panel and
+  // the search page's own box.
+  const location = useLocation();
+  const showConnect = () =>
+    !showRecommendations() &&
+    !firstConnectionOnScreen() &&
+    !location.pathname.startsWith("/search");
 
   return (
     <div class="sticky top-0">
@@ -162,6 +175,17 @@ export function RightSidebar() {
             </Show>
           </div>
         </div>
+      </Show>
+      <Show when={showConnect()}>
+        <section aria-labelledby="sidebar-connect-title" class="p-4 pb-0">
+          <div class="space-y-6 rounded-2xl bg-neutral-900/50 p-4">
+            <h2 id="sidebar-connect-title" class="text-lg font-bold">
+              {t("firstFeed.sidebarTitle")}
+            </h2>
+            <FollowByAddressForm id="sidebar-connect-address" compact />
+            <OwnAddressPanel compact />
+          </div>
+        </section>
       </Show>
       <PluginSlot name="right-sidebar.below-recommendations" />
     </div>
