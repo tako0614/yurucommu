@@ -243,7 +243,7 @@ function FirstConnection(props: {
             onInput={(e) => setQuery(e.currentTarget.value)}
             placeholder={t("firstFeed.addressPlaceholder")}
             aria-describedby="first-connection-address-hint"
-            class="min-w-0 flex-1 rounded-full border border-neutral-700 bg-neutral-900 px-4 py-2.5 text-sm text-neutral-100 placeholder-neutral-500 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
+            class="min-w-0 flex-1 rounded-full border border-neutral-700 bg-neutral-900 px-3 py-2.5 text-sm sm:px-4 text-neutral-100 placeholder-neutral-500 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
           />
           <button
             type="submit"

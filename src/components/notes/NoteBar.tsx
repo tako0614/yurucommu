@@ -77,6 +77,7 @@ function NoteTile(props: {
           avatarUrl={props.avatarUrl ?? null}
           name={props.name}
           size={44}
+          decorative
         />
         <Show when={props.add}>
           <div class="absolute -bottom-0.5 -right-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-accent text-white ring-2 ring-neutral-900">

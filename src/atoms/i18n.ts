@@ -1417,7 +1417,7 @@ const translations = {
       "New posts from people you follow arrive here. You can follow people on other ActivityPub servers by their address.",
     "firstFeed.findPeople": "Find people to follow",
     "firstFeed.addressPlaceholder": "@alice@mastodon.social",
-    "firstFeed.search": "Search",
+    "firstFeed.search": "Find",
     "firstFeed.addressHint":
       "For someone on another server, enter @username@server. Pasting their profile URL works too.",
     "firstFeed.yourAddress": "Your address",
