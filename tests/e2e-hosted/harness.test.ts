@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,6 +11,7 @@ import {
   appOrigin,
   form,
   record,
+  type Artifact,
   type Fixture,
   type Operation,
   type Resource,
@@ -21,7 +22,7 @@ import { runHarness, readConfig } from "./harness.ts";
 import { PRODUCT_ROOT, loadFixture, parseTarget, sha256 } from "./inputs.ts";
 import { JOURNAL_FILENAME, openJournal } from "./journal.ts";
 import { runLifecycle } from "./lifecycle.ts";
-import { HttpV2Port } from "./v2-port.ts";
+import { HttpV2Port, type HostedArtifactBytePort } from "./v2-port.ts";
 
 const runId = "staging-yuru-123456789abc";
 const target: Target = {
@@ -302,7 +303,7 @@ async function localHost(failure: Failure = "none", queued = false) {
   cleanup.push(async () => {
     await server.stop(true);
   });
-  const port = new HttpV2Port(target, writer, evidence, async (input, init) => {
+  const transport = async (input: string, init: RequestInit) => {
     // ONLY tests rewrite declared HTTPS targets onto this ephemeral loopback server.
     const declared = new URL(input);
     const local = new URL(`${declared.pathname}${declared.search}`, server.url);
@@ -316,8 +317,9 @@ async function localHost(failure: Failure = "none", queued = false) {
           : "artifact",
     );
     return fetch(local, { ...init, headers });
-  });
-  return { port, fixture, resources, specs, events };
+  };
+  const port = new HttpV2Port(target, writer, evidence, transport);
+  return { port, fixture, resources, specs, events, transport };
 }
 async function execute(failure: Failure = "none", queued = false) {
   const host = await localHost(failure, queued);
@@ -701,13 +703,16 @@ async function receiptFixture() {
   const entries = (schema.entries as unknown[])
     .map(record)
     .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  const moduleBytes = new TextEncoder().encode(
+    "// synthetic module for local HTTP protocol tests only",
+  );
   const worker = {
     entrypoint: "yurucommu-worker.js",
     files: [
       {
         path: "yurucommu-worker.js",
         url: "https://fixture-staging.unit.takos.jp/immutable/yurucommu-worker.js",
-        sha256: "a".repeat(64),
+        sha256: sha256(moduleBytes),
         mediaType: "application/javascript+module",
       },
     ],
@@ -750,8 +755,253 @@ async function receiptFixture() {
   };
   const path = join(dir, "receipt.json");
   await writeFile(path, JSON.stringify(receipt));
-  return { path, receipt, worker, migrations, workerFile, migrationFile };
+  const artifactBytes = [
+    new TextEncoder().encode(workerBytes),
+    new TextEncoder().encode(migrationBytes),
+    moduleBytes,
+    ...entries.map((entry) => new TextEncoder().encode(String(entry.sql))),
+  ];
+  return {
+    path,
+    receipt,
+    worker,
+    migrations,
+    workerFile,
+    migrationFile,
+    artifactBytes,
+  };
 }
+describe("held artifact byte transport retains complete verification", () => {
+  test("consumes all 38 ordered actual bytes before the ordinary HTTP graph without artifact GETs", async () => {
+    const input = await receiptFixture();
+    const fixture = await loadFixture(input.path);
+    expect(fixture.files).toHaveLength(38);
+    const host = await localHost();
+    let reads = 0;
+    const artifactBytes: HostedArtifactBytePort = {
+      async readArtifacts(required) {
+        reads++;
+        expect(required).toEqual(fixture.files);
+        expect(Object.isFrozen(required)).toBe(true);
+        expect(required.every(Object.isFrozen)).toBe(true);
+        return input.artifactBytes;
+      },
+    };
+    const journal = await openJournal(await directory(), runId);
+    try {
+      const result = await runLifecycle({
+        target,
+        fixture,
+        runId,
+        privateInputs,
+        port: new HttpV2Port(
+          target,
+          writer,
+          evidence,
+          host.transport,
+          artifactBytes,
+        ),
+        journal,
+      });
+      expect(result).toMatchObject({
+        status: "passed",
+        resourceCount: 15,
+        authoritativeAbsence: true,
+        routeAbsent: true,
+      });
+    } finally {
+      await journal.close();
+    }
+    expect(reads).toBe(1);
+    expect(host.resources.size).toBe(0);
+    expect(host.events.some((event) => event.source === "artifact")).toBe(
+      false,
+    );
+    expect(host.events.filter((event) => event.method === "POST")).toHaveLength(
+      15,
+    );
+    expect(
+      host.events.filter((event) => event.method === "DELETE"),
+    ).toHaveLength(15);
+    expect(
+      host.events.filter((event) => event.path === "/v2/support"),
+    ).toHaveLength(13);
+  });
+  const invalid = {
+    empty: () => [],
+    missing: (bytes: Uint8Array[]) => bytes.slice(1),
+    extra: (bytes: Uint8Array[]) => [...bytes, bytes[0]!],
+    reordered: (bytes: Uint8Array[]) => [
+      bytes[1]!,
+      bytes[0]!,
+      ...bytes.slice(2),
+    ],
+    corrupt: (bytes: Uint8Array[]) => [new Uint8Array([0]), ...bytes.slice(1)],
+    "empty-file": (bytes: Uint8Array[]) => [
+      new Uint8Array(),
+      ...bytes.slice(1),
+    ],
+    "non-byte": (bytes: Uint8Array[]) => [
+      { byteLength: bytes[0]!.byteLength },
+      ...bytes.slice(1),
+    ],
+    sparse: (bytes: Uint8Array[]) => new Array(bytes.length),
+    "non-array": () => ({ length: 38 }),
+    oversize: (bytes: Uint8Array[]) => [
+      new Uint8Array(16_777_217),
+      ...bytes.slice(1),
+    ],
+  };
+  for (const [name, change] of Object.entries(invalid))
+    test(`${name} byte batch refuses before any Host HTTP request`, async () => {
+      const input = await receiptFixture();
+      const fixture = await loadFixture(input.path);
+      const host = await localHost();
+      const port = new HttpV2Port(target, writer, evidence, host.transport, {
+        async readArtifacts() {
+          return change(
+            input.artifactBytes,
+          ) as unknown as readonly Uint8Array[];
+        },
+      });
+      await expect(port.preflight([], fixture.files)).rejects.toThrow(
+        "ARTIFACT_PUBLICATION_UNCONFIRMED",
+      );
+      expect(host.events).toHaveLength(0);
+      expect(host.resources.size).toBe(0);
+    });
+  test("recomputes every manifest, module and SQL digest rather than accepting batch metadata", async () => {
+    const input = await receiptFixture();
+    const fixture = await loadFixture(input.path);
+    const host = await localHost();
+    for (let index = 0; index < input.artifactBytes.length; index++) {
+      const batch = [...input.artifactBytes];
+      const corrupt = batch[index]!.slice();
+      corrupt[0] = corrupt[0]! ^ 1;
+      batch[index] = corrupt;
+      const port = new HttpV2Port(target, writer, evidence, host.transport, {
+        async readArtifacts() {
+          return batch;
+        },
+      });
+      await expect(port.preflight([], fixture.files)).rejects.toThrow(
+        "ARTIFACT_PUBLICATION_UNCONFIRMED",
+      );
+    }
+    expect(host.events).toHaveLength(0);
+  });
+  test("a byte subclass cannot hide an oversized actual view", async () => {
+    class HiddenSize extends Uint8Array {
+      get byteLength() {
+        return 1;
+      }
+    }
+    const bytes = new HiddenSize(16_777_217);
+    const host = await localHost();
+    const port = new HttpV2Port(target, writer, evidence, host.transport, {
+      async readArtifacts() {
+        return [bytes];
+      },
+    });
+    await expect(
+      port.preflight(
+        [],
+        [
+          {
+            url: host.fixture.files[0]!.url,
+            sha256: sha256(bytes),
+          },
+        ],
+      ),
+    ).rejects.toThrow("ARTIFACT_PUBLICATION_UNCONFIRMED");
+    expect(host.events).toHaveLength(0);
+  });
+  test("aggregate overflow refuses even when all individual bytes and digests match", async () => {
+    const chunk = new Uint8Array(16_777_216);
+    const tail = new Uint8Array([1]);
+    const bytes = [...Array<Uint8Array>(8).fill(chunk), tail];
+    const required: Artifact[] = bytes.map((value, index) => ({
+      url: `https://fixture-staging.unit.takos.jp/immutable/${index}`,
+      sha256: sha256(value),
+    }));
+    const host = await localHost();
+    const port = new HttpV2Port(target, writer, evidence, host.transport, {
+      async readArtifacts() {
+        return bytes;
+      },
+    });
+    await expect(port.preflight([], required)).rejects.toThrow(
+      "ARTIFACT_PUBLICATION_UNCONFIRMED",
+    );
+    expect(host.events).toHaveLength(0);
+  });
+  test("reader failure is sanitized and never falls back to anonymous HTTP", async () => {
+    const host = await localHost();
+    const port = new HttpV2Port(target, writer, evidence, host.transport, {
+      async readArtifacts() {
+        throw new Error(
+          `reader failed ${writer} ${privateInputs.ENCRYPTION_KEY}`,
+        );
+      },
+    });
+    await expect(port.preflight([], host.fixture.files)).rejects.toThrow(
+      /^ARTIFACT_PUBLICATION_UNCONFIRMED$/,
+    );
+    expect(host.events).toHaveLength(0);
+  });
+  test("runHarness forwards only the code byte port and keeps the journal on refusal", async () => {
+    const input = await receiptFixture();
+    const dir = await directory();
+    const journalDirectory = await directory();
+    const targetFile = join(dir, "target.json");
+    await writeFile(
+      targetFile,
+      JSON.stringify({
+        kind: "yurucommu.hosted-staging-target@v2",
+        environment: "staging",
+        api: API,
+        appSuffix: APP_SUFFIX,
+        ...target,
+      }),
+    );
+    const network = spyOn(globalThis, "fetch").mockRejectedValue(
+      new Error("unexpected external request"),
+    );
+    let reads = 0;
+    try {
+      await expect(
+        runHarness(
+          {
+            mode: "execute",
+            runId,
+            targetFile,
+            fixtureFile: input.path,
+            journalDirectory,
+            writer,
+            evidence,
+            privateInputs,
+          },
+          {
+            artifactBytes: {
+              async readArtifacts(required) {
+                reads++;
+                expect(required).toHaveLength(38);
+                return [];
+              },
+            },
+          },
+        ),
+      ).rejects.toThrow("ARTIFACT_PUBLICATION_UNCONFIRMED");
+      expect(reads).toBe(1);
+      expect(network).not.toHaveBeenCalled();
+      expect(
+        await readFile(join(journalDirectory, JOURNAL_FILENAME), "utf8"),
+      ).toBe("");
+    } finally {
+      network.mockRestore();
+    }
+  });
+});
 describe("actual product manifest mapping prerequisites", () => {
   test("requires every ordered real source migration and anonymous immutable manifest identity", async () => {
     const { path, receipt, migrations } = await receiptFixture();

@@ -8,11 +8,14 @@ import {
 } from "./inputs.ts";
 import { openJournal } from "./journal.ts";
 import { runLifecycle } from "./lifecycle.ts";
-import { HttpV2Port } from "./v2-port.ts";
+import { HttpV2Port, type HostedArtifactBytePort } from "./v2-port.ts";
 
 export { HarnessError };
 export { readConfig } from "./inputs.ts";
-export async function runHarness(config: Config) {
+export async function runHarness(
+  config: Config,
+  options: { artifactBytes?: HostedArtifactBytePort } = {},
+) {
   if (config.mode === "dry-run")
     return {
       kind: "yurucommu.hosted-e2e@v2",
@@ -43,7 +46,13 @@ export async function runHarness(config: Config) {
       fixture,
       runId: config.runId,
       privateInputs: config.privateInputs,
-      port: new HttpV2Port(target, config.writer, config.evidence),
+      port: new HttpV2Port(
+        target,
+        config.writer,
+        config.evidence,
+        undefined,
+        options.artifactBytes,
+      ),
       journal,
     });
   } finally {

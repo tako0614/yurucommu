@@ -17,6 +17,14 @@ import {
 import { parseJson, sha256 } from "./inputs.ts";
 
 export type Transport = (url: string, init: RequestInit) => Promise<Response>;
+export interface HostedArtifactBytePort {
+  readArtifacts(required: readonly Artifact[]): Promise<readonly Uint8Array[]>;
+}
+// Read the actual view size even if a byte transport returns a subclass.
+const artifactByteLength = Object.getOwnPropertyDescriptor(
+  Object.getPrototypeOf(Uint8Array.prototype),
+  "byteLength",
+)!.get!;
 export interface Port {
   preflight(
     names: readonly { role: Role; name: string }[],
@@ -97,6 +105,7 @@ export class HttpV2Port implements Port {
     private readonly writer: string,
     private readonly evidence: string,
     private readonly transport: Transport = (url, init) => fetch(url, init),
+    private readonly artifactBytes?: HostedArtifactBytePort,
   ) {}
   private async read(
     url: string,
@@ -192,21 +201,57 @@ export class HttpV2Port implements Port {
     names: readonly { role: Role; name: string }[],
     files: readonly Artifact[],
   ): Promise<void> {
-    // Public artifacts are anonymously readable, immutable digest identities.
-    // No writer/evidence or application private input is sent to the publisher.
-    for (const file of files) {
-      const response = await this.read(
-        file.url,
-        "GET",
-        undefined,
-        undefined,
-        {},
-        16_777_216,
+    if (this.artifactBytes) {
+      // The code-only owner supplies bytes, never a verification assertion.
+      // Snapshot identities before awaiting it and verify the complete batch.
+      const required = Object.freeze(
+        files.map((file) => Object.freeze({ ...file })),
       );
-      check(
-        response.status === 200 && sha256(response.bytes) === file.sha256,
-        "ARTIFACT_PUBLICATION_UNCONFIRMED",
-      );
+      try {
+        const batch = await this.artifactBytes.readArtifacts(required);
+        check(
+          required.length > 0 &&
+            Array.isArray(batch) &&
+            batch.length === required.length,
+          "ARTIFACT_PUBLICATION_UNCONFIRMED",
+        );
+        let total = 0;
+        for (let index = 0; index < required.length; index++) {
+          const bytes = batch[index];
+          check(
+            bytes instanceof Uint8Array,
+            "ARTIFACT_PUBLICATION_UNCONFIRMED",
+          );
+          const size: number = artifactByteLength.call(bytes);
+          total += size;
+          check(
+            size > 0 &&
+              size <= 16_777_216 &&
+              total <= 134_217_728 &&
+              sha256(bytes) === required[index]!.sha256,
+            "ARTIFACT_PUBLICATION_UNCONFIRMED",
+          );
+        }
+      } catch {
+        throw new HarnessError("ARTIFACT_PUBLICATION_UNCONFIRMED");
+      }
+    } else {
+      // Public artifacts are anonymously readable, immutable digest identities.
+      // No writer/evidence or application private input is sent to the publisher.
+      for (const file of files) {
+        const response = await this.read(
+          file.url,
+          "GET",
+          undefined,
+          undefined,
+          {},
+          16_777_216,
+        );
+        check(
+          response.status === 200 && sha256(response.bytes) === file.sha256,
+          "ARTIFACT_PUBLICATION_UNCONFIRMED",
+        );
+      }
     }
     const response = await this.read(
       `${this.target.hostOrigin}/.well-known/takoform/v2`,
