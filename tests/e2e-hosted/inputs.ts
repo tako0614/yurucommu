@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
-import { constants } from "node:fs";
-import { open } from "node:fs/promises";
+import { constants, type BigIntStats } from "node:fs";
+import { lstat, open } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -102,16 +102,59 @@ export function readConfig(
     privateInputs,
   };
 }
+function sameInputFile(before: BigIntStats, after: BigIntStats): boolean {
+  return (
+    after.isFile() &&
+    before.dev === after.dev &&
+    before.ino === after.ino &&
+    before.uid === after.uid &&
+    before.mode === after.mode &&
+    before.nlink === after.nlink &&
+    before.size === after.size &&
+    before.mtimeNs === after.mtimeNs &&
+    before.ctimeNs === after.ctimeNs
+  );
+}
 export async function readBoundedFile(
   path: string,
   maximum = 1_048_576,
 ): Promise<Uint8Array> {
-  const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+  check(
+    Number.isSafeInteger(maximum) && maximum >= 0 && maximum <= 16_777_216,
+    "FILE_REFUSED",
+  );
+  const handle = await open(
+    path,
+    constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+  );
   try {
-    const stat = await handle.stat();
-    check(stat.isFile() && stat.size <= maximum, "FILE_REFUSED");
-    const bytes = await handle.readFile();
-    check(bytes.byteLength <= maximum, "FILE_REFUSED");
+    const before = await handle.stat({ bigint: true });
+    check(
+      before.isFile() && before.size >= 0n && before.size <= BigInt(maximum),
+      "FILE_REFUSED",
+    );
+    // Allocate only the checked initial size. A separate one-byte EOF probe
+    // detects growth without reading or allocating the growing remainder.
+    const bytes = new Uint8Array(Number(before.size));
+    let offset = 0;
+    while (offset < bytes.length) {
+      const remaining = bytes.length - offset;
+      const { bytesRead } = await handle.read(bytes, offset, remaining, offset);
+      check(
+        Number.isSafeInteger(bytesRead) &&
+          bytesRead > 0 &&
+          bytesRead <= remaining,
+        "FILE_REFUSED",
+      );
+      offset += bytesRead;
+    }
+    const eof = await handle.read(new Uint8Array(1), 0, 1, offset);
+    check(
+      eof.bytesRead === 0 &&
+        sameInputFile(before, await handle.stat({ bigint: true })) &&
+        sameInputFile(before, await lstat(path, { bigint: true })),
+      "FILE_REFUSED",
+    );
     return bytes;
   } finally {
     await handle.close();
