@@ -6,12 +6,14 @@ import {
   check,
   form,
   graphSpec,
+  originReservation,
   record,
   resourceName,
   type Fixture,
   type Operation,
   type Resource,
   type Role,
+  type SharedOriginSelection,
   type Target,
 } from "./contracts.ts";
 import { sha256 } from "./inputs.ts";
@@ -63,6 +65,7 @@ export async function runLifecycle(input: {
   privateInputs: Readonly<Record<string, string>>;
   port: Port;
   journal: Journal;
+  sharedOrigin?: SharedOriginSelection;
   operationTimeoutMs?: number;
   pause?: () => Promise<void>;
 }): Promise<Report> {
@@ -86,6 +89,11 @@ export async function runLifecycle(input: {
     close: () => input.journal.close(),
   };
   check(/^staging-yuru-[0-9a-f]{12}$/.test(runId), "RUN_ID_REFUSED");
+  check(
+    !input.sharedOrigin || input.sharedOrigin.kind === "form-v2@1",
+    "SHARED_ORIGIN_SELECTION_REFUSED",
+  );
+  const reservation = input.sharedOrigin ? originReservation(runId) : undefined;
   const timeout = input.operationTimeoutMs ?? 60_000;
   check(
     Number.isSafeInteger(timeout) && timeout > 0 && timeout <= 60_000,
@@ -220,6 +228,11 @@ export async function runLifecycle(input: {
       resources[role] = resource;
       ownedUids.add(resource.uid);
       count++;
+      if (role === "endpoint" && reservation)
+        check(
+          appOrigin(resource.output.url) === reservation.canonicalPublicOrigin,
+          "ORIGIN_RESERVATION_UNCONFIRMED",
+        );
     } else {
       check(await port.absent(previous!.uid), "ABSENCE_UNCONFIRMED");
       await journal.append({ kind: "absent", role, uid: previous!.uid });
@@ -227,11 +240,25 @@ export async function runLifecycle(input: {
   };
   let origin: string;
   try {
+    if (reservation) {
+      // Keep the original locator even if the PUT commits without its ACK.
+      // No Resource is created until both the strict ACK and its journal sync.
+      await journal.append({
+        kind: "origin-reservation-intent",
+        ...reservation,
+      });
+      await port.prepareOrigin(reservation);
+      await journal.append({ kind: "origin-reservation-ack", ...reservation });
+    }
     for (const role of ORDER) await mutate(role, "create");
     origin = appOrigin(resources.endpoint!.output.url);
     check(
       /^(?:staging|integration)-/.test(new URL(origin).hostname),
       "APP_ORIGIN_REFUSED",
+    );
+    check(
+      !reservation || origin === reservation.canonicalPublicOrigin,
+      "ORIGIN_RESERVATION_UNCONFIRMED",
     );
   } catch {
     // A send may have taken effect even when HTTP failed or an ACK was malformed.

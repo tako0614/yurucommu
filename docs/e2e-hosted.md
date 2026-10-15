@@ -58,6 +58,8 @@ An old `yurucommu-e2e-...` journal remains unchanged and blocks writes from a
 new run in that directory. Do not remove, reset, rename, adopt, or automatically
 clean up an uncertain older run to make the new prefix executable; the owning
 operator must reconcile its recorded effects first.
+The same rule applies to a prior `staging-yuru-...` journal. A new prefix does
+not authorize changing the journal's bytes, inode, mode or timestamps.
 The hostname must explicitly identify staging, and discovery's advertised v2
 base URL must retain that exact origin. The qualification receipt belongs to
 the owning operator and must cover the selected commit, API, private-input
@@ -166,6 +168,52 @@ No subprocess inherits an environment, and no global env, fetch or output
 channel is replaced. Proxy and verbose-fetch/debug environment switches are
 refused for execution. The CLI emits only a fixed result or fixed failure code.
 
+### Selected shared-origin carrier
+
+Only the Endpoint resource name uses the short suffix `-ep`:
+`staging-yuru-<12hex>-ep` is 28 characters and retains the run's full 12-hex
+entropy. The earlier `-endpoint` spelling was 34 characters, exceeding the
+selected shared carrier's existing 32-character app-name limit. All other
+resource names and exact Form identities remain unchanged. This change does
+not widen the generic Host URL grammar.
+
+The generic CLI path continues to accept an independently Host-assigned staging
+URL. An owning integration that actually selects the existing `form-v2@1`
+shared-origin carrier can call `runHarness(config, { sharedOrigin: { kind:
+"form-v2@1" }, artifactBytes })`. This is a code-only selection, with no new
+environment variable, argument, receipt flag, transport or authority injection.
+It is a source candidate until the owning consumer and real authenticated Host
+carrier have been qualified together; this harness option alone proves neither.
+
+In that selected path, all artifact-byte and Host discovery/support/name
+preflight reads complete before any write. The harness syncs a payload-free
+`origin-reservation-intent` containing the original `<runId>-origin` reservation
+id, short Endpoint name and expected canonical origin. It then sends exactly one
+writer-authenticated `PUT /v1/worker-endpoint-origin-reservations/<id>` with the
+existing `takoserver.worker-endpoint-origin-reservation.v2` format, requested
+subdomain and 600-second request interval. It omits `offeringId`: the existing
+carrier must select its sole eligible ModuleWorker Offering or refuse missing
+or ambiguous selection. The harness never guesses an Offering.
+
+Only the original 201 JSON ACK with exactly the seven existing projection
+fields advances. Its format, id, requested name, canonical origin and `prepared`
+status must match; opaque revision and expiry must be nonempty strings. Neither
+those opaque values nor the raw response enter the journal. A separate synced
+`origin-reservation-ack` must succeed before the first Resource create. This
+response is not a native grant: actual Core acceptance must still read its
+own original reservation ledger and bind the accepted Endpoint UID/Operation.
+At Endpoint readback, a different URL halts immediately before later resources,
+app HTTP or automatic teardown. The harness does not substitute the expected
+URL for the Host's output.
+
+Unknown PUT acknowledgement, malformed ACK, refusal or either journal failure
+halts with zero new Resources. The original locator and any possible name hold
+remain for owner reconciliation. There is no second PUT, rekey, DELETE release
+or fallback to the generic path. Normal graph teardown and route absence do not
+release this permanent shared name or establish that it can be reused; the
+legacy reservation DELETE is not used. The 600-second request interval is not
+a claim that the global name hold expires.
+
 Each intent is synced to an exclusive `wx`, `0600` `hosted-e2e.jsonl` journal
 before sending. There is one run per explicitly supplied directory, so restarting
 with a new random resource prefix cannot conceal a previous uncertain run.
@@ -184,7 +232,9 @@ there is no automatic resume/delete command.
 
 Once every create is settled and owned, the Host-assigned endpoint must be
 HTTPS at one valid 3–32-character label under `app-staging.takos.jp`. Its value
-comes from Resource output; no hostname is reconstructed from resource names.
+comes from Resource output. The generic path does not reconstruct it from
+resource names; the selected shared path additionally compares it with the
+original prepared reservation, without replacing it.
 The assigned label must itself start with `staging-` or `integration-`; an
 unprefixed URL halts the run without substituting a URL or starting teardown.
 `/healthz` and `/readyz` must report service `yurucommu`, status `ok`, and zero
@@ -221,3 +271,9 @@ drift and the new staging suffix. Synthetic local modules prove protocol
 behavior, not execution of the compiled reference app. The repository's
 unchanged `bun run check` remains the full portable gate and must be scheduled
 separately before final publication.
+Shared-origin cases additionally exercise real loopback reservation-map effects,
+strict original ACKs, durable journal ordering, name retention on lost ACK or
+journal failure, refusal without Offering guesses, early Endpoint mismatch and
+unchanged old/new-prefix journal identity. These component cases do not replace
+actual authenticated Core acceptance, a genuine owning build witness or staging
+execution.

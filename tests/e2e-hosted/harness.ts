@@ -1,4 +1,4 @@
-import { HarnessError } from "./contracts.ts";
+import { HarnessError, type SharedOriginSelection } from "./contracts.ts";
 import {
   loadFixture,
   parseJson,
@@ -14,7 +14,10 @@ export { HarnessError };
 export { readConfig } from "./inputs.ts";
 export async function runHarness(
   config: Config,
-  options: { artifactBytes?: HostedArtifactBytePort } = {},
+  options: {
+    artifactBytes?: HostedArtifactBytePort;
+    sharedOrigin?: SharedOriginSelection;
+  } = {},
 ) {
   if (config.mode === "dry-run")
     return {
@@ -46,6 +49,7 @@ export async function runHarness(
       fixture,
       runId: config.runId,
       privateInputs: config.privateInputs,
+      sharedOrigin: options.sharedOrigin,
       port: new HttpV2Port(
         target,
         config.writer,

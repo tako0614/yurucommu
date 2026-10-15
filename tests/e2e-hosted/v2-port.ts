@@ -1,8 +1,10 @@
 import {
   API,
+  ORIGIN_RESERVATION_FORMAT,
   HarnessError,
   appOrigin,
   check,
+  exact,
   form,
   record,
   text,
@@ -10,6 +12,7 @@ import {
   type Artifact,
   type JsonObject,
   type Operation,
+  type OriginReservation,
   type Resource,
   type Role,
   type Target,
@@ -30,6 +33,7 @@ export interface Port {
     names: readonly { role: Role; name: string }[],
     files: readonly Artifact[],
   ): Promise<void>;
+  prepareOrigin(reservation: OriginReservation): Promise<void>;
   create(
     role: Role,
     name: string,
@@ -313,6 +317,50 @@ export class HttpV2Port implements Port {
         "RESOURCE_ALREADY_EXISTS",
       );
     }
+  }
+  async prepareOrigin(reservation: OriginReservation): Promise<void> {
+    check(this.base, "PREFLIGHT_REQUIRED");
+    const response = await this.read(
+      `${this.target.hostOrigin}/v1/worker-endpoint-origin-reservations/${encodeURIComponent(identity(reservation.reservationId))}`,
+      "PUT",
+      this.writer,
+      {
+        format: ORIGIN_RESERVATION_FORMAT,
+        requestedSubdomain: reservation.requestedSubdomain,
+        expiresInSeconds: 600,
+      },
+    );
+    check(response.status === 201, "ORIGIN_RESERVATION_UNCONFIRMED");
+    const value = record(this.decode(response));
+    exact(value, [
+      "format",
+      "reservationId",
+      "requestedSubdomain",
+      "canonicalPublicOrigin",
+      "revision",
+      "expiresAt",
+      "status",
+    ]);
+    check(
+      value.format === ORIGIN_RESERVATION_FORMAT &&
+        value.reservationId === reservation.reservationId &&
+        value.requestedSubdomain === reservation.requestedSubdomain &&
+        value.canonicalPublicOrigin === reservation.canonicalPublicOrigin &&
+        value.status === "prepared",
+      "ORIGIN_RESERVATION_UNCONFIRMED",
+    );
+    // These are opaque strings in the owning public wire contract. They do not
+    // grant native authority, and neither is copied into the payload-free journal.
+    text(value.revision);
+    text(value.expiresAt);
+    check(
+      !Object.values(value).some(
+        (item) =>
+          typeof item === "string" &&
+          (item.includes(this.writer) || item.includes(this.evidence)),
+      ),
+      "CREDENTIAL_IN_METADATA",
+    );
   }
   async create(
     role: Role,

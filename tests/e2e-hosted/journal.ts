@@ -6,6 +6,12 @@ import { PRODUCT_ROOT } from "./inputs.ts";
 
 export type Entry =
   | {
+      kind: "origin-reservation-intent" | "origin-reservation-ack";
+      reservationId: string;
+      requestedSubdomain: string;
+      canonicalPublicOrigin: string;
+    }
+  | {
       kind: "prepared";
       runId: string;
       hostOrigin: string;

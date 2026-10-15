@@ -88,6 +88,18 @@ export interface Target {
   qualifiedHostCommit: string;
   qualificationReceiptSha256: string;
 }
+// This code-only selection follows the owning Host's existing shared carrier.
+// It is not a CLI/environment assertion of Host qualification or name custody.
+export interface SharedOriginSelection {
+  kind: "form-v2@1";
+}
+export const ORIGIN_RESERVATION_FORMAT =
+  "takoserver.worker-endpoint-origin-reservation.v2";
+export interface OriginReservation {
+  reservationId: string;
+  requestedSubdomain: string;
+  canonicalPublicOrigin: string;
+}
 export class HarnessError extends Error {
   constructor(readonly code: string) {
     super(code);
@@ -160,7 +172,19 @@ export function appOrigin(value: unknown): string {
   return url.origin;
 }
 export function resourceName(runId: string, role: Role): string {
-  return role === "app" ? runId : `${runId}-${role}`;
+  if (role === "app") return runId;
+  return `${runId}-${role === "endpoint" ? "ep" : role}`;
+}
+export function originReservation(runId: string): OriginReservation {
+  check(/^staging-yuru-[0-9a-f]{12}$/.test(runId), "RUN_ID_REFUSED");
+  const requestedSubdomain = resourceName(runId, "endpoint");
+  return {
+    reservationId: `${runId}-origin`,
+    requestedSubdomain,
+    canonicalPublicOrigin: appOrigin(
+      `https://${requestedSubdomain}${APP_SUFFIX}/`,
+    ),
+  };
 }
 export function graphSpec(
   role: Role,

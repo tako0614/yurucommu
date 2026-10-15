@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  lstat,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -7,10 +14,13 @@ import {
   APP_SUFFIX,
   FORMS,
   ORDER,
+  ORIGIN_RESERVATION_FORMAT,
   PRIVATE_NAMES,
   appOrigin,
   form,
+  originReservation,
   record,
+  resourceName,
   type Artifact,
   type Fixture,
   type Operation,
@@ -69,7 +79,31 @@ type Failure =
   | "unprefixed-route"
   | "nonsettling"
   | "none";
-async function localHost(failure: Failure = "none", queued = false) {
+type ReservationFailure =
+  | "lost-ack"
+  | "unsupported"
+  | "missing-offering"
+  | "ambiguous-offering"
+  | "wrong-status-code"
+  | "extra-field"
+  | "missing-field"
+  | "wrong-format"
+  | "wrong-id"
+  | "wrong-name"
+  | "wrong-origin"
+  | "wrong-status"
+  | "invalid-revision"
+  | "invalid-expiry"
+  | "credential-echo"
+  | "endpoint-mismatch";
+async function localHost(
+  failure: Failure = "none",
+  queued = false,
+  shared?: {
+    failure?: ReservationFailure;
+    beforePut?: () => Promise<void>;
+  },
+) {
   const bytes = new TextEncoder().encode(
     "// synthetic module for local HTTP protocol tests only",
   );
@@ -98,6 +132,10 @@ async function localHost(failure: Failure = "none", queued = false) {
     key: string | null;
   }[] = [];
   const specs = new Map<string, Record<string, unknown>>();
+  const reservations = new Map<string, ReturnType<typeof originReservation>>();
+  const appUrl = shared
+    ? originReservation(runId).canonicalPublicOrigin
+    : origin;
   let next = 0;
   const server = Bun.serve({
     hostname: "127.0.0.1",
@@ -142,7 +180,7 @@ async function localHost(failure: Failure = "none", queued = false) {
         if (url.pathname === "/.well-known/social-server")
           return json({
             product: "yurucommu",
-            server: { canonicalOrigin: origin },
+            server: { canonicalOrigin: appUrl },
           });
         if (url.pathname === "/nodeinfo/2.0")
           return json({
@@ -157,6 +195,74 @@ async function localHost(failure: Failure = "none", queued = false) {
           baseUrl: `${target.hostOrigin}/v2`,
           capabilities: { privateInputs: true },
         });
+      if (
+        shared &&
+        request.method === "PUT" &&
+        url.pathname.startsWith("/v1/worker-endpoint-origin-reservations/")
+      ) {
+        await shared.beforePut?.();
+        expect(request.headers.get("authorization")).toBe(`Bearer ${writer}`);
+        const reservation = originReservation(runId);
+        expect(url.pathname).toBe(
+          `/v1/worker-endpoint-origin-reservations/${reservation.reservationId}`,
+        );
+        const body = await request.json();
+        expect(body).toEqual({
+          format: ORIGIN_RESERVATION_FORMAT,
+          requestedSubdomain: reservation.requestedSubdomain,
+          expiresInSeconds: 600,
+        });
+        if (shared.failure === "unsupported") return json({}, 404);
+        if (shared.failure === "missing-offering") return json({}, 422);
+        if (shared.failure === "ambiguous-offering") return json({}, 409);
+        // Protocol fixture only: this map is not the owning Core's custody proof.
+        reservations.set(reservation.reservationId, reservation);
+        if (shared.failure === "lost-ack") return json({}, 503);
+        const response: Record<string, unknown> = {
+          format: ORIGIN_RESERVATION_FORMAT,
+          ...reservation,
+          revision: "local-opaque-revision",
+          expiresAt: "2030-01-01T00:10:00.000Z",
+          status: "prepared",
+        };
+        switch (shared.failure) {
+          case "extra-field":
+            response.binding = {};
+            break;
+          case "missing-field":
+            delete response.revision;
+            break;
+          case "wrong-format":
+            response.format =
+              "takoserver.worker-endpoint-origin-reservation.v1";
+            break;
+          case "wrong-id":
+            response.reservationId = `${runId}-other`;
+            break;
+          case "wrong-name":
+            response.requestedSubdomain = `${runId}-other`;
+            break;
+          case "wrong-origin":
+            response.canonicalPublicOrigin = origin;
+            break;
+          case "wrong-status":
+            response.status = "activated";
+            break;
+          case "invalid-revision":
+            response.revision = 1;
+            break;
+          case "invalid-expiry":
+            response.expiresAt = "";
+            break;
+          case "credential-echo":
+            response.revision = writer;
+            break;
+        }
+        return json(
+          response,
+          shared.failure === "wrong-status-code" ? 200 : 201,
+        );
+      }
       if (request.method === "GET" && url.pathname === "/v2/support")
         return json({
           form: url.searchParams.get("form"),
@@ -175,8 +281,7 @@ async function localHost(failure: Failure = "none", queued = false) {
         const role = ORDER.find(
           (candidate) =>
             form(candidate) === body.form &&
-            (candidate === "app" ? runId : `${runId}-${candidate}`) ===
-              body.name,
+            resourceName(runId, candidate) === body.name,
         )!;
         expect(role).toBeDefined();
         expect(body.space).toBe(target.space);
@@ -205,7 +310,7 @@ async function localHost(failure: Failure = "none", queued = false) {
                   url:
                     failure === "unprefixed-route"
                       ? `https://local-reference${APP_SUFFIX}/`
-                      : `${origin}/`,
+                      : `${shared?.failure === "endpoint-mismatch" ? origin : appUrl}/`,
                 }
               : {},
           lastOperation: id,
@@ -303,6 +408,7 @@ async function localHost(failure: Failure = "none", queued = false) {
   cleanup.push(async () => {
     await server.stop(true);
   });
+  const loopbackFetch = fetch;
   const transport = async (input: string, init: RequestInit) => {
     // ONLY tests rewrite declared HTTPS targets onto this ephemeral loopback server.
     const declared = new URL(input);
@@ -312,14 +418,14 @@ async function localHost(failure: Failure = "none", queued = false) {
       "x-local-source",
       declared.origin === target.hostOrigin
         ? "host"
-        : declared.origin === origin
+        : declared.origin === appUrl || declared.origin === origin
           ? "app"
           : "artifact",
     );
-    return fetch(local, { ...init, headers });
+    return loopbackFetch(local, { ...init, headers });
   };
   const port = new HttpV2Port(target, writer, evidence, transport);
-  return { port, fixture, resources, specs, events, transport };
+  return { port, fixture, resources, specs, events, transport, reservations };
 }
 async function execute(failure: Failure = "none", queued = false) {
   const host = await localHost(failure, queued);
@@ -343,6 +449,374 @@ async function execute(failure: Failure = "none", queued = false) {
   const log = await readFile(join(dir, JOURNAL_FILENAME), "utf8");
   return { ...host, result, log, dir };
 }
+async function executeShared(
+  failure?: ReservationFailure,
+  journalFailure?: "origin-reservation-intent" | "origin-reservation-ack",
+) {
+  const host = await localHost("none", false, { failure });
+  const dir = await directory();
+  const journal = await openJournal(dir, runId);
+  let result;
+  try {
+    result = await runLifecycle({
+      target,
+      fixture: host.fixture,
+      runId,
+      privateInputs,
+      sharedOrigin: { kind: "form-v2@1" },
+      port: host.port,
+      journal: {
+        async append(entry) {
+          if (entry.kind === journalFailure)
+            throw new Error("local journal device unavailable");
+          await journal.append(entry);
+        },
+        close: () => journal.close(),
+      },
+    });
+  } finally {
+    await journal.close();
+  }
+  const log = await readFile(join(dir, JOURNAL_FILENAME), "utf8");
+  return { ...host, result, log, dir };
+}
+describe("selected shared-origin reservation through existing owning HTTP shape", () => {
+  test("only Endpoint is shortened to 28 characters with the original 12-hex entropy", () => {
+    expect(resourceName(runId, "endpoint")).toBe(`${runId}-ep`);
+    expect(resourceName(runId, "endpoint")).toHaveLength(28);
+    expect(resourceName(runId, "endpoint")).toMatch(
+      /^staging-yuru-[0-9a-f]{12}-ep$/,
+    );
+    for (const role of ORDER.filter((item) => item !== "endpoint"))
+      expect(resourceName(runId, role)).toBe(
+        role === "app" ? runId : `${runId}-${role}`,
+      );
+    const reservation = originReservation(runId);
+    expect(reservation.reservationId).toBe(`${runId}-origin`);
+    expect(reservation.reservationId).toHaveLength(32);
+    expect(appOrigin(`${reservation.canonicalPublicOrigin}/`)).toBe(
+      `https://${runId}-ep${APP_SUFFIX}`,
+    );
+    expect(`${runId}-endpoint`).toHaveLength(34);
+    expect(() => appOrigin(`https://${runId}-endpoint${APP_SUFFIX}/`)).toThrow(
+      "APP_ORIGIN_REFUSED",
+    );
+  });
+  test("generic Host retains its independently assigned endpoint URL without reserving a name", async () => {
+    const { result, events } = await execute();
+    expect(result.status).toBe("passed");
+    expect(origin).not.toBe(originReservation(runId).canonicalPublicOrigin);
+    expect(events.some((event) => event.source === "app")).toBe(true);
+    expect(events.some((event) => event.method === "PUT")).toBe(false);
+  });
+  test("syncs original reservation intent before PUT and its ACK before any Resource create", async () => {
+    const dir = await directory();
+    const path = join(dir, JOURNAL_FILENAME);
+    const host = await localHost("none", false, {
+      async beforePut() {
+        const entries = (await readFile(path, "utf8"))
+          .trim()
+          .split("\n")
+          .map((line) => record(JSON.parse(line)));
+        expect(entries.at(-1)).toEqual({
+          kind: "origin-reservation-intent",
+          ...originReservation(runId),
+        });
+        expect(host.resources.size).toBe(0);
+      },
+    });
+    const journal = await openJournal(dir, runId);
+    let firstCreate = true;
+    const port = new HttpV2Port(target, writer, evidence, async (url, init) => {
+      if (init.method === "POST" && firstCreate) {
+        firstCreate = false;
+        expect(await readFile(path, "utf8")).toContain(
+          '"kind":"origin-reservation-ack"',
+        );
+      }
+      return host.transport(url, init);
+    });
+    try {
+      const result = await runLifecycle({
+        target,
+        fixture: host.fixture,
+        runId,
+        privateInputs,
+        port,
+        journal,
+        sharedOrigin: { kind: "form-v2@1" },
+      });
+      expect(result).toMatchObject({
+        status: "passed",
+        resourceCount: 15,
+        authoritativeAbsence: true,
+        routeAbsent: true,
+      });
+    } finally {
+      await journal.close();
+    }
+    const putIndex = host.events.findIndex((event) => event.method === "PUT");
+    expect(putIndex).toBeGreaterThan(0);
+    expect(
+      host.events.slice(0, putIndex).every((event) => event.method === "GET"),
+    ).toBe(true);
+    expect(host.events.filter((event) => event.method === "PUT")).toHaveLength(
+      1,
+    );
+    expect(host.events.filter((event) => event.method === "POST")).toHaveLength(
+      15,
+    );
+    expect(host.resources.size).toBe(0);
+    expect(host.reservations.size).toBe(1);
+    expect(
+      host.events.some(
+        (event) => event.method === "DELETE" && event.path.startsWith("/v1/"),
+      ),
+    ).toBe(false);
+    const log = await readFile(path, "utf8");
+    expect(log).not.toContain("secret-canary");
+    expect(log).not.toContain("local-opaque-revision");
+    expect(log).not.toContain("2030-01-01");
+    expect(log.indexOf('"kind":"origin-reservation-intent"')).toBeLessThan(
+      log.indexOf('"kind":"origin-reservation-ack"'),
+    );
+    expect(log.indexOf('"kind":"origin-reservation-ack"')).toBeLessThan(
+      log.indexOf('"kind":"intent"'),
+    );
+  });
+  test("committed reservation with lost ACK retains one original name and sends zero Resource mutations", async () => {
+    const { result, events, reservations, resources, log } =
+      await executeShared("lost-ack");
+    expect(result).toMatchObject({
+      status: "halted",
+      resourceCount: 0,
+      authoritativeAbsence: false,
+    });
+    expect([...reservations.keys()]).toEqual([`${runId}-origin`]);
+    expect(resources.size).toBe(0);
+    expect(events.filter((event) => event.method === "PUT")).toHaveLength(1);
+    expect(
+      events.some((event) => ["POST", "DELETE"].includes(event.method)),
+    ).toBe(false);
+    expect(log).toContain('"kind":"origin-reservation-intent"');
+    expect(log).not.toContain('"kind":"origin-reservation-ack"');
+  });
+  for (const kind of [
+    "origin-reservation-intent",
+    "origin-reservation-ack",
+  ] as const)
+    test(`${kind} journal failure halts without creating Resources, retrying or releasing`, async () => {
+      const { result, events, reservations, resources, log } =
+        await executeShared(undefined, kind);
+      expect(result).toMatchObject({ status: "halted", resourceCount: 0 });
+      expect(events.filter((event) => event.method === "PUT")).toHaveLength(
+        kind === "origin-reservation-intent" ? 0 : 1,
+      );
+      expect(reservations.size).toBe(
+        kind === "origin-reservation-intent" ? 0 : 1,
+      );
+      expect(resources.size).toBe(0);
+      expect(
+        events.some((event) => ["POST", "DELETE"].includes(event.method)),
+      ).toBe(false);
+      expect(log).not.toContain('"kind":"origin-reservation-ack"');
+    });
+  for (const failure of [
+    "unsupported",
+    "missing-offering",
+    "ambiguous-offering",
+  ] as const)
+    test(`${failure} is decided by the existing reservation route and cannot trigger a guessed Offering or fallback`, async () => {
+      const { result, events, reservations, resources } =
+        await executeShared(failure);
+      expect(result).toMatchObject({ status: "halted", resourceCount: 0 });
+      expect(reservations.size).toBe(0);
+      expect(resources.size).toBe(0);
+      expect(events.filter((event) => event.method === "PUT")).toHaveLength(1);
+      expect(
+        events.some((event) => ["POST", "DELETE"].includes(event.method)),
+      ).toBe(false);
+    });
+  for (const failure of [
+    "wrong-status-code",
+    "extra-field",
+    "missing-field",
+    "wrong-format",
+    "wrong-id",
+    "wrong-name",
+    "wrong-origin",
+    "wrong-status",
+    "invalid-revision",
+    "invalid-expiry",
+    "credential-echo",
+  ] as const)
+    test(`${failure} cannot acknowledge the original reservation or authorize Resource creation`, async () => {
+      const { result, events, reservations, resources, log } =
+        await executeShared(failure);
+      expect(result).toMatchObject({ status: "halted", resourceCount: 0 });
+      expect(reservations.size).toBe(1);
+      expect(resources.size).toBe(0);
+      expect(events.filter((event) => event.method === "PUT")).toHaveLength(1);
+      expect(
+        events.some((event) => ["POST", "DELETE"].includes(event.method)),
+      ).toBe(false);
+      expect(log).not.toContain('"kind":"origin-reservation-ack"');
+      expect(log).not.toContain("secret-canary");
+    });
+  test("an accepted Endpoint with a different valid staging origin halts before later Resources, application HTTP or teardown", async () => {
+    const { result, resources, reservations, events } =
+      await executeShared("endpoint-mismatch");
+    expect(result).toMatchObject({ status: "halted", resourceCount: 12 });
+    expect(resources.size).toBe(12);
+    expect(events.filter((event) => event.method === "POST")).toHaveLength(12);
+    expect(reservations.size).toBe(1);
+    expect(events.some((event) => event.source === "app")).toBe(false);
+    expect(events.some((event) => event.method === "DELETE")).toBe(false);
+  });
+  for (const failure of ["collision", "unsupported", "artifact"] as const)
+    test(`${failure} preflight still refuses before the selected reservation PUT`, async () => {
+      const host = await localHost(failure, false, {});
+      const journal = await openJournal(await directory(), runId);
+      try {
+        await expect(
+          runLifecycle({
+            target,
+            fixture: host.fixture,
+            runId,
+            privateInputs,
+            port: host.port,
+            journal,
+            sharedOrigin: { kind: "form-v2@1" },
+          }),
+        ).rejects.toThrow();
+      } finally {
+        await journal.close();
+      }
+      expect(host.events.every((event) => event.method === "GET")).toBe(true);
+      expect(host.reservations.size).toBe(0);
+      expect(host.resources.size).toBe(0);
+    });
+  for (const priorRunId of [
+    "yurucommu-e2e-123456789abc",
+    "staging-yuru-abcdefabcdef",
+  ])
+    test(`existing ${priorRunId} journal blocks selected reservation before HTTP without changing file identity`, async () => {
+      const input = await receiptFixture();
+      const dir = await directory();
+      const targetFile = join(await directory(), "target.json");
+      await writeFile(
+        targetFile,
+        JSON.stringify({
+          kind: "yurucommu.hosted-staging-target@v2",
+          environment: "staging",
+          api: API,
+          appSuffix: APP_SUFFIX,
+          ...target,
+        }),
+      );
+      const path = join(dir, JOURNAL_FILENAME);
+      const bytes = `${JSON.stringify({ kind: "prepared", runId: priorRunId })}\n`;
+      await writeFile(path, bytes, { mode: 0o600, flag: "wx" });
+      const before = await lstat(path, { bigint: true });
+      const network = spyOn(globalThis, "fetch").mockRejectedValue(
+        new Error("unexpected external request"),
+      );
+      try {
+        await expect(
+          runHarness(
+            {
+              mode: "execute",
+              runId,
+              targetFile,
+              fixtureFile: input.path,
+              journalDirectory: dir,
+              writer,
+              evidence,
+              privateInputs,
+            },
+            { sharedOrigin: { kind: "form-v2@1" } },
+          ),
+        ).rejects.toThrow();
+        expect(network).not.toHaveBeenCalled();
+      } finally {
+        network.mockRestore();
+      }
+      const after = await lstat(path, { bigint: true });
+      for (const field of [
+        "dev",
+        "ino",
+        "mode",
+        "size",
+        "mtimeNs",
+        "ctimeNs",
+      ] as const)
+        expect(after[field]).toBe(before[field]);
+      expect(await readFile(path, "utf8")).toBe(bytes);
+    });
+  test("runHarness forwards the code-only selection alongside verified held bytes into the actual HTTP phase engine", async () => {
+    const input = await receiptFixture();
+    const host = await localHost("none", false, {});
+    const dir = await directory();
+    const targetFile = join(await directory(), "target.json");
+    await writeFile(
+      targetFile,
+      JSON.stringify({
+        kind: "yurucommu.hosted-staging-target@v2",
+        environment: "staging",
+        api: API,
+        appSuffix: APP_SUFFIX,
+        ...target,
+      }),
+    );
+    const forwardFetch: typeof fetch = Object.assign(
+      (url: string | URL | Pick<Request, "url">, init?: RequestInit) =>
+        host.transport(
+          typeof url === "string"
+            ? url
+            : url instanceof URL
+              ? url.href
+              : url.url,
+          init ?? {},
+        ),
+      { preconnect: globalThis.fetch.preconnect },
+    );
+    const network = spyOn(globalThis, "fetch").mockImplementation(forwardFetch);
+    try {
+      const result = await runHarness(
+        {
+          mode: "execute",
+          runId,
+          targetFile,
+          fixtureFile: input.path,
+          journalDirectory: dir,
+          writer,
+          evidence,
+          privateInputs,
+        },
+        {
+          sharedOrigin: { kind: "form-v2@1" },
+          artifactBytes: {
+            async readArtifacts(required) {
+              expect(required).toHaveLength(38);
+              return input.artifactBytes;
+            },
+          },
+        },
+      );
+      expect(result).toMatchObject({ status: "passed", resourceCount: 15 });
+    } finally {
+      network.mockRestore();
+    }
+    expect(host.events.some((event) => event.source === "artifact")).toBe(
+      false,
+    );
+    expect(host.events.filter((event) => event.method === "PUT")).toHaveLength(
+      1,
+    );
+    expect(host.resources.size).toBe(0);
+    expect(host.reservations.size).toBe(1);
+  });
+});
 describe("current v2 hosted lifecycle through actual loopback HTTP effects", () => {
   test("deploys all real product roles, reads strict health, removes reverse graph and proves absence", async () => {
     const { result, resources, specs, events, log } = await execute(
