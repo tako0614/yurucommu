@@ -110,8 +110,17 @@ const originHost = new URL(origin).host;
 const mockImageUrl =
   process.env.YURUCOMMU_MOCK_IMAGE_URL ??
   "https://images.unsplash.com/photo-1517245386807-bb43f82c33c4?auto=format&fit=crop&w=1200&q=80";
+const MAX_RETAINED_MEDIA_BYTES = 64 * 1024 * 1024;
+const MAX_MEDIA_ENTRIES = 32;
+const MULTIPART_ALLOWANCE_BYTES = 1024 * 1024;
 
 let signedIn = process.env.YURUCOMMU_MOCK_AUTH !== "signed-out";
+const uploadedMedia = new Map<
+  string,
+  { bytes: ArrayBuffer; contentType: string }
+>();
+let uploadedMediaBytes = 0;
+let createdStories: JsonValue[] = [];
 
 function actor(
   preferredUsername: string,
@@ -575,6 +584,7 @@ function storiesResponse(): JsonValue {
         actor: postAuthor(me),
         has_unviewed: false,
         stories: [
+          ...createdStories,
           {
             ap_id: `${origin}/ap/stories/story-you`,
             author: postAuthor(me),
@@ -778,6 +788,13 @@ function discovery(request: Request): JsonValue {
 
 function ok(): JsonValue {
   return { success: true };
+}
+
+function mediaPath(r2Key: string): string {
+  const key = r2Key.startsWith("uploads/")
+    ? r2Key.slice("uploads/".length)
+    : r2Key;
+  return `/media/${key}`;
 }
 
 async function handleAuth(
@@ -1238,24 +1255,43 @@ async function handleStories(
     return json(request, storiesResponse());
   }
   if (method === "POST" && path === "/api/stories") {
-    await readJson(request);
-    return json(request, {
-      story: {
-        ap_id: `${origin}/ap/stories/story-${Date.now()}`,
-        author: postAuthor(me),
-        attachment: {
-          type: "Document",
-          mediaType: "image/jpeg",
-          url: mockImageUrl,
-          r2_key: "mock/uploaded-story.jpg",
-        },
-        displayDuration: "PT6S",
-        overlays: [],
-        published: new Date().toISOString(),
-        end_time: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-        viewed: false,
+    const body = await readJson(request);
+    const attachment =
+      body.attachment && typeof body.attachment === "object"
+        ? (body.attachment as Record<string, unknown>)
+        : {};
+    const r2Key =
+      typeof attachment.r2_key === "string" ? attachment.r2_key : "";
+    const contentType =
+      typeof attachment.content_type === "string"
+        ? attachment.content_type
+        : "image/jpeg";
+    const published = new Date().toISOString();
+    const story: JsonValue = {
+      ap_id: `${origin}/ap/objects/story-${crypto.randomUUID()}`,
+      author: postAuthor(me),
+      attachment: {
+        type: contentType.startsWith("video/") ? "Video" : "Document",
+        mediaType: contentType,
+        url: mediaPath(r2Key),
+        r2_key: r2Key,
       },
-    });
+      ...(typeof body.caption === "string" ? { caption: body.caption } : {}),
+      displayDuration:
+        typeof body.displayDuration === "string"
+          ? body.displayDuration
+          : "PT6S",
+      overlays: Array.isArray(body.overlays)
+        ? (body.overlays as JsonValue[])
+        : [],
+      published,
+      end_time: new Date(
+        Date.parse(published) + 24 * 60 * 60 * 1000,
+      ).toISOString(),
+      viewed: false,
+    };
+    createdStories.unshift(story);
+    return json(request, { story }, { status: 201 });
   }
   if (
     method === "POST" &&
@@ -1417,6 +1453,13 @@ async function handleRequest(request: Request): Promise<Response> {
   const method = request.method.toUpperCase();
 
   if (method === "OPTIONS") return empty(request);
+  if (method === "GET" && path.startsWith("/media/")) {
+    const media = uploadedMedia.get(path);
+    if (!media) return new Response("Media not found", { status: 404 });
+    return new Response(media.bytes, {
+      headers: { "content-type": media.contentType },
+    });
+  }
   if (method === "GET" && path === "/healthz") {
     return json(request, { status: "ok", missingBindings: [] });
   }
@@ -1525,10 +1568,53 @@ async function handleRequest(request: Request): Promise<Response> {
     });
   }
   if (method === "POST" && path === "/api/media/upload") {
+    const form = await request.formData();
+    const file = form.get("file");
+    if (!(file instanceof File))
+      return json(request, { error: "file is required" }, { status: 400 });
+    if (
+      uploadedMedia.size >= MAX_MEDIA_ENTRIES ||
+      file.size > MAX_RETAINED_MEDIA_BYTES - uploadedMediaBytes
+    )
+      return json(
+        request,
+        { error: "mock media upload quota exceeded" },
+        { status: 413 },
+      );
+    const contentType = file.type || "application/octet-stream";
+    const extension =
+      (
+        {
+          "image/jpeg": "jpg",
+          "image/png": "png",
+          "image/gif": "gif",
+          "image/webp": "webp",
+          "video/mp4": "mp4",
+          "video/webm": "webm",
+        } as Record<string, string>
+      )[contentType] ?? "bin";
+    const r2Key = `uploads/mock-${crypto.randomUUID()}.${extension}`;
+    const bytes = await file.arrayBuffer();
+    // Other requests may have filled the quota while these bytes were read.
+    // Admission and retention must have no asynchronous gap between them.
+    if (
+      uploadedMedia.size >= MAX_MEDIA_ENTRIES ||
+      bytes.byteLength > MAX_RETAINED_MEDIA_BYTES - uploadedMediaBytes
+    )
+      return json(
+        request,
+        { error: "mock media upload quota exceeded" },
+        { status: 413 },
+      );
+    uploadedMedia.set(mediaPath(r2Key), {
+      bytes,
+      contentType,
+    });
+    uploadedMediaBytes += bytes.byteLength;
     return json(request, {
-      url: mockImageUrl,
-      r2_key: `mock/upload-${Date.now()}.jpg`,
-      content_type: "image/jpeg",
+      url: mediaPath(r2Key),
+      r2_key: r2Key,
+      content_type: contentType,
     });
   }
   if (path === "/api/follow" && (method === "POST" || method === "DELETE")) {
@@ -1656,7 +1742,12 @@ if (import.meta.main) {
     );
     const hostname =
       process.env.YURUCOMMU_MOCK_HOST ?? process.env.MOCK_HOST ?? "0.0.0.0";
-    Bun.serve({ port, hostname, fetch: handleRequest });
+    Bun.serve({
+      port,
+      hostname,
+      maxRequestBodySize: MAX_RETAINED_MEDIA_BYTES + MULTIPART_ALLOWANCE_BYTES,
+      fetch: handleRequest,
+    });
     console.log(`Yurucommu mock API listening on http://${hostname}:${port}`);
   }
 }

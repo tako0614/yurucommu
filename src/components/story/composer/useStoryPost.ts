@@ -148,13 +148,17 @@ export function useStoryPost(opts: UseStoryPostOptions) {
         retireIdentity();
         return;
       }
-      mountScope = next;
-      coordinator = createStoryIntentCoordinator({
+      const initialCoordinator = createStoryIntentCoordinator({
         origin: new URL(next.storyEndpoint).origin,
         endpoint: next.storyEndpoint,
         principal: next.actorApId,
       });
-      setRecovery(coordinator.read());
+      const initialRecovery = initialCoordinator.read();
+      // An invalid initial backend/principal is a setup failure, not evidence
+      // that the identity of an already-bound draft changed.
+      coordinator = initialCoordinator;
+      mountScope = next;
+      setRecovery(initialRecovery);
     } catch {
       if (mountScope) retireIdentity();
       else {
