@@ -42,8 +42,16 @@ export function FollowByAddressForm(props: {
   };
 
   return (
-    <form role="search" onSubmit={findPerson}>
-      <label for={props.id} class="block text-sm font-medium text-neutral-200">
+    <form
+      role="search"
+      aria-labelledby={`${props.id}-label`}
+      onSubmit={findPerson}
+    >
+      <label
+        id={`${props.id}-label`}
+        for={props.id}
+        class="block text-sm font-medium text-neutral-200"
+      >
         {t("firstFeed.findPeople")}
       </label>
       {/* The right column is too narrow for the example address next to the

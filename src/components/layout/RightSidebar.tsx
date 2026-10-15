@@ -1,5 +1,5 @@
 import { createEffect, createSignal, For, on, onCleanup, Show } from "solid-js";
-import { A } from "@solidjs/router";
+import { A, useLocation } from "@solidjs/router";
 import { useSetAtom } from "solid-jotai";
 import { useRequiredActor } from "../../hooks/useRequiredActor.ts";
 import type { RecommendedUser } from "../../lib/api/recommendations.ts";
@@ -139,13 +139,14 @@ export function RightSidebar() {
   const showRecommendations = () => loading() || users().length > 0;
   // Recommendations are friends-of-friends from this server's follow table,
   // so on a single-owner server they are almost always empty and the column
-  // stayed blank. Offer the two ways to grow connections instead. Before the
-  // first accepted follow, or whenever the empty home shows its own
-  // first-connection panel, don't repeat the same tools here.
+  // stayed blank. Offer the two ways to grow connections instead, except where
+  // the page already shows them: the empty home's first-connection panel and
+  // the search page's own box.
+  const location = useLocation();
   const showConnect = () =>
     !showRecommendations() &&
-    (actor.following_count ?? 0) > 0 &&
-    !firstConnectionOnScreen();
+    !firstConnectionOnScreen() &&
+    !location.pathname.startsWith("/search");
 
   return (
     <div class="sticky top-0">
