@@ -51,6 +51,8 @@ body {
   background: var(--bg);
   color: var(--ink);
   line-height: 1.85;
+  /* Japanese line-start rules: no small kana or ー at the start of a line. */
+  line-break: strict;
   -webkit-font-smoothing: antialiased;
 }
 
