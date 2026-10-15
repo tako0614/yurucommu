@@ -52,7 +52,7 @@ const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const PASSWORD = " release-browser-owner ";
 const SESSION_SALT = "release-browser-session-salt-fixture";
 const ENCRYPTION_KEY = "00".repeat(32);
-const HOME_TITLE = "ここがあなたの居場所のはじまり";
+const HOME_TITLE = "ほかのサーバーの人をフォロー";
 
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
