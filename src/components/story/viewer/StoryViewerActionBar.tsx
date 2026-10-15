@@ -36,14 +36,14 @@ export function StoryViewerActionBar(props: StoryViewerActionBarProps) {
   return (
     <div class="absolute bottom-0 left-0 right-0 z-20 p-4 flex items-center gap-3">
       <Show when={props.onReply}>
-        <div class="flex-1 flex items-center gap-2 border border-white/40 rounded-full px-4 py-2">
+        <div class="flex-1 min-w-0 flex items-center gap-2 border border-white/40 rounded-full px-4 py-2">
           <input
             type="text"
             value={reply()}
             placeholder={props.placeholder}
             aria-label={props.placeholder}
             disabled={sending()}
-            class="flex-1 bg-transparent text-white placeholder-white/50 text-sm outline-none disabled:opacity-50"
+            class="flex-1 min-w-0 bg-transparent text-white placeholder-white/50 text-sm outline-none disabled:opacity-50"
             onInput={(e) => setReply(e.currentTarget.value)}
             onClick={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.stopPropagation()}
@@ -82,6 +82,11 @@ export function StoryViewerActionBar(props: StoryViewerActionBarProps) {
             </svg>
           </button>
         </div>
+      </Show>
+      {/* Without a reply field (your own story), keep like/share on the right:
+          the insights button sits over the bar's left edge. */}
+      <Show when={!props.onReply}>
+        <div class="flex-1" />
       </Show>
       <button
         class={`p-2 transition-colors ${

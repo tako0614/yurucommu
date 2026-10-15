@@ -15,6 +15,43 @@ interface StoryBarProps {
   onAddStory: () => void;
 }
 
+/**
+ * The own-story label is 64px wide, so Japanese (which has no spaces) used to
+ * break wherever the line filled up: "あなたのス / トーリー". Offer line breaks
+ * only between words; `break-keep` on the label stops the browser from adding
+ * its own, and `wrap-anywhere` still splits a single word that cannot fit.
+ * Display names keep the default wrapping: word segmentation of names is
+ * unreliable ("はなこ" splits as "はな" + "こ").
+ */
+function WordBreakLabel(props: { text: string }) {
+  const { language } = useI18n();
+  const words = () => {
+    if (typeof Intl === "undefined" || !("Segmenter" in Intl)) {
+      return [props.text];
+    }
+    const segmenter = new Intl.Segmenter(language(), { granularity: "word" });
+    return Array.from(segmenter.segment(props.text), (part) => part.segment);
+  };
+  // Screen readers get the label as one string, not one stop per word.
+  return (
+    <>
+      <span aria-hidden="true">
+        <For each={words()}>
+          {(word, index) => (
+            <>
+              <Show when={index() > 0}>
+                <wbr />
+              </Show>
+              {word}
+            </>
+          )}
+        </For>
+      </span>
+      <span class="sr-only">{props.text}</span>
+    </>
+  );
+}
+
 const PlusIcon = () => (
   <svg
     class="w-3.5 h-3.5"
@@ -121,8 +158,8 @@ export function StoryBar(props: StoryBarProps) {
                       <PlusIcon />
                     </div>
                   </div>
-                  <span class="w-16 text-center text-xs leading-tight text-neutral-400 line-clamp-2">
-                    {t("story.yourStory")}
+                  <span class="w-16 text-center text-xs leading-tight text-neutral-400 line-clamp-2 break-keep wrap-anywhere">
+                    <WordBreakLabel text={t("story.addStory")} />
                   </span>
                 </button>
               </div>
@@ -178,8 +215,14 @@ export function StoryBar(props: StoryBarProps) {
                     <PlusIcon />
                   </button>
                 </div>
-                <span class="w-16 text-center text-xs leading-tight text-neutral-400 line-clamp-2">
-                  {hasMyStories() ? t("story.yourStory") : t("story.addStory")}
+                <span class="w-16 text-center text-xs leading-tight text-neutral-400 line-clamp-2 break-keep wrap-anywhere">
+                  <WordBreakLabel
+                    text={
+                      hasMyStories()
+                        ? t("story.yourStory")
+                        : t("story.addStory")
+                    }
+                  />
                 </span>
               </div>
 
