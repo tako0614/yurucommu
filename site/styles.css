@@ -403,9 +403,11 @@ a {
   white-space: nowrap;
 }
 
-/* Long JSON bodies would otherwise push later columns out of view. */
+/* Long JSON bodies would otherwise push later columns out of view. Wrap only
+   at spaces so narrow screens scroll the table instead of splitting tokens. */
 .docs-table-code-wrap code {
   white-space: normal;
+  overflow-wrap: normal;
 }
 
 /* ---- Callouts ---- */
