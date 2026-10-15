@@ -106,7 +106,7 @@ export async function openJournal(
   runId: string,
 ): Promise<Journal> {
   check(
-    /^yurucommu-e2e-[0-9a-f]{12}$/.test(runId) && isAbsolute(directory),
+    /^staging-yuru-[0-9a-f]{12}$/.test(runId) && isAbsolute(directory),
     "JOURNAL_REFUSED",
   );
   const stat = await lstat(directory);

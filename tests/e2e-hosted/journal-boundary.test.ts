@@ -34,7 +34,7 @@ async function refused(directory: string): Promise<void> {
   let journal: Journal | undefined;
   let failure: unknown;
   try {
-    journal = await openJournal(directory, "yurucommu-e2e-123456789abc");
+    journal = await openJournal(directory, "staging-yuru-123456789abc");
   } catch (error) {
     failure = error;
   } finally {
@@ -86,7 +86,7 @@ test("a checkout symlink ancestor cannot escape to an external journal directory
 });
 test("normal external directory retains exclusive 0600 append and sync", async () => {
   const directory = await evidence(await root());
-  const journal = await openJournal(directory, "yurucommu-e2e-123456789abc");
+  const journal = await openJournal(directory, "staging-yuru-123456789abc");
   try {
     await journal.append({ kind: "health", passed: true });
   } finally {
@@ -96,6 +96,27 @@ test("normal external directory retains exclusive 0600 append and sync", async (
   expect((await lstat(file)).mode & 0o777).toBe(0o600);
   expect(await Bun.file(file).text()).toBe('{"kind":"health","passed":true}\n');
   await expect(
-    openJournal(directory, "yurucommu-e2e-abcdefabcdef"),
+    openJournal(directory, "staging-yuru-abcdefabcdef"),
   ).rejects.toMatchObject({ code: "EEXIST" });
+});
+test("an old unprefixed journal stays intact and refuses both old and new run writes", async () => {
+  const directory = await evidence(await root());
+  const file = join(directory, JOURNAL_FILENAME);
+  const previous =
+    '{"kind":"prepared","runId":"yurucommu-e2e-123456789abc"}\n' +
+    '{"kind":"intent","action":"create","role":"database","key":"old-uncertain-intent"}\n';
+  await writeFile(file, previous, { flag: "wx", mode: 0o600 });
+  const before = await lstat(file, { bigint: true });
+  await expect(
+    openJournal(directory, "yurucommu-e2e-123456789abc"),
+  ).rejects.toMatchObject({ code: "JOURNAL_REFUSED" });
+  await expect(
+    openJournal(directory, "staging-yuru-abcdefabcdef"),
+  ).rejects.toMatchObject({ code: "EEXIST" });
+  expect(await Bun.file(file).text()).toBe(previous);
+  const after = await lstat(file, { bigint: true });
+  expect(after.ino).toBe(before.ino);
+  expect(after.mode).toBe(before.mode);
+  expect(after.mtimeNs).toBe(before.mtimeNs);
+  expect(after.ctimeNs).toBe(before.ctimeNs);
 });

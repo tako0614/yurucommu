@@ -85,7 +85,7 @@ export async function runLifecycle(input: {
     },
     close: () => input.journal.close(),
   };
-  check(/^yurucommu-e2e-[0-9a-f]{12}$/.test(runId), "RUN_ID_REFUSED");
+  check(/^staging-yuru-[0-9a-f]{12}$/.test(runId), "RUN_ID_REFUSED");
   const timeout = input.operationTimeoutMs ?? 60_000;
   check(
     Number.isSafeInteger(timeout) && timeout > 0 && timeout <= 60_000,
@@ -229,6 +229,10 @@ export async function runLifecycle(input: {
   try {
     for (const role of ORDER) await mutate(role, "create");
     origin = appOrigin(resources.endpoint!.output.url);
+    check(
+      /^(?:staging|integration)-/.test(new URL(origin).hostname),
+      "APP_ORIGIN_REFUSED",
+    );
   } catch {
     // A send may have taken effect even when HTTP failed or an ACK was malformed.
     // Every intent is durable before the send. Leave known and unknown effects intact.

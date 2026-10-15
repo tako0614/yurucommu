@@ -52,8 +52,12 @@ owner inputs, so this example is deliberately not runnable:
 ```
 
 The Space is the organization id accepted by the current Host credential
-flow. The harness generates a fresh `yurucommu-e2e-<12hex>` resource prefix
+flow. The harness generates a fresh `staging-yuru-<12hex>` resource prefix
 inside it; it does not invent a disposable Space or mutate the organization.
+An old `yurucommu-e2e-...` journal remains unchanged and blocks writes from a
+new run in that directory. Do not remove, reset, rename, adopt, or automatically
+clean up an uncertain older run to make the new prefix executable; the owning
+operator must reconcile its recorded effects first.
 The hostname must explicitly identify staging, and discovery's advertised v2
 base URL must retain that exact origin. The qualification receipt belongs to
 the owning operator and must cover the selected commit, API, private-input
@@ -181,6 +185,8 @@ there is no automatic resume/delete command.
 Once every create is settled and owned, the Host-assigned endpoint must be
 HTTPS at one valid 3–32-character label under `app-staging.takos.jp`. Its value
 comes from Resource output; no hostname is reconstructed from resource names.
+The assigned label must itself start with `staging-` or `integration-`; an
+unprefixed URL halts the run without substituting a URL or starting teardown.
 `/healthz` and `/readyz` must report service `yurucommu`, status `ok`, and zero
 missing bindings. Social-server discovery must use that exact canonical origin;
 NodeInfo must report Yurucommu and nonnegative database-backed counters. App

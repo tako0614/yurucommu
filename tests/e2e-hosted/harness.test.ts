@@ -23,14 +23,14 @@ import { JOURNAL_FILENAME, openJournal } from "./journal.ts";
 import { runLifecycle } from "./lifecycle.ts";
 import { HttpV2Port } from "./v2-port.ts";
 
-const runId = "yurucommu-e2e-123456789abc";
+const runId = "staging-yuru-123456789abc";
 const target: Target = {
   hostOrigin: "https://host-staging.unit.takos.jp",
   space: "org_test_staging",
   qualifiedHostCommit: "1".repeat(40),
   qualificationReceiptSha256: "2".repeat(64),
 };
-const origin = `https://local-reference${APP_SUFFIX}`;
+const origin = `https://staging-local-reference${APP_SUFFIX}`;
 const writer = "writer-secret-canary";
 const evidence = "evidence-secret-canary";
 const privateInputs = Object.fromEntries(
@@ -65,6 +65,7 @@ type Failure =
   | "redirect"
   | "writer-echo"
   | "private-echo"
+  | "unprefixed-route"
   | "nonsettling"
   | "none";
 async function localHost(failure: Failure = "none", queued = false) {
@@ -197,7 +198,15 @@ async function localHost(failure: Failure = "none", queued = false) {
           phase: "idle",
           spec,
           observed: {},
-          output: role === "endpoint" ? { url: `${origin}/` } : {},
+          output:
+            role === "endpoint"
+              ? {
+                  url:
+                    failure === "unprefixed-route"
+                      ? `https://local-reference${APP_SUFFIX}/`
+                      : `${origin}/`,
+                }
+              : {},
           lastOperation: id,
         });
         const op: Operation = {
@@ -404,6 +413,34 @@ describe("current v2 hosted lifecycle through actual loopback HTTP effects", () 
     expect(log).not.toContain('"kind":"ack"');
     expect(log).not.toContain(writer);
   });
+  test("an unprefixed endpoint URL halts without inventing a replacement or destroying the graph", async () => {
+    const { result, resources, events } = await execute("unprefixed-route");
+    expect(result.status).toBe("halted");
+    expect(resources.size).toBe(15);
+    expect(events.some((event) => event.method === "DELETE")).toBe(false);
+    expect(events.some((event) => event.source === "app")).toBe(false);
+  });
+  test("an old unprefixed run id is refused before any Host request", async () => {
+    const host = await localHost();
+    let appended = false;
+    await expect(
+      runLifecycle({
+        target,
+        fixture: host.fixture,
+        runId: "yurucommu-e2e-123456789abc",
+        privateInputs,
+        port: host.port,
+        journal: {
+          async append() {
+            appended = true;
+          },
+          async close() {},
+        },
+      }),
+    ).rejects.toThrow("RUN_ID_REFUSED");
+    expect(host.events).toHaveLength(0);
+    expect(appended).toBe(false);
+  });
   test("uncertain delete stops immediately and preserves remaining owned graph", async () => {
     const { result, resources, events, log } = await execute("delete-ack");
     expect(result.status).toBe("halted");
@@ -534,6 +571,8 @@ describe("private local journal and runtime guards", () => {
     };
     const config = readConfig(["--execute"], env);
     expect(config.mode).toBe("execute");
+    if (config.mode !== "execute") throw new Error("expected execute config");
+    expect(config.runId).toMatch(/^staging-yuru-[0-9a-f]{12}$/);
     expect(config).not.toHaveProperty("CLOUDFLARE_API_TOKEN");
     expect(() =>
       readConfig(["--execute"], {
@@ -557,7 +596,7 @@ describe("private local journal and runtime guards", () => {
     await first.close();
     const host = await localHost();
     await expect(
-      openJournal(dir, "yurucommu-e2e-abcdefabcdef"),
+      openJournal(dir, "staging-yuru-abcdefabcdef"),
     ).rejects.toThrow();
     expect(host.events).toHaveLength(0);
     const stat = await Bun.file(join(dir, JOURNAL_FILENAME)).stat();

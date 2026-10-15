@@ -93,7 +93,7 @@ export function readConfig(
   publicUrl(privateInputs.TAKOSUMI_ACCOUNTS_REDIRECT_URI);
   return {
     mode: "execute",
-    runId: `yurucommu-e2e-${randomBytes(6).toString("hex")}`,
+    runId: `staging-yuru-${randomBytes(6).toString("hex")}`,
     targetFile: path("YURUCOMMU_HOSTED_E2E_TARGET_FILE"),
     fixtureFile: path("YURUCOMMU_HOSTED_E2E_FIXTURE_FILE"),
     journalDirectory: path("YURUCOMMU_HOSTED_E2E_JOURNAL_DIRECTORY"),
