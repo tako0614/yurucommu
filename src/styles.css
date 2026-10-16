@@ -136,8 +136,8 @@
 
 /*
  * Accessibility: visible keyboard focus ring.
- * Uses :focus-visible so it only appears for keyboard / programmatic focus,
- * not on mouse click — avoiding any visual regression for pointer users.
+ * Uses :focus-visible so buttons and links show it for keyboard focus, not
+ * on a mouse click. Text fields match :focus-visible on any focus.
  */
 a:focus-visible,
 button:focus-visible,
@@ -147,15 +147,28 @@ select:focus-visible,
 [tabindex]:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
-  border-radius: 0.375rem;
 }
+/* No border-radius here: the outline already follows the element's own
+   corners. Setting one turned pill buttons into rounded rectangles and
+   rounded inputs (radius inherited from a square parent) square while
+   focused. */
 
-/* Inputs/textarea already use their own focus ring; avoid the rounded
-   outline fighting their shape by relying on outline only. */
-input:focus-visible,
-textarea:focus-visible,
-select:focus-visible {
-  border-radius: inherit;
+/* A field that draws its own accent (or error red) focus state, as a
+   border or ring on the field or a ring on its wrapper, does not get the
+   outline as well: that made two concentric accent frames, or a blue outline
+   around the red over-limit border, for every user since text fields match
+   :focus-visible on a click too. Fields whose own state is faint (a gray
+   ring) or absent keep the outline. */
+:is(input, textarea, select):focus-visible:is(
+    [class*="focus:border-accent"],
+    [class*="focus:border-[var(--accent)]"],
+    [class*="focus:border-red-"],
+    [class*="focus:ring-accent"],
+    [class*="focus:ring-[var(--accent)]"],
+    [class*="focus:ring-red-"]
+  ),
+[class*="focus-within:ring-accent"] :is(input, textarea, select):focus-visible {
+  outline: none;
 }
 
 /*

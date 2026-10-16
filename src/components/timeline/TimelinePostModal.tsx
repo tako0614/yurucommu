@@ -409,7 +409,7 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
                       </span>
                     </Show>
                     <span
-                      class={`text-xs tabular-nums ${
+                      class={`shrink-0 whitespace-nowrap text-xs tabular-nums ${
                         summaryOverLimit() ? "text-red-500" : "text-neutral-500"
                       }`}
                     >
