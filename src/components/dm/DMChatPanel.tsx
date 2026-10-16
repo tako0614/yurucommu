@@ -382,24 +382,32 @@ export function DMChatPanel(props: DMChatPanelProps) {
   // The composer is a textarea so a message can have line breaks. It grows
   // with its text up to five lines, then scrolls. With a keyboard, Enter sends
   // and Shift+Enter starts a line; on a touch screen the return key starts a
-  // line and the send button sends (as in other messaging apps). The Enter
-  // that confirms an IME conversion never sends.
+  // line and the send button sends (as in other messaging apps). Ctrl/Cmd+
+  // Enter always sends (an iPad with a keyboard reports a coarse pointer).
+  // The Enter that confirms an IME conversion never sends.
   let composerRef: HTMLTextAreaElement | undefined;
   const COMPOSER_MAX_PX = 5 * 24 + 16 + 2; // 5 lines + py-2 + border
-  const coarsePointer =
+  const coarsePointer = () =>
     typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
   createEffect(() => {
     input();
     const el = composerRef;
     if (!el) return;
+    // Keep the newest messages in view when the composer grows under them.
+    const log = scrollContainerRef;
+    const pinned =
+      !!log && log.scrollHeight - log.scrollTop - log.clientHeight < 120;
     el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, COMPOSER_MAX_PX)}px`;
+    // scrollHeight leaves out the border; without it the box always scrolled.
+    const border = el.offsetHeight - el.clientHeight;
+    el.style.height = `${Math.min(el.scrollHeight + border, COMPOSER_MAX_PX)}px`;
+    if (pinned && log) log.scrollTop = log.scrollHeight;
   });
   const handleComposerKeyDown = (
     e: KeyboardEvent & { currentTarget: HTMLTextAreaElement },
   ) => {
-    if (e.key !== "Enter" || e.shiftKey || coarsePointer) return;
-    if (isComposingKey(e)) return;
+    if (e.key !== "Enter" || e.shiftKey || isComposingKey(e)) return;
+    if (coarsePointer() && !e.ctrlKey && !e.metaKey) return;
     e.preventDefault();
     e.currentTarget.form?.requestSubmit();
   };
@@ -675,14 +683,14 @@ export function DMChatPanel(props: DMChatPanelProps) {
             onKeyDown={handleComposerKeyDown}
             placeholder={t("dm.placeholder")}
             aria-label={t("dm.placeholder")}
-            enterkeyhint={coarsePointer ? "enter" : "send"}
+            enterkeyhint={coarsePointer() ? "enter" : "send"}
             class="flex-1 min-w-0 resize-none overflow-y-auto px-4 py-2 leading-6 bg-neutral-900 border border-neutral-800 rounded-3xl text-white placeholder-neutral-500 focus:outline-none focus:border-accent"
           />
           <button
             type="submit"
             disabled={!input().trim() || sending()}
             aria-label={t("dm.send")}
-            class="px-4 py-2 bg-accent disabled:bg-neutral-700 disabled:cursor-not-allowed text-white rounded-full font-medium transition-colors"
+            class="h-10 shrink-0 px-4 py-2 bg-accent disabled:bg-neutral-700 disabled:cursor-not-allowed text-white rounded-full font-medium transition-colors"
           >
             <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
               <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
