@@ -30,6 +30,7 @@ import { useI18n } from "../../lib/i18n.tsx";
 import { ConfirmSheet } from "../ConfirmSheet.tsx";
 import { InlineErrorRetry } from "../InlineErrorRetry.tsx";
 import { UserAvatar } from "../UserAvatar.tsx";
+import { markConversationOnScreen } from "../layout/routeChrome.ts";
 import { formatMessageDay, messageDayKey } from "./message-day.ts";
 
 interface DMChatPanelProps {
@@ -46,6 +47,7 @@ type ChatMessage = DMMessage | CommunityMessage;
 const MESSAGE_POLL_MS = 4000;
 
 export function DMChatPanel(props: DMChatPanelProps) {
+  markConversationOnScreen();
   const [messages, setMessages] = createSignal<ChatMessage[]>([]);
   const [loading, setLoading] = createSignal(true);
   const [input, setInput] = createSignal("");

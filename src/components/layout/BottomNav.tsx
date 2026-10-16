@@ -8,6 +8,7 @@ import { showPostModalAtom } from "../../atoms/timeline.ts";
 import { NavBadge } from "./NavBadge.tsx";
 import { MOBILE_NAV_ITEMS, type NavItem } from "./navItems.ts";
 import { CreateNavIcon } from "./NavIcons.tsx";
+import { conversationOnScreen } from "./routeChrome.ts";
 
 // X-like mobile bar: keep only core destinations in the bottom rail. Compose is
 // a floating action button; Profile stays in the avatar menu.
@@ -63,33 +64,38 @@ export function BottomNav() {
           <CreateNavIcon active={false} />
         </button>
       </Show>
-      <nav class="md:hidden fixed bottom-0 left-0 right-0 h-[calc(3.5rem+env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] bg-neutral-900 border-t border-neutral-900 flex items-center justify-around z-50">
-        <For each={MOBILE_NAV_ITEMS}>
-          {(item) => {
-            const Icon = item.icon;
-            const badge = () => (
-              <Show when={item.badge && badgeCount(item) > 0}>
-                <span class="absolute -top-1 -right-2">
-                  <NavBadge count={badgeCount(item)} label={badgeLabel(item)} />
-                </span>
-              </Show>
-            );
-            return (
-              <A
-                href={item.route!}
-                aria-label={t(item.labelKey)}
-                aria-current={active(item) ? "page" : undefined}
-                class={itemClass(item)}
-              >
-                <span class="relative inline-flex">
-                  <Icon active={active(item)} />
-                  {badge()}
-                </span>
-              </A>
-            );
-          }}
-        </For>
-      </nav>
+      <Show when={!conversationOnScreen()}>
+        <nav class="md:hidden fixed bottom-0 left-0 right-0 h-[calc(3.5rem+env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] bg-neutral-900 border-t border-neutral-900 flex items-center justify-around z-50">
+          <For each={MOBILE_NAV_ITEMS}>
+            {(item) => {
+              const Icon = item.icon;
+              const badge = () => (
+                <Show when={item.badge && badgeCount(item) > 0}>
+                  <span class="absolute -top-1 -right-2">
+                    <NavBadge
+                      count={badgeCount(item)}
+                      label={badgeLabel(item)}
+                    />
+                  </span>
+                </Show>
+              );
+              return (
+                <A
+                  href={item.route!}
+                  aria-label={t(item.labelKey)}
+                  aria-current={active(item) ? "page" : undefined}
+                  class={itemClass(item)}
+                >
+                  <span class="relative inline-flex">
+                    <Icon active={active(item)} />
+                    {badge()}
+                  </span>
+                </A>
+              );
+            }}
+          </For>
+        </nav>
+      </Show>
     </>
   );
 }
