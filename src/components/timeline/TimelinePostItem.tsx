@@ -188,16 +188,24 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
     </Show>
   );
 
+  // Name and handle shrink as one group: the handle gives way first and the
+  // name truncates only once the handle is gone, down to a 3rem floor. The
+  // group's 10000x shrink factor keeps the community chip whole until then
+  // (flex shrinking is proportional, so a 1x chip would lose its share early).
+  // Past that, the chip and 編集済み truncate, so an old, edited community post
+  // still fits a 320px row. The time never wraps.
   const header = (
     <div class="flex min-w-0 items-baseline gap-2">
-      <A
-        href={`/profile/${encodeURIComponent(props.post.author.ap_id)}`}
-        class="truncate font-bold text-white hover:underline shrink-0 max-w-[60%]"
-      >
-        {props.post.author.name || props.post.author.username}
-      </A>
-      <span class="truncate text-neutral-500 min-w-0">
-        @{props.post.author.username}
+      <span class="flex min-w-12 shrink-[10000] items-baseline gap-2">
+        <A
+          href={`/profile/${encodeURIComponent(props.post.author.ap_id)}`}
+          class="truncate font-bold text-white hover:underline shrink-0 max-w-full"
+        >
+          {props.post.author.name || props.post.author.username}
+        </A>
+        <span class="truncate text-neutral-500 min-w-0">
+          @{props.post.author.username}
+        </span>
       </span>
       <span class="text-neutral-500 shrink-0">{"·"}</span>
       <span class="text-sm text-neutral-500 shrink-0 whitespace-nowrap">
@@ -207,7 +215,7 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
       <Show when={props.post.edited_at}>
         <span class="text-neutral-500 shrink-0">{"·"}</span>
         <span
-          class="text-sm text-neutral-500 shrink-0 whitespace-nowrap"
+          class="text-sm text-neutral-500 min-w-0 truncate"
           title={formatRelativeTime(props.post.edited_at!, {
             locale: language(),
           })}
@@ -217,11 +225,13 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
       </Show>
       <ScopeChip
         communityApId={props.post.community_ap_id}
-        class="ml-auto self-center"
+        class="ml-auto self-center min-w-7"
       />
     </div>
   );
 
+  // Each action is a 20px icon; -m-2 p-2 gives it a 36px tap area without
+  // moving it, leaving 8px between neighbours.
   const actions = (
     <div class="flex items-center gap-6 mt-3">
       <button
@@ -233,7 +243,7 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
             ? `${t("posts.reply")} ${props.post.reply_count}`
             : t("posts.reply")
         }
-        class="flex items-center gap-2 text-neutral-500 hover:text-[var(--accent)] transition-colors"
+        class="-m-2 flex items-center gap-2 p-2 text-neutral-500 hover:text-[var(--accent)] transition-colors"
       >
         <ReplyIcon />
         <span class="text-sm">{props.post.reply_count || ""}</span>
@@ -248,7 +258,7 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
               : "")
           }
           aria-pressed={props.post.reposted}
-          class={`flex items-center gap-2 transition-colors ${
+          class={`-m-2 flex items-center gap-2 p-2 transition-colors ${
             props.post.reposted
               ? "text-green-500"
               : "text-neutral-500 hover:text-green-500"
@@ -269,7 +279,7 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
             : "")
         }
         aria-pressed={props.post.liked}
-        class={`flex items-center gap-2 transition-colors ${
+        class={`-m-2 flex items-center gap-2 p-2 transition-colors ${
           props.post.liked
             ? "text-pink-500"
             : "text-neutral-500 hover:text-pink-500"
@@ -288,7 +298,7 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
             : t("posts.bookmark")
         }
         aria-pressed={props.post.bookmarked}
-        class={`flex items-center gap-2 transition-colors ${
+        class={`-m-2 flex items-center gap-2 p-2 transition-colors ${
           props.post.bookmarked
             ? "text-accent"
             : "text-neutral-500 hover:text-[var(--accent)]"

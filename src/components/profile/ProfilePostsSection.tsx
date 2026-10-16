@@ -285,24 +285,30 @@ function ProfilePostItem(props: ProfilePostItemProps) {
         />
       </A>
       <div class="flex-1 min-w-0">
-        <div class="flex items-baseline gap-2">
-          <A
-            href={`/profile/${encodeURIComponent(props.post.author.ap_id)}`}
-            class="font-bold text-white truncate hover:underline"
-          >
-            {props.post.author.name || props.post.author.preferred_username}
-          </A>
-          <span class="text-neutral-500 truncate">
-            @{props.post.author.username}
+        {/* Like the timeline row (see the comment there): the handle gives
+            way first, so a long handle no longer shrinks the name to "R…";
+            the name truncates only once the handle is gone, then the chip
+            and 編集済み. The time never wraps. */}
+        <div class="flex min-w-0 items-baseline gap-2">
+          <span class="flex min-w-12 shrink-[10000] items-baseline gap-2">
+            <A
+              href={`/profile/${encodeURIComponent(props.post.author.ap_id)}`}
+              class="font-bold text-white truncate hover:underline shrink-0 max-w-full"
+            >
+              {props.post.author.name || props.post.author.preferred_username}
+            </A>
+            <span class="text-neutral-500 truncate min-w-0">
+              @{props.post.author.username}
+            </span>
           </span>
-          <span class="text-neutral-500">・</span>
-          <span class="text-neutral-500 text-sm">
+          <span class="text-neutral-500 shrink-0">・</span>
+          <span class="text-neutral-500 text-sm shrink-0 whitespace-nowrap">
             {formatRelativeTime(props.post.published, { locale: language() })}
           </span>
           <Show when={props.post.edited_at}>
-            <span class="text-neutral-500">・</span>
+            <span class="text-neutral-500 shrink-0">・</span>
             <span
-              class="text-neutral-500 text-sm"
+              class="text-neutral-500 text-sm min-w-0 truncate"
               title={formatRelativeTime(props.post.edited_at!, {
                 locale: language(),
               })}
@@ -312,7 +318,7 @@ function ProfilePostItem(props: ProfilePostItemProps) {
           </Show>
           <ScopeChip
             communityApId={props.post.community_ap_id}
-            class="ml-auto self-center"
+            class="ml-auto self-center min-w-7"
           />
         </div>
         <A href={`/post/${encodeURIComponent(props.post.ap_id)}`} class="block">
@@ -334,12 +340,12 @@ function ProfilePostItem(props: ProfilePostItemProps) {
             }}
           />
         </Show>
-        {/* Actions */}
+        {/* Actions: 36px tap areas around 20px icons, as on the timeline. */}
         <div class="flex items-center gap-6 mt-3">
           <A
             href={`/post/${encodeURIComponent(props.post.ap_id)}`}
             aria-label={props.t("posts.reply")}
-            class="flex items-center gap-2 text-neutral-500 hover:text-[var(--accent)] transition-colors"
+            class="-m-2 flex items-center gap-2 p-2 text-neutral-500 hover:text-[var(--accent)] transition-colors"
           >
             <ReplyIcon />
             <span class="text-sm">{props.post.reply_count || ""}</span>
@@ -350,7 +356,7 @@ function ProfilePostItem(props: ProfilePostItemProps) {
               props.post.liked ? props.t("posts.unlike") : props.t("posts.like")
             }
             aria-pressed={props.post.liked}
-            class={`flex items-center gap-2 transition-colors ${
+            class={`-m-2 flex items-center gap-2 p-2 transition-colors ${
               props.post.liked
                 ? "text-pink-500"
                 : "text-neutral-500 hover:text-pink-500"
