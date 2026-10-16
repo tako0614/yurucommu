@@ -1,8 +1,8 @@
 import { createEffect, createSignal, on, onCleanup, Show } from "solid-js";
+import { Portal } from "solid-js/web";
 // Type-only: the ~300KB html5-qrcode runtime is dynamically imported inside
 // startScanner() so it loads ONLY when the user opens the scanner tab, instead
-// of being bundled into every ProfilePage load (QRCodeModal is statically
-// imported by ProfilePage).
+// of being bundled with this modal's chunk.
 import type { Html5Qrcode } from "html5-qrcode";
 import { Actor } from "../types/index.ts";
 import { fetchActor, follow, searchRemote } from "../lib/api.ts";
@@ -234,211 +234,216 @@ export function QRCodeModal(props: QRCodeModalProps) {
     }
   };
 
+  // Portal: inside <main> (or the sticky right column) the phone's bottom nav
+  // and the page header paint over the sheet and stay clickable.
   return (
-    <div
-      class="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) props.onClose();
-      }}
-    >
-      <Show when={copied()}>
-        <div class="fixed bottom-8 left-1/2 -translate-x-1/2 z-[60] px-4 py-2 bg-neutral-800 text-white text-sm rounded-full shadow-lg">
-          {t("settings.linkCopied")}
-        </div>
-      </Show>
+    <Portal>
       <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label={t("qr.title")}
-        class="bg-neutral-900 rounded-2xl w-full max-w-md overflow-hidden"
+        class="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 text-white"
+        onClick={(e) => {
+          if (e.target === e.currentTarget) props.onClose();
+        }}
       >
-        {/* Header */}
-        <div class="flex items-center justify-between px-4 py-3 border-b border-neutral-800">
-          <h2 class="text-lg font-bold text-white">{t("qr.title")}</h2>
-          <button
-            onClick={props.onClose}
-            aria-label={t("common.close")}
-            class="p-1 hover:bg-neutral-800 rounded-full transition-colors text-neutral-400 hover:text-white"
-          >
-            <CloseIcon />
-          </button>
-        </div>
+        <Show when={copied()}>
+          <div class="fixed bottom-8 left-1/2 -translate-x-1/2 z-[60] px-4 py-2 bg-neutral-800 text-white text-sm rounded-full shadow-lg">
+            {t("settings.linkCopied")}
+          </div>
+        </Show>
+        <div
+          ref={dialogRef}
+          role="dialog"
+          aria-modal="true"
+          aria-label={t("qr.title")}
+          class="bg-neutral-900 rounded-2xl w-full max-w-md overflow-hidden"
+        >
+          {/* Header */}
+          <div class="flex items-center justify-between px-4 py-3 border-b border-neutral-800">
+            <h2 class="text-lg font-bold text-white">{t("qr.title")}</h2>
+            <button
+              onClick={props.onClose}
+              aria-label={t("common.close")}
+              class="p-1 hover:bg-neutral-800 rounded-full transition-colors text-neutral-400 hover:text-white"
+            >
+              <CloseIcon />
+            </button>
+          </div>
 
-        {/* Tabs */}
-        <div class="flex border-b border-neutral-800">
-          <button
-            onClick={() => setTab("myqr")}
-            class={`flex-1 py-3 text-center font-medium relative ${
-              tab() === "myqr" ? "text-white" : "text-neutral-500"
-            }`}
-          >
-            {t("qr.myQr")}
-            <Show when={tab() === "myqr"}>
-              <div class="absolute bottom-0 left-1/2 -translate-x-1/2 w-12 h-1 bg-accent rounded-full" />
-            </Show>
-          </button>
-          <button
-            onClick={() => setTab("scan")}
-            class={`flex-1 py-3 text-center font-medium relative ${
-              tab() === "scan" ? "text-white" : "text-neutral-500"
-            }`}
-          >
-            {t("qr.scan")}
-            <Show when={tab() === "scan"}>
-              <div class="absolute bottom-0 left-1/2 -translate-x-1/2 w-12 h-1 bg-accent rounded-full" />
-            </Show>
-          </button>
-        </div>
+          {/* Tabs */}
+          <div class="flex border-b border-neutral-800">
+            <button
+              onClick={() => setTab("myqr")}
+              class={`flex-1 py-3 text-center font-medium relative ${
+                tab() === "myqr" ? "text-white" : "text-neutral-500"
+              }`}
+            >
+              {t("qr.myQr")}
+              <Show when={tab() === "myqr"}>
+                <div class="absolute bottom-0 left-1/2 -translate-x-1/2 w-12 h-1 bg-accent rounded-full" />
+              </Show>
+            </button>
+            <button
+              onClick={() => setTab("scan")}
+              class={`flex-1 py-3 text-center font-medium relative ${
+                tab() === "scan" ? "text-white" : "text-neutral-500"
+              }`}
+            >
+              {t("qr.scan")}
+              <Show when={tab() === "scan"}>
+                <div class="absolute bottom-0 left-1/2 -translate-x-1/2 w-12 h-1 bg-accent rounded-full" />
+              </Show>
+            </button>
+          </div>
 
-        {/* Content */}
-        <div class="p-6">
-          <Show
-            when={tab() === "myqr"}
-            fallback={
-              /* Scanner */
+          {/* Content */}
+          <div class="p-6">
+            <Show
+              when={tab() === "myqr"}
+              fallback={
+                /* Scanner */
 
-              <div class="flex flex-col items-center space-y-4">
-                <Show when={lookingUp()}>
-                  {/* Loading State */}
-                  <div class="flex flex-col items-center space-y-4 py-8">
-                    <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-accent" />
-                    <div class="text-neutral-400">{t("qr.lookingUp")}</div>
-                  </div>
-                </Show>
-
-                <Show when={!lookingUp() && scanResult()}>
-                  {/* Scan Result */}
-                  <div class="flex flex-col items-center space-y-4 w-full">
-                    <UserAvatar
-                      avatarUrl={scanResult()!.icon_url}
-                      name={
-                        scanResult()!.name || scanResult()!.preferred_username
-                      }
-                      size={80}
-                    />
-                    <div class="text-center">
-                      <div class="font-bold text-white text-xl">
-                        {scanResult()!.name || scanResult()!.preferred_username}
-                      </div>
-                      <div class="text-neutral-500">
-                        @{scanResult()!.username}
-                      </div>
-                      <Show when={scanResult()!.summary}>
-                        <div class="text-neutral-400 text-sm mt-2 max-w-xs">
-                          {scanResult()!.summary}
-                        </div>
-                      </Show>
+                <div class="flex flex-col items-center space-y-4">
+                  <Show when={lookingUp()}>
+                    {/* Loading State */}
+                    <div class="flex flex-col items-center space-y-4 py-8">
+                      <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-accent" />
+                      <div class="text-neutral-400">{t("qr.lookingUp")}</div>
                     </div>
+                  </Show>
 
-                    <Show
-                      when={!followSuccess() && !followPending()}
-                      fallback={
-                        <div
-                          class={`px-6 py-2 rounded-full font-medium ${
-                            followPending()
-                              ? "bg-neutral-700 text-neutral-200"
-                              : "bg-green-600 text-white"
-                          }`}
-                        >
-                          {followPending()
-                            ? t("profile.followRequested")
-                            : t("qr.followed")}
+                  <Show when={!lookingUp() && scanResult()}>
+                    {/* Scan Result */}
+                    <div class="flex flex-col items-center space-y-4 w-full">
+                      <UserAvatar
+                        avatarUrl={scanResult()!.icon_url}
+                        name={
+                          scanResult()!.name || scanResult()!.preferred_username
+                        }
+                        size={80}
+                      />
+                      <div class="text-center">
+                        <div class="font-bold text-white text-xl">
+                          {scanResult()!.name ||
+                            scanResult()!.preferred_username}
                         </div>
-                      }
-                    >
+                        <div class="text-neutral-500">
+                          @{scanResult()!.username}
+                        </div>
+                        <Show when={scanResult()!.summary}>
+                          <div class="text-neutral-400 text-sm mt-2 max-w-xs">
+                            {scanResult()!.summary}
+                          </div>
+                        </Show>
+                      </div>
+
                       <Show
-                        when={scanResult()!.ap_id !== props.actor.ap_id}
+                        when={!followSuccess() && !followPending()}
                         fallback={
-                          <div class="text-neutral-500">
-                            {t("qr.thisIsYou")}
+                          <div
+                            class={`px-6 py-2 rounded-full font-medium ${
+                              followPending()
+                                ? "bg-neutral-700 text-neutral-200"
+                                : "bg-green-600 text-white"
+                            }`}
+                          >
+                            {followPending()
+                              ? t("profile.followRequested")
+                              : t("qr.followed")}
                           </div>
                         }
                       >
-                        <button
-                          onClick={handleFollow}
-                          disabled={following()}
-                          class="px-6 py-2 bg-accent disabled:bg-neutral-700 text-white rounded-full font-medium transition-colors"
+                        <Show
+                          when={scanResult()!.ap_id !== props.actor.ap_id}
+                          fallback={
+                            <div class="text-neutral-500">
+                              {t("qr.thisIsYou")}
+                            </div>
+                          }
                         >
-                          {following()
-                            ? t("qr.following")
-                            : t("profile.follow")}
-                        </button>
+                          <button
+                            onClick={handleFollow}
+                            disabled={following()}
+                            class="px-6 py-2 bg-accent disabled:bg-neutral-700 text-white rounded-full font-medium transition-colors"
+                          >
+                            {following()
+                              ? t("qr.following")
+                              : t("profile.follow")}
+                          </button>
+                        </Show>
                       </Show>
-                    </Show>
 
-                    <button
-                      onClick={resetScan}
-                      class="text-neutral-400 hover:text-white text-sm"
-                    >
-                      {t("qr.scanAgain")}
-                    </button>
-                  </div>
-                </Show>
-
-                <Show when={!lookingUp() && !scanResult() && scanError()}>
-                  {/* Error State */}
-                  <div class="flex flex-col items-center space-y-4">
-                    <div class="text-red-400 text-center">{scanError()}</div>
-                    <button
-                      onClick={resetScan}
-                      class="px-6 py-2 bg-neutral-800 hover:bg-neutral-700 text-white rounded-full transition-colors"
-                    >
-                      {t("common.retry")}
-                    </button>
-                  </div>
-                </Show>
-
-                <Show when={!lookingUp() && !scanResult() && !scanError()}>
-                  {/* Scanner View */}
-                  <div
-                    id="qr-scanner"
-                    ref={scannerContainerRef}
-                    class="w-full aspect-square max-w-[300px] rounded-lg overflow-hidden bg-neutral-800"
-                  />
-                  <Show when={scanning()}>
-                    <div class="text-neutral-400 text-sm">
-                      {t("qr.pointCamera")}
+                      <button
+                        onClick={resetScan}
+                        class="text-neutral-400 hover:text-white text-sm"
+                      >
+                        {t("qr.scanAgain")}
+                      </button>
                     </div>
                   </Show>
-                </Show>
-              </div>
-            }
-          >
-            {/* My QR Code */}
-            <div class="flex flex-col items-center space-y-6">
-              {/* User Info */}
-              <div class="flex flex-col items-center gap-2">
-                <UserAvatar
-                  avatarUrl={props.actor.icon_url}
-                  name={props.actor.name || props.actor.preferred_username}
-                  size={64}
-                />
-                <div class="text-center">
-                  <div class="font-bold text-white text-lg">
-                    {props.actor.name || props.actor.preferred_username}
-                  </div>
-                  <div class="text-neutral-500">@{props.actor.username}</div>
+
+                  <Show when={!lookingUp() && !scanResult() && scanError()}>
+                    {/* Error State */}
+                    <div class="flex flex-col items-center space-y-4">
+                      <div class="text-red-400 text-center">{scanError()}</div>
+                      <button
+                        onClick={resetScan}
+                        class="px-6 py-2 bg-neutral-800 hover:bg-neutral-700 text-white rounded-full transition-colors"
+                      >
+                        {t("common.retry")}
+                      </button>
+                    </div>
+                  </Show>
+
+                  <Show when={!lookingUp() && !scanResult() && !scanError()}>
+                    {/* Scanner View */}
+                    <div
+                      id="qr-scanner"
+                      ref={scannerContainerRef}
+                      class="w-full aspect-square max-w-[300px] rounded-lg overflow-hidden bg-neutral-800"
+                    />
+                    <Show when={scanning()}>
+                      <div class="text-neutral-400 text-sm">
+                        {t("qr.pointCamera")}
+                      </div>
+                    </Show>
+                  </Show>
                 </div>
-              </div>
+              }
+            >
+              {/* My QR Code */}
+              <div class="flex flex-col items-center space-y-6">
+                {/* User Info */}
+                <div class="flex flex-col items-center gap-2">
+                  <UserAvatar
+                    avatarUrl={props.actor.icon_url}
+                    name={props.actor.name || props.actor.preferred_username}
+                    size={64}
+                  />
+                  <div class="text-center">
+                    <div class="font-bold text-white text-lg">
+                      {props.actor.name || props.actor.preferred_username}
+                    </div>
+                    <div class="text-neutral-500">@{props.actor.username}</div>
+                  </div>
+                </div>
 
-              {/* QR Code */}
-              <div class="bg-white p-4 rounded-2xl">
-                <QrSvg value={qrUrl()} size={200} />
-              </div>
+                {/* QR Code */}
+                <div class="bg-white p-4 rounded-2xl">
+                  <QrSvg value={qrUrl()} size={200} />
+                </div>
 
-              {/* Share Button */}
-              <button
-                onClick={handleShare}
-                class="flex items-center gap-2 px-6 py-2 bg-neutral-800 hover:bg-neutral-700 rounded-full text-white transition-colors"
-              >
-                <ShareIcon />
-                {t("qr.share")}
-              </button>
-            </div>
-          </Show>
+                {/* Share Button */}
+                <button
+                  onClick={handleShare}
+                  class="flex items-center gap-2 px-6 py-2 bg-neutral-800 hover:bg-neutral-700 rounded-full text-white transition-colors"
+                >
+                  <ShareIcon />
+                  {t("qr.share")}
+                </button>
+              </div>
+            </Show>
+          </div>
         </div>
       </div>
-    </div>
+    </Portal>
   );
 }
