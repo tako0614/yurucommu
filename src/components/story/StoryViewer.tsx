@@ -261,23 +261,22 @@ export function StoryViewer(props: StoryViewerProps) {
   // progress), and NOT when a like/vote/share replaces the story OBJECT (same
   // ap_id): startTimer() reads currentStory() internally, so a bare
   // createEffect tracked it and every like reset the progress bar to 0.
-  // `on(...)` keys strictly on the ap_id and runs the body untracked. Deleting
-  // a story still re-arms (the story sliding into the index has a new ap_id).
+  // The id goes through a memo: `on()` re-runs whenever its source changes,
+  // and currentStory() changes on every like even when the id does not.
+  // Deleting a story still re-arms (the next story has a new ap_id).
+  const currentStoryId = createMemo(() => currentStory()?.ap_id);
   createEffect(
-    on(
-      () => currentStory()?.ap_id,
-      () => {
-        if (!isVideo()) {
-          setProgress(0);
-          startTimer();
-        }
+    on(currentStoryId, () => {
+      if (!isVideo()) {
+        setProgress(0);
+        startTimer();
+      }
 
-        onCleanup(() => {
-          if (timerRef) clearTimeout(timerRef);
-          if (progressTimerRef) clearInterval(progressTimerRef);
-        });
-      },
-    ),
+      onCleanup(() => {
+        if (timerRef) clearTimeout(timerRef);
+        if (progressTimerRef) clearInterval(progressTimerRef);
+      });
+    }),
   );
 
   // Video stall watchdog: a broken or stalled video never fires `onEnded`
@@ -502,9 +501,15 @@ export function StoryViewer(props: StoryViewerProps) {
     setMediaError(true);
   };
 
-  // Handle delete story
+  // Handle delete story. The prompt pauses playback: otherwise the story ran
+  // out behind it, the viewer moved on and the prompt vanished unanswered.
   const handleDeleteStory = () => {
+    setIsPaused(true);
     setShowDeleteConfirm(true);
+  };
+  const cancelDelete = () => {
+    setShowDeleteConfirm(false);
+    setIsPaused(false);
   };
 
   // Confirm delete story
@@ -547,11 +552,17 @@ export function StoryViewer(props: StoryViewerProps) {
       setToastMessage(t("common.error"));
     } finally {
       setShowDeleteConfirm(false);
+      setIsPaused(false);
     }
   };
 
   // Handle click/tap navigation
   const handleClick = (e: MouseEvent) => {
+    // Releasing a hold-to-pause also fires a click; it must not navigate.
+    if (pressWasHold) {
+      pressWasHold = false;
+      return;
+    }
     // Belt-and-braces with the controls' own stopPropagation: a tap that
     // lands on any interactive control (header buttons, action bar, insights
     // sheet) is never ALSO a tap-zone navigation.
@@ -605,18 +616,36 @@ export function StoryViewer(props: StoryViewerProps) {
   // insights sheet or the focused reply input must not be resumed by a stray
   // release. The release also listens on window: dragging off the card and
   // releasing OUTSIDE the container previously never resumed (the story froze).
+  // A press longer than HOLD_MS is a hold: its release resumes playback but
+  // the click it produces is swallowed (handleClick), so holding to read no
+  // longer skips to the next story. Reset on every press, so a release outside
+  // the card (no click follows) cannot swallow the next real tap.
+  const HOLD_MS = 300;
   let holdActive = false;
-  const handleTouchStart = () => {
+  let pressStartedAt = 0;
+  let pressWasHold = false;
+  const handlePressStart = () => {
     holdActive = true;
+    pressWasHold = false;
+    pressStartedAt = Date.now();
     setIsPaused(true);
   };
-  const handleTouchEnd = () => {
+  const handlePressEnd = () => {
     if (!holdActive) return;
     holdActive = false;
+    pressWasHold = Date.now() - pressStartedAt >= HOLD_MS;
     setIsPaused(false);
   };
-  window.addEventListener("mouseup", handleTouchEnd);
-  onCleanup(() => window.removeEventListener("mouseup", handleTouchEnd));
+  // Pointer events fire once per press for touch and mouse alike. With
+  // touch*/mouse* handlers a touch also produced compatibility mousedown/
+  // mouseup right before its click, which restarted the press and turned
+  // every hold into a skip.
+  window.addEventListener("pointerup", handlePressEnd);
+  window.addEventListener("pointercancel", handlePressEnd);
+  onCleanup(() => {
+    window.removeEventListener("pointerup", handlePressEnd);
+    window.removeEventListener("pointercancel", handlePressEnd);
+  });
 
   return (
     <Show when={currentActorStories() && currentStory()}>
@@ -632,12 +661,12 @@ export function StoryViewer(props: StoryViewerProps) {
             overlay coords (storyContainerRef) are both measured from it. */}
         <div
           ref={containerRef}
-          class="relative w-full h-full cursor-pointer overflow-hidden bg-neutral-900 sm:h-[calc(100vh-2rem)] sm:aspect-[9/16] sm:w-auto sm:max-h-[900px] sm:rounded-xl"
+          class="relative w-full h-full cursor-pointer select-none overflow-hidden bg-neutral-900 [-webkit-touch-callout:none] sm:h-[calc(100vh-2rem)] sm:aspect-[9/16] sm:w-auto sm:max-h-[900px] sm:rounded-xl"
           onClick={handleClick}
-          onMouseDown={handleTouchStart}
-          onMouseUp={handleTouchEnd}
-          onTouchStart={handleTouchStart}
-          onTouchEnd={handleTouchEnd}
+          onPointerDown={handlePressStart}
+          // A long press is a hold, not the phone's image/text menu (which
+          // would also cancel the press mid-hold).
+          onContextMenu={(e) => e.preventDefault()}
         >
           <StoryViewerProgress
             totalStories={currentActorStories()!.stories.length}
@@ -660,7 +689,10 @@ export function StoryViewer(props: StoryViewerProps) {
           />
 
           {/* Media / caption / overlays — measured box for overlay coords. */}
-          <div ref={storyContainerRef} class="absolute inset-0">
+          {/* touch-none: the browser never takes a press on the media for a
+              pan or zoom, which would cancel a hold. Kept off the stage so
+              the insights list (a sibling) still scrolls. */}
+          <div ref={storyContainerRef} class="absolute inset-0 touch-none">
             {/* Media content - directly from story.attachment */}
             <Show
               when={
@@ -677,7 +709,9 @@ export function StoryViewer(props: StoryViewerProps) {
                   )}`
                 }
                 alt=""
-                class="w-full h-full object-cover"
+                // Presses go to the stage: a long press on the image itself
+                // opened the phone's save/share menu instead of pausing.
+                class="pointer-events-none w-full h-full object-cover"
                 draggable={false}
                 onError={handleMediaError}
               />
@@ -697,7 +731,7 @@ export function StoryViewer(props: StoryViewerProps) {
                     "",
                   )}`
                 }
-                class="w-full h-full object-cover"
+                class="pointer-events-none w-full h-full object-cover"
                 muted={isMuted()}
                 playsinline
                 onEnded={handleVideoEnded}
@@ -761,7 +795,7 @@ export function StoryViewer(props: StoryViewerProps) {
             <div
               role="status"
               aria-live="polite"
-              class="absolute bottom-24 left-1/2 z-30 -translate-x-1/2 rounded-full bg-black/80 px-4 py-2 text-sm text-white shadow-lg"
+              class="absolute bottom-24 left-1/2 z-30 max-w-[calc(100%-2rem)] -translate-x-1/2 truncate rounded-full bg-black/80 px-4 py-2 text-sm text-white shadow-lg"
             >
               {toastMessage()}
             </div>
@@ -816,7 +850,7 @@ export function StoryViewer(props: StoryViewerProps) {
 
         <StoryViewerDeleteDialog
           open={showDeleteConfirm()}
-          onCancel={() => setShowDeleteConfirm(false)}
+          onCancel={cancelDelete}
           onConfirm={confirmDelete}
         />
       </div>

@@ -47,8 +47,7 @@ export function StoryViewerActionBar(props: StoryViewerActionBarProps) {
             class="flex-1 min-w-0 bg-transparent text-white placeholder-white/50 text-sm outline-none disabled:opacity-50"
             onInput={(e) => setReply(e.currentTarget.value)}
             onClick={(e) => e.stopPropagation()}
-            onMouseDown={(e) => e.stopPropagation()}
-            onTouchStart={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
             onFocus={() => props.onReplyFocusChange?.(true)}
             onBlur={() => props.onReplyFocusChange?.(false)}
             onKeyDown={(e) => {
