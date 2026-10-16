@@ -113,7 +113,7 @@ export function PostActionsMenu(props: PostActionsMenuProps) {
         // arrow-key behaviour that doesn't exist.
         aria-haspopup="true"
         aria-expanded={open()}
-        class="flex items-center text-neutral-500 hover:text-neutral-300 transition-colors"
+        class="-m-2 flex items-center p-2 text-neutral-500 hover:text-neutral-300 transition-colors"
       >
         <MoreIcon />
       </button>
