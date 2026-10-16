@@ -289,6 +289,14 @@ a {
   margin-bottom: 1rem;
 }
 
+/* Docs headings break between phrases ("yurucommu / ドキュメント", not
+   "ドキュメ / ント") where the browser supports it (Chromium); elsewhere the
+   default applies. keep-all is not used: it made long headings one run that
+   then split anywhere, Latin words included. */
+.docs-content :is(h1, h2, h3) {
+  word-break: auto-phrase;
+}
+
 .docs-content h2 {
   font-size: 1.5rem;
   font-weight: 700;
