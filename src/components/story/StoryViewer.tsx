@@ -671,12 +671,13 @@ export function StoryViewer(props: StoryViewerProps) {
             overlay coords (storyContainerRef) are both measured from it. */}
         <div
           ref={containerRef}
-          class="relative w-full h-full cursor-pointer select-none overflow-hidden bg-neutral-900 [-webkit-touch-callout:none] sm:h-[calc(100vh-2rem)] sm:aspect-[9/16] sm:w-auto sm:max-h-[900px] sm:rounded-xl"
+          class="relative w-full h-full cursor-pointer select-none overflow-hidden bg-neutral-900 [-webkit-touch-callout:none] sm:h-[calc(100vh-2rem)] sm:aspect-[9/16] sm:w-auto sm:max-h-[900px] sm:rounded-xl [&_a]:[-webkit-touch-callout:default] [&_input]:[-webkit-touch-callout:default] [&_textarea]:[-webkit-touch-callout:default]"
           onClick={handleClick}
           onPointerDown={handlePressStart}
           // A long press is a hold, not the phone's image/text menu (which
           // would also cancel the press mid-hold). The reply field and
-          // overlay links keep their own menu (paste, open link).
+          // overlay links keep their own menu (paste, open link): here, and
+          // in the class, since -webkit-touch-callout is inherited.
           onContextMenu={(e) => {
             if (!(e.target as HTMLElement).closest("input,textarea,a")) {
               e.preventDefault();
