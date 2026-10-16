@@ -42,7 +42,11 @@ export function AppLayout(props: { children?: JSX.Element }) {
         {/* Mobile-only app-shell header: the AppMenu trigger, on screens
             without a header of their own (see routeChrome.ts). */}
         <AppHeaderMobile />
-        {props.children}
+        {/* The page fills what the avatar bar leaves. Pages size themselves
+            with h-full; as a direct child of <main> that was main's full
+            height, so on screens with the bar the page ran 56px under the
+            bottom nav and its last row could not be reached. */}
+        <div class="flex min-h-0 flex-1 flex-col">{props.children}</div>
       </main>
       <div class="hidden lg:block w-80 bg-neutral-900 shrink-0">
         <RightSidebar />
