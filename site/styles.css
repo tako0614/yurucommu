@@ -399,6 +399,15 @@ a {
   vertical-align: top;
 }
 
+/* For tables whose first column is a short label (a tab, a setting, a
+   role). In a narrow table those labels broke mid-word ("コミュニ / ティ");
+   break between phrases instead where supported (Chromium; elsewhere the
+   default applies). Opt-in: on tables with long first-column phrases it
+   would widen the table into sideways scrolling. */
+.docs-table-labels td:first-child {
+  word-break: auto-phrase;
+}
+
 .docs-table thead th {
   background: var(--bg-2);
   font-weight: 700;
