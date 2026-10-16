@@ -189,11 +189,13 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
   );
 
   // Name and handle shrink as one group: the handle gives way first and the
-  // name truncates only once the handle is gone. The time and 編集済み never
-  // wrap.
+  // name truncates only once the handle is gone, down to a 3rem floor. The
+  // group's 10000x shrink factor keeps the community chip whole until then
+  // (flex shrinking is proportional, so a 1x chip would lose its share early).
+  // The time and 編集済み never wrap.
   const header = (
     <div class="flex min-w-0 items-baseline gap-2">
-      <span class="flex min-w-0 items-baseline gap-2">
+      <span class="flex min-w-12 shrink-[10000] items-baseline gap-2">
         <A
           href={`/profile/${encodeURIComponent(props.post.author.ap_id)}`}
           class="truncate font-bold text-white hover:underline shrink-0 max-w-full"
@@ -222,7 +224,7 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
       </Show>
       <ScopeChip
         communityApId={props.post.community_ap_id}
-        class="ml-auto self-center"
+        class="ml-auto self-center min-w-7"
       />
     </div>
   );

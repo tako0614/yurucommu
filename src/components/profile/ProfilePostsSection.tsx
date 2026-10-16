@@ -285,11 +285,12 @@ function ProfilePostItem(props: ProfilePostItemProps) {
         />
       </A>
       <div class="flex-1 min-w-0">
-        {/* Like the timeline row: the handle gives way first, so a long
-            handle no longer shrinks the name to "R…"; the name truncates only
-            once the handle is gone. The time and 編集済み never wrap. */}
+        {/* Like the timeline row (see the comment there): the handle gives
+            way first, so a long handle no longer shrinks the name to "R…";
+            the name truncates only once the handle is gone, then the chip.
+            The time and 編集済み never wrap. */}
         <div class="flex min-w-0 items-baseline gap-2">
-          <span class="flex min-w-0 items-baseline gap-2">
+          <span class="flex min-w-12 shrink-[10000] items-baseline gap-2">
             <A
               href={`/profile/${encodeURIComponent(props.post.author.ap_id)}`}
               class="font-bold text-white truncate hover:underline shrink-0 max-w-full"
@@ -317,7 +318,7 @@ function ProfilePostItem(props: ProfilePostItemProps) {
           </Show>
           <ScopeChip
             communityApId={props.post.community_ap_id}
-            class="ml-auto self-center"
+            class="ml-auto self-center min-w-7"
           />
         </div>
         <A href={`/post/${encodeURIComponent(props.post.ap_id)}`} class="block">
