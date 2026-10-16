@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { hasOwnBackHeader, isConversationOpen } from "./routeChrome.ts";
+import { hasOwnBackHeader } from "./routeChrome.ts";
 
 describe("hasOwnBackHeader", () => {
   test("screens with their own back button", () => {
@@ -9,11 +9,9 @@ describe("hasOwnBackHeader", () => {
       "/groups/kissa-builders",
       "/friends",
       "/friends/list",
-      "/dm/abc",
     ]) {
-      expect(hasOwnBackHeader(path, "")).toBe(true);
+      expect(hasOwnBackHeader(path)).toBe(true);
     }
-    expect(hasOwnBackHeader("/dm", "?c=https%3A%2F%2Fx%2Fu")).toBe(true);
   });
 
   test("top-level screens keep the avatar bar", () => {
@@ -25,21 +23,15 @@ describe("hasOwnBackHeader", () => {
       "/notifications",
       "/bookmarks",
       "/settings",
+      // An open conversation is detected from the panel, not the URL.
       "/dm",
+      "/dm/abc",
       // Redirects to the conversation; shows no back button of its own.
       "/groups/kissa-builders/chat",
+      // Unknown paths render the not-found page, which has no back button.
+      "/friends/unknown",
     ]) {
-      expect(hasOwnBackHeader(path, "")).toBe(false);
+      expect(hasOwnBackHeader(path)).toBe(false);
     }
-  });
-});
-
-describe("isConversationOpen", () => {
-  test("only an open thread", () => {
-    expect(isConversationOpen("/dm", "?c=x")).toBe(true);
-    expect(isConversationOpen("/dm/x", "")).toBe(true);
-    expect(isConversationOpen("/dm", "")).toBe(false);
-    expect(isConversationOpen("/dm", "?tab=requests")).toBe(false);
-    expect(isConversationOpen("/", "?c=x")).toBe(false);
   });
 });

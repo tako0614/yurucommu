@@ -5,7 +5,7 @@ import { useI18n } from "../../lib/i18n.tsx";
 import { actorAtom } from "../../atoms/auth.ts";
 import { appMenuOpenAtom } from "../../atoms/shell.ts";
 import { UserAvatar } from "../UserAvatar.tsx";
-import { hasOwnBackHeader } from "./routeChrome.ts";
+import { conversationOnScreen, hasOwnBackHeader } from "./routeChrome.ts";
 
 // Minimal app-shell mobile header, mounted once in AppLayout so the AppMenu
 // trigger (avatar) is reachable from secondary mobile routes. Home owns its
@@ -23,7 +23,8 @@ export function AppHeaderMobile() {
   // there so the two never stack.
   const hidden = () =>
     location.pathname === "/" ||
-    hasOwnBackHeader(location.pathname, location.search);
+    hasOwnBackHeader(location.pathname) ||
+    conversationOnScreen();
 
   return (
     <Show when={hidden() ? null : actor()}>

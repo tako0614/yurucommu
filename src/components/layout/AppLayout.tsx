@@ -1,12 +1,11 @@
 import { onMount, type JSX } from "solid-js";
-import { useLocation } from "@solidjs/router";
 import { useSetAtom } from "solid-jotai";
 import { Sidebar } from "./Sidebar.tsx";
 import { BottomNav } from "./BottomNav.tsx";
 import { RightSidebar } from "./RightSidebar.tsx";
 import { AppHeaderMobile } from "./AppHeaderMobile.tsx";
 import { AppMenu } from "./AppMenu.tsx";
-import { isConversationOpen } from "./routeChrome.ts";
+import { conversationOnScreen } from "./routeChrome.ts";
 import { GlobalPostComposer } from "./GlobalPostComposer.tsx";
 import { ToastLayer } from "../ToastLayer.tsx";
 import { useNotificationPolling } from "../../hooks/useNotificationPolling.ts";
@@ -29,9 +28,8 @@ export function AppLayout(props: { children?: JSX.Element }) {
   // The phone's bottom nav steps aside in an open conversation (BottomNav), so
   // only keep room for it where it is shown. The top inset lives here, not in
   // a header, because several screens draw their own top bar.
-  const location = useLocation();
   const mainPadding = () =>
-    isConversationOpen(location.pathname, location.search)
+    conversationOnScreen()
       ? "pb-[env(safe-area-inset-bottom)]"
       : "pb-[calc(3.5rem+env(safe-area-inset-bottom))]";
 
@@ -41,8 +39,8 @@ export function AppLayout(props: { children?: JSX.Element }) {
       <main
         class={`flex-1 flex flex-col min-h-screen pt-[env(safe-area-inset-top)] ${mainPadding()} md:pt-0 md:pb-0 overflow-hidden border-x border-neutral-800 max-w-2xl`}
       >
-        {/* Mobile-only app-shell header: AppMenu trigger + DM + Notifications,
-            reachable from every route. Phase B's ScopeHeader absorbs it. */}
+        {/* Mobile-only app-shell header: the AppMenu trigger, on screens
+            without a header of their own (see routeChrome.ts). */}
         <AppHeaderMobile />
         {props.children}
       </main>

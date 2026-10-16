@@ -1,28 +1,36 @@
+import { createSignal, onCleanup, onMount } from "solid-js";
+
 /**
- * Which shell chrome a phone screen needs, from its route alone.
+ * Which shell chrome a phone screen needs.
  *
  * Screens with their own top bar and back button (a post, someone's profile,
  * a community, the friends list, an open conversation) do not get the shell's
  * avatar bar: stacked above their header it pushed back to a second row and
  * put the menu where back belongs.
  */
-export function hasOwnBackHeader(pathname: string, search: string): boolean {
+export function hasOwnBackHeader(pathname: string): boolean {
   return (
     pathname.startsWith("/post/") ||
     /^\/profile\/.+/.test(pathname) ||
     /^\/groups\/[^/]+\/?$/.test(pathname) ||
     pathname === "/friends" ||
-    pathname.startsWith("/friends/") ||
-    isConversationOpen(pathname, search)
+    pathname === "/friends/list"
   );
 }
 
+// How many open conversations are mounted (DMChatPanel; at most one).
+const [conversations, setConversations] = createSignal(0);
+
 /**
- * An open DM or community conversation (`/dm?c=<id>`, or the legacy
- * `/dm/<id>`). Its composer owns the bottom of the screen, so the bottom nav
- * steps aside there, as in other messaging apps.
+ * True while a DM or community conversation is on screen. Its composer owns
+ * the bottom of the screen, so the bottom nav steps aside, as in other
+ * messaging apps. Taken from what is drawn rather than the URL: `/dm?c=` also
+ * shows the contact list while the contact loads or when it is not found.
  */
-export function isConversationOpen(pathname: string, search: string): boolean {
-  if (pathname.startsWith("/dm/")) return true;
-  return pathname === "/dm" && new URLSearchParams(search).has("c");
+export const conversationOnScreen = () => conversations() > 0;
+
+/** Call from the conversation panel. */
+export function markConversationOnScreen(): void {
+  onMount(() => setConversations((n) => n + 1));
+  onCleanup(() => setConversations((n) => Math.max(0, n - 1)));
 }
