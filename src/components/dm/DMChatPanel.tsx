@@ -29,6 +29,7 @@ import { formatTime } from "../../lib/datetime.ts";
 import { useI18n } from "../../lib/i18n.tsx";
 import { ConfirmSheet } from "../ConfirmSheet.tsx";
 import { InlineErrorRetry } from "../InlineErrorRetry.tsx";
+import { isComposingKey } from "../ime.ts";
 import { UserAvatar } from "../UserAvatar.tsx";
 import { markConversationOnScreen } from "../layout/routeChrome.ts";
 import { formatMessageDay, messageDayKey } from "./message-day.ts";
@@ -371,11 +372,36 @@ export function DMChatPanel(props: DMChatPanelProps) {
   };
 
   const handleInputChange = (
-    e: InputEvent & { currentTarget: HTMLInputElement },
+    e: InputEvent & { currentTarget: HTMLTextAreaElement },
   ) => {
     const value = e.currentTarget.value;
     setInput(value);
     void sendTyping(value);
+  };
+
+  // The composer is a textarea so a message can have line breaks. It grows
+  // with its text up to five lines, then scrolls. With a keyboard, Enter sends
+  // and Shift+Enter starts a line; on a touch screen the return key starts a
+  // line and the send button sends (as in other messaging apps). The Enter
+  // that confirms an IME conversion never sends.
+  let composerRef: HTMLTextAreaElement | undefined;
+  const COMPOSER_MAX_PX = 5 * 24 + 16 + 2; // 5 lines + py-2 + border
+  const coarsePointer =
+    typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
+  createEffect(() => {
+    input();
+    const el = composerRef;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, COMPOSER_MAX_PX)}px`;
+  });
+  const handleComposerKeyDown = (
+    e: KeyboardEvent & { currentTarget: HTMLTextAreaElement },
+  ) => {
+    if (e.key !== "Enter" || e.shiftKey || coarsePointer) return;
+    if (isComposingKey(e)) return;
+    e.preventDefault();
+    e.currentTarget.form?.requestSubmit();
   };
 
   const getSenderApId = (msg: DMMessage | CommunityMessage): string => {
@@ -640,15 +666,17 @@ export function DMChatPanel(props: DMChatPanelProps) {
             {errorMessage()}
           </div>
         </Show>
-        <div class="flex gap-2">
-          <input
-            type="text"
+        <div class="flex items-end gap-2">
+          <textarea
+            ref={composerRef}
+            rows={1}
             value={input()}
             onInput={handleInputChange}
+            onKeyDown={handleComposerKeyDown}
             placeholder={t("dm.placeholder")}
             aria-label={t("dm.placeholder")}
-            enterkeyhint="send"
-            class="flex-1 px-4 py-2 bg-neutral-900 border border-neutral-800 rounded-full text-white placeholder-neutral-500 focus:outline-none focus:border-accent"
+            enterkeyhint={coarsePointer ? "enter" : "send"}
+            class="flex-1 min-w-0 resize-none overflow-y-auto px-4 py-2 leading-6 bg-neutral-900 border border-neutral-800 rounded-3xl text-white placeholder-neutral-500 focus:outline-none focus:border-accent"
           />
           <button
             type="submit"
