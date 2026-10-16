@@ -1,5 +1,13 @@
 import { A, useLocation } from "@solidjs/router";
-import { For, Show } from "solid-js";
+import {
+  createEffect,
+  createSignal,
+  For,
+  on,
+  onCleanup,
+  onMount,
+  Show,
+} from "solid-js";
 import { useAtomValue, useSetAtom } from "solid-jotai";
 import { useI18n } from "../../lib/i18n.tsx";
 import { notificationUnreadAtom } from "../../atoms/notifications.ts";
@@ -18,6 +26,85 @@ export function BottomNav() {
   const unreadCount = useAtomValue(notificationUnreadAtom);
   const dmUnread = useAtomValue(dmUnreadCountAtom);
   const openComposer = useSetAtom(showPostModalAtom);
+
+  // The compose button floats over the last row of every scrolling page (a
+  // post's その他, the settings buttons). Hide it once the reader has scrolled
+  // 24px down, keep it hidden at the end of the page (so an iOS bounce does
+  // not bring it back over the last row), and show it again after 16px up, at
+  // the top, on a new page, or when the page that hid it is gone. Distances
+  // add up across events, so a slow scroll counts too.
+  //
+  // Scroll events do not bubble, so one capture-phase listener follows the
+  // page's own scrollers: only inside <main>, never a text field, and only
+  // ones that scroll vertically. An element's first event is just its
+  // starting point (a restored scroll position is not a scroll down).
+  const HIDE_AFTER_PX = 24;
+  const SHOW_AFTER_PX = 16;
+  const [fabHidden, setFabHidden] = createSignal(false);
+  let fabRef: HTMLButtonElement | undefined;
+  let hiddenBy: Element | null = null;
+  let travel = 0; // px since the last change of direction; + is down
+  const lastScrollTop = new WeakMap<Element, number>();
+  const showFab = () => {
+    hiddenBy = null;
+    travel = 0;
+    setFabHidden(false);
+  };
+  const hideFab = (el: Element) => {
+    // Keep it for a keyboard user who is on it; focus returned to it after a
+    // tap (closing the composer) is not keyboard focus and must not pin it.
+    if (fabRef?.matches(":focus-visible")) return;
+    hiddenBy = el;
+    setFabHidden(true);
+  };
+  const handleScroll = (e: Event) => {
+    const el = e.target;
+    if (!(el instanceof Element) || !el.closest("main")) return;
+    if (el.matches("input, textarea") || el.scrollHeight <= el.clientHeight)
+      return;
+    const top = el.scrollTop;
+    const previous = lastScrollTop.get(el);
+    lastScrollTop.set(el, top);
+    if (previous === undefined) return;
+    if (top <= 8) return showFab();
+    if (top >= el.scrollHeight - el.clientHeight - 2) return hideFab(el);
+    const delta = top - previous;
+    if (delta === 0) return;
+    travel = Math.sign(delta) === Math.sign(travel) ? travel + delta : delta;
+    if (travel >= HIDE_AFTER_PX) hideFab(el);
+    else if (travel <= -SHOW_AFTER_PX) showFab();
+  };
+  // A click can swap the page under the button without a scroll (a settings
+  // section, 戻る): show it once the scroller that hid it is gone, back at the
+  // top, or no longer scrolls.
+  const recheckFab = () => {
+    const el = hiddenBy;
+    if (!el) return;
+    if (
+      !el.isConnected ||
+      el.scrollTop <= 8 ||
+      el.scrollHeight <= el.clientHeight
+    )
+      showFab();
+  };
+  const handleClick = () => setTimeout(recheckFab, 0);
+  onMount(() => {
+    document.addEventListener("scroll", handleScroll, {
+      capture: true,
+      passive: true,
+    });
+    document.addEventListener("click", handleClick, { capture: true });
+  });
+  onCleanup(() => {
+    document.removeEventListener("scroll", handleScroll, { capture: true });
+    document.removeEventListener("click", handleClick, { capture: true });
+  });
+  createEffect(
+    on(
+      () => location.pathname,
+      () => showFab(),
+    ),
+  );
 
   // The badge count source depends on which nav item it is.
   const badgeCount = (item: NavItem) =>
@@ -56,10 +143,19 @@ export function BottomNav() {
         }
       >
         <button
+          ref={fabRef}
           type="button"
           onClick={() => openComposer(true)}
+          // Focus coming back after the composer closes shows it again.
+          onFocus={showFab}
           aria-label={t("posts.post")}
-          class="md:hidden fixed right-4 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-50 grid h-14 w-14 place-items-center rounded-full bg-accent text-white shadow-2xl shadow-black/40 transition-transform active:scale-95"
+          aria-hidden={fabHidden() ? "true" : undefined}
+          tabindex={fabHidden() ? -1 : undefined}
+          class={`md:hidden fixed right-4 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-50 grid h-14 w-14 place-items-center rounded-full bg-accent text-white shadow-2xl shadow-black/40 transition-[translate,scale,opacity] duration-200 active:scale-95 motion-reduce:transition-none ${
+            fabHidden()
+              ? "pointer-events-none translate-y-[calc(100%+5rem)] opacity-0"
+              : ""
+          }`}
         >
           <CreateNavIcon active={false} />
         </button>
