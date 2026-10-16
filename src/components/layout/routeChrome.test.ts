@@ -9,6 +9,9 @@ describe("hasOwnBackHeader", () => {
       "/groups/kissa-builders",
       "/friends",
       "/friends/list",
+      "/friends/",
+      "/friends/list/",
+      "/groups/kissa-builders/",
     ]) {
       expect(hasOwnBackHeader(path)).toBe(true);
     }

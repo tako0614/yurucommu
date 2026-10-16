@@ -13,8 +13,8 @@ export function hasOwnBackHeader(pathname: string): boolean {
     pathname.startsWith("/post/") ||
     /^\/profile\/.+/.test(pathname) ||
     /^\/groups\/[^/]+\/?$/.test(pathname) ||
-    pathname === "/friends" ||
-    pathname === "/friends/list"
+    // The router also matches these with one trailing slash.
+    /^\/friends(\/list)?\/?$/.test(pathname)
   );
 }
 
