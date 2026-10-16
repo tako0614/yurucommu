@@ -90,19 +90,21 @@ export function ProfileSummary(props: ProfileSummaryProps) {
 
       {/* Profile Info */}
       <div class="px-4 pb-4 relative">
-        {/* Avatar */}
-        <div class="absolute -top-16 left-4">
-          <div class="w-32 h-32 rounded-full border-4 border-black overflow-hidden bg-neutral-800">
+        {/* Avatar: 96px below 360px wide, so on a 320px phone it no longer
+            runs under the ... / follow buttons on the right. */}
+        <div class="absolute -top-12 left-4 min-[360px]:-top-16">
+          <div class="w-24 h-24 rounded-full border-4 border-black overflow-hidden bg-neutral-800 min-[360px]:w-32 min-[360px]:h-32">
             <UserAvatar
               avatarUrl={props.profile.icon_url}
               name={props.profile.name || props.profile.preferred_username}
               size={128}
+              class="size-full!"
             />
           </div>
         </div>
 
         {/* Follow Button & Menu */}
-        <div class="flex justify-end pt-3 pb-12 gap-2">
+        <div class="flex justify-end pt-3 pb-8 gap-2 min-[360px]:pb-12">
           <Show when={!props.isOwnProfile}>
             <div class="relative" ref={menuRoot}>
               <button

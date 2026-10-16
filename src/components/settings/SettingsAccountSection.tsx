@@ -242,7 +242,8 @@ export function SettingsAccountSection(props: SettingsAccountSectionProps) {
               disabled={moving() || moveTarget().trim().length === 0}
               class="w-full py-2 bg-red-500/90 rounded-lg font-bold disabled:opacity-50"
             >
-              {props.t("settings.moveConfirm")}
+              {/* The action, not the question: the confirm sheet asks it. */}
+              {props.t("settings.moveAccount")}
             </button>
             {/* Account migration is irreversible (this account becomes "moved"
                 and followers are handed off), so require a deliberate confirm
