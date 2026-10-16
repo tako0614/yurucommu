@@ -690,7 +690,7 @@ export function DMChatPanel(props: DMChatPanelProps) {
             type="submit"
             disabled={!input().trim() || sending()}
             aria-label={t("dm.send")}
-            class="h-10 shrink-0 px-4 py-2 bg-accent disabled:bg-neutral-700 disabled:cursor-not-allowed text-white rounded-full font-medium transition-colors"
+            class="h-[42px] shrink-0 px-4 py-2 bg-accent disabled:bg-neutral-700 disabled:cursor-not-allowed text-white rounded-full font-medium transition-colors"
           >
             <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
               <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
