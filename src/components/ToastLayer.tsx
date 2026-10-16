@@ -10,10 +10,14 @@ import {
 import { useI18n } from "../lib/i18n.tsx";
 
 // Per-kind styling. Dark-only; uses the shared --accent for the info/neutral
-// frame and semantic red/green for error/success.
+// frame and semantic red/green for error/success. The tints are mixed into the
+// page color rather than left translucent, so a toast over a post or a sheet
+// does not show the text behind it.
 const KIND_CLASS: Record<ToastKind, string> = {
-  success: "border-green-500/40 bg-green-500/10 text-green-200",
-  error: "border-red-500/40 bg-red-500/10 text-red-200",
+  success:
+    "border-green-500/40 bg-[color-mix(in_oklab,var(--color-green-500)_10%,var(--color-neutral-900))] text-green-200",
+  error:
+    "border-red-500/40 bg-[color-mix(in_oklab,var(--color-red-500)_10%,var(--color-neutral-900))] text-red-200",
   info: "border-neutral-700 bg-neutral-900 text-neutral-100",
 };
 
@@ -65,7 +69,7 @@ function ToastItem(props: { toast: Toast }) {
 
   return (
     <div
-      class={`pointer-events-auto flex items-start gap-2 rounded-xl border px-3 py-2.5 text-sm shadow-xl backdrop-blur ${
+      class={`pointer-events-auto flex items-start gap-2 rounded-xl border px-3 py-2.5 text-sm shadow-xl ${
         KIND_CLASS[props.toast.kind]
       }`}
     >
@@ -95,6 +99,8 @@ function ToastItem(props: { toast: Toast }) {
 /**
  * Single mount point for the global toast stack. Lives in AppLayout. Positioned
  * bottom-center on mobile (clear of the BottomNav) and bottom-right on desktop.
+ * Stacks above every sheet (z-50 to z-70): a save that fails while its sheet
+ * stays open reports the failure here, and it must not land behind the sheet.
  *
  * Two sibling live regions own the announcements (so individual toast items
  * still must NOT carry their own role — nested live regions double-announce):
@@ -108,7 +114,7 @@ export function ToastLayer() {
 
   return (
     <Portal>
-      <div class="pointer-events-none fixed inset-x-0 bottom-20 z-50 flex flex-col items-center gap-2 px-4 md:inset-x-auto md:bottom-6 md:right-6 md:items-end">
+      <div class="pointer-events-none fixed inset-x-0 bottom-20 z-[80] flex flex-col items-center gap-2 px-4 md:inset-x-auto md:bottom-6 md:right-6 md:items-end">
         <div
           role="status"
           aria-live="polite"

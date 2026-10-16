@@ -6,7 +6,6 @@ import {
   Show,
   Suspense,
 } from "solid-js";
-import { Portal } from "solid-js/web";
 import { useAtomValue } from "solid-jotai";
 import { actorAtom } from "../../atoms/auth.ts";
 import { useI18n } from "../../lib/i18n.tsx";
@@ -157,16 +156,12 @@ export function OwnAddressPanel(props: {
                   return null;
                 }}
               >
-                {/* Portal: from the sticky right column the sheet would paint
-                    under the page header and leave it clickable. */}
-                <Portal>
-                  <Suspense>
-                    <QRCodeModal
-                      actor={owner()}
-                      onClose={() => setShowQr(false)}
-                    />
-                  </Suspense>
-                </Portal>
+                <Suspense>
+                  <QRCodeModal
+                    actor={owner()}
+                    onClose={() => setShowQr(false)}
+                  />
+                </Suspense>
               </ErrorBoundary>
             )}
           </Show>

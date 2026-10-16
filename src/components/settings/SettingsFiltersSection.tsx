@@ -1,6 +1,7 @@
 import { createSignal, For, Show } from "solid-js";
 import { useAtomValue, useSetAtom } from "solid-jotai";
 import { SettingsSectionHeader } from "./SettingsSectionHeader.tsx";
+import { isComposingKey } from "../ime.ts";
 import {
   addMuteWordAtom,
   muteWordsAtom,
@@ -49,7 +50,7 @@ export function SettingsFiltersSection(props: SettingsFiltersSectionProps) {
             value={input()}
             onInput={(e) => setInput(e.currentTarget.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter") {
+              if (e.key === "Enter" && !isComposingKey(e)) {
                 e.preventDefault();
                 handleAdd();
               }
