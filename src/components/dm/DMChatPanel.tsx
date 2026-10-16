@@ -28,7 +28,9 @@ import { createDMHistory, type DMHistoryToken } from "../../lib/dm-history.ts";
 import { formatTime } from "../../lib/datetime.ts";
 import { useI18n } from "../../lib/i18n.tsx";
 import { ConfirmSheet } from "../ConfirmSheet.tsx";
+import { InlineErrorRetry } from "../InlineErrorRetry.tsx";
 import { UserAvatar } from "../UserAvatar.tsx";
+import { formatMessageDay, messageDayKey } from "./message-day.ts";
 
 interface DMChatPanelProps {
   contact: DMContact;
@@ -58,6 +60,7 @@ export function DMChatPanel(props: DMChatPanelProps) {
   >(null);
   const [hasMoreOlder, setHasMoreOlder] = createSignal(false);
   const [loadingOlder, setLoadingOlder] = createSignal(false);
+  const [retryingHistory, setRetryingHistory] = createSignal(false);
   let activation: DMHistoryToken | null = null;
   const history = createDMHistory<ChatMessage>((snapshot) => {
     batch(() => {
@@ -161,6 +164,27 @@ export function DMChatPanel(props: DMChatPanelProps) {
     });
   };
 
+  // Re-run the conversation's first read after it failed. The 4s poll cannot
+  // clear that failure for an empty conversation (it ignores empty replies), so
+  // without this the thread stays on the error until it is reopened.
+  const retryHistory = async () => {
+    const token = activation;
+    if (!token || !history.owns(token) || retryingHistory()) return;
+    setRetryingHistory(true);
+    try {
+      await refreshMessages(
+        token,
+        props.contact.ap_id,
+        props.contact.type,
+        "initial",
+      );
+    } finally {
+      // A retry still in flight for the previous conversation must not
+      // clear (or hold) this one's flag; the switch already reset it.
+      if (activation === token) setRetryingHistory(false);
+    }
+  };
+
   // Key the (re)load strictly on the conversation IDENTITY (ap_id + type), NOT
   // the whole `contact` object. The parent re-derives `selectedContact` from a
   // polled contacts list, so it hands us a fresh object reference every few
@@ -174,6 +198,7 @@ export function DMChatPanel(props: DMChatPanelProps) {
       ([contactApId, contactType]) => {
         const token = history.activate();
         activation = token;
+        setRetryingHistory(false);
         setDeletingMessage({});
         setPendingDeleteMessage(null);
         setErrorMessage(null);
@@ -457,15 +482,34 @@ export function DMChatPanel(props: DMChatPanelProps) {
           <Show
             when={messages().length > 0}
             fallback={
-              <div class="text-center text-neutral-500">
-                {props.contact.type === "community"
-                  ? t("communityChat.noMessages")
-                  : t("dm.noMessages")}
-              </div>
+              // A failed first read is not an empty conversation: say so and
+              // offer the read again instead of inviting a first message.
+              <Show
+                when={historyError() === "initial"}
+                fallback={
+                  <div class="text-center text-neutral-500">
+                    {props.contact.type === "community"
+                      ? t("communityChat.noMessages")
+                      : t("dm.noMessages")}
+                  </div>
+                }
+              >
+                <InlineErrorRetry
+                  message={t("common.loadFailed")}
+                  retryLabel={
+                    retryingHistory() ? t("common.loading") : t("common.retry")
+                  }
+                  onRetry={() => void retryHistory()}
+                />
+              </Show>
             }
           >
             <Show when={hasMoreOlder()}>
-              <div class="flex justify-center pb-3">
+              <div class="flex flex-col items-center gap-2 pb-3">
+                {/* Plain text: additions to the log are announced already. */}
+                <Show when={historyError() === "older"}>
+                  <p class="text-sm text-red-400">{t("common.loadFailed")}</p>
+                </Show>
                 <button
                   onClick={loadOlder}
                   disabled={loadingOlder()}
@@ -482,79 +526,98 @@ export function DMChatPanel(props: DMChatPanelProps) {
                 // sender-grouping decision at row-creation time (stale avatar
                 // at the old page boundary).
                 const isMine = () => getSenderApId(msg) === props.actor.ap_id;
+                // Times alone read as one sitting; a divider marks each day.
+                const startsDay = () =>
+                  index() === 0 ||
+                  messageDayKey(messages()[index() - 1].created_at) !==
+                    messageDayKey(msg.created_at);
                 const showAvatar = () =>
                   !isMine() &&
-                  (index() === 0 ||
+                  (startsDay() ||
                     getSenderApId(messages()[index() - 1]) !==
                       getSenderApId(msg));
 
+                const dayLabel = () =>
+                  formatMessageDay(msg.created_at, language());
+
                 return (
-                  <div
-                    class={`flex ${
-                      isMine() ? "justify-end" : "justify-start"
-                    } mb-2`}
-                  >
-                    <Show
-                      when={!isMine() && showAvatar()}
-                      fallback={
-                        !isMine() ? <div class="w-8 mr-2" /> : undefined
-                      }
-                    >
-                      <UserAvatar
-                        avatarUrl={msg.sender.icon_url || null}
-                        name={
-                          msg.sender.name ||
-                          msg.sender.preferred_username ||
-                          "?"
-                        }
-                        size={32}
-                        class="mr-2"
-                      />
+                  <>
+                    <Show when={startsDay() && dayLabel()}>
+                      <div class="my-3 flex justify-center">
+                        <span class="rounded-full bg-neutral-800 px-3 py-1 text-xs text-neutral-400">
+                          {dayLabel()}
+                        </span>
+                      </div>
                     </Show>
                     <div
-                      class={`max-w-[70%] ${
-                        isMine() ? "text-right" : "text-left"
-                      }`}
+                      class={`flex ${
+                        isMine() ? "justify-end" : "justify-start"
+                      } mb-2`}
                     >
-                      <Show when={!isMine() && showAvatar()}>
-                        <div class="text-xs text-neutral-500 mb-1">
-                          {msg.sender.name || msg.sender.preferred_username}
-                        </div>
+                      <Show
+                        when={!isMine() && showAvatar()}
+                        fallback={
+                          !isMine() ? <div class="w-8 mr-2" /> : undefined
+                        }
+                      >
+                        <UserAvatar
+                          avatarUrl={msg.sender.icon_url || null}
+                          name={
+                            msg.sender.name ||
+                            msg.sender.preferred_username ||
+                            "?"
+                          }
+                          size={32}
+                          class="mr-2"
+                        />
                       </Show>
                       <div
-                        class={`inline-block px-4 py-2 rounded-2xl ${
-                          isMine()
-                            ? "bg-accent text-white rounded-br-sm"
-                            : "bg-neutral-800 text-white rounded-bl-sm"
+                        class={`max-w-[70%] ${
+                          isMine() ? "text-right" : "text-left"
                         }`}
                       >
-                        <p class="text-sm whitespace-pre-wrap break-words">
-                          {msg.content}
-                        </p>
-                      </div>
-                      <div class="text-xs text-neutral-500 mt-1">
-                        {formatTime(msg.created_at, language())}
-                        <Show
-                          when={isMine() && props.contact.type === "community"}
-                        >
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (activation)
-                                setPendingDeleteMessage({
-                                  message: msg,
-                                  token: activation,
-                                });
-                            }}
-                            disabled={deletingMessage()[msg.id]}
-                            class="ml-2 text-rose-400 hover:text-rose-300 disabled:opacity-50"
-                          >
-                            {t("common.delete")}
-                          </button>
+                        <Show when={!isMine() && showAvatar()}>
+                          <div class="text-xs text-neutral-500 mb-1">
+                            {msg.sender.name || msg.sender.preferred_username}
+                          </div>
                         </Show>
+                        <div
+                          class={`inline-block px-4 py-2 rounded-2xl ${
+                            isMine()
+                              ? "bg-accent text-white rounded-br-sm"
+                              : "bg-neutral-800 text-white rounded-bl-sm"
+                          }`}
+                        >
+                          <p class="text-sm whitespace-pre-wrap break-words">
+                            {msg.content}
+                          </p>
+                        </div>
+                        <div class="text-xs text-neutral-500 mt-1">
+                          {formatTime(msg.created_at, language())}
+                          <Show
+                            when={
+                              isMine() && props.contact.type === "community"
+                            }
+                          >
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (activation)
+                                  setPendingDeleteMessage({
+                                    message: msg,
+                                    token: activation,
+                                  });
+                              }}
+                              disabled={deletingMessage()[msg.id]}
+                              class="ml-2 text-rose-400 hover:text-rose-300 disabled:opacity-50"
+                            >
+                              {t("common.delete")}
+                            </button>
+                          </Show>
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  </>
                 );
               }}
             </For>
@@ -567,12 +630,12 @@ export function DMChatPanel(props: DMChatPanelProps) {
       </div>
 
       <form onSubmit={handleSend} class="p-4 border-t border-neutral-900">
-        <Show when={errorMessage() || historyError()}>
+        <Show when={errorMessage()}>
           <div
             role="alert"
             class="mb-3 text-center text-red-400 text-sm break-words"
           >
-            {errorMessage() || t("common.error")}
+            {errorMessage()}
           </div>
         </Show>
         <div class="flex gap-2">
