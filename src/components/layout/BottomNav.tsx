@@ -28,41 +28,79 @@ export function BottomNav() {
   const openComposer = useSetAtom(showPostModalAtom);
 
   // The compose button floats over the last row of every scrolling page (a
-  // post's その他, the settings buttons). Hide it while the reader scrolls
-  // down and bring it back on the way up, at the top, and on a new page, as
-  // feed apps do. Scroll events do not bubble, so listen in the capture phase
-  // for whichever container scrolls.
+  // post's その他, the settings buttons). Hide it once the reader has scrolled
+  // 24px down, keep it hidden at the end of the page (so an iOS bounce does
+  // not bring it back over the last row), and show it again after 16px up, at
+  // the top, on a new page, or when the page that hid it is gone. Distances
+  // add up across events, so a slow scroll counts too.
+  //
+  // Scroll events do not bubble, so one capture-phase listener follows the
+  // page's own scrollers: only inside <main>, never a text field, and only
+  // ones that scroll vertically. An element's first event is just its
+  // starting point (a restored scroll position is not a scroll down).
+  const HIDE_AFTER_PX = 24;
+  const SHOW_AFTER_PX = 16;
   const [fabHidden, setFabHidden] = createSignal(false);
-  const lastScrollTop = new WeakMap<EventTarget, number>();
-  const handleScroll = (e: Event) => {
-    const el =
-      e.target instanceof Element ? e.target : document.scrollingElement;
-    // Horizontal scrollers (the story bar) say nothing about reading position.
-    if (!el || el.scrollHeight <= el.clientHeight) return;
-    const top = el.scrollTop;
-    // Scrollers start at the top, so the first event measures from 0.
-    const previous = lastScrollTop.get(el) ?? 0;
-    lastScrollTop.set(el, top);
-    // At the end it stays hidden, so an iOS bounce back from the bottom does
-    // not bring it back over the last row.
-    const atEnd = top >= el.scrollHeight - el.clientHeight - 2;
-    if (top <= 8) setFabHidden(false);
-    else if (atEnd || top - previous > 4) setFabHidden(true);
-    else if (previous - top > 4) setFabHidden(false);
+  let fabRef: HTMLButtonElement | undefined;
+  let hiddenBy: Element | null = null;
+  let travel = 0; // px since the last change of direction; + is down
+  const lastScrollTop = new WeakMap<Element, number>();
+  const showFab = () => {
+    hiddenBy = null;
+    travel = 0;
+    setFabHidden(false);
   };
-  onMount(() =>
+  const hideFab = (el: Element) => {
+    if (document.activeElement === fabRef) return;
+    hiddenBy = el;
+    setFabHidden(true);
+  };
+  const handleScroll = (e: Event) => {
+    const el = e.target;
+    if (!(el instanceof Element) || !el.closest("main")) return;
+    if (el.matches("input, textarea") || el.scrollHeight <= el.clientHeight)
+      return;
+    const top = el.scrollTop;
+    const previous = lastScrollTop.get(el);
+    lastScrollTop.set(el, top);
+    if (previous === undefined) return;
+    if (top <= 8) return showFab();
+    if (top >= el.scrollHeight - el.clientHeight - 2) return hideFab(el);
+    const delta = top - previous;
+    if (delta === 0) return;
+    travel = Math.sign(delta) === Math.sign(travel) ? travel + delta : delta;
+    if (travel >= HIDE_AFTER_PX) hideFab(el);
+    else if (travel <= -SHOW_AFTER_PX) showFab();
+  };
+  // A click can swap the page under the button without a scroll (a settings
+  // section, 戻る): show it once the scroller that hid it is gone, back at the
+  // top, or no longer scrolls.
+  const recheckFab = () => {
+    const el = hiddenBy;
+    if (!el) return;
+    if (
+      !el.isConnected ||
+      el.scrollTop <= 8 ||
+      el.scrollHeight <= el.clientHeight
+    )
+      showFab();
+  };
+  const handleClick = () => setTimeout(recheckFab, 0);
+  onMount(() => {
     document.addEventListener("scroll", handleScroll, {
       capture: true,
       passive: true,
-    }),
-  );
-  onCleanup(() =>
-    document.removeEventListener("scroll", handleScroll, { capture: true }),
-  );
+    });
+    document.addEventListener("click", handleClick, { capture: true });
+  });
+  onCleanup(() => {
+    document.removeEventListener("scroll", handleScroll, { capture: true });
+    document.removeEventListener("click", handleClick, { capture: true });
+  });
   createEffect(
     on(
       () => location.pathname,
-      () => setFabHidden(false),
+      () => showFab(),
     ),
   );
 
@@ -103,8 +141,11 @@ export function BottomNav() {
         }
       >
         <button
+          ref={fabRef}
           type="button"
           onClick={() => openComposer(true)}
+          // Focus coming back after the composer closes shows it again.
+          onFocus={showFab}
           aria-label={t("posts.post")}
           aria-hidden={fabHidden() ? "true" : undefined}
           tabindex={fabHidden() ? -1 : undefined}
