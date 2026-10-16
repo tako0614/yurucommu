@@ -164,18 +164,18 @@ export function EditPostModal(props: EditPostModalProps) {
                   placeholder={t("posts.cwPlaceholder")}
                   class={`w-full bg-neutral-800 text-white placeholder-neutral-500 rounded-lg px-3 py-2 text-sm outline-none border transition-colors ${
                     summaryOverLimit()
-                      ? "border-red-500 focus:border-red-500"
+                      ? "border-red-500 focus:ring-1 focus:ring-red-500"
                       : "border-neutral-700 focus:border-accent"
                   }`}
                 />
                 <div class="mt-1 flex items-center justify-end gap-2 px-1">
                   <Show when={summaryOverLimit()}>
-                    <span class="text-xs text-red-500">
+                    <span class="break-keep wrap-anywhere text-xs text-red-500">
                       {t("compose.cwTooLong")}
                     </span>
                   </Show>
                   <span
-                    class={`text-xs tabular-nums ${
+                    class={`shrink-0 whitespace-nowrap text-xs tabular-nums ${
                       summaryOverLimit() ? "text-red-500" : "text-neutral-500"
                     }`}
                   >

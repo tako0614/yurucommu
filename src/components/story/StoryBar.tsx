@@ -68,7 +68,7 @@ export function StoryBar(props: StoryBarProps) {
       when={!props.loading}
       fallback={
         <div class="px-4 py-3 border-b border-neutral-900">
-          <div class="flex gap-4 overflow-x-auto scrollbar-hide">
+          <div class="flex gap-4 overflow-x-auto scrollbar-hide -m-1 p-1">
             <div class="flex flex-col items-center gap-1 flex-shrink-0">
               <div class="w-16 h-16 rounded-full bg-neutral-800 animate-pulse" />
               <div class="w-12 h-3 bg-neutral-800 rounded animate-pulse" />
@@ -121,7 +121,7 @@ export function StoryBar(props: StoryBarProps) {
           when={props.actorStories.length > 0 || hasMyStories()}
           fallback={
             <div class="px-4 py-3 border-b border-neutral-900">
-              <div class="flex gap-4 overflow-x-auto scrollbar-hide">
+              <div class="flex gap-4 overflow-x-auto scrollbar-hide -m-1 p-1">
                 <button
                   onClick={props.onAddStory}
                   class="flex flex-col items-center gap-1 flex-shrink-0 group"
@@ -148,7 +148,7 @@ export function StoryBar(props: StoryBarProps) {
           }
         >
           <div class="px-4 py-3 border-b border-neutral-900">
-            <div class="flex gap-4 overflow-x-auto scrollbar-hide">
+            <div class="flex gap-4 overflow-x-auto scrollbar-hide -m-1 p-1">
               {/* My story / Add story button (always first) */}
               <div class="flex flex-col items-center gap-1 flex-shrink-0">
                 <div class="relative">

@@ -5,6 +5,7 @@ import { UserAvatar } from "../UserAvatar.tsx";
 import { FileValidationError } from "../../lib/api/media.ts";
 import { uploadProductMedia } from "../../lib/media-upload.ts";
 import { useDialog } from "../../lib/useDialog.ts";
+import { WordBreakText } from "../WordBreakText.tsx";
 import type { Translate } from "../../lib/i18n.tsx";
 
 // Map an upload failure to a LOCALIZED message key. FileValidationError carries
@@ -157,7 +158,7 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
             class="bg-neutral-900 rounded-2xl w-full max-w-md max-h-[calc(100dvh-3rem)] overflow-y-auto"
           >
             <div class="flex items-center justify-between px-4 py-3 border-b border-neutral-800">
-              <div class="flex items-center gap-4">
+              <div class="flex min-w-0 items-center gap-4">
                 <button
                   onClick={requestClose}
                   disabled={props.saving}
@@ -166,8 +167,13 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
                 >
                   <CloseIcon />
                 </button>
-                <h2 id="profile-edit-title" class="text-lg font-bold">
-                  {props.t("profile.editProfile")}
+                {/* On a 320px phone the title wraps (between words) rather
+                    than squeezing 保存 into a column of single characters. */}
+                <h2
+                  id="profile-edit-title"
+                  class="min-w-0 break-keep wrap-anywhere text-lg font-bold"
+                >
+                  <WordBreakText text={props.t("profile.editProfile")} />
                 </h2>
               </div>
               <button
@@ -176,7 +182,7 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
                     props.onSave();
                 }}
                 disabled={props.saving || uploadingIcon() || uploadingHeader()}
-                class="px-4 py-1.5 bg-white text-black rounded-full font-bold text-sm hover:bg-neutral-200 disabled:bg-neutral-600 transition-colors"
+                class="shrink-0 whitespace-nowrap px-4 py-1.5 bg-white text-black rounded-full font-bold text-sm hover:bg-neutral-200 disabled:bg-neutral-600 transition-colors"
               >
                 {props.saving
                   ? props.t("common.loading")
