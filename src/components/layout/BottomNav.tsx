@@ -51,7 +51,9 @@ export function BottomNav() {
     setFabHidden(false);
   };
   const hideFab = (el: Element) => {
-    if (document.activeElement === fabRef) return;
+    // Keep it for a keyboard user who is on it; focus returned to it after a
+    // tap (closing the composer) is not keyboard focus and must not pin it.
+    if (fabRef?.matches(":focus-visible")) return;
     hiddenBy = el;
     setFabHidden(true);
   };
