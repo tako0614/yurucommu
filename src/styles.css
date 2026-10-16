@@ -158,7 +158,8 @@ select:focus-visible,
    as well: that made two concentric accent frames, or a blue outline around
    the red over-limit field, for every user since text fields match
    :focus-visible on a click too. Fields whose own state is faint (a gray
-   ring) or absent keep the outline. */
+   ring) or absent keep the outline. A focus:ring-* color needs a width
+   class (focus:ring-1/2) on the same field, or it is left with none. */
 :is(input, textarea, select):focus-visible:is(
     [class*="focus:border-accent"],
     [class*="focus:border-[var(--accent)]"],
