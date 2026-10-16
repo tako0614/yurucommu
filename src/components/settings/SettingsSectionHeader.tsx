@@ -1,5 +1,6 @@
 import { BackIcon } from "./SettingsIcons.tsx";
 import { useI18n } from "../../lib/i18n.tsx";
+import { markBackHeaderOnScreen } from "../layout/routeChrome.ts";
 
 interface SettingsSectionHeaderProps {
   title: string;
@@ -9,6 +10,9 @@ interface SettingsSectionHeaderProps {
 
 export function SettingsSectionHeader(props: SettingsSectionHeaderProps) {
   const { t } = useI18n();
+  // A settings sub-screen keeps the /settings URL, so the phone's avatar bar
+  // cannot tell from the route that this header already has back top-left.
+  markBackHeaderOnScreen();
   const titleClass = () => (props.accent === "danger" ? "text-red-500" : "");
 
   return (
