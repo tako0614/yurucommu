@@ -192,7 +192,8 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
   // name truncates only once the handle is gone, down to a 3rem floor. The
   // group's 10000x shrink factor keeps the community chip whole until then
   // (flex shrinking is proportional, so a 1x chip would lose its share early).
-  // The time and 編集済み never wrap.
+  // Past that, the chip and 編集済み truncate, so an old, edited community post
+  // still fits a 320px row. The time never wraps.
   const header = (
     <div class="flex min-w-0 items-baseline gap-2">
       <span class="flex min-w-12 shrink-[10000] items-baseline gap-2">
@@ -214,7 +215,7 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
       <Show when={props.post.edited_at}>
         <span class="text-neutral-500 shrink-0">{"·"}</span>
         <span
-          class="text-sm text-neutral-500 shrink-0 whitespace-nowrap"
+          class="text-sm text-neutral-500 min-w-0 truncate"
           title={formatRelativeTime(props.post.edited_at!, {
             locale: language(),
           })}

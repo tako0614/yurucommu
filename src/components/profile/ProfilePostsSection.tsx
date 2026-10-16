@@ -287,8 +287,8 @@ function ProfilePostItem(props: ProfilePostItemProps) {
       <div class="flex-1 min-w-0">
         {/* Like the timeline row (see the comment there): the handle gives
             way first, so a long handle no longer shrinks the name to "R…";
-            the name truncates only once the handle is gone, then the chip.
-            The time and 編集済み never wrap. */}
+            the name truncates only once the handle is gone, then the chip
+            and 編集済み. The time never wraps. */}
         <div class="flex min-w-0 items-baseline gap-2">
           <span class="flex min-w-12 shrink-[10000] items-baseline gap-2">
             <A
@@ -308,7 +308,7 @@ function ProfilePostItem(props: ProfilePostItemProps) {
           <Show when={props.post.edited_at}>
             <span class="text-neutral-500 shrink-0">・</span>
             <span
-              class="text-neutral-500 text-sm shrink-0 whitespace-nowrap"
+              class="text-neutral-500 text-sm min-w-0 truncate"
               title={formatRelativeTime(props.post.edited_at!, {
                 locale: language(),
               })}
