@@ -42,7 +42,7 @@
       href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="../styles.css?v=5" />
+    <link rel="stylesheet" href="../styles.css?v=6" />
   </head>
   <body>
     <a class="skip" href="#main">Skip to content</a>
@@ -102,10 +102,10 @@
               <p class="docs-sidebar-title">セットアップ</p>
               <ul class="docs-sidebar-nav">
                 <li>
-                  <a href="/help/cloudflare-setup.html">Cloudflare設定</a>
+                  <a href="/help/deployment.html" class="active">デプロイ</a>
                 </li>
                 <li>
-                  <a href="/help/deployment.html" class="active">デプロイ</a>
+                  <a href="/help/cloudflare-setup.html">Cloudflare設定</a>
                 </li>
                 <li><a href="/help/configuration.html">設定</a></li>
                 <li><a href="/help/custom-domain.html">カスタムドメイン</a></li>
@@ -184,6 +184,9 @@
         <p>
           <code>deploy/takoform</code>
           には、Yurucommuが必要とするWebサービス、SQLデータベース、ファイル保存先、キーバリューストア、キュー、定期実行の定義があります。Cloudflare固有のIDや認証情報は含みません。
+        </p>
+        <p>
+          Takosumiは、この定義を読み込み、選んだ実行先にyurucommuのサーバーを作成・公開する管理ホストです。クラウドの認証情報、シークレット、公開URL、データ移行はTakosumi側が管理します。
         </p>
         <p>
           Takosumiを使う場合は、<a href="/#start"
