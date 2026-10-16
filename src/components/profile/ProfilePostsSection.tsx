@@ -285,27 +285,29 @@ function ProfilePostItem(props: ProfilePostItemProps) {
         />
       </A>
       <div class="flex-1 min-w-0">
-        {/* Like the timeline row: the name keeps up to 60% and the handle
-            gives way first, so a long handle no longer shrinks the name to
-            "R…"; the time never wraps. */}
-        <div class="flex items-baseline gap-2">
-          <A
-            href={`/profile/${encodeURIComponent(props.post.author.ap_id)}`}
-            class="font-bold text-white truncate hover:underline shrink-0 max-w-[60%]"
-          >
-            {props.post.author.name || props.post.author.preferred_username}
-          </A>
-          <span class="text-neutral-500 truncate min-w-0">
-            @{props.post.author.username}
+        {/* Like the timeline row: the handle gives way first, so a long
+            handle no longer shrinks the name to "R…"; the name truncates only
+            once the handle is gone. The time and 編集済み never wrap. */}
+        <div class="flex min-w-0 items-baseline gap-2">
+          <span class="flex min-w-0 items-baseline gap-2">
+            <A
+              href={`/profile/${encodeURIComponent(props.post.author.ap_id)}`}
+              class="font-bold text-white truncate hover:underline shrink-0 max-w-full"
+            >
+              {props.post.author.name || props.post.author.preferred_username}
+            </A>
+            <span class="text-neutral-500 truncate min-w-0">
+              @{props.post.author.username}
+            </span>
           </span>
           <span class="text-neutral-500 shrink-0">・</span>
           <span class="text-neutral-500 text-sm shrink-0 whitespace-nowrap">
             {formatRelativeTime(props.post.published, { locale: language() })}
           </span>
           <Show when={props.post.edited_at}>
-            <span class="text-neutral-500">・</span>
+            <span class="text-neutral-500 shrink-0">・</span>
             <span
-              class="text-neutral-500 text-sm"
+              class="text-neutral-500 text-sm shrink-0 whitespace-nowrap"
               title={formatRelativeTime(props.post.edited_at!, {
                 locale: language(),
               })}

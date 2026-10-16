@@ -188,16 +188,21 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
     </Show>
   );
 
+  // Name and handle shrink as one group: the handle gives way first and the
+  // name truncates only once the handle is gone. The time and 編集済み never
+  // wrap.
   const header = (
     <div class="flex min-w-0 items-baseline gap-2">
-      <A
-        href={`/profile/${encodeURIComponent(props.post.author.ap_id)}`}
-        class="truncate font-bold text-white hover:underline shrink-0 max-w-[60%]"
-      >
-        {props.post.author.name || props.post.author.username}
-      </A>
-      <span class="truncate text-neutral-500 min-w-0">
-        @{props.post.author.username}
+      <span class="flex min-w-0 items-baseline gap-2">
+        <A
+          href={`/profile/${encodeURIComponent(props.post.author.ap_id)}`}
+          class="truncate font-bold text-white hover:underline shrink-0 max-w-full"
+        >
+          {props.post.author.name || props.post.author.username}
+        </A>
+        <span class="truncate text-neutral-500 min-w-0">
+          @{props.post.author.username}
+        </span>
       </span>
       <span class="text-neutral-500 shrink-0">{"·"}</span>
       <span class="text-sm text-neutral-500 shrink-0 whitespace-nowrap">
