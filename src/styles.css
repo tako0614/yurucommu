@@ -160,22 +160,28 @@ select:focus-visible,
    :focus-visible on a click too. Fields whose own state is faint (a gray
    ring) or absent keep the outline. A focus:ring-* color needs a width
    class (focus:ring-1/2) on the same field, or it is left with none. */
-:is(input, textarea, select):focus-visible:is(
-    [class*="focus:border-accent"],
-    [class*="focus:border-[var(--accent)]"],
-    [class*="focus:ring-accent"],
-    [class*="focus:ring-[var(--accent)]"],
-    [class*="focus:ring-red-"]
-  ),
-[class*="focus-within:ring-accent"] :is(input, textarea, select):focus-visible {
-  outline: none;
-}
-/* A 1px accent border alone is a thin cue: thicken it into a 2px band. */
-:is(input, textarea, select):focus-visible:is(
-    [class*="focus:border-accent"],
-    [class*="focus:border-[var(--accent)]"]
-  ) {
-  box-shadow: 0 0 0 1px var(--accent);
+/* Only outside forced-colors mode: there (Windows High Contrast) the browser
+   drops box-shadows, so these fields' rings and band vanish and the outline
+   is their only focus indicator. */
+@media (forced-colors: none) {
+  :is(input, textarea, select):focus-visible:is(
+      [class*="focus:border-accent"],
+      [class*="focus:border-[var(--accent)]"],
+      [class*="focus:ring-accent"],
+      [class*="focus:ring-[var(--accent)]"],
+      [class*="focus:ring-red-"]
+    ),
+  [class*="focus-within:ring-accent"]
+    :is(input, textarea, select):focus-visible {
+    outline: none;
+  }
+  /* A 1px accent border alone is a thin cue: thicken it into a 2px band. */
+  :is(input, textarea, select):focus-visible:is(
+      [class*="focus:border-accent"],
+      [class*="focus:border-[var(--accent)]"]
+    ) {
+    box-shadow: 0 0 0 1px var(--accent);
+  }
 }
 
 /*
