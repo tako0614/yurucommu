@@ -34,3 +34,16 @@ export function markConversationOnScreen(): void {
   onMount(() => setConversations((n) => n + 1));
   onCleanup(() => setConversations((n) => Math.max(0, n - 1)));
 }
+
+// How many back-button headers that the URL cannot reveal are mounted (the
+// settings sub-screens all stay on /settings).
+const [backHeaders, setBackHeaders] = createSignal(0);
+
+/** True while such a header is on screen; the avatar bar steps aside. */
+export const backHeaderOnScreen = () => backHeaders() > 0;
+
+/** Call from a header with a back button whose screen keeps its parent URL. */
+export function markBackHeaderOnScreen(): void {
+  onMount(() => setBackHeaders((n) => n + 1));
+  onCleanup(() => setBackHeaders((n) => Math.max(0, n - 1)));
+}
