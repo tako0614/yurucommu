@@ -179,7 +179,9 @@ export function DMChatPanel(props: DMChatPanelProps) {
         "initial",
       );
     } finally {
-      setRetryingHistory(false);
+      // A retry still in flight for the previous conversation must not
+      // clear (or hold) this one's flag; the switch already reset it.
+      if (activation === token) setRetryingHistory(false);
     }
   };
 
@@ -196,6 +198,7 @@ export function DMChatPanel(props: DMChatPanelProps) {
       ([contactApId, contactType]) => {
         const token = history.activate();
         activation = token;
+        setRetryingHistory(false);
         setDeletingMessage({});
         setPendingDeleteMessage(null);
         setErrorMessage(null);
@@ -503,10 +506,9 @@ export function DMChatPanel(props: DMChatPanelProps) {
           >
             <Show when={hasMoreOlder()}>
               <div class="flex flex-col items-center gap-2 pb-3">
+                {/* Plain text: additions to the log are announced already. */}
                 <Show when={historyError() === "older"}>
-                  <p role="alert" class="text-sm text-red-400">
-                    {t("common.loadFailed")}
-                  </p>
+                  <p class="text-sm text-red-400">{t("common.loadFailed")}</p>
                 </Show>
                 <button
                   onClick={loadOlder}
@@ -535,12 +537,15 @@ export function DMChatPanel(props: DMChatPanelProps) {
                     getSenderApId(messages()[index() - 1]) !==
                       getSenderApId(msg));
 
+                const dayLabel = () =>
+                  formatMessageDay(msg.created_at, language());
+
                 return (
                   <>
-                    <Show when={startsDay()}>
+                    <Show when={startsDay() && dayLabel()}>
                       <div class="my-3 flex justify-center">
                         <span class="rounded-full bg-neutral-800 px-3 py-1 text-xs text-neutral-400">
-                          {formatMessageDay(msg.created_at, language())}
+                          {dayLabel()}
                         </span>
                       </div>
                     </Show>
