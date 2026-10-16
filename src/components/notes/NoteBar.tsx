@@ -196,10 +196,12 @@ export function NoteBar(props: NoteBarProps) {
 
       <Show when={editorOpen()}>
         {/* Portal: inside <main> the phone's bottom nav paints over this
-            bottom sheet and hides its Save button. */}
+            sheet and hides its Save button. Top-anchored on phones like the
+            post composer, so the keyboard the textarea opens does not cover
+            Save either. */}
         <Portal>
           <div
-            class="fixed inset-0 z-50 flex items-end justify-center bg-black/60 px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] text-white sm:items-center sm:pb-3"
+            class="fixed inset-0 z-50 flex items-start justify-center bg-black/60 px-3 pt-[max(3rem,calc(env(safe-area-inset-top)+0.75rem))] pb-3 text-white sm:items-center sm:pt-3"
             role="dialog"
             aria-modal="true"
             aria-label={t("notes.title")}

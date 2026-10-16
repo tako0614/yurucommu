@@ -2,8 +2,7 @@ import { createEffect, createSignal, on, onCleanup, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 // Type-only: the ~300KB html5-qrcode runtime is dynamically imported inside
 // startScanner() so it loads ONLY when the user opens the scanner tab, instead
-// of being bundled into every ProfilePage load (QRCodeModal is statically
-// imported by ProfilePage).
+// of being bundled with this modal's chunk.
 import type { Html5Qrcode } from "html5-qrcode";
 import { Actor } from "../types/index.ts";
 import { fetchActor, follow, searchRemote } from "../lib/api.ts";

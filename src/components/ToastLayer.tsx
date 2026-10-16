@@ -15,9 +15,9 @@ import { useI18n } from "../lib/i18n.tsx";
 // does not show the text behind it.
 const KIND_CLASS: Record<ToastKind, string> = {
   success:
-    "border-green-500/40 bg-[color-mix(in_oklab,var(--color-green-500)_10%,var(--color-neutral-900))] text-green-200",
+    "border-green-500/40 bg-[color-mix(in_srgb,var(--color-green-500)_10%,var(--color-neutral-900))] text-green-200",
   error:
-    "border-red-500/40 bg-[color-mix(in_oklab,var(--color-red-500)_10%,var(--color-neutral-900))] text-red-200",
+    "border-red-500/40 bg-[color-mix(in_srgb,var(--color-red-500)_10%,var(--color-neutral-900))] text-red-200",
   info: "border-neutral-700 bg-neutral-900 text-neutral-100",
 };
 
@@ -99,8 +99,9 @@ function ToastItem(props: { toast: Toast }) {
 /**
  * Single mount point for the global toast stack. Lives in AppLayout. Positioned
  * bottom-center on mobile (clear of the BottomNav) and bottom-right on desktop.
- * Stacks above every sheet (z-50 to z-70): a save that fails while its sheet
- * stays open reports the failure here, and it must not land behind the sheet.
+ * Stacks above every sheet (z-50 to z-70; only the full-screen media viewer
+ * covers it): a save that fails while its sheet stays open reports the failure
+ * here, and it must not land behind the sheet.
  *
  * Two sibling live regions own the announcements (so individual toast items
  * still must NOT carry their own role — nested live regions double-announce):
@@ -114,7 +115,7 @@ export function ToastLayer() {
 
   return (
     <Portal>
-      <div class="pointer-events-none fixed inset-x-0 bottom-20 z-[80] flex flex-col items-center gap-2 px-4 md:inset-x-auto md:bottom-6 md:right-6 md:items-end">
+      <div class="pointer-events-none fixed inset-x-0 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-[80] flex flex-col items-center gap-2 px-4 md:inset-x-auto md:bottom-6 md:right-6 md:items-end">
         <div
           role="status"
           aria-live="polite"
