@@ -26,7 +26,7 @@ interface StoryViewerHeaderProps {
 export function StoryViewerHeader(props: StoryViewerHeaderProps) {
   const { t } = useI18n();
   return (
-    <div class="absolute top-4 left-0 right-0 z-20 px-4 flex items-center justify-between">
+    <div class="absolute top-4 left-0 right-0 z-20 px-4 flex items-center justify-between touch-none">
       <div class="flex items-center gap-3">
         <UserAvatar
           avatarUrl={props.actor.icon_url}

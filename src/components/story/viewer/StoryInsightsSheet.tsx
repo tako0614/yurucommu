@@ -13,6 +13,7 @@ import { getStoryViewers } from "../../../lib/api.ts";
 import { useI18n } from "../../../lib/i18n.tsx";
 import { useDialog } from "../../../lib/useDialog.ts";
 import { formatRelativeTime } from "../../../lib/datetime.ts";
+import { UserAvatar } from "../../UserAvatar.tsx";
 
 interface StoryInsightsSheetProps {
   open: boolean;
@@ -62,8 +63,7 @@ export function StoryInsightsSheet(props: StoryInsightsSheetProps) {
         aria-label={t("story.insights.title")}
         class="absolute inset-0 z-40 flex items-end"
         onClick={(e) => e.stopPropagation()}
-        onMouseDown={(e) => e.stopPropagation()}
-        onTouchStart={(e) => e.stopPropagation()}
+        onPointerDown={(e) => e.stopPropagation()}
       >
         <button
           type="button"
@@ -163,15 +163,14 @@ export function StoryInsightsSheet(props: StoryInsightsSheetProps) {
                 <For each={viewers()!.viewers}>
                   {(v) => (
                     <li class="flex items-center gap-3">
-                      <img
-                        src={
-                          v.actor.icon_url ??
-                          `https://api.dicebear.com/9.x/thumbs/svg?seed=${encodeURIComponent(
-                            v.actor.preferred_username,
-                          )}`
-                        }
-                        alt=""
-                        class="h-8 w-8 rounded-full object-cover"
+                      {/* UserAvatar draws an initial when there is no icon;
+                          the old fallback fetched one from api.dicebear.com,
+                          sending each viewer's name to a third party. */}
+                      <UserAvatar
+                        avatarUrl={v.actor.icon_url ?? null}
+                        name={v.actor.name || v.actor.preferred_username}
+                        size={32}
+                        decorative
                       />
                       <span class="flex-1 truncate text-sm">
                         {v.actor.name || v.actor.preferred_username}
