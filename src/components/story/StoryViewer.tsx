@@ -300,8 +300,10 @@ export function StoryViewer(props: StoryViewerProps) {
 
     let stallTimer: ReturnType<typeof setTimeout> | null = null;
     if (errored) {
-      // Show the error fallback briefly, then move on.
-      stallTimer = setTimeout(goNext, 1500);
+      // Show the error fallback briefly, then move on — but not from under an
+      // open delete prompt, which would close it and leave the next story
+      // paused.
+      if (!showDeleteConfirm()) stallTimer = setTimeout(goNext, 1500);
     } else if (!isPaused()) {
       // Only arm the watchdog while we expect playback to progress; a
       // user-held pause must not trip it.
@@ -438,8 +440,12 @@ export function StoryViewer(props: StoryViewerProps) {
   // Focusing the reply input pauses playback (like holding the story): without
   // this the auto-advance timer keeps running under the keyboard, the story
   // flips mid-typing, and the draft re-aims at the next actor.
+  let replyFocused = false;
   const handleReplyFocusChange = (focused: boolean) => {
-    setIsPaused(focused);
+    replyFocused = focused;
+    // A press on the stage blurs the field (mousedown); that blur must not
+    // resume playback under the held finger.
+    setIsPaused(focused || holdActive);
     if (focused) {
       replyTargetApId = currentActorStories()?.actor.ap_id ?? null;
     }
@@ -612,10 +618,10 @@ export function StoryViewer(props: StoryViewerProps) {
   });
 
   // Pause on touch/hold. `holdActive` marks a pause that came from a press so
-  // that only that pause is released on mouseup/touchend — pauses owned by the
-  // insights sheet or the focused reply input must not be resumed by a stray
-  // release. The release also listens on window: dragging off the card and
-  // releasing OUTSIDE the container previously never resumed (the story froze).
+  // that only that pause is released on pointerup — pauses owned by the
+  // insights sheet, the delete prompt or the focused reply input are kept
+  // (handlePressEnd). The release also listens on window: dragging off the
+  // card and releasing OUTSIDE it previously never resumed (the story froze).
   // A press longer than HOLD_MS is a hold: its release resumes playback but
   // the click it produces is swallowed (handleClick), so holding to read no
   // longer skips to the next story. Reset on every press, so a release outside
@@ -634,7 +640,11 @@ export function StoryViewer(props: StoryViewerProps) {
     if (!holdActive) return;
     holdActive = false;
     pressWasHold = Date.now() - pressStartedAt >= HOLD_MS;
-    setIsPaused(false);
+    // Only end the hold's own pause: the focused reply field, the insights
+    // sheet and the delete prompt keep theirs.
+    if (!replyFocused && !showInsights() && !showDeleteConfirm()) {
+      setIsPaused(false);
+    }
   };
   // Pointer events fire once per press for touch and mouse alike. With
   // touch*/mouse* handlers a touch also produced compatibility mousedown/
@@ -665,8 +675,13 @@ export function StoryViewer(props: StoryViewerProps) {
           onClick={handleClick}
           onPointerDown={handlePressStart}
           // A long press is a hold, not the phone's image/text menu (which
-          // would also cancel the press mid-hold).
-          onContextMenu={(e) => e.preventDefault()}
+          // would also cancel the press mid-hold). The reply field and
+          // overlay links keep their own menu (paste, open link).
+          onContextMenu={(e) => {
+            if (!(e.target as HTMLElement).closest("input,textarea,a")) {
+              e.preventDefault();
+            }
+          }}
         >
           <StoryViewerProgress
             totalStories={currentActorStories()!.stories.length}
