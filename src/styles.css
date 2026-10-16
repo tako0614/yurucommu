@@ -153,22 +153,28 @@ select:focus-visible,
    rounded inputs (radius inherited from a square parent) square while
    focused. */
 
-/* A field that draws its own accent (or error red) focus state, as a
-   border or ring on the field or a ring on its wrapper, does not get the
-   outline as well: that made two concentric accent frames, or a blue outline
-   around the red over-limit border, for every user since text fields match
+/* A field that draws its own accent (or error red) focus state, as a ring
+   on the field or its wrapper, or an accent border, does not get the outline
+   as well: that made two concentric accent frames, or a blue outline around
+   the red over-limit field, for every user since text fields match
    :focus-visible on a click too. Fields whose own state is faint (a gray
    ring) or absent keep the outline. */
 :is(input, textarea, select):focus-visible:is(
     [class*="focus:border-accent"],
     [class*="focus:border-[var(--accent)]"],
-    [class*="focus:border-red-"],
     [class*="focus:ring-accent"],
     [class*="focus:ring-[var(--accent)]"],
     [class*="focus:ring-red-"]
   ),
 [class*="focus-within:ring-accent"] :is(input, textarea, select):focus-visible {
   outline: none;
+}
+/* A 1px accent border alone is a thin cue: thicken it into a 2px band. */
+:is(input, textarea, select):focus-visible:is(
+    [class*="focus:border-accent"],
+    [class*="focus:border-[var(--accent)]"]
+  ) {
+  box-shadow: 0 0 0 1px var(--accent);
 }
 
 /*
