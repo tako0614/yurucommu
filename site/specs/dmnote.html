@@ -45,7 +45,7 @@
       href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="../styles.css?v=4" />
+    <link rel="stylesheet" href="../styles.css?v=5" />
   </head>
   <body>
     <a class="skip" href="#main">Skip to content</a>
@@ -180,7 +180,7 @@
 
         <h2>DMとして受信する条件</h2>
         <p>
-          受信した<code>Note</code>は、次の条件を満たすとDMの会話へ保存されます。
+          受信した<code>Note</code>は、次の条件を満たすとDMとして保存されます。
         </p>
         <ul>
           <li>ローカル受信者のアクターIDが<code>to</code>に含まれる</li>
@@ -191,8 +191,9 @@
           <li>送信者が受信者にブロックされていない</li>
         </ul>
         <p>
-          現在の会話モデルは1対1です。複数人宛てのdirect
-          <code>Note</code>をグループDMとして扱う契約はありません。
+          現在の会話モデルは1対1です。会話にまとめられるのは、宛先の個人が受信者1人だけの<code>Note</code>です。ほかの個人も宛先に入ったdirect
+          <code>Note</code
+          >は、上の条件を満たせば保存されますが、会話IDを持たないため、DMの会話には表示されません。グループDMとして扱う契約はありません。
         </p>
 
         <h2>会話のまとめ方</h2>

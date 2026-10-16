@@ -399,6 +399,15 @@ a {
   vertical-align: top;
 }
 
+/* For tables whose first column is a short label (a tab, a setting, a
+   role). In a narrow table those labels broke mid-word ("コミュニ / ティ");
+   keep each label whole. Opt-in: on tables with long first-column phrases
+   it would widen the table into sideways scrolling. */
+.docs-table-labels td:first-child,
+.docs-table-labels th:first-child {
+  word-break: keep-all;
+}
+
 .docs-table thead th {
   background: var(--bg-2);
   font-weight: 700;
