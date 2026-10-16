@@ -15,6 +15,19 @@
   --accent-hover: #2563eb; /* blue-600 */
 }
 
+/*
+ * Register the token as a Tailwind color, so every accent utility the
+ * components use is generated: with variants (focus:border-accent,
+ * focus:ring-accent, hover:text-accent) and in gradients (from-accent,
+ * to-accent). Without this only the hand-written helpers below existed and
+ * variant forms were never emitted: focused inputs kept a white ring or an
+ * unchanged border instead of the accent.
+ */
+@theme inline {
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+}
+
 /* Tailwind-usable helpers backed by the accent token. */
 .bg-accent {
   background-color: var(--accent);
@@ -41,20 +54,10 @@
 .ring-accent {
   --tw-ring-color: var(--accent);
 }
-.from-accent {
-  --tw-gradient-from: var(--accent) var(--tw-gradient-from-position);
-  --tw-gradient-to: rgb(59 130 246 / 0) var(--tw-gradient-to-position);
-  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to);
-}
-.to-accent {
-  --tw-gradient-to: var(--accent) var(--tw-gradient-to-position);
-}
-.via-accent {
-  --tw-gradient-to: rgb(59 130 246 / 0) var(--tw-gradient-to-position);
-  --tw-gradient-stops:
-    var(--tw-gradient-from), var(--accent) var(--tw-gradient-via-position),
-    var(--tw-gradient-to);
-}
+/* Gradient stops (from-/via-/to-accent) come from the theme color above.
+   Hand-written Tailwind v3-style helpers stood here; Tailwind v4 registers
+   --tw-gradient-from as a <color>, so they computed to transparent: the
+   new-story ring and the community header gradient never showed. */
 
 /* Custom scrollbar */
 ::-webkit-scrollbar {

@@ -162,8 +162,10 @@ export function EditPostModal(props: EditPostModalProps) {
                   value={summary()}
                   onInput={(e) => setSummary(e.currentTarget.value)}
                   placeholder={t("posts.cwPlaceholder")}
-                  class={`w-full bg-neutral-800 text-white placeholder-neutral-500 rounded-lg px-3 py-2 text-sm outline-none border transition-colors focus:border-accent ${
-                    summaryOverLimit() ? "border-red-500" : "border-neutral-700"
+                  class={`w-full bg-neutral-800 text-white placeholder-neutral-500 rounded-lg px-3 py-2 text-sm outline-none border transition-colors ${
+                    summaryOverLimit()
+                      ? "border-red-500 focus:border-red-500"
+                      : "border-neutral-700 focus:border-accent"
                   }`}
                 />
                 <div class="mt-1 flex items-center justify-end gap-2 px-1">
