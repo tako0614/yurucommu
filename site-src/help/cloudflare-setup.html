@@ -143,19 +143,29 @@ bunx wrangler whoami</code></pre>
           <li><code>APP_URL</code> - 実際にブラウザで開くHTTPSのURL</li>
           <li><code>ENCRYPTION_KEY</code> - 64文字の16進数で作る暗号化キー</li>
           <li>
+            <code>YURUCOMMU_SESSION_HASH_SALT</code> -
+            セッションの照合に使う値。<code>openssl rand -hex 32</code>
+            などで生成し、更新後も同じ値を保ちます。未設定のままでは、Workerはリクエストに応えません
+          </li>
+          <li>
             <code>AUTH_PASSWORD_HASH</code>、Google/X OAuth、OIDCのいずれか
           </li>
         </ul>
         <p>
+          <code>AUTH_PASSWORD_HASH</code
+          >には、PBKDF2の<code>salt:hash</code>か、推測されにくい長い文字列（<code>:</code>を含まない）を設定します。後者の場合は、その文字列をそのままパスワードとして入力してログインします。
+        </p>
+        <p>
           公開してよい値とシークレットを分けます。Wranglerを使う場合、シークレットは次のように対話形式で登録できます。
         </p>
         <pre><code>bunx wrangler secret put ENCRYPTION_KEY
+bunx wrangler secret put YURUCOMMU_SESSION_HASH_SALT
 bunx wrangler secret put AUTH_PASSWORD_HASH</code></pre>
         <p>
           Secretの登録はWorkerの新しいバージョンを作ります。すでに運用中のWorkerでは、対象と戻し方を確認してから実行してください。OpenTofuを使う場合は、<code
             >main.tf</code
           >
-          の機密入力として渡します。
+          の機密入力（<code>session_hash_salt</code>、<code>auth_password_hash</code>など）として渡します。
         </p>
 
         <h2>データベースを別に扱う</h2>

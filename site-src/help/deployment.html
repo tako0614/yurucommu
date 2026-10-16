@@ -179,6 +179,12 @@ bun run check</code></pre>
 
         <h2>よくあるエラー</h2>
 
+        <h3>どのページもエラーになる</h3>
+        <p>
+          <code>YURUCOMMU_SESSION_HASH_SALT</code
+          >が設定されているかを確認します。未設定、空白だけ、開発用の値のままでは、Workerはリクエストに応えません。
+        </p>
+
         <h3><code>/readyz</code>が準備未完了になる</h3>
         <p>
           <code>DB</code
