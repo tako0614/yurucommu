@@ -1,5 +1,13 @@
 import { A, useLocation } from "@solidjs/router";
-import { For, Show } from "solid-js";
+import {
+  createEffect,
+  createSignal,
+  For,
+  on,
+  onCleanup,
+  onMount,
+  Show,
+} from "solid-js";
 import { useAtomValue, useSetAtom } from "solid-jotai";
 import { useI18n } from "../../lib/i18n.tsx";
 import { notificationUnreadAtom } from "../../atoms/notifications.ts";
@@ -18,6 +26,45 @@ export function BottomNav() {
   const unreadCount = useAtomValue(notificationUnreadAtom);
   const dmUnread = useAtomValue(dmUnreadCountAtom);
   const openComposer = useSetAtom(showPostModalAtom);
+
+  // The compose button floats over the last row of every scrolling page (a
+  // post's その他, the settings buttons). Hide it while the reader scrolls
+  // down and bring it back on the way up, at the top, and on a new page, as
+  // feed apps do. Scroll events do not bubble, so listen in the capture phase
+  // for whichever container scrolls.
+  const [fabHidden, setFabHidden] = createSignal(false);
+  const lastScrollTop = new WeakMap<EventTarget, number>();
+  const handleScroll = (e: Event) => {
+    const el =
+      e.target instanceof Element ? e.target : document.scrollingElement;
+    // Horizontal scrollers (the story bar) say nothing about reading position.
+    if (!el || el.scrollHeight <= el.clientHeight) return;
+    const top = el.scrollTop;
+    // Scrollers start at the top, so the first event measures from 0.
+    const previous = lastScrollTop.get(el) ?? 0;
+    lastScrollTop.set(el, top);
+    // At the end it stays hidden, so an iOS bounce back from the bottom does
+    // not bring it back over the last row.
+    const atEnd = top >= el.scrollHeight - el.clientHeight - 2;
+    if (top <= 8) setFabHidden(false);
+    else if (atEnd || top - previous > 4) setFabHidden(true);
+    else if (previous - top > 4) setFabHidden(false);
+  };
+  onMount(() =>
+    document.addEventListener("scroll", handleScroll, {
+      capture: true,
+      passive: true,
+    }),
+  );
+  onCleanup(() =>
+    document.removeEventListener("scroll", handleScroll, { capture: true }),
+  );
+  createEffect(
+    on(
+      () => location.pathname,
+      () => setFabHidden(false),
+    ),
+  );
 
   // The badge count source depends on which nav item it is.
   const badgeCount = (item: NavItem) =>
@@ -59,7 +106,13 @@ export function BottomNav() {
           type="button"
           onClick={() => openComposer(true)}
           aria-label={t("posts.post")}
-          class="md:hidden fixed right-4 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-50 grid h-14 w-14 place-items-center rounded-full bg-accent text-white shadow-2xl shadow-black/40 transition-transform active:scale-95"
+          aria-hidden={fabHidden() ? "true" : undefined}
+          tabindex={fabHidden() ? -1 : undefined}
+          class={`md:hidden fixed right-4 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-50 grid h-14 w-14 place-items-center rounded-full bg-accent text-white shadow-2xl shadow-black/40 transition-[translate,scale,opacity] duration-200 active:scale-95 motion-reduce:transition-none ${
+            fabHidden()
+              ? "pointer-events-none translate-y-[calc(100%+5rem)] opacity-0"
+              : ""
+          }`}
         >
           <CreateNavIcon active={false} />
         </button>
