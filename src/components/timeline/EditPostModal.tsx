@@ -1,4 +1,5 @@
 import { createEffect, createMemo, createSignal, Show } from "solid-js";
+import { Portal } from "solid-js/web";
 import type { Post } from "../../types/index.ts";
 import { CloseIconLarge } from "./TimelineIcons.tsx";
 import { ConfirmSheet } from "../ConfirmSheet.tsx";
@@ -101,122 +102,126 @@ export function EditPostModal(props: EditPostModalProps) {
     });
   };
 
+  // Portal: inside <main> the phone's bottom nav and post button paint over
+  // the sheet and take its taps.
   return (
-    <div
-      class="fixed inset-0 bg-black/70 flex items-start justify-center z-50 p-4 pt-12"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) requestClose();
-      }}
-    >
+    <Portal>
       <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label={t("editPost.title")}
-        class="bg-neutral-900 w-full max-w-lg max-h-[calc(100dvh-3rem)] overflow-y-auto rounded-2xl border border-neutral-800"
+        class="fixed inset-0 bg-black/70 flex items-start justify-center z-50 p-4 pt-12 text-white"
+        onClick={(e) => {
+          if (e.target === e.currentTarget) requestClose();
+        }}
       >
-        {/* Header */}
-        <div class="flex items-center justify-between px-4 py-3 border-b border-neutral-800">
-          <div class="flex items-center gap-3">
-            <button
-              onClick={requestClose}
-              aria-label={t("common.close")}
-              class="text-white hover:text-neutral-400 transition-colors"
-            >
-              <CloseIconLarge />
-            </button>
-            <h2 class="text-base font-bold">{t("editPost.title")}</h2>
+        <div
+          ref={dialogRef}
+          role="dialog"
+          aria-modal="true"
+          aria-label={t("editPost.title")}
+          class="bg-neutral-900 w-full max-w-lg max-h-[calc(100dvh-3rem)] overflow-y-auto rounded-2xl border border-neutral-800"
+        >
+          {/* Header */}
+          <div class="flex items-center justify-between px-4 py-3 border-b border-neutral-800">
+            <div class="flex items-center gap-3">
+              <button
+                onClick={requestClose}
+                aria-label={t("common.close")}
+                class="text-white hover:text-neutral-400 transition-colors"
+              >
+                <CloseIconLarge />
+              </button>
+              <h2 class="text-base font-bold">{t("editPost.title")}</h2>
+            </div>
+            <div class="flex items-center gap-3">
+              <span
+                class={`text-xs tabular-nums ${
+                  contentOverLimit() ? "text-red-500" : "text-neutral-500"
+                }`}
+              >
+                {t("posts.charCount")
+                  .replace("{count}", String(contentLength()))
+                  .replace("{max}", String(MAX_CONTENT_LENGTH))}
+              </span>
+              <button
+                onClick={handleSave}
+                disabled={!canSave()}
+                class="px-4 py-1.5 bg-accent disabled:bg-neutral-700 disabled:text-neutral-500 rounded-full font-bold text-sm transition-colors"
+              >
+                {props.saving ? t("common.loading") : t("common.save")}
+              </button>
+            </div>
           </div>
-          <div class="flex items-center gap-3">
-            <span
-              class={`text-xs tabular-nums ${
-                contentOverLimit() ? "text-red-500" : "text-neutral-500"
+
+          {/* Body */}
+          <div class="p-4">
+            {/* Content warning input */}
+            <Show when={showCw()}>
+              <div class="mb-3">
+                <input
+                  ref={cwInputRef}
+                  type="text"
+                  value={summary()}
+                  onInput={(e) => setSummary(e.currentTarget.value)}
+                  placeholder={t("posts.cwPlaceholder")}
+                  class={`w-full bg-neutral-800 text-white placeholder-neutral-500 rounded-lg px-3 py-2 text-sm outline-none border transition-colors focus:border-accent ${
+                    summaryOverLimit() ? "border-red-500" : "border-neutral-700"
+                  }`}
+                />
+                <div class="mt-1 flex items-center justify-end gap-2 px-1">
+                  <Show when={summaryOverLimit()}>
+                    <span class="text-xs text-red-500">
+                      {t("compose.cwTooLong")}
+                    </span>
+                  </Show>
+                  <span
+                    class={`text-xs tabular-nums ${
+                      summaryOverLimit() ? "text-red-500" : "text-neutral-500"
+                    }`}
+                  >
+                    {t("posts.charCount")
+                      .replace("{count}", String(summaryLength()))
+                      .replace("{max}", String(MAX_SUMMARY_LENGTH))}
+                  </span>
+                </div>
+              </div>
+            </Show>
+
+            <textarea
+              ref={textareaRef}
+              value={content()}
+              onInput={(e) => setContent(e.currentTarget.value)}
+              placeholder={t("posts.placeholder")}
+              class="w-full bg-transparent text-white placeholder-neutral-500 resize-none outline-none text-lg min-h-[120px]"
+            />
+          </div>
+
+          {/* Footer — CW toggle only (media/visibility are fixed on edit). */}
+          <div class="flex items-center gap-2 px-4 py-3 border-t border-neutral-800">
+            <button
+              onClick={() => setShowCw((v) => !v)}
+              aria-label={t("posts.cwToggle")}
+              aria-pressed={showCw()}
+              class={`px-2 py-1 rounded-full text-sm font-bold transition-colors ${
+                showCw()
+                  ? "text-accent bg-accent-soft"
+                  : "text-accent hover:bg-[var(--accent)]/10"
               }`}
             >
-              {t("posts.charCount")
-                .replace("{count}", String(contentLength()))
-                .replace("{max}", String(MAX_CONTENT_LENGTH))}
-            </span>
-            <button
-              onClick={handleSave}
-              disabled={!canSave()}
-              class="px-4 py-1.5 bg-accent disabled:bg-neutral-700 disabled:text-neutral-500 rounded-full font-bold text-sm transition-colors"
-            >
-              {props.saving ? t("common.loading") : t("common.save")}
+              CW
             </button>
           </div>
         </div>
-
-        {/* Body */}
-        <div class="p-4">
-          {/* Content warning input */}
-          <Show when={showCw()}>
-            <div class="mb-3">
-              <input
-                ref={cwInputRef}
-                type="text"
-                value={summary()}
-                onInput={(e) => setSummary(e.currentTarget.value)}
-                placeholder={t("posts.cwPlaceholder")}
-                class={`w-full bg-neutral-800 text-white placeholder-neutral-500 rounded-lg px-3 py-2 text-sm outline-none border transition-colors focus:border-accent ${
-                  summaryOverLimit() ? "border-red-500" : "border-neutral-700"
-                }`}
-              />
-              <div class="mt-1 flex items-center justify-end gap-2 px-1">
-                <Show when={summaryOverLimit()}>
-                  <span class="text-xs text-red-500">
-                    {t("compose.cwTooLong")}
-                  </span>
-                </Show>
-                <span
-                  class={`text-xs tabular-nums ${
-                    summaryOverLimit() ? "text-red-500" : "text-neutral-500"
-                  }`}
-                >
-                  {t("posts.charCount")
-                    .replace("{count}", String(summaryLength()))
-                    .replace("{max}", String(MAX_SUMMARY_LENGTH))}
-                </span>
-              </div>
-            </div>
-          </Show>
-
-          <textarea
-            ref={textareaRef}
-            value={content()}
-            onInput={(e) => setContent(e.currentTarget.value)}
-            placeholder={t("posts.placeholder")}
-            class="w-full bg-transparent text-white placeholder-neutral-500 resize-none outline-none text-lg min-h-[120px]"
-          />
-        </div>
-
-        {/* Footer — CW toggle only (media/visibility are fixed on edit). */}
-        <div class="flex items-center gap-2 px-4 py-3 border-t border-neutral-800">
-          <button
-            onClick={() => setShowCw((v) => !v)}
-            aria-label={t("posts.cwToggle")}
-            aria-pressed={showCw()}
-            class={`px-2 py-1 rounded-full text-sm font-bold transition-colors ${
-              showCw()
-                ? "text-accent bg-accent-soft"
-                : "text-accent hover:bg-[var(--accent)]/10"
-            }`}
-          >
-            CW
-          </button>
-        </div>
+        {/* Discard confirm — layered above the editor; cancel keeps editing. */}
+        <ConfirmSheet
+          open={showDiscard()}
+          title={t("posts.discardTitle")}
+          body={t("posts.discardBody")}
+          confirmLabel={t("posts.discardConfirm")}
+          cancelLabel={t("posts.keepEditing")}
+          destructive
+          onConfirm={confirmDiscard}
+          onCancel={() => setShowDiscard(false)}
+        />
       </div>
-      {/* Discard confirm — layered above the editor; cancel keeps editing. */}
-      <ConfirmSheet
-        open={showDiscard()}
-        title={t("posts.discardTitle")}
-        body={t("posts.discardBody")}
-        confirmLabel={t("posts.discardConfirm")}
-        cancelLabel={t("posts.keepEditing")}
-        destructive
-        onConfirm={confirmDiscard}
-        onCancel={() => setShowDiscard(false)}
-      />
-    </div>
+    </Portal>
   );
 }

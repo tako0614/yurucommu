@@ -1,5 +1,6 @@
 import { createSignal, Show } from "solid-js";
 import { useI18n } from "../../../lib/i18n.tsx";
+import { isComposingKey } from "../../ime.ts";
 
 interface StoryViewerActionBarProps {
   isLiked: boolean;
@@ -52,7 +53,7 @@ export function StoryViewerActionBar(props: StoryViewerActionBarProps) {
             onBlur={() => props.onReplyFocusChange?.(false)}
             onKeyDown={(e) => {
               e.stopPropagation();
-              if (e.key === "Enter") {
+              if (e.key === "Enter" && !isComposingKey(e)) {
                 e.preventDefault();
                 void submit();
               }
