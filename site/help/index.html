@@ -183,7 +183,7 @@ bun run dev:mock</code></pre>
           <li>
             <strong>Takosumiなどの管理ホスト</strong> -
             <code>deploy/takoform</code>
-            を読み込ませる。Takosumiは、この定義からyurucommuを作成・公開する管理ホストです。認証情報やシークレット、公開URLはTakosumi側で管理します。
+            を読み込ませる
           </li>
           <li>
             <strong>Cloudflareでセルフホスト</strong> - ルートの
@@ -191,6 +191,10 @@ bun run dev:mock</code></pre>
           </li>
         </ul>
 
+        <p>
+          Takosumiは、<code>deploy/takoform</code>
+          を読み込み、選んだ実行先にyurucommuのサーバーを作成・公開する管理ホストです。クラウドの認証情報、シークレット、公開URLはTakosumi側で管理します。
+        </p>
         <p>
           この2つは別の導入方法です。必要なファイルや手順を混ぜずに、<a
             href="/help/deployment.html"
@@ -202,11 +206,11 @@ bun run dev:mock</code></pre>
         <h3>はじめに</h3>
         <div class="card-grid">
           <a href="/help/getting-started.html" class="card">
-            <h3 class="card-title">クイックスタート</h3>
+            <h4 class="card-title">クイックスタート</h4>
             <p class="card-description">ローカルで画面と機能を試す手順</p>
           </a>
           <a href="/help/requirements.html" class="card">
-            <h3 class="card-title">必要な環境</h3>
+            <h4 class="card-title">必要な環境</h4>
             <p class="card-description">
               ローカルで試す場合と本番で運用する場合に必要なもの
             </p>
@@ -215,44 +219,44 @@ bun run dev:mock</code></pre>
         <h3>セットアップ</h3>
         <div class="card-grid">
           <a href="/help/deployment.html" class="card">
-            <h3 class="card-title">デプロイ</h3>
+            <h4 class="card-title">デプロイ</h4>
             <p class="card-description">
               管理ホストに任せるか、Cloudflareで自分で運用するかを選ぶ
             </p>
           </a>
           <a href="/help/cloudflare-setup.html" class="card">
-            <h3 class="card-title">Cloudflare設定</h3>
+            <h4 class="card-title">Cloudflare設定</h4>
             <p class="card-description">Cloudflareで自分で運用する場合の設定</p>
           </a>
           <a href="/help/configuration.html" class="card">
-            <h3 class="card-title">設定</h3>
+            <h4 class="card-title">設定</h4>
             <p class="card-description">公開URL、ログイン、実行環境との接続</p>
           </a>
           <a href="/help/custom-domain.html" class="card">
-            <h3 class="card-title">カスタムドメイン</h3>
+            <h4 class="card-title">カスタムドメイン</h4>
             <p class="card-description">独自ドメインで運用するための設定</p>
           </a>
         </div>
         <h3>使い方</h3>
         <div class="card-grid">
           <a href="/help/first-post.html" class="card">
-            <h3 class="card-title">最初の投稿</h3>
+            <h4 class="card-title">最初の投稿</h4>
             <p class="card-description">投稿画面から文章や画像を共有するまで</p>
           </a>
           <a href="/help/following.html" class="card">
-            <h3 class="card-title">フォローする</h3>
+            <h4 class="card-title">フォローする</h4>
             <p class="card-description">
-              アドレスやQRコードで、ほかのサーバーの人をフォローする
+              名前・アドレス・QRコードで相手を探してフォローする
             </p>
           </a>
           <a href="/help/messages.html" class="card">
-            <h3 class="card-title">メッセージ</h3>
+            <h4 class="card-title">メッセージ</h4>
             <p class="card-description">
               1対1の会話、リクエスト、ノート、コミュニティのチャット
             </p>
           </a>
           <a href="/help/communities.html" class="card">
-            <h3 class="card-title">コミュニティ</h3>
+            <h4 class="card-title">コミュニティ</h4>
             <p class="card-description">
               同じ話題の人を見つけ、ホームの表示を絞る
             </p>
@@ -261,17 +265,19 @@ bun run dev:mock</code></pre>
         <h3>リファレンス</h3>
         <div class="card-grid">
           <a href="/help/api.html" class="card">
-            <h3 class="card-title">API</h3>
-            <p class="card-description">REST APIのエンドポイント一覧</p>
+            <h4 class="card-title">API</h4>
+            <p class="card-description">
+              接続先の確認、認証、ページングと主なAPI
+            </p>
           </a>
           <a href="/help/database.html" class="card">
-            <h3 class="card-title">データベース</h3>
+            <h4 class="card-title">データベース</h4>
             <p class="card-description">
-              保存先ごとの役割（SQL、ファイル保存先、キーバリューストアなど）
+              保存先ごとの役割と、更新・復旧の責任範囲
             </p>
           </a>
           <a href="/specs/" class="card">
-            <h3 class="card-title">連合の仕組み</h3>
+            <h4 class="card-title">連合の仕組み</h4>
             <p class="card-description">連合で使うActivityPub関連の公開仕様</p>
           </a>
         </div>

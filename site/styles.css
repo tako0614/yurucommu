@@ -551,8 +551,17 @@ a {
 
 /* A card's title and description sit inside the docs content; without these
    they took the docs h3/p margins and every card grew empty space. */
-.docs-content h3.card-title {
+.docs-content :is(h2, h3, h4).card-title {
   margin-top: 0;
+}
+
+/* A group heading belongs with the cards under it. */
+.docs-content h3 + .card-grid {
+  margin-top: 0.75rem;
+}
+
+.card .spec-status {
+  margin-bottom: 0.6rem;
 }
 
 .docs-content p.card-description {
@@ -561,7 +570,6 @@ a {
 
 .docs-content h2.card-title {
   font-size: 1.15rem;
-  margin-top: 2rem;
   margin-bottom: 0.75rem;
   padding-bottom: 0;
   border-bottom: 0;
