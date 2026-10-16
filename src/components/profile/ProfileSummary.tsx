@@ -104,7 +104,7 @@ export function ProfileSummary(props: ProfileSummaryProps) {
         </div>
 
         {/* Follow Button & Menu */}
-        <div class="flex justify-end pt-3 pb-12 gap-2">
+        <div class="flex justify-end pt-3 pb-8 gap-2 min-[360px]:pb-12">
           <Show when={!props.isOwnProfile}>
             <div class="relative" ref={menuRoot}>
               <button

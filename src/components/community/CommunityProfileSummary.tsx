@@ -55,9 +55,10 @@ export function CommunityProfileSummary(props: CommunityProfileSummaryProps) {
 
       {/* Profile Info */}
       <div class="px-4 pb-4 relative">
-        {/* Icon */}
-        <div class="absolute -top-16 left-4">
-          <div class="w-32 h-32 rounded-2xl border-4 border-black overflow-hidden bg-neutral-800 flex items-center justify-center">
+        {/* Icon: 96px below 360px wide, like the profile avatar, so it stays
+            clear of the action buttons on a 320px phone. */}
+        <div class="absolute -top-12 left-4 min-[360px]:-top-16">
+          <div class="w-24 h-24 rounded-2xl border-4 border-black overflow-hidden bg-neutral-800 flex items-center justify-center min-[360px]:w-32 min-[360px]:h-32">
             <Show
               when={props.community.icon_url}
               fallback={
@@ -78,7 +79,7 @@ export function CommunityProfileSummary(props: CommunityProfileSummaryProps) {
         </div>
 
         {/* Action Buttons */}
-        <div class="flex justify-end pt-3 pb-12 gap-2">
+        <div class="flex justify-end pt-3 pb-8 gap-2 min-[360px]:pb-12">
           <Show
             when={props.community.is_member}
             fallback={
@@ -98,7 +99,11 @@ export function CommunityProfileSummary(props: CommunityProfileSummaryProps) {
               class="flex items-center gap-2 px-4 py-2 bg-accent text-white rounded-full font-bold transition-colors"
             >
               <ChatIcon />
-              <span>{t("dm.talks")}</span>
+              {/* Icon-only below 400px: with 退出 beside it the labelled
+                  button ran under the community icon. */}
+              <span class="sr-only min-[400px]:not-sr-only">
+                {t("dm.talks")}
+              </span>
             </A>
             <button
               onClick={props.onLeave}
