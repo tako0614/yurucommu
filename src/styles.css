@@ -19,45 +19,39 @@
  * Register the token as a Tailwind color, so every accent utility the
  * components use is generated: with variants (focus:border-accent,
  * focus:ring-accent, hover:text-accent) and in gradients (from-accent,
- * to-accent). Without this only the hand-written helpers below existed and
- * variant forms were never emitted: focused inputs kept a white ring or an
- * unchanged border instead of the accent.
+ * to-accent). Before, only hand-written helpers existed and variant forms
+ * were never emitted: focused inputs kept a white ring or an unchanged border
+ * instead of the accent.
  */
 @theme inline {
   --color-accent: var(--accent);
   --color-accent-hover: var(--accent-hover);
 }
 
-/* Tailwind-usable helpers backed by the accent token. */
-.bg-accent {
-  background-color: var(--accent);
-}
-.bg-accent:hover {
-  background-color: var(--accent-hover);
-}
-.text-accent {
-  color: var(--accent);
-}
-.border-accent {
-  border-color: var(--accent);
-}
 /*
- * Additional accent helpers backed by the SAME --accent token, so a parallel
- * migration off raw Tailwind blue utilities (bg-blue-XXX/NN alpha tints,
- * ring-blue, from/via/to-blue gradients) can map cleanly onto a single brand
- * token. Variable names (--tw-ring-color / --tw-gradient-*) are the names this
- * project's Tailwind emits for ring/gradient utilities.
+ * bg-accent, text-accent, border-accent and ring-accent are generated from
+ * the theme color above, inside Tailwind's utilities layer. They used to be
+ * hand-written here, outside any layer, which made them beat every variant:
+ * a disabled send button (bg-accent disabled:bg-neutral-700) stayed blue and
+ * looked tappable, and text-accent ignored hover:text-*.
  */
-.bg-accent-soft {
+
+/* Accent buttons and links darken on hover, as the old helper did; skip
+   disabled buttons, decorative accent surfaces (own DM bubbles, tab marks)
+   and touch screens, where :hover sticks after a tap. :where() keeps the
+   specificity at one class plus the element, so an explicit hover:bg-* on
+   the element still wins; later in the layer, it beats plain .bg-accent. */
+@layer utilities {
+  @media (hover: hover) {
+    :is(button, a).bg-accent:where(:not(:disabled):hover) {
+      background-color: var(--accent-hover);
+    }
+  }
+}
+
+@utility bg-accent-soft {
   background-color: color-mix(in srgb, var(--accent) 15%, transparent);
 }
-.ring-accent {
-  --tw-ring-color: var(--accent);
-}
-/* Gradient stops (from-/via-/to-accent) come from the theme color above.
-   Hand-written Tailwind v3-style helpers stood here; Tailwind v4 registers
-   --tw-gradient-from as a <color>, so they computed to transparent: the
-   new-story ring and the community header gradient never showed. */
 
 /* Custom scrollbar */
 ::-webkit-scrollbar {
