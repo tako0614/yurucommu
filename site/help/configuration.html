@@ -195,6 +195,16 @@
                 <td>シークレット</td>
               </tr>
               <tr>
+                <td><code>YURUCOMMU_SESSION_HASH_SALT</code></td>
+                <td>
+                  ログイン中のセッションを照合するための値。<code
+                    >openssl rand -hex 32</code
+                  >
+                  などで生成し、更新後も同じ値を使い続けます。値を変えると、ログイン中の端末は再ログインが必要になります。通常の<code>vars</code>には書かず、Secretとして登録します。Takosumiの管理経路（<code>deploy/takoform</code>）で導入する場合は、ホストが生成します。
+                </td>
+                <td>シークレット</td>
+              </tr>
+              <tr>
                 <td>ログイン方法</td>
                 <td>
                   パスワード、Google/X
@@ -281,7 +291,9 @@
                 <td><code>AUTH_PASSWORD_HASH</code></td>
                 <td>パスワード認証で使う値</td>
                 <td>
-                  PBKDF2の<code>salt:hash</code>、または導入時に発行された一時的なログイン用シークレット
+                  PBKDF2の<code>salt:hash</code>、または推測されにくい長い文字列（<code>:</code>を含まない）。後者は、その文字列をそのままパスワードとして入力してログインします。長い文字列は<code
+                    >openssl rand -hex 32</code
+                  >などで生成し、前後に空白を入れません。Takosumiで導入した場合は、Takosumiのアカウントでログインするため、この値は使いません。
                 </td>
               </tr>
               <tr>
@@ -424,11 +436,12 @@
         <p>シークレットは設定ファイルへ書かず、対話形式で登録します。</p>
         <pre><code>bunx wrangler secret put AUTH_PASSWORD_HASH
 bunx wrangler secret put ENCRYPTION_KEY
+bunx wrangler secret put YURUCOMMU_SESSION_HASH_SALT
 bunx wrangler secret put OIDC_CLIENT_SECRET</code></pre>
         <p>
           Secretの登録はWorkerの新しいバージョンを作ります。運用中の環境では、対象のWorkerと戻し方を確認してから実行してください。ルートの
           <code>main.tf</code>
-          を使う場合は、同じ値をOpenTofuの機密入力として渡します。
+          を使う場合は、同じ値をOpenTofuの機密入力として渡します（<code>YURUCOMMU_SESSION_HASH_SALT</code>は<code>session_hash_salt</code>、<code>AUTH_PASSWORD_HASH</code>は<code>auth_password_hash</code>）。
         </p>
 
         <h2>設定を確認する</h2>
