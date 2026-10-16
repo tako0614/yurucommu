@@ -24,6 +24,8 @@ body {
   font-family: var(--font-body);
   font-size: var(--text-body);
   line-height: 1.9;
+  /* Japanese line-start rules: no small kana or ー at the start of a line. */
+  line-break: strict;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -45,6 +47,15 @@ h3,
 p,
 figure {
   margin: 0;
+}
+
+/* Headings break only where the markup offers it (<br>, <wbr> between
+ * phrases), not mid-word; a phrase that cannot fit still wraps. */
+h1,
+h2,
+h3,
+.hero-title {
+  word-break: keep-all;
 }
 
 h1,
