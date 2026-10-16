@@ -1102,7 +1102,7 @@ async function runCase({ browser, worker, db, origin, auth, checks, kind }) {
     );
     await page.waitForFunction(
       () =>
-        document.querySelector('input[placeholder="メッセージを入力..."]')
+        document.querySelector('textarea[placeholder="メッセージを入力..."]')
           ?.value === "",
       { timeout: TIMEOUT },
     );
