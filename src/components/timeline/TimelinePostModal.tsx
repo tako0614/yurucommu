@@ -170,8 +170,11 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
 
   // Escape / focus-trap / scroll-lock via the shared dialog primitive. Escape
   // routes through requestClose so a dirty draft triggers the discard confirm.
+  // It stays registered while that confirm is up (the stack gives the confirm
+  // Escape and Tab first): unregistering ran this dialog's focus restore under
+  // the confirm, and 破棄 then left focus on <body> instead of the opener.
   useDialog({
-    isOpen: () => props.isOpen && !showDiscard(),
+    isOpen: () => props.isOpen,
     // An open emoji picker closes first, back to its button: Escape went
     // straight to 「下書きを破棄しますか？」.
     onClose: () => {

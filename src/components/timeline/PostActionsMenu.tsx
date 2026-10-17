@@ -57,9 +57,9 @@ export function PostActionsMenu(props: PostActionsMenuProps) {
     if (root && !root.contains(e.target as Node)) close();
   };
   // Escape closes the menu and returns focus to the trigger (keyboard users
-  // would otherwise be stranded with the menu's content gone). Restore focus
-  // only on Escape — an item selection may open the ConfirmSheet, which manages
-  // its own focus, and an outside click should keep focus where the user clicked.
+  // would otherwise be stranded with the menu's content gone). An item that
+  // opens a sheet moves focus to the trigger itself (viaTrigger) so the sheet
+  // returns there; an outside click keeps focus where the user clicked.
   const onKeyDown = (e: KeyboardEvent) => {
     if (open() && e.key === "Escape") {
       e.preventDefault();
@@ -77,6 +77,14 @@ export function PostActionsMenu(props: PostActionsMenuProps) {
   });
 
   const stop = (e: Event) => e.stopPropagation();
+
+  // An item that opens a sheet (編集, 削除, ミュート, ブロック, 通報) hands focus
+  // to その他 first: the item goes away with the menu, so the sheet had no
+  // opener to return to and cancelling it left focus on <main>.
+  const viaTrigger = (openSheet: () => void) => {
+    triggerBtn?.focus();
+    openSheet();
+  };
 
   // A post is remote when its author lives on another host. Reporting notifies
   // the AUTHOR's instance, so it only makes sense for remote content (local
@@ -167,10 +175,12 @@ export function PostActionsMenu(props: PostActionsMenuProps) {
           <Show when={props.isOwn && props.onEdit}>
             <button
               class={itemClass}
-              onClick={() => {
-                props.onEdit!(props.post);
-                close();
-              }}
+              onClick={() =>
+                viaTrigger(() => {
+                  close();
+                  props.onEdit!(props.post);
+                })
+              }
             >
               {t("posts.edit")}
             </button>
@@ -179,10 +189,12 @@ export function PostActionsMenu(props: PostActionsMenuProps) {
           <Show when={props.isOwn}>
             <button
               class={`${itemClass} text-red-400`}
-              onClick={() => {
-                setConfirmingDelete(true);
-                setOpen(false);
-              }}
+              onClick={() =>
+                viaTrigger(() => {
+                  setOpen(false);
+                  setConfirmingDelete(true);
+                })
+              }
             >
               {t("common.delete")}
             </button>
@@ -191,29 +203,35 @@ export function PostActionsMenu(props: PostActionsMenuProps) {
           <Show when={!props.isOwn}>
             <button
               class={itemClass}
-              onClick={() => {
-                setPendingModeration("mute");
-                setOpen(false);
-              }}
+              onClick={() =>
+                viaTrigger(() => {
+                  setOpen(false);
+                  setPendingModeration("mute");
+                })
+              }
             >
               {t("posts.mute")}
             </button>
             <button
               class={`${itemClass} text-red-400`}
-              onClick={() => {
-                setPendingModeration("block");
-                setOpen(false);
-              }}
+              onClick={() =>
+                viaTrigger(() => {
+                  setOpen(false);
+                  setPendingModeration("block");
+                })
+              }
             >
               {t("posts.block")}
             </button>
             <Show when={props.onReport && isRemote()}>
               <button
                 class={itemClass}
-                onClick={() => {
-                  props.onReport!(props.post);
-                  close();
-                }}
+                onClick={() =>
+                  viaTrigger(() => {
+                    close();
+                    props.onReport!(props.post);
+                  })
+                }
               >
                 {t("posts.report")}
               </button>

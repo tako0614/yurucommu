@@ -79,8 +79,12 @@ export function EditPostModal(props: EditPostModalProps) {
     props.onClose();
   };
 
+  // Stays registered while 「下書きを破棄しますか？」 is up: the dialog stack
+  // gives that sheet Escape and Tab first. Unregistering ran this dialog's
+  // focus restore under the sheet, so 編集を続ける handed focus to the opener
+  // behind the still-open editor instead of back into it.
   useDialog({
-    isOpen: () => !showDiscard(),
+    isOpen: () => true,
     onClose: requestClose,
     container: () => dialogRef,
     initialFocus: () => textareaRef,
