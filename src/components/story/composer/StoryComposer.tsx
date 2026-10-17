@@ -176,8 +176,12 @@ export function StoryComposer(props: StoryComposerProps) {
     }
     requestClose();
   };
+  // Stays registered while the discard / recovery-close prompts are up (the
+  // dialog stack gives them Escape and Tab first). Unregistering ran this
+  // dialog's focus restore under the prompt: focus went to ストーリーを追加 on
+  // the page behind while the prompt was showing, and to <main> after 破棄.
   useDialog({
-    isOpen: () => !showDiscard() && !showRecoveryClose(),
+    isOpen: () => true,
     onClose: handleComposerEscape,
     container: () => composerRootRef,
     busyFocus: () => (postActions.posting() ? submissionStatus() : null),
@@ -767,6 +771,11 @@ export function StoryComposer(props: StoryComposerProps) {
             onClose={textEditor.handleTextEditorClose}
             onSave={textEditor.handleTextSave}
             initialText={textEditor.getInitialTextData()}
+            // Back to the composer's first control (閉じる, where it opens)
+            // rather than <main> behind it.
+            returnFocus={() =>
+              composerRootRef?.querySelector<HTMLElement>("button")
+            }
           />
 
           {/* Interactive overlay editor modal */}

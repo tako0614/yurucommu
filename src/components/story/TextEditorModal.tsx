@@ -39,6 +39,9 @@ interface TextEditorModalProps {
   onClose: () => void;
   onSave: (text: TextData) => void;
   initialText?: TextData;
+  // Where focus goes on close when the button that opened the editor was
+  // re-rendered meanwhile (it was: focus fell to <main> behind the composer).
+  returnFocus?: () => HTMLElement | null | undefined;
 }
 
 export interface TextData {
@@ -83,6 +86,7 @@ export function TextEditorModal(props: TextEditorModalProps) {
     onClose: () => props.onClose(),
     container: () => rootRef,
     initialFocus: () => inputRef,
+    returnFocus: () => props.returnFocus?.(),
   });
 
   // Focus input when modal opens
