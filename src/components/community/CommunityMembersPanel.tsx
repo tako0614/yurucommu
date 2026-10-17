@@ -6,6 +6,7 @@ import type {
   CommunityMember,
 } from "../../lib/api/communities.ts";
 import { UserAvatar } from "../UserAvatar.tsx";
+import { markComposeAside } from "../layout/routeChrome.ts";
 import type { Translate } from "../../lib/i18n.tsx";
 
 interface CommunityMembersPanelProps {
@@ -37,6 +38,13 @@ interface CommunityMembersPanelProps {
   t: Translate;
 }
 
+// Mounted only for a manager, whose rows carry a role selector and 削除 that the
+// compose button covered on a phone.
+function ComposeAside() {
+  markComposeAside();
+  return null;
+}
+
 export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
   // Brief "Copied" feedback after copying the freshly-created invite code, so the
   // owner doesn't have to hand-select the code text to share it.
@@ -56,6 +64,7 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
   return (
     <div>
       <Show when={props.canManage}>
+        <ComposeAside />
         <div class="border-b border-neutral-900">
           <div class="px-4 py-3">
             <div class="text-sm font-semibold text-neutral-400">

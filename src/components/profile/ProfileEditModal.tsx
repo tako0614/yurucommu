@@ -101,13 +101,28 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
     );
   };
 
+  // Adding the 4th row removes 項目を追加, and removing a row removes its ×:
+  // either dropped focus to <body>. Move it to the row's label field instead
+  // (after a removal: the next row, else the one before, else 項目を追加).
+  let fieldsRef: HTMLDivElement | undefined;
+  let addFieldRef: HTMLButtonElement | undefined;
+  const focusFieldRow = (index: number) =>
+    queueMicrotask(() => {
+      const rows = fieldsRef?.children;
+      const row = rows?.[Math.min(index, (rows?.length ?? 0) - 1)];
+      const target = row?.querySelector("input") ?? addFieldRef;
+      target?.focus();
+    });
+
   const addField = () => {
     if (props.editFields.length >= MAX_PROFILE_FIELDS) return;
     props.onChangeFields([...props.editFields, { name: "", value: "" }]);
+    focusFieldRow(props.editFields.length - 1);
   };
 
   const removeField = (index: number) => {
     props.onChangeFields(props.editFields.filter((_, i) => i !== index));
+    focusFieldRow(index);
   };
 
   const handleUpload = async (
@@ -155,9 +170,11 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
             aria-modal="true"
             aria-busy={props.saving}
             aria-labelledby="profile-edit-title"
-            class="bg-neutral-900 rounded-2xl w-full max-w-md max-h-[calc(100dvh-3rem)] overflow-y-auto"
+            // The header with 保存 stays put and only the fields scroll: on a
+            // 320px phone it scrolled away with them.
+            class="bg-neutral-900 rounded-2xl w-full max-w-md max-h-[calc(100dvh-3rem)] flex flex-col overflow-hidden"
           >
-            <div class="flex items-center justify-between px-4 py-3 border-b border-neutral-800">
+            <div class="flex shrink-0 items-center justify-between px-4 py-3 border-b border-neutral-800">
               <div class="flex min-w-0 items-center gap-4">
                 <button
                   onClick={requestClose}
@@ -189,244 +206,249 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
                   : props.t("common.save")}
               </button>
             </div>
-            <fieldset disabled={props.saving} class="p-4 space-y-4 min-w-0">
-              <Show when={uploadError()}>
-                <div
-                  role="alert"
-                  class="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400"
-                >
-                  {uploadError()}
-                </div>
-              </Show>
-              {/* Header image */}
-              <div>
-                <label
-                  for="profile-edit-header"
-                  class="block text-sm text-neutral-400 mb-1"
-                >
-                  {props.t("profile.changeHeader")}
-                </label>
-                {/* The file input is visually hidden but focusable (it was
+            {/* scroll-py-2: a control focused by Tab scrolls in with room
+                for its outline, not cut at the edge. */}
+            <div class="min-h-0 overflow-y-auto scroll-py-2">
+              <fieldset disabled={props.saving} class="p-4 space-y-4 min-w-0">
+                <Show when={uploadError()}>
+                  <div
+                    role="alert"
+                    class="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400"
+                  >
+                    {uploadError()}
+                  </div>
+                </Show>
+                {/* Header image */}
+                <div>
+                  <label
+                    for="profile-edit-header"
+                    class="block text-sm text-neutral-400 mb-1"
+                  >
+                    {props.t("profile.changeHeader")}
+                  </label>
+                  {/* The file input is visually hidden but focusable (it was
                     display:none, out of reach of Tab and screen readers); its
                     keyboard focus outlines the image it changes (an outline,
                     which forced-colors mode keeps). It is not disabled while
                     uploading, which dropped focus to <body>: a second pick is
                     refused on click instead. */}
-                <label class="relative block h-28 w-full cursor-pointer overflow-hidden rounded-lg bg-neutral-800 has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-accent">
-                  <Show when={props.editHeaderUrl}>
-                    <img
-                      src={props.editHeaderUrl}
-                      alt=""
-                      class="h-full w-full object-cover"
-                    />
-                  </Show>
-                  {/* A camera, not the caption again: the words repeated
+                  <label class="relative block h-28 w-full cursor-pointer overflow-hidden rounded-lg bg-neutral-800 has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-accent">
+                    <Show when={props.editHeaderUrl}>
+                      <img
+                        src={props.editHeaderUrl}
+                        alt=""
+                        class="h-full w-full object-cover"
+                      />
+                    </Show>
+                    {/* A camera, not the caption again: the words repeated
                       the caption above, which names the input. */}
-                  <div class="absolute inset-0 flex items-center justify-center bg-black/30 text-sm text-white">
-                    <Show
-                      when={!uploadingHeader()}
-                      fallback={props.t("common.loading")}
-                    >
-                      <span class="grid h-10 w-10 place-items-center rounded-full bg-black/50">
-                        <CameraIcon />
-                      </span>
-                    </Show>
-                  </div>
-                  <input
-                    id="profile-edit-header"
-                    type="file"
-                    accept="image/*"
-                    class="sr-only"
-                    aria-disabled={uploadingHeader() ? "true" : undefined}
-                    onClick={(e) => {
-                      if (uploadingHeader()) e.preventDefault();
-                    }}
-                    onChange={(e) => {
-                      void handleUpload(
-                        e.currentTarget.files?.[0],
-                        setUploadingHeader,
-                        props.onChangeHeaderUrl,
-                      );
-                      e.currentTarget.value = "";
-                    }}
-                  />
-                </label>
-              </div>
-
-              {/* Avatar */}
-              <div>
-                <label
-                  for="profile-edit-avatar"
-                  class="block text-sm text-neutral-400 mb-1"
-                >
-                  {props.t("profile.changeAvatar")}
-                </label>
-                <label class="relative inline-flex h-20 w-20 cursor-pointer items-center justify-center overflow-hidden rounded-full bg-neutral-800 has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-accent">
-                  <UserAvatar
-                    avatarUrl={props.editIconUrl ?? null}
-                    name={props.editName || "?"}
-                    size={80}
-                    decorative
-                  />
-                  {/* 「アイコンを変更」 ran past the 80px circle's edges. The
-                      disc keeps the camera visible over a light avatar. */}
-                  <div class="absolute inset-0 flex items-center justify-center bg-black/40 text-center text-[11px] leading-tight text-white">
-                    <Show
-                      when={!uploadingIcon()}
-                      fallback={props.t("common.loading")}
-                    >
-                      <span class="grid h-9 w-9 place-items-center rounded-full bg-black/50">
-                        <CameraIcon class="h-5 w-5" />
-                      </span>
-                    </Show>
-                  </div>
-                  <input
-                    id="profile-edit-avatar"
-                    type="file"
-                    accept="image/*"
-                    class="sr-only"
-                    aria-disabled={uploadingIcon() ? "true" : undefined}
-                    onClick={(e) => {
-                      if (uploadingIcon()) e.preventDefault();
-                    }}
-                    onChange={(e) => {
-                      void handleUpload(
-                        e.currentTarget.files?.[0],
-                        setUploadingIcon,
-                        props.onChangeIconUrl,
-                      );
-                      e.currentTarget.value = "";
-                    }}
-                  />
-                </label>
-              </div>
-
-              <div>
-                <label
-                  for="profile-edit-name"
-                  class="block text-sm text-neutral-400 mb-1"
-                >
-                  {props.t("profile.editNameLabel")}
-                </label>
-                <input
-                  id="profile-edit-name"
-                  type="text"
-                  value={props.editName}
-                  onInput={props.onChangeName}
-                  maxlength={MAX_NAME_LENGTH}
-                  placeholder={props.t("profile.editNamePlaceholder")}
-                  class="w-full bg-neutral-800 rounded-lg px-3 py-2 text-white placeholder-neutral-500 outline-none focus:ring-2 focus:ring-accent"
-                />
-              </div>
-              <div>
-                <label
-                  for="profile-edit-bio"
-                  class="block text-sm text-neutral-400 mb-1"
-                >
-                  {props.t("profile.editBioLabel")}
-                </label>
-                <textarea
-                  id="profile-edit-bio"
-                  value={props.editSummary}
-                  onInput={props.onChangeSummary}
-                  maxlength={MAX_BIO_LENGTH}
-                  placeholder={props.t("profile.editBioPlaceholder")}
-                  rows={4}
-                  class="w-full bg-neutral-800 rounded-lg px-3 py-2 text-white placeholder-neutral-500 outline-none focus:ring-2 focus:ring-accent resize-none"
-                />
-              </div>
-              {/* Structured profile fields (PropertyValue rows) */}
-              <div>
-                <label class="block text-sm text-neutral-400 mb-1">
-                  {props.t("profile.fieldsLabel")}
-                </label>
-                <p class="text-xs text-neutral-500 mb-2">
-                  {props.t("profile.fieldsHint")}
-                </p>
-                <div class="space-y-2">
-                  <Index each={props.editFields}>
-                    {(field, index) => (
-                      <div class="flex items-start gap-2">
-                        <div class="flex-1 space-y-2">
-                          <input
-                            type="text"
-                            value={field().name}
-                            onInput={(e) =>
-                              updateField(index, {
-                                name: e.currentTarget.value,
-                              })
-                            }
-                            placeholder={props.t("profile.fieldName")}
-                            aria-label={props.t("profile.fieldName")}
-                            class="w-full bg-neutral-800 rounded-lg px-3 py-2 text-sm text-white placeholder-neutral-500 outline-none focus:ring-2 focus:ring-accent"
-                          />
-                          <input
-                            type="text"
-                            value={field().value}
-                            onInput={(e) =>
-                              updateField(index, {
-                                value: e.currentTarget.value,
-                              })
-                            }
-                            placeholder={props.t("profile.fieldValue")}
-                            aria-label={props.t("profile.fieldValue")}
-                            class="w-full bg-neutral-800 rounded-lg px-3 py-2 text-sm text-white placeholder-neutral-500 outline-none focus:ring-2 focus:ring-accent"
-                          />
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => removeField(index)}
-                          aria-label={props.t("profile.removeField")}
-                          class="mt-1 p-2 rounded-full text-neutral-400 hover:bg-neutral-800 hover:text-red-500 transition-colors"
-                        >
-                          <CloseIcon />
-                        </button>
-                      </div>
-                    )}
-                  </Index>
+                    <div class="absolute inset-0 flex items-center justify-center bg-black/30 text-sm text-white">
+                      <Show
+                        when={!uploadingHeader()}
+                        fallback={props.t("common.loading")}
+                      >
+                        <span class="grid h-10 w-10 place-items-center rounded-full bg-black/50">
+                          <CameraIcon />
+                        </span>
+                      </Show>
+                    </div>
+                    <input
+                      id="profile-edit-header"
+                      type="file"
+                      accept="image/*"
+                      class="sr-only"
+                      aria-disabled={uploadingHeader() ? "true" : undefined}
+                      onClick={(e) => {
+                        if (uploadingHeader()) e.preventDefault();
+                      }}
+                      onChange={(e) => {
+                        void handleUpload(
+                          e.currentTarget.files?.[0],
+                          setUploadingHeader,
+                          props.onChangeHeaderUrl,
+                        );
+                        e.currentTarget.value = "";
+                      }}
+                    />
+                  </label>
                 </div>
-                <Show when={props.editFields.length < MAX_PROFILE_FIELDS}>
+
+                {/* Avatar */}
+                <div>
+                  <label
+                    for="profile-edit-avatar"
+                    class="block text-sm text-neutral-400 mb-1"
+                  >
+                    {props.t("profile.changeAvatar")}
+                  </label>
+                  <label class="relative inline-flex h-20 w-20 cursor-pointer items-center justify-center overflow-hidden rounded-full bg-neutral-800 has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-accent">
+                    <UserAvatar
+                      avatarUrl={props.editIconUrl ?? null}
+                      name={props.editName || "?"}
+                      size={80}
+                      decorative
+                    />
+                    {/* 「アイコンを変更」 ran past the 80px circle's edges. The
+                      disc keeps the camera visible over a light avatar. */}
+                    <div class="absolute inset-0 flex items-center justify-center bg-black/40 text-center text-[11px] leading-tight text-white">
+                      <Show
+                        when={!uploadingIcon()}
+                        fallback={props.t("common.loading")}
+                      >
+                        <span class="grid h-9 w-9 place-items-center rounded-full bg-black/50">
+                          <CameraIcon class="h-5 w-5" />
+                        </span>
+                      </Show>
+                    </div>
+                    <input
+                      id="profile-edit-avatar"
+                      type="file"
+                      accept="image/*"
+                      class="sr-only"
+                      aria-disabled={uploadingIcon() ? "true" : undefined}
+                      onClick={(e) => {
+                        if (uploadingIcon()) e.preventDefault();
+                      }}
+                      onChange={(e) => {
+                        void handleUpload(
+                          e.currentTarget.files?.[0],
+                          setUploadingIcon,
+                          props.onChangeIconUrl,
+                        );
+                        e.currentTarget.value = "";
+                      }}
+                    />
+                  </label>
+                </div>
+
+                <div>
+                  <label
+                    for="profile-edit-name"
+                    class="block text-sm text-neutral-400 mb-1"
+                  >
+                    {props.t("profile.editNameLabel")}
+                  </label>
+                  <input
+                    id="profile-edit-name"
+                    type="text"
+                    value={props.editName}
+                    onInput={props.onChangeName}
+                    maxlength={MAX_NAME_LENGTH}
+                    placeholder={props.t("profile.editNamePlaceholder")}
+                    class="w-full bg-neutral-800 rounded-lg px-3 py-2 text-white placeholder-neutral-500 outline-none focus:ring-2 focus:ring-accent"
+                  />
+                </div>
+                <div>
+                  <label
+                    for="profile-edit-bio"
+                    class="block text-sm text-neutral-400 mb-1"
+                  >
+                    {props.t("profile.editBioLabel")}
+                  </label>
+                  <textarea
+                    id="profile-edit-bio"
+                    value={props.editSummary}
+                    onInput={props.onChangeSummary}
+                    maxlength={MAX_BIO_LENGTH}
+                    placeholder={props.t("profile.editBioPlaceholder")}
+                    rows={4}
+                    class="w-full bg-neutral-800 rounded-lg px-3 py-2 text-white placeholder-neutral-500 outline-none focus:ring-2 focus:ring-accent resize-none"
+                  />
+                </div>
+                {/* Structured profile fields (PropertyValue rows) */}
+                <div>
+                  <label class="block text-sm text-neutral-400 mb-1">
+                    {props.t("profile.fieldsLabel")}
+                  </label>
+                  <p class="text-xs text-neutral-500 mb-2">
+                    {props.t("profile.fieldsHint")}
+                  </p>
+                  <div ref={fieldsRef} class="space-y-2">
+                    <Index each={props.editFields}>
+                      {(field, index) => (
+                        <div class="flex items-start gap-2">
+                          <div class="flex-1 space-y-2">
+                            <input
+                              type="text"
+                              value={field().name}
+                              onInput={(e) =>
+                                updateField(index, {
+                                  name: e.currentTarget.value,
+                                })
+                              }
+                              placeholder={props.t("profile.fieldName")}
+                              aria-label={props.t("profile.fieldName")}
+                              class="w-full bg-neutral-800 rounded-lg px-3 py-2 text-sm text-white placeholder-neutral-500 outline-none focus:ring-2 focus:ring-accent"
+                            />
+                            <input
+                              type="text"
+                              value={field().value}
+                              onInput={(e) =>
+                                updateField(index, {
+                                  value: e.currentTarget.value,
+                                })
+                              }
+                              placeholder={props.t("profile.fieldValue")}
+                              aria-label={props.t("profile.fieldValue")}
+                              class="w-full bg-neutral-800 rounded-lg px-3 py-2 text-sm text-white placeholder-neutral-500 outline-none focus:ring-2 focus:ring-accent"
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => removeField(index)}
+                            aria-label={props.t("profile.removeField")}
+                            class="mt-1 p-2 rounded-full text-neutral-400 hover:bg-neutral-800 hover:text-red-500 transition-colors"
+                          >
+                            <CloseIcon />
+                          </button>
+                        </div>
+                      )}
+                    </Index>
+                  </div>
+                  <Show when={props.editFields.length < MAX_PROFILE_FIELDS}>
+                    <button
+                      type="button"
+                      ref={addFieldRef}
+                      onClick={addField}
+                      class="mt-2 px-3 py-1.5 rounded-full border border-neutral-600 text-sm text-white hover:bg-neutral-800 transition-colors"
+                    >
+                      {props.t("profile.addField")}
+                    </button>
+                  </Show>
+                </div>
+
+                <div class="flex items-center justify-between gap-3 py-2">
+                  <div>
+                    <div class="text-white font-medium">
+                      {props.t("profile.followApproval")}
+                    </div>
+                    {/* Breaks between words: at 320px 「る」 was left alone.
+                      (Balanced lines would start one with 「を」.) */}
+                    <div class="text-sm text-neutral-400 break-keep wrap-anywhere">
+                      <WordBreakText
+                        text={props.t("profile.followApprovalDesc")}
+                      />
+                    </div>
+                  </div>
                   <button
                     type="button"
-                    onClick={addField}
-                    class="mt-2 px-3 py-1.5 rounded-full border border-neutral-600 text-sm text-white hover:bg-neutral-800 transition-colors"
-                  >
-                    {props.t("profile.addField")}
-                  </button>
-                </Show>
-              </div>
-
-              <div class="flex items-center justify-between gap-3 py-2">
-                <div>
-                  <div class="text-white font-medium">
-                    {props.t("profile.followApproval")}
-                  </div>
-                  {/* Breaks between words: at 320px 「る」 was left alone.
-                      (Balanced lines would start one with 「を」.) */}
-                  <div class="text-sm text-neutral-400 break-keep wrap-anywhere">
-                    <WordBreakText
-                      text={props.t("profile.followApprovalDesc")}
-                    />
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={props.editIsPrivate}
-                  aria-label={props.t("profile.followApproval")}
-                  onClick={props.onTogglePrivate}
-                  class={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                    props.editIsPrivate ? "bg-accent" : "bg-neutral-600"
-                  }`}
-                >
-                  <span
-                    class={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                      props.editIsPrivate ? "translate-x-6" : "translate-x-1"
+                    role="switch"
+                    aria-checked={props.editIsPrivate}
+                    aria-label={props.t("profile.followApproval")}
+                    onClick={props.onTogglePrivate}
+                    class={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                      props.editIsPrivate ? "bg-accent" : "bg-neutral-600"
                     }`}
-                  />
-                </button>
-              </div>
-            </fieldset>
+                  >
+                    <span
+                      class={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                        props.editIsPrivate ? "translate-x-6" : "translate-x-1"
+                      }`}
+                    />
+                  </button>
+                </div>
+              </fieldset>
+            </div>
           </div>
         </div>
       </Portal>

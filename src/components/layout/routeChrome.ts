@@ -69,3 +69,18 @@ export function canGoBackInApp(): boolean {
   const depth = depthNow();
   return startDepth !== null && depth !== null && depth > startDepth;
 }
+
+// How many forms that keep their page's URL are mounted where the compose
+// button would sit over their controls (a community's settings tab, its
+// members tab for a manager). BottomNav leaves the button out meanwhile, as it
+// does on /settings.
+const [composeAside, setComposeAside] = createSignal(0);
+
+/** True while such a form is on screen. */
+export const composeAsideOnScreen = () => composeAside() > 0;
+
+/** Call from such a form. */
+export function markComposeAside(): void {
+  onMount(() => setComposeAside((n) => n + 1));
+  onCleanup(() => setComposeAside((n) => Math.max(0, n - 1)));
+}
