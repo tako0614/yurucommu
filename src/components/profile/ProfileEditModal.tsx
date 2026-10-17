@@ -1,6 +1,6 @@
 import { createEffect, createSignal, Index, onCleanup, Show } from "solid-js";
 import { Portal } from "solid-js/web";
-import { CloseIcon } from "./ProfileIcons.tsx";
+import { CameraIcon, CloseIcon } from "./ProfileIcons.tsx";
 import { UserAvatar } from "../UserAvatar.tsx";
 import { FileValidationError } from "../../lib/api/media.ts";
 import { uploadProductMedia } from "../../lib/media-upload.ts";
@@ -211,10 +211,20 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
                       class="h-full w-full object-cover"
                     />
                   </Show>
+                  {/* A camera, not the caption again: the words repeated
+                      the label above. They stay as the input's name. */}
                   <div class="absolute inset-0 flex items-center justify-center bg-black/30 text-sm text-white">
-                    {uploadingHeader()
-                      ? props.t("common.loading")
-                      : props.t("profile.changeHeader")}
+                    <Show
+                      when={!uploadingHeader()}
+                      fallback={props.t("common.loading")}
+                    >
+                      <span class="grid h-10 w-10 place-items-center rounded-full bg-black/50">
+                        <CameraIcon />
+                      </span>
+                      <span class="sr-only">
+                        {props.t("profile.changeHeader")}
+                      </span>
+                    </Show>
                   </div>
                   <input
                     type="file"
@@ -244,10 +254,17 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
                     name={props.editName || "?"}
                     size={80}
                   />
+                  {/* 「アイコンを変更」 ran past the 80px circle's edges. */}
                   <div class="absolute inset-0 flex items-center justify-center bg-black/40 text-center text-[11px] leading-tight text-white">
-                    {uploadingIcon()
-                      ? props.t("common.loading")
-                      : props.t("profile.changeAvatar")}
+                    <Show
+                      when={!uploadingIcon()}
+                      fallback={props.t("common.loading")}
+                    >
+                      <CameraIcon />
+                      <span class="sr-only">
+                        {props.t("profile.changeAvatar")}
+                      </span>
+                    </Show>
                   </div>
                   <input
                     type="file"
@@ -366,8 +383,12 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
                   <div class="text-white font-medium">
                     {props.t("profile.followApproval")}
                   </div>
-                  <div class="text-sm text-neutral-400">
-                    {props.t("profile.followApprovalDesc")}
+                  {/* Breaks between words: at 320px 「る」 was left alone.
+                      (Balanced lines would start one with 「を」.) */}
+                  <div class="text-sm text-neutral-400 break-keep wrap-anywhere">
+                    <WordBreakText
+                      text={props.t("profile.followApprovalDesc")}
+                    />
                   </div>
                 </div>
                 <button
