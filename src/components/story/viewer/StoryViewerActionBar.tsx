@@ -22,6 +22,8 @@ export function StoryViewerActionBar(props: StoryViewerActionBarProps) {
   const [reply, setReply] = createSignal("");
   const [sending, setSending] = createSignal(false);
 
+  const hasText = () => reply().trim().length > 0;
+
   const submit = async () => {
     const text = reply().trim();
     if (!text || sending() || !props.onReply) return;
@@ -37,7 +39,9 @@ export function StoryViewerActionBar(props: StoryViewerActionBarProps) {
   return (
     <div class="absolute bottom-0 left-0 right-0 z-20 p-4 flex items-center gap-3 touch-none">
       <Show when={props.onReply}>
-        <div class="flex-1 min-w-0 flex items-center gap-2 border border-white/40 rounded-full px-4 py-2">
+        {/* Focus shows on the pill itself; the field's own outline drew a
+            square inside it. */}
+        <div class="flex-1 min-w-0 flex items-center gap-2 border border-white/40 rounded-full px-4 py-2 focus-within:border-accent focus-within:ring-1 focus-within:ring-accent">
           <input
             type="text"
             value={reply()}
@@ -58,29 +62,25 @@ export function StoryViewerActionBar(props: StoryViewerActionBarProps) {
               }
             }}
           />
-          <button
-            class="text-white/70 hover:text-white transition-colors disabled:opacity-40"
-            disabled={sending() || reply().trim().length === 0}
-            onClick={(e) => {
-              e.stopPropagation();
-              void submit();
-            }}
-            aria-label={props.sendLabel}
-          >
-            <svg
-              class="w-5 h-5"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
+          {/* Appears once there is something to send, with the DM composer's
+              send icon. An always-present disabled button left a 320px screen too
+              narrow for the placeholder (「メッセージを送信.」), and its faded
+              up-pointing plane read as a warning sign. */}
+          <Show when={hasText() || sending()}>
+            <button
+              class="-my-1 -mr-2 shrink-0 rounded-full p-1 text-white/80 hover:text-white transition-colors disabled:opacity-40"
+              disabled={sending()}
+              onClick={(e) => {
+                e.stopPropagation();
+                void submit();
+              }}
+              aria-label={props.sendLabel}
             >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width={2}
-                d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
-              />
-            </svg>
-          </button>
+              <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
+              </svg>
+            </button>
+          </Show>
         </div>
       </Show>
       {/* Without a reply field (your own story), keep like/share on the right:
