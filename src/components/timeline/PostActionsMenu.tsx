@@ -57,9 +57,9 @@ export function PostActionsMenu(props: PostActionsMenuProps) {
     if (root && !root.contains(e.target as Node)) close();
   };
   // Escape closes the menu and returns focus to the trigger (keyboard users
-  // would otherwise be stranded with the menu's content gone). Restore focus
-  // only on Escape — an item selection may open the ConfirmSheet, which manages
-  // its own focus, and an outside click should keep focus where the user clicked.
+  // would otherwise be stranded with the menu's content gone). An item that
+  // opens a sheet moves focus to the trigger itself (viaTrigger) so the sheet
+  // returns there; an outside click keeps focus where the user clicked.
   const onKeyDown = (e: KeyboardEvent) => {
     if (open() && e.key === "Escape") {
       e.preventDefault();
@@ -81,9 +81,9 @@ export function PostActionsMenu(props: PostActionsMenuProps) {
   // An item that opens a sheet (編集, 削除, ミュート, ブロック, 通報) hands focus
   // to その他 first: the item goes away with the menu, so the sheet had no
   // opener to return to and cancelling it left focus on <main>.
-  const viaTrigger = (open: () => void) => {
+  const viaTrigger = (openSheet: () => void) => {
     triggerBtn?.focus();
-    open();
+    openSheet();
   };
 
   // A post is remote when its author lives on another host. Reporting notifies
