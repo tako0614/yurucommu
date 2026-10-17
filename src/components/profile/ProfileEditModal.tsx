@@ -101,13 +101,28 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
     );
   };
 
+  // Adding the 4th row removes 項目を追加, and removing a row removes its ×:
+  // either dropped focus to <body>. Move it to the row's label field instead
+  // (after a removal: the next row, else the one before, else 項目を追加).
+  let fieldsRef: HTMLDivElement | undefined;
+  let addFieldRef: HTMLButtonElement | undefined;
+  const focusFieldRow = (index: number) =>
+    queueMicrotask(() => {
+      const rows = fieldsRef?.children;
+      const row = rows?.[Math.min(index, (rows?.length ?? 0) - 1)];
+      const target = row?.querySelector("input") ?? addFieldRef;
+      target?.focus();
+    });
+
   const addField = () => {
     if (props.editFields.length >= MAX_PROFILE_FIELDS) return;
     props.onChangeFields([...props.editFields, { name: "", value: "" }]);
+    focusFieldRow(props.editFields.length - 1);
   };
 
   const removeField = (index: number) => {
     props.onChangeFields(props.editFields.filter((_, i) => i !== index));
+    focusFieldRow(index);
   };
 
   const handleUpload = async (
@@ -191,7 +206,9 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
                   : props.t("common.save")}
               </button>
             </div>
-            <div class="min-h-0 overflow-y-auto">
+            {/* scroll-py-2: a control focused by Tab scrolls in with room
+                for its outline, not cut at the edge. */}
+            <div class="min-h-0 overflow-y-auto scroll-py-2">
               <fieldset disabled={props.saving} class="p-4 space-y-4 min-w-0">
                 <Show when={uploadError()}>
                   <div
@@ -346,7 +363,7 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
                   <p class="text-xs text-neutral-500 mb-2">
                     {props.t("profile.fieldsHint")}
                   </p>
-                  <div class="space-y-2">
+                  <div ref={fieldsRef} class="space-y-2">
                     <Index each={props.editFields}>
                       {(field, index) => (
                         <div class="flex items-start gap-2">
@@ -391,6 +408,7 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
                   <Show when={props.editFields.length < MAX_PROFILE_FIELDS}>
                     <button
                       type="button"
+                      ref={addFieldRef}
                       onClick={addField}
                       class="mt-2 px-3 py-1.5 rounded-full border border-neutral-600 text-sm text-white hover:bg-neutral-800 transition-colors"
                     >
