@@ -125,6 +125,7 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
   let fileInputRef: HTMLInputElement | undefined;
   let cwInputRef: HTMLInputElement | undefined;
   let emojiPanelRef: HTMLDivElement | undefined;
+  let emojiToggleRef: HTMLButtonElement | undefined;
 
   // The composer holds unsent work worth confirming before discarding.
   const isDirty = () =>
@@ -171,7 +172,16 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
   // routes through requestClose so a dirty draft triggers the discard confirm.
   useDialog({
     isOpen: () => props.isOpen && !showDiscard(),
-    onClose: requestClose,
+    // An open emoji picker closes first, back to its button: Escape went
+    // straight to 「下書きを破棄しますか？」.
+    onClose: () => {
+      if (showEmoji()) {
+        setShowEmoji(false);
+        emojiToggleRef?.focus();
+        return;
+      }
+      requestClose();
+    },
     container: () => dialogRef,
     // Land focus on the textarea so the composer is type-ready on open, rather
     // than stealing focus to the header close (X) button.
@@ -252,10 +262,14 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
           aria-modal="true"
           aria-busy={props.posting || props.uploading}
           aria-label={props.placeholder}
-          class="bg-neutral-900 w-full max-w-lg max-h-[calc(100dvh-3rem)] overflow-y-auto rounded-2xl border border-neutral-800"
+          // Header and toolbar stay put; only the content between them
+          // scrolls. With the emoji picker open on a 320px phone the whole
+          // card scrolled and the toolbar (image / emoji / CW) sat below the
+          // screen's edge.
+          class="bg-neutral-900 w-full max-w-lg max-h-[calc(100dvh-4rem)] flex flex-col overflow-hidden rounded-2xl border border-neutral-800"
         >
           {/* Modal Header */}
-          <div class="flex items-center justify-between px-4 py-3 border-b border-neutral-800">
+          <div class="flex shrink-0 items-center justify-between px-4 py-3 border-b border-neutral-800">
             <button
               onClick={requestClose}
               disabled={
@@ -295,7 +309,7 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
           </div>
 
           <Show when={props.draftNotice}>
-            <div class="px-4 pt-4">
+            <div class="shrink-0 px-4 pt-4">
               <p role="status" class="text-sm text-amber-300">
                 {props.draftNotice}
               </p>
@@ -351,7 +365,7 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
             class="contents"
           >
             {/* Modal Content */}
-            <div class="p-4">
+            <div class="min-h-0 overflow-y-auto p-4">
               <Show when={props.submitError}>
                 <p role="alert" class="mb-3 text-sm text-red-400">
                   {props.submitError}
@@ -552,7 +566,7 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
             </div>
 
             {/* Modal Footer */}
-            <div class="flex items-center gap-2 px-4 py-3 border-t border-neutral-800">
+            <div class="flex shrink-0 items-center gap-2 px-4 py-3 border-t border-neutral-800">
               {/* The server accepts JPEG/PNG/GIF/WebP images and MP4/WebM
                 videos; `accept` is advisory, so uploadMediaAtom re-validates
                 type and per-kind size with specific error messages. */}
@@ -573,6 +587,7 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
                 <ImageIcon />
               </button>
               <button
+                ref={emojiToggleRef}
                 onClick={() => setShowEmoji((v) => !v)}
                 aria-label={t("posts.addEmoji")}
                 aria-pressed={showEmoji()}
