@@ -117,10 +117,12 @@ export function EditPostModal(props: EditPostModalProps) {
           role="dialog"
           aria-modal="true"
           aria-label={t("editPost.title")}
-          class="bg-neutral-900 w-full max-w-lg max-h-[calc(100dvh-3rem)] overflow-y-auto rounded-2xl border border-neutral-800"
+          // Header (保存) and footer stay put; only the body scrolls, as in
+          // the post composer. A long post on a phone scrolled 保存 away.
+          class="bg-neutral-900 w-full max-w-lg max-h-[calc(100dvh-4rem)] flex flex-col overflow-hidden rounded-2xl border border-neutral-800"
         >
           {/* Header */}
-          <div class="flex items-center justify-between px-4 py-3 border-b border-neutral-800">
+          <div class="flex shrink-0 items-center justify-between px-4 py-3 border-b border-neutral-800">
             <div class="flex items-center gap-3">
               <button
                 onClick={requestClose}
@@ -152,7 +154,7 @@ export function EditPostModal(props: EditPostModalProps) {
           </div>
 
           {/* Body */}
-          <div class="p-4">
+          <div class="min-h-0 overflow-y-auto scroll-py-2 p-4">
             {/* Content warning input */}
             <Show when={showCw()}>
               <div class="mb-3">
@@ -197,7 +199,7 @@ export function EditPostModal(props: EditPostModalProps) {
           </div>
 
           {/* Footer — CW toggle only (media/visibility are fixed on edit). */}
-          <div class="flex items-center gap-2 px-4 py-3 border-t border-neutral-800">
+          <div class="flex shrink-0 items-center gap-2 px-4 py-3 border-t border-neutral-800">
             <button
               onClick={() => setShowCw((v) => !v)}
               aria-label={t("posts.cwToggle")}
