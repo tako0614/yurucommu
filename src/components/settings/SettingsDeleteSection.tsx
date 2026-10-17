@@ -42,7 +42,10 @@ export function SettingsDeleteSection(props: SettingsDeleteSectionProps) {
             value={props.deleteConfirm}
             onInput={(e) => props.onChangeConfirm(e.currentTarget.value)}
             placeholder={props.t("settings.deleteAccountConfirmPlaceholder")}
-            class="w-full bg-neutral-900 rounded-lg px-3 py-2 text-white outline-none focus:ring-2 focus:ring-red-500"
+            // bg-neutral-800 like the other settings fields: on the page's
+            // own neutral-900 only the placeholder showed where to type. The
+            // transparent border draws an edge in forced-colors mode.
+            class="w-full bg-neutral-800 border border-transparent rounded-lg px-3 py-2 text-white outline-none focus:ring-2 focus:ring-red-500"
           />
         </div>
         <button
@@ -51,7 +54,9 @@ export function SettingsDeleteSection(props: SettingsDeleteSectionProps) {
             props.deleting ||
             props.deleteConfirm !== props.actor.preferred_username
           }
-          class="w-full py-3 bg-red-600 hover:bg-red-700 disabled:bg-neutral-800 disabled:text-neutral-600 rounded-lg font-bold"
+          // Disabled stays a faded red: neutral-800 matched the field above,
+          // two identical grey boxes.
+          class="w-full py-3 bg-red-600 hover:bg-red-700 disabled:bg-red-600/25 disabled:text-white/50 border border-transparent rounded-lg font-bold"
         >
           {props.deleting
             ? props.t("settings.deletingAccount")

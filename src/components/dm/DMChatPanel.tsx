@@ -619,15 +619,18 @@ export function DMChatPanel(props: DMChatPanelProps) {
                         </Show>
                         {/* text-left: the column is right-aligned to put
                             my bubble and its time on the right, but a wrapped
-                            message inside it reads left to right. */}
+                            message inside it reads left to right.
+                            max-w-full + wrap-anywhere: a long URL used to
+                            widen the bubble past the screen's edge, since
+                            break-words does not lower its min-content width. */}
                         <div
-                          class={`inline-block px-4 py-2 rounded-2xl text-left ${
+                          class={`inline-block max-w-full px-4 py-2 rounded-2xl text-left ${
                             isMine()
                               ? "bg-accent text-white rounded-br-sm"
                               : "bg-neutral-800 text-white rounded-bl-sm"
                           }`}
                         >
-                          <p class="text-sm whitespace-pre-wrap break-words">
+                          <p class="text-sm whitespace-pre-wrap wrap-anywhere">
                             {msg.content}
                           </p>
                         </div>
