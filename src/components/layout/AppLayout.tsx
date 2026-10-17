@@ -5,7 +5,7 @@ import { BottomNav } from "./BottomNav.tsx";
 import { RightSidebar } from "./RightSidebar.tsx";
 import { AppHeaderMobile } from "./AppHeaderMobile.tsx";
 import { AppMenu } from "./AppMenu.tsx";
-import { conversationOnScreen } from "./routeChrome.ts";
+import { conversationOnScreen, rememberHistoryStart } from "./routeChrome.ts";
 import { GlobalPostComposer } from "./GlobalPostComposer.tsx";
 import { ToastLayer } from "../ToastLayer.tsx";
 import { useNotificationPolling } from "../../hooks/useNotificationPolling.ts";
@@ -13,6 +13,7 @@ import { useDmUnreadPolling } from "../../hooks/useDmUnreadPolling.ts";
 import { hydrateScopeAtom } from "../../atoms/scope.ts";
 
 export function AppLayout(props: { children?: JSX.Element }) {
+  rememberHistoryStart();
   // Single mount point for unread polling (both pause when the tab is hidden).
   useNotificationPolling();
   useDmUnreadPolling();
