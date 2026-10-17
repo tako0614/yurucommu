@@ -117,11 +117,16 @@ export function EditPostModal(props: EditPostModalProps) {
           role="dialog"
           aria-modal="true"
           aria-label={t("editPost.title")}
-          class="bg-neutral-900 w-full max-w-lg max-h-[calc(100dvh-3rem)] overflow-y-auto rounded-2xl border border-neutral-800"
+          // Header (保存) and footer stay put; only the body scrolls, as in
+          // the post composer. With the CW row open on a landscape phone the
+          // dialog outgrew the screen and its CW toggle sat below the edge.
+          class="bg-neutral-900 w-full max-w-lg max-h-[calc(100dvh-4rem)] flex flex-col overflow-hidden rounded-2xl border border-neutral-800"
         >
           {/* Header */}
-          <div class="flex items-center justify-between px-4 py-3 border-b border-neutral-800">
-            <div class="flex items-center gap-3">
+          {/* At 320px the title ran into the counter: the counter and 保存
+              keep their width and stay on one line, the title gives way. */}
+          <div class="flex shrink-0 items-center justify-between gap-2 px-4 py-3 border-b border-neutral-800">
+            <div class="flex min-w-0 items-center gap-2">
               <button
                 onClick={requestClose}
                 aria-label={t("common.close")}
@@ -129,11 +134,13 @@ export function EditPostModal(props: EditPostModalProps) {
               >
                 <CloseIconLarge />
               </button>
-              <h2 class="text-base font-bold">{t("editPost.title")}</h2>
+              <h2 class="min-w-0 truncate text-base font-bold">
+                {t("editPost.title")}
+              </h2>
             </div>
-            <div class="flex items-center gap-3">
+            <div class="flex shrink-0 items-center gap-2">
               <span
-                class={`text-xs tabular-nums ${
+                class={`whitespace-nowrap text-xs tabular-nums ${
                   contentOverLimit() ? "text-red-500" : "text-neutral-500"
                 }`}
               >
@@ -144,15 +151,15 @@ export function EditPostModal(props: EditPostModalProps) {
               <button
                 onClick={handleSave}
                 disabled={!canSave()}
-                class="px-4 py-1.5 bg-accent disabled:bg-neutral-700 disabled:text-neutral-500 rounded-full font-bold text-sm transition-colors"
+                class="whitespace-nowrap px-4 py-1.5 bg-accent disabled:bg-neutral-700 disabled:text-neutral-500 rounded-full font-bold text-sm transition-colors"
               >
-                {props.saving ? t("common.loading") : t("common.save")}
+                {props.saving ? t("common.saving") : t("common.save")}
               </button>
             </div>
           </div>
 
           {/* Body */}
-          <div class="p-4">
+          <div class="min-h-0 overflow-y-auto scroll-py-2 p-4">
             {/* Content warning input */}
             <Show when={showCw()}>
               <div class="mb-3">
@@ -197,7 +204,7 @@ export function EditPostModal(props: EditPostModalProps) {
           </div>
 
           {/* Footer — CW toggle only (media/visibility are fixed on edit). */}
-          <div class="flex items-center gap-2 px-4 py-3 border-t border-neutral-800">
+          <div class="flex shrink-0 items-center gap-2 px-4 py-3 border-t border-neutral-800">
             <button
               onClick={() => setShowCw((v) => !v)}
               aria-label={t("posts.cwToggle")}

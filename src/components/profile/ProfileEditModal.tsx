@@ -202,7 +202,7 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
                 class="shrink-0 whitespace-nowrap px-4 py-1.5 bg-white text-black rounded-full font-bold text-sm hover:bg-neutral-200 disabled:bg-neutral-600 transition-colors"
               >
                 {props.saving
-                  ? props.t("common.loading")
+                  ? props.t("common.saving")
                   : props.t("common.save")}
               </button>
             </div>
