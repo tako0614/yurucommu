@@ -27,7 +27,10 @@ import { StoryViewerHeader } from "./viewer/StoryViewerHeader.tsx";
 import { renderStoryOverlay } from "./viewer/StoryViewerOverlays.tsx";
 import { StoryViewerProgress } from "./viewer/StoryViewerProgress.tsx";
 import { StoryInsightsSheet } from "./viewer/StoryInsightsSheet.tsx";
-import { parseStoryDuration } from "./viewer/storyViewerUtils.ts";
+import {
+  parseStoryDuration,
+  previousStoryPosition,
+} from "./viewer/storyViewerUtils.ts";
 
 interface StoryViewerProps {
   actorStories: ActorStories[];
@@ -212,24 +215,23 @@ export function StoryViewer(props: StoryViewerProps) {
     props.onClose();
   };
 
+  // The previous story in this person's set, else the previous person's last
+  // story, else restart this one. The position is worked out before the
+  // index moves: reading the previous person after moving it looked one
+  // person further back, which from the second person threw
+  // (undefined.stories) and left the story index unset.
   const goPrev = () => {
-    // Previous story from same user
-    if (storyIndex() > 0) {
-      setStoryIndex(storyIndex() - 1);
+    const prev = previousStoryPosition(
+      localActorStories().map((a) => a.stories?.length ?? 0),
+      actorIndex(),
+      storyIndex(),
+    );
+    if (!prev) {
+      setProgress(0);
       return;
     }
-
-    // Previous user
-    if (actorIndex() > 0) {
-      setActorIndex(actorIndex() - 1);
-      const prevActorStories = localActorStories()[actorIndex() - 1];
-      const lastStoryIndex = prevActorStories.stories.length - 1;
-      setStoryIndex(lastStoryIndex);
-      return;
-    }
-
-    // At the beginning, restart current story
-    setProgress(0);
+    setActorIndex(prev.actorIndex);
+    setStoryIndex(prev.storyIndex);
   };
 
   // Auto-advance timer (for images only, videos use onEnded). Elapsed is
