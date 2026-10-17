@@ -7,7 +7,7 @@
  * playback (handled by the parent viewer).
  */
 
-import { createResource, For, Show } from "solid-js";
+import { createResource, For, Show, Suspense } from "solid-js";
 import type { Story, StoryOverlay } from "../../../types/index.ts";
 import { getStoryViewers } from "../../../lib/api.ts";
 import { useI18n } from "../../../lib/i18n.tsx";
@@ -78,14 +78,20 @@ export function StoryInsightsSheet(props: StoryInsightsSheetProps) {
             <h3 class="text-base font-semibold">{t("story.insights.title")}</h3>
             {/* On a failed fetch the count is unknown — showing "seen by 0"
                 would be a lie; the error + retry renders in the list below. */}
-            <Show when={!viewers.error}>
-              <span class="text-sm text-white/60">
-                {t("story.insights.seenBy").replace(
-                  "{count}",
-                  String(viewers()?.view_count ?? 0),
-                )}
-              </span>
-            </Show>
+            {/* Reading viewers() inside these local <Suspense>s keeps the
+                fetch from suspending the page's boundary: that swapped the
+                whole viewer for a full-screen spinner while loading, and
+                detaching it dropped focus to <body> when the sheet closed. */}
+            <Suspense>
+              <Show when={!viewers.error}>
+                <span class="text-sm text-white/60">
+                  {t("story.insights.seenBy").replace(
+                    "{count}",
+                    String(viewers()?.view_count ?? 0),
+                  )}
+                </span>
+              </Show>
+            </Suspense>
           </div>
 
           {/* Poll results (if the story has a poll) */}
@@ -134,59 +140,65 @@ export function StoryInsightsSheet(props: StoryInsightsSheetProps) {
 
           {/* Viewer list */}
           <p class="mb-2 text-sm font-medium">{t("story.insights.viewers")}</p>
-          <Show
-            when={!viewers.error}
+          <Suspense
             fallback={
-              <div class="flex items-center gap-3">
-                <p class="text-sm text-white/50">
-                  {t("story.insights.loadFailed")}
-                </p>
-                <button
-                  type="button"
-                  class="text-sm font-medium text-white underline underline-offset-2"
-                  onClick={() => void refetch()}
-                >
-                  {t("common.retry")}
-                </button>
-              </div>
+              <p class="text-sm text-white/50">{t("common.loading")}</p>
             }
           >
             <Show
-              when={(viewers()?.viewers.length ?? 0) > 0}
+              when={!viewers.error}
               fallback={
-                <p class="text-sm text-white/50">
-                  {t("story.insights.noViews")}
-                </p>
+                <div class="flex items-center gap-3">
+                  <p class="text-sm text-white/50">
+                    {t("story.insights.loadFailed")}
+                  </p>
+                  <button
+                    type="button"
+                    class="text-sm font-medium text-white underline underline-offset-2"
+                    onClick={() => void refetch()}
+                  >
+                    {t("common.retry")}
+                  </button>
+                </div>
               }
             >
-              <ul class="space-y-2">
-                <For each={viewers()!.viewers}>
-                  {(v) => (
-                    <li class="flex items-center gap-3">
-                      {/* UserAvatar draws an initial when there is no icon;
+              <Show
+                when={(viewers()?.viewers.length ?? 0) > 0}
+                fallback={
+                  <p class="text-sm text-white/50">
+                    {t("story.insights.noViews")}
+                  </p>
+                }
+              >
+                <ul class="space-y-2">
+                  <For each={viewers()!.viewers}>
+                    {(v) => (
+                      <li class="flex items-center gap-3">
+                        {/* UserAvatar draws an initial when there is no icon;
                           the old fallback fetched one from api.dicebear.com,
                           sending each viewer's name to a third party. */}
-                      <UserAvatar
-                        avatarUrl={v.actor.icon_url ?? null}
-                        name={v.actor.name || v.actor.preferred_username}
-                        size={32}
-                        decorative
-                      />
-                      <span class="flex-1 truncate text-sm">
-                        {v.actor.name || v.actor.preferred_username}
-                      </span>
-                      <span class="text-xs text-white/50">
-                        {formatRelativeTime(v.viewed_at, {
-                          maxDays: 1,
-                          locale: props.locale,
-                        })}
-                      </span>
-                    </li>
-                  )}
-                </For>
-              </ul>
+                        <UserAvatar
+                          avatarUrl={v.actor.icon_url ?? null}
+                          name={v.actor.name || v.actor.preferred_username}
+                          size={32}
+                          decorative
+                        />
+                        <span class="flex-1 truncate text-sm">
+                          {v.actor.name || v.actor.preferred_username}
+                        </span>
+                        <span class="text-xs text-white/50">
+                          {formatRelativeTime(v.viewed_at, {
+                            maxDays: 1,
+                            locale: props.locale,
+                          })}
+                        </span>
+                      </li>
+                    )}
+                  </For>
+                </ul>
+              </Show>
             </Show>
-          </Show>
+          </Suspense>
         </div>
       </div>
     </Show>
