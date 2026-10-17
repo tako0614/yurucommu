@@ -702,12 +702,14 @@ export function EmojiPicker(props: EmojiPickerProps) {
 
       {/* Emoji grid */}
       <div class="h-48 overflow-y-auto">
-        <div class="grid grid-cols-8 gap-1">
+        {/* As many 36px columns as fit: eight fixed ones were 316px wide
+            and cut off the last column in a 320px phone's composer. */}
+        <div class="grid grid-cols-[repeat(auto-fill,minmax(2.25rem,1fr))] gap-1">
           <For each={EMOJI_CATEGORIES[activeCategory()].emojis}>
             {(emoji) => (
               <button
                 onClick={() => props.onSelect(emoji)}
-                class="w-9 h-9 flex items-center justify-center text-2xl hover:bg-neutral-800 rounded-lg transition-colors"
+                class="h-9 w-full flex items-center justify-center text-2xl hover:bg-neutral-800 rounded-lg transition-colors"
               >
                 {emoji}
               </button>
