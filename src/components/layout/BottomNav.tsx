@@ -28,11 +28,11 @@ export function BottomNav() {
   const openComposer = useSetAtom(showPostModalAtom);
 
   // The compose button floats over the last row of every scrolling page (a
-  // post's その他, the settings buttons). Hide it once the reader has scrolled
-  // 24px down, keep it hidden at the end of the page (so an iOS bounce does
-  // not bring it back over the last row), and show it again after 16px up, at
-  // the top, on a new page, or when the page that hid it is gone. Distances
-  // add up across events, so a slow scroll counts too.
+  // post's その他, a community's last member). Hide it once the reader has
+  // scrolled 24px down, keep it hidden at the end of the page (so an iOS
+  // bounce does not bring it back over the last row), and show it again after
+  // 16px up, at the top, on a new page, or when the page that hid it is gone.
+  // Distances add up across events, so a slow scroll counts too.
   //
   // Scroll events do not bubble, so one capture-phase listener follows the
   // page's own scrollers: only inside <main>, never a text field, and only
@@ -74,8 +74,8 @@ export function BottomNav() {
     if (travel >= HIDE_AFTER_PX) hideFab(el);
     else if (travel <= -SHOW_AFTER_PX) showFab();
   };
-  // A click can swap the page under the button without a scroll (a settings
-  // section, 戻る): show it once the scroller that hid it is gone, back at the
+  // A click can swap the page under the button without a scroll (a community
+  // tab, 戻る): show it once the scroller that hid it is gone, back at the
   // top, or no longer scrolls.
   const recheckFab = () => {
     const el = hiddenBy;
@@ -120,6 +120,17 @@ export function BottomNav() {
       .replace("{count}", String(badgeCount(item)));
   };
 
+  // Not in messages (the composer is the conversation's own) or settings:
+  // nobody posts from a form, and the button sat over its last action, such
+  // as 「フォロワーを別のアカウントへ移行」 on a 320px phone where the page
+  // scrolls too little for the button to step aside.
+  const fabRoute = () => {
+    const path = location.pathname;
+    return !["/dm", "/settings"].some(
+      (base) => path === base || path.startsWith(`${base}/`),
+    );
+  };
+
   const isActive = (route: string) => {
     if (route === "/") return location.pathname === "/";
     // "/profile" is the OWN profile; foreign profiles live at
@@ -137,11 +148,7 @@ export function BottomNav() {
 
   return (
     <>
-      <Show
-        when={
-          location.pathname !== "/dm" && !location.pathname.startsWith("/dm/")
-        }
-      >
+      <Show when={fabRoute()}>
         <button
           ref={fabRef}
           type="button"

@@ -1,6 +1,6 @@
 import { createEffect, createSignal, Index, onCleanup, Show } from "solid-js";
 import { Portal } from "solid-js/web";
-import { CloseIcon } from "./ProfileIcons.tsx";
+import { CameraIcon, CloseIcon } from "./ProfileIcons.tsx";
 import { UserAvatar } from "../UserAvatar.tsx";
 import { FileValidationError } from "../../lib/api/media.ts";
 import { uploadProductMedia } from "../../lib/media-upload.ts";
@@ -200,10 +200,19 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
               </Show>
               {/* Header image */}
               <div>
-                <label class="block text-sm text-neutral-400 mb-1">
+                <label
+                  for="profile-edit-header"
+                  class="block text-sm text-neutral-400 mb-1"
+                >
                   {props.t("profile.changeHeader")}
                 </label>
-                <label class="relative block h-28 w-full cursor-pointer overflow-hidden rounded-lg bg-neutral-800">
+                {/* The file input is visually hidden but focusable (it was
+                    display:none, out of reach of Tab and screen readers); its
+                    keyboard focus outlines the image it changes (an outline,
+                    which forced-colors mode keeps). It is not disabled while
+                    uploading, which dropped focus to <body>: a second pick is
+                    refused on click instead. */}
+                <label class="relative block h-28 w-full cursor-pointer overflow-hidden rounded-lg bg-neutral-800 has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-accent">
                   <Show when={props.editHeaderUrl}>
                     <img
                       src={props.editHeaderUrl}
@@ -211,16 +220,27 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
                       class="h-full w-full object-cover"
                     />
                   </Show>
+                  {/* A camera, not the caption again: the words repeated
+                      the caption above, which names the input. */}
                   <div class="absolute inset-0 flex items-center justify-center bg-black/30 text-sm text-white">
-                    {uploadingHeader()
-                      ? props.t("common.loading")
-                      : props.t("profile.changeHeader")}
+                    <Show
+                      when={!uploadingHeader()}
+                      fallback={props.t("common.loading")}
+                    >
+                      <span class="grid h-10 w-10 place-items-center rounded-full bg-black/50">
+                        <CameraIcon />
+                      </span>
+                    </Show>
                   </div>
                   <input
+                    id="profile-edit-header"
                     type="file"
                     accept="image/*"
-                    class="hidden"
-                    disabled={uploadingHeader()}
+                    class="sr-only"
+                    aria-disabled={uploadingHeader() ? "true" : undefined}
+                    onClick={(e) => {
+                      if (uploadingHeader()) e.preventDefault();
+                    }}
                     onChange={(e) => {
                       void handleUpload(
                         e.currentTarget.files?.[0],
@@ -235,25 +255,40 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
 
               {/* Avatar */}
               <div>
-                <label class="block text-sm text-neutral-400 mb-1">
+                <label
+                  for="profile-edit-avatar"
+                  class="block text-sm text-neutral-400 mb-1"
+                >
                   {props.t("profile.changeAvatar")}
                 </label>
-                <label class="relative inline-flex h-20 w-20 cursor-pointer items-center justify-center overflow-hidden rounded-full bg-neutral-800">
+                <label class="relative inline-flex h-20 w-20 cursor-pointer items-center justify-center overflow-hidden rounded-full bg-neutral-800 has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-accent">
                   <UserAvatar
                     avatarUrl={props.editIconUrl ?? null}
                     name={props.editName || "?"}
                     size={80}
+                    decorative
                   />
+                  {/* 「アイコンを変更」 ran past the 80px circle's edges. The
+                      disc keeps the camera visible over a light avatar. */}
                   <div class="absolute inset-0 flex items-center justify-center bg-black/40 text-center text-[11px] leading-tight text-white">
-                    {uploadingIcon()
-                      ? props.t("common.loading")
-                      : props.t("profile.changeAvatar")}
+                    <Show
+                      when={!uploadingIcon()}
+                      fallback={props.t("common.loading")}
+                    >
+                      <span class="grid h-9 w-9 place-items-center rounded-full bg-black/50">
+                        <CameraIcon class="h-5 w-5" />
+                      </span>
+                    </Show>
                   </div>
                   <input
+                    id="profile-edit-avatar"
                     type="file"
                     accept="image/*"
-                    class="hidden"
-                    disabled={uploadingIcon()}
+                    class="sr-only"
+                    aria-disabled={uploadingIcon() ? "true" : undefined}
+                    onClick={(e) => {
+                      if (uploadingIcon()) e.preventDefault();
+                    }}
                     onChange={(e) => {
                       void handleUpload(
                         e.currentTarget.files?.[0],
@@ -361,13 +396,17 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
                 </Show>
               </div>
 
-              <div class="flex items-center justify-between py-2">
+              <div class="flex items-center justify-between gap-3 py-2">
                 <div>
                   <div class="text-white font-medium">
                     {props.t("profile.followApproval")}
                   </div>
-                  <div class="text-sm text-neutral-400">
-                    {props.t("profile.followApprovalDesc")}
+                  {/* Breaks between words: at 320px 「る」 was left alone.
+                      (Balanced lines would start one with 「を」.) */}
+                  <div class="text-sm text-neutral-400 break-keep wrap-anywhere">
+                    <WordBreakText
+                      text={props.t("profile.followApprovalDesc")}
+                    />
                   </div>
                 </div>
                 <button
