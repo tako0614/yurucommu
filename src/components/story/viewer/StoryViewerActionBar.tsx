@@ -39,11 +39,13 @@ export function StoryViewerActionBar(props: StoryViewerActionBarProps) {
   return (
     <div class="absolute bottom-0 left-0 right-0 z-20 p-4 flex items-center gap-3 touch-none">
       <Show when={props.onReply}>
-        {/* Focus shows on the pill itself; the field's own outline drew a
-            square inside it. */}
-        <div class="flex-1 min-w-0 flex items-center gap-2 border border-white/40 rounded-full px-4 py-2 focus-within:border-accent focus-within:ring-1 focus-within:ring-accent">
+        {/* The field's focus shows on the pill itself; its own outline drew a
+            square inside it. Only for the field: the send button inside
+            keeps its own outline, without a second accent frame around it. */}
+        <div class="flex-1 min-w-0 flex items-center gap-2 border border-white/40 rounded-full px-4 py-2 has-[input:focus-visible]:border-accent has-[input:focus-visible]:ring-1 has-[input:focus-visible]:ring-accent">
           <input
             type="text"
+            enterkeyhint="send"
             value={reply()}
             placeholder={props.placeholder}
             aria-label={props.placeholder}
@@ -68,7 +70,7 @@ export function StoryViewerActionBar(props: StoryViewerActionBarProps) {
               up-pointing plane read as a warning sign. */}
           <Show when={hasText() || sending()}>
             <button
-              class="-my-1 -mr-2 shrink-0 rounded-full p-1 text-white/80 hover:text-white transition-colors disabled:opacity-40"
+              class="-my-2 -mr-2 shrink-0 rounded-full p-2 text-white/80 hover:text-white transition-colors disabled:opacity-40"
               disabled={sending()}
               onClick={(e) => {
                 e.stopPropagation();
