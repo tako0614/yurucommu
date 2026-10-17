@@ -153,7 +153,7 @@ export function EditPostModal(props: EditPostModalProps) {
                 disabled={!canSave()}
                 class="whitespace-nowrap px-4 py-1.5 bg-accent disabled:bg-neutral-700 disabled:text-neutral-500 rounded-full font-bold text-sm transition-colors"
               >
-                {props.saving ? t("common.loading") : t("common.save")}
+                {props.saving ? t("common.saving") : t("common.save")}
               </button>
             </div>
           </div>
