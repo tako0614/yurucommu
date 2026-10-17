@@ -166,7 +166,8 @@ select:focus-visible,
       [class*="focus:ring-red-"]
     ),
   [class*="focus-within:ring-accent"]
-    :is(input, textarea, select):focus-visible {
+    :is(input, textarea, select):focus-visible,
+  [class*="has-[input:focus-visible]:ring-accent"] input:focus-visible {
     outline: none;
   }
   /* A 1px accent border alone is a thin cue: thicken it into a 2px band. */
