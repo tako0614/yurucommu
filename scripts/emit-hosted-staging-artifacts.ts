@@ -375,7 +375,7 @@ function quote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 /** All Bun children, including the existing builder's nested `bun run`, disable env files. */
-function createBuildEnvironment(
+export function createBuildEnvironment(
   run: string,
   checkout: string,
   bun: string,
@@ -384,6 +384,9 @@ function createBuildEnvironment(
   const config = join(run, "config");
   mkdirSync(tools, { mode: 0o700 });
   mkdirSync(config, { mode: 0o700 });
+  mkdirSync(join(run, "home"), { mode: 0o700 });
+  mkdirSync(join(run, "tmp"), { mode: 0o700 });
+  mkdirSync(join(run, "npm-cache"), { mode: 0o700 });
   privateWrite(join(config, "npmrc"), "");
   privateWrite(join(config, "bunfig.toml"), "");
   const flags = `--no-env-file --config=${quote(join(config, "bunfig.toml"))}`;
@@ -400,6 +403,9 @@ function createBuildEnvironment(
   );
   return Object.freeze({
     PATH: `${tools}:/usr/bin:/bin`,
+    HOME: join(run, "home"),
+    TMPDIR: join(run, "tmp"),
+    npm_config_cache: join(run, "npm-cache"),
     LANG: "C.UTF-8",
     LC_ALL: "C.UTF-8",
     TZ: "UTC",

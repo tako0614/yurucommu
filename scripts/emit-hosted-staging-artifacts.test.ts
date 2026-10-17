@@ -11,12 +11,13 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import {
   HOSTED_STAGING_BUILD_COMMANDS,
   HOSTED_STAGING_BUN_VERSION,
   assertHostedStagingOutputParent,
   assertOwnedHostedStagingBuild,
+  createBuildEnvironment,
   emitHostedStagingArtifacts,
   hostedStagingManifest,
   parseHostedStagingEmitterInput,
@@ -225,5 +226,82 @@ describe("deterministic artifact manifests have no build authority", () => {
         { ...module, url: module.url + "?secret=canary" },
       ]),
     ).toThrow("MANIFEST_REFUSED");
+  });
+});
+
+// This is environment/support-file DATA; it is never an owning build witness.
+describe("owning build child environment isolation", () => {
+  test("actual child HOME, TMPDIR and prebuild-install cache remain inside its run", async () => {
+    const run = fresh();
+    const env = createBuildEnvironment(
+      run,
+      join(run, "source"),
+      process.execPath,
+    );
+    const util = resolve(
+      import.meta.dir,
+      "../node_modules/prebuild-install/util.js",
+    );
+    const code = `const os = require("node:os");
+const util = require(${JSON.stringify(util)});
+console.log(JSON.stringify({home:os.homedir(),tmp:os.tmpdir(),npmCache:util.npmCache(),prebuildCache:util.prebuildCache()}));`;
+    const child = Bun.spawn([process.execPath, "--no-env-file", "-e", code], {
+      env,
+      stdin: "ignore",
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [exitCode, output, error] = await Promise.all([
+      child.exited,
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+    ]);
+    expect(exitCode).toBe(0);
+    expect(error).toBe("");
+    expect(JSON.parse(output)).toEqual({
+      home: join(run, "home"),
+      tmp: join(run, "tmp"),
+      npmCache: join(run, "npm-cache"),
+      prebuildCache: join(run, "npm-cache", "_prebuilds"),
+    });
+  });
+  test("only fixed environment keys and private directories accompany ordinary DATA", () => {
+    const run = fresh();
+    const env = createBuildEnvironment(
+      run,
+      join(run, "source"),
+      process.execPath,
+    );
+    expect(Object.keys(env).sort()).toEqual(
+      [
+        "BUN_INSTALL_CACHE_DIR",
+        "CI",
+        "HOME",
+        "LANG",
+        "LC_ALL",
+        "NODE_ENV",
+        "NPM_CONFIG_USERCONFIG",
+        "PATH",
+        "TMPDIR",
+        "TZ",
+        "XDG_CONFIG_HOME",
+        "YURUCOMM_WORKER_ENTRY_PROFILE",
+        "npm_config_cache",
+      ].sort(),
+    );
+    expect(Object.isFrozen(env)).toBe(true);
+    for (const name of ["home", "tmp", "npm-cache"]) {
+      const status = lstatSync(join(run, name));
+      expect(status.isDirectory()).toBe(true);
+      expect(status.isSymbolicLink()).toBe(false);
+      expect(status.mode & 0o777).toBe(0o700);
+      expect(status.uid).toBe(process.getuid?.() ?? -1);
+    }
+    expect(() => assertOwnedHostedStagingBuild(env)).toThrow(
+      "OWNING_BUILD_WITNESS_REQUIRED",
+    );
+    expect(() => assertOwnedHostedStagingBuild({ ...env })).toThrow(
+      "OWNING_BUILD_WITNESS_REQUIRED",
+    );
   });
 });
