@@ -19,6 +19,7 @@ export function SetupScreen(props: SetupScreenProps) {
   const [handle, setHandle] = createSignal("");
   const [submitting, setSubmitting] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
+  let input: HTMLInputElement | undefined;
 
   const normalized = createMemo(() => handle().trim().toLowerCase());
   const valid = createMemo(() => HANDLE_PATTERN.test(normalized()));
@@ -50,6 +51,9 @@ export function SetupScreen(props: SetupScreenProps) {
       setError(t("common.error"));
     } finally {
       setSubmitting(false);
+      // The field was disabled while submitting, which dropped focus; after a
+      // refusal put it back where the handle is fixed.
+      if (error()) queueMicrotask(() => input?.focus());
     }
   };
 
@@ -80,6 +84,7 @@ export function SetupScreen(props: SetupScreenProps) {
             <div class="flex items-center rounded-md border border-neutral-700 bg-neutral-800 focus-within:ring-2 focus-within:ring-accent">
               <span class="pl-3 text-neutral-500">@</span>
               <input
+                ref={input}
                 id="setup-handle"
                 type="text"
                 aria-describedby={
@@ -87,7 +92,7 @@ export function SetupScreen(props: SetupScreenProps) {
                     ? "setup-handle-hint setup-error"
                     : "setup-handle-hint"
                 }
-                aria-invalid={invalid()}
+                aria-invalid={invalid() || error() !== null}
                 value={handle()}
                 onInput={(e) => {
                   setHandle(e.currentTarget.value);
@@ -104,7 +109,7 @@ export function SetupScreen(props: SetupScreenProps) {
             </div>
             <p
               id="setup-handle-hint"
-              class={`mt-1 text-xs [word-break:auto-phrase] ${invalid() ? "text-amber-400" : "text-neutral-500"}`}
+              class={`mt-1 text-xs [word-break:auto-phrase] ${invalid() ? "text-amber-400" : "text-neutral-400"}`}
             >
               {t("setup.usernameFormatError")}
             </p>
@@ -115,7 +120,7 @@ export function SetupScreen(props: SetupScreenProps) {
           <Show when={valid()}>
             <p class="text-sm text-neutral-500">
               {t("setup.handlePreview")}:{" "}
-              <span class="font-mono text-neutral-300">
+              <span class="font-mono text-neutral-300 wrap-anywhere">
                 @{normalized()}@{previewDomain()}
               </span>
             </p>
