@@ -205,9 +205,12 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
   createEffect(() => {
     if (showEmoji()) {
       queueMicrotask(() => {
+        // Bring the grid, not just its first chip, into view on a short
+        // screen.
+        emojiPanelRef?.scrollIntoView({ block: "nearest" });
         const first =
           emojiPanelRef?.querySelector<HTMLElement>("button, [tabindex]");
-        first?.focus();
+        first?.focus({ preventScroll: true });
       });
     }
   });
@@ -262,10 +265,10 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
           aria-modal="true"
           aria-busy={props.posting || props.uploading}
           aria-label={props.placeholder}
-          // Header and toolbar stay put; only the content between them
-          // scrolls. With the emoji picker open on a 320px phone the whole
-          // card scrolled and the toolbar (image / emoji / CW) sat below the
-          // screen's edge.
+          // Header and toolbar stay put; only what is between them (a draft
+          // notice and the content) scrolls. With the emoji picker open on a
+          // 320px phone the whole card scrolled and the toolbar (image /
+          // emoji / CW) sat below the screen's edge.
           class="bg-neutral-900 w-full max-w-lg max-h-[calc(100dvh-4rem)] flex flex-col overflow-hidden rounded-2xl border border-neutral-800"
         >
           {/* Modal Header */}
@@ -308,263 +311,282 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
             </div>
           </div>
 
-          <Show when={props.draftNotice}>
-            <div class="shrink-0 px-4 pt-4">
-              <p role="status" class="text-sm text-amber-300">
-                {props.draftNotice}
-              </p>
-              <Show when={props.draftRecoveryNeeded}>
-                <div class="mt-3 space-y-2">
-                  <label class="block text-sm text-neutral-300">
-                    {t("compose.retainedContent")}
-                    <textarea
-                      readonly
-                      value={props.postContent}
-                      class="mt-1 w-full rounded bg-neutral-950 p-2 text-white"
-                    />
-                  </label>
-                  <label class="block text-sm text-neutral-300">
-                    {t("compose.retainedSummary")}
-                    <textarea
-                      readonly
-                      value={props.postSummary}
-                      class="mt-1 w-full rounded bg-neutral-950 p-2 text-white"
-                    />
-                  </label>
-                  <p class="text-sm text-neutral-300">
-                    {t("compose.saveRecoveryHint")}
+          <div class="min-h-0 overflow-y-auto">
+            {/* In the scrolling part: the recovery notice can be taller than a
+              short screen, and its buttons are the only way on. */}
+            <Show when={props.draftNotice}>
+              <div class="px-4 pt-4">
+                <p role="status" class="text-sm text-amber-300">
+                  {props.draftNotice}
+                </p>
+                <Show when={props.draftRecoveryNeeded}>
+                  <div class="mt-3 space-y-2">
+                    <label class="block text-sm text-neutral-300">
+                      {t("compose.retainedContent")}
+                      <textarea
+                        readonly
+                        value={props.postContent}
+                        class="mt-1 w-full rounded bg-neutral-950 p-2 text-white"
+                      />
+                    </label>
+                    <label class="block text-sm text-neutral-300">
+                      {t("compose.retainedSummary")}
+                      <textarea
+                        readonly
+                        value={props.postSummary}
+                        class="mt-1 w-full rounded bg-neutral-950 p-2 text-white"
+                      />
+                    </label>
+                    <p class="text-sm text-neutral-300">
+                      {t("compose.saveRecoveryHint")}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={props.onSaveRecoveryDraft}
+                      class="mr-4 text-sm text-accent hover:underline"
+                    >
+                      {t("compose.saveRecoveryDraft")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={props.onRecoverDraft}
+                      class="mr-4 text-sm text-accent hover:underline"
+                    >
+                      {t("compose.reloadDraft")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={props.onKeepDraftAndClose}
+                      class="text-sm text-accent hover:underline"
+                    >
+                      {t("compose.keepDraftAndClose")}
+                    </button>
+                  </div>
+                </Show>
+              </div>
+            </Show>
+            {/* Native disabled descendants cover even an already-open emoji panel.
+              The toolbar below has its own fieldset with the same rule. */}
+            <fieldset
+              disabled={props.posting || props.draftRecoveryNeeded}
+              class="contents"
+            >
+              {/* Modal Content */}
+              <div class="p-4">
+                <Show when={props.submitError}>
+                  <p role="alert" class="mb-3 text-sm text-red-400">
+                    {props.submitError}
                   </p>
-                  <button
-                    type="button"
-                    onClick={props.onSaveRecoveryDraft}
-                    class="mr-4 text-sm text-accent hover:underline"
+                </Show>
+                {/* The post goes to your reach. This control only NARROWS who can
+                see it (public / unlisted / followers); a post is not filed into
+                a community — that's a separate, deliberate action. */}
+                <div class="mb-3 flex flex-wrap items-center gap-2">
+                  <label class="sr-only" for="post-visibility">
+                    {t("posts.visibility")}
+                  </label>
+                  <select
+                    id="post-visibility"
+                    value={props.postVisibility}
+                    onChange={(e) =>
+                      props.onPostVisibilityChange(
+                        e.currentTarget.value as PostVisibility,
+                      )
+                    }
+                    class="bg-neutral-800 text-white text-sm rounded-full px-3 py-1.5 outline-none border border-neutral-700 focus:border-accent transition-colors"
                   >
-                    {t("compose.saveRecoveryDraft")}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={props.onRecoverDraft}
-                    class="mr-4 text-sm text-accent hover:underline"
-                  >
-                    {t("compose.reloadDraft")}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={props.onKeepDraftAndClose}
-                    class="text-sm text-accent hover:underline"
-                  >
-                    {t("compose.keepDraftAndClose")}
-                  </button>
+                    <For each={VISIBILITY_OPTIONS}>
+                      {(opt) => (
+                        <option value={opt.value}>{t(opt.labelKey)}</option>
+                      )}
+                    </For>
+                  </select>
                 </div>
-              </Show>
-            </div>
-          </Show>
-          {/* Native disabled descendants cover even an already-open emoji panel. */}
+
+                {/* Read-only reach line reflecting the chosen visibility. */}
+                <p class="mb-3 px-1 text-xs text-neutral-500">{reach()}</p>
+
+                {/* Content warning input */}
+                <Show when={showCw()}>
+                  <div class="mb-3">
+                    <input
+                      ref={cwInputRef}
+                      type="text"
+                      value={props.postSummary}
+                      onInput={(e) =>
+                        props.onPostSummaryChange(e.currentTarget.value)
+                      }
+                      placeholder={t("posts.cwPlaceholder")}
+                      class={`w-full bg-neutral-800 text-white placeholder-neutral-500 rounded-lg px-3 py-2 text-sm outline-none border transition-colors ${
+                        summaryOverLimit()
+                          ? "border-red-500 focus:ring-1 focus:ring-red-500"
+                          : "border-neutral-700 focus:border-accent"
+                      }`}
+                    />
+                    <div class="mt-1 flex items-center justify-end gap-2 px-1">
+                      <Show when={summaryOverLimit()}>
+                        <span class="break-keep wrap-anywhere text-xs text-red-500">
+                          {t("compose.cwTooLong")}
+                        </span>
+                      </Show>
+                      <span
+                        class={`shrink-0 whitespace-nowrap text-xs tabular-nums ${
+                          summaryOverLimit()
+                            ? "text-red-500"
+                            : "text-neutral-500"
+                        }`}
+                      >
+                        {t("posts.charCount")
+                          .replace("{count}", String(summaryLength()))
+                          .replace("{max}", String(MAX_SUMMARY_LENGTH))}
+                      </span>
+                    </div>
+                  </div>
+                </Show>
+
+                <div class="flex gap-3">
+                  <UserAvatar
+                    avatarUrl={props.actor.icon_url}
+                    name={props.actor.name || props.actor.username}
+                    size={48}
+                  />
+                  <div class="flex-1">
+                    <textarea
+                      ref={textareaRef}
+                      value={props.postContent}
+                      onInput={(e) =>
+                        props.onPostContentChange(e.currentTarget.value)
+                      }
+                      placeholder={props.placeholder}
+                      class="w-full bg-transparent text-white placeholder-neutral-500 resize-none outline-none text-lg min-h-[120px]"
+                      autofocus
+                    />
+                    <Show when={props.uploadedMedia.length > 0}>
+                      <div class="flex flex-col gap-3 mt-2">
+                        {/* Index (not For): the alt-text inputs are editable and
+                        onMediaAltChange rebuilds the array with a NEW object per
+                        edited row — <For> keys by reference, so it would recreate
+                        the <input> on every keystroke and drop focus. */}
+                        <Index each={props.uploadedMedia}>
+                          {(media, idx) => (
+                            <div class="flex gap-2 items-start">
+                              <div class="relative shrink-0">
+                                {/* Staged videos preview as a muted first-frame
+                                <video>; images keep the <img> path. */}
+                                <Show
+                                  when={media().content_type.startsWith(
+                                    "video/",
+                                  )}
+                                  fallback={
+                                    <img
+                                      src={media().preview}
+                                      alt={media().name || ""}
+                                      class="w-20 h-20 object-cover rounded-lg"
+                                    />
+                                  }
+                                >
+                                  <video
+                                    src={media().preview}
+                                    muted
+                                    playsinline
+                                    preload="metadata"
+                                    aria-label={
+                                      media().name || t("compose.videoPreview")
+                                    }
+                                    class="w-20 h-20 object-cover rounded-lg bg-black"
+                                  />
+                                </Show>
+                                <button
+                                  onClick={() => props.onRemoveMedia(idx)}
+                                  aria-label={t("compose.removeMedia")}
+                                  class="absolute -top-1 -right-1 bg-black/70 rounded-full p-0.5 hover:bg-neutral-900"
+                                >
+                                  <CloseIcon />
+                                </button>
+                              </div>
+                              <div class="flex-1">
+                                <label class="sr-only" for={`media-alt-${idx}`}>
+                                  {t("posts.altLabel")}
+                                </label>
+                                <input
+                                  id={`media-alt-${idx}`}
+                                  type="text"
+                                  value={media().name || ""}
+                                  onInput={(e) =>
+                                    props.onMediaAltChange(
+                                      idx,
+                                      e.currentTarget.value,
+                                    )
+                                  }
+                                  placeholder={t("posts.altPlaceholder")}
+                                  class="w-full bg-neutral-800 text-white placeholder-neutral-500 rounded-lg px-3 py-2 text-sm outline-none border border-neutral-700 focus:border-accent transition-colors"
+                                />
+                                <Show
+                                  when={
+                                    media().expires_at &&
+                                    !requiresReupload(media())
+                                  }
+                                >
+                                  <p class="mt-1 text-xs text-neutral-400">
+                                    {t("compose.mediaDeadline").replace(
+                                      "{date}",
+                                      new Date(
+                                        media().expires_at!,
+                                      ).toLocaleString(),
+                                    )}
+                                  </p>
+                                </Show>
+                                <Show when={requiresReupload(media())}>
+                                  <p
+                                    role="status"
+                                    class="mt-1 text-xs text-amber-300"
+                                  >
+                                    {media().sourceFile
+                                      ? t("compose.mediaRenewRequired")
+                                      : t("compose.mediaReselect")}
+                                  </p>
+                                  <Show when={media().sourceFile}>
+                                    <button
+                                      type="button"
+                                      disabled={props.uploading}
+                                      onClick={() => props.onReuploadMedia(idx)}
+                                      class="mt-1 text-sm text-accent hover:underline disabled:opacity-50"
+                                    >
+                                      {t("compose.mediaReupload")}
+                                    </button>
+                                  </Show>
+                                </Show>
+                              </div>
+                            </div>
+                          )}
+                        </Index>
+                      </div>
+                      {/* Under the attachments, not in the toolbar, where it
+                        wrapped to four lines and grew the pinned row. */}
+                      <p class="mt-2 text-xs text-neutral-500">
+                        {t("compose.mediaMemoryOnly")}
+                      </p>
+                    </Show>
+                  </div>
+                </div>
+
+                {/* Emoji picker */}
+                <Show when={showEmoji()}>
+                  <div
+                    ref={emojiPanelRef}
+                    class="mt-3 rounded-xl border border-neutral-800 bg-neutral-900 p-2"
+                  >
+                    <EmojiPicker onSelect={insertEmoji} />
+                  </div>
+                </Show>
+              </div>
+            </fieldset>
+          </div>
+
           <fieldset
             disabled={props.posting || props.draftRecoveryNeeded}
             class="contents"
           >
-            {/* Modal Content */}
-            <div class="min-h-0 overflow-y-auto p-4">
-              <Show when={props.submitError}>
-                <p role="alert" class="mb-3 text-sm text-red-400">
-                  {props.submitError}
-                </p>
-              </Show>
-              {/* The post goes to your reach. This control only NARROWS who can
-                see it (public / unlisted / followers); a post is not filed into
-                a community — that's a separate, deliberate action. */}
-              <div class="mb-3 flex flex-wrap items-center gap-2">
-                <label class="sr-only" for="post-visibility">
-                  {t("posts.visibility")}
-                </label>
-                <select
-                  id="post-visibility"
-                  value={props.postVisibility}
-                  onChange={(e) =>
-                    props.onPostVisibilityChange(
-                      e.currentTarget.value as PostVisibility,
-                    )
-                  }
-                  class="bg-neutral-800 text-white text-sm rounded-full px-3 py-1.5 outline-none border border-neutral-700 focus:border-accent transition-colors"
-                >
-                  <For each={VISIBILITY_OPTIONS}>
-                    {(opt) => (
-                      <option value={opt.value}>{t(opt.labelKey)}</option>
-                    )}
-                  </For>
-                </select>
-              </div>
-
-              {/* Read-only reach line reflecting the chosen visibility. */}
-              <p class="mb-3 px-1 text-xs text-neutral-500">{reach()}</p>
-
-              {/* Content warning input */}
-              <Show when={showCw()}>
-                <div class="mb-3">
-                  <input
-                    ref={cwInputRef}
-                    type="text"
-                    value={props.postSummary}
-                    onInput={(e) =>
-                      props.onPostSummaryChange(e.currentTarget.value)
-                    }
-                    placeholder={t("posts.cwPlaceholder")}
-                    class={`w-full bg-neutral-800 text-white placeholder-neutral-500 rounded-lg px-3 py-2 text-sm outline-none border transition-colors ${
-                      summaryOverLimit()
-                        ? "border-red-500 focus:ring-1 focus:ring-red-500"
-                        : "border-neutral-700 focus:border-accent"
-                    }`}
-                  />
-                  <div class="mt-1 flex items-center justify-end gap-2 px-1">
-                    <Show when={summaryOverLimit()}>
-                      <span class="break-keep wrap-anywhere text-xs text-red-500">
-                        {t("compose.cwTooLong")}
-                      </span>
-                    </Show>
-                    <span
-                      class={`shrink-0 whitespace-nowrap text-xs tabular-nums ${
-                        summaryOverLimit() ? "text-red-500" : "text-neutral-500"
-                      }`}
-                    >
-                      {t("posts.charCount")
-                        .replace("{count}", String(summaryLength()))
-                        .replace("{max}", String(MAX_SUMMARY_LENGTH))}
-                    </span>
-                  </div>
-                </div>
-              </Show>
-
-              <div class="flex gap-3">
-                <UserAvatar
-                  avatarUrl={props.actor.icon_url}
-                  name={props.actor.name || props.actor.username}
-                  size={48}
-                />
-                <div class="flex-1">
-                  <textarea
-                    ref={textareaRef}
-                    value={props.postContent}
-                    onInput={(e) =>
-                      props.onPostContentChange(e.currentTarget.value)
-                    }
-                    placeholder={props.placeholder}
-                    class="w-full bg-transparent text-white placeholder-neutral-500 resize-none outline-none text-lg min-h-[120px]"
-                    autofocus
-                  />
-                  <Show when={props.uploadedMedia.length > 0}>
-                    <div class="flex flex-col gap-3 mt-2">
-                      {/* Index (not For): the alt-text inputs are editable and
-                        onMediaAltChange rebuilds the array with a NEW object per
-                        edited row — <For> keys by reference, so it would recreate
-                        the <input> on every keystroke and drop focus. */}
-                      <Index each={props.uploadedMedia}>
-                        {(media, idx) => (
-                          <div class="flex gap-2 items-start">
-                            <div class="relative shrink-0">
-                              {/* Staged videos preview as a muted first-frame
-                                <video>; images keep the <img> path. */}
-                              <Show
-                                when={media().content_type.startsWith("video/")}
-                                fallback={
-                                  <img
-                                    src={media().preview}
-                                    alt={media().name || ""}
-                                    class="w-20 h-20 object-cover rounded-lg"
-                                  />
-                                }
-                              >
-                                <video
-                                  src={media().preview}
-                                  muted
-                                  playsinline
-                                  preload="metadata"
-                                  aria-label={
-                                    media().name || t("compose.videoPreview")
-                                  }
-                                  class="w-20 h-20 object-cover rounded-lg bg-black"
-                                />
-                              </Show>
-                              <button
-                                onClick={() => props.onRemoveMedia(idx)}
-                                aria-label={t("compose.removeMedia")}
-                                class="absolute -top-1 -right-1 bg-black/70 rounded-full p-0.5 hover:bg-neutral-900"
-                              >
-                                <CloseIcon />
-                              </button>
-                            </div>
-                            <div class="flex-1">
-                              <label class="sr-only" for={`media-alt-${idx}`}>
-                                {t("posts.altLabel")}
-                              </label>
-                              <input
-                                id={`media-alt-${idx}`}
-                                type="text"
-                                value={media().name || ""}
-                                onInput={(e) =>
-                                  props.onMediaAltChange(
-                                    idx,
-                                    e.currentTarget.value,
-                                  )
-                                }
-                                placeholder={t("posts.altPlaceholder")}
-                                class="w-full bg-neutral-800 text-white placeholder-neutral-500 rounded-lg px-3 py-2 text-sm outline-none border border-neutral-700 focus:border-accent transition-colors"
-                              />
-                              <Show
-                                when={
-                                  media().expires_at &&
-                                  !requiresReupload(media())
-                                }
-                              >
-                                <p class="mt-1 text-xs text-neutral-400">
-                                  {t("compose.mediaDeadline").replace(
-                                    "{date}",
-                                    new Date(
-                                      media().expires_at!,
-                                    ).toLocaleString(),
-                                  )}
-                                </p>
-                              </Show>
-                              <Show when={requiresReupload(media())}>
-                                <p
-                                  role="status"
-                                  class="mt-1 text-xs text-amber-300"
-                                >
-                                  {media().sourceFile
-                                    ? t("compose.mediaRenewRequired")
-                                    : t("compose.mediaReselect")}
-                                </p>
-                                <Show when={media().sourceFile}>
-                                  <button
-                                    type="button"
-                                    disabled={props.uploading}
-                                    onClick={() => props.onReuploadMedia(idx)}
-                                    class="mt-1 text-sm text-accent hover:underline disabled:opacity-50"
-                                  >
-                                    {t("compose.mediaReupload")}
-                                  </button>
-                                </Show>
-                              </Show>
-                            </div>
-                          </div>
-                        )}
-                      </Index>
-                    </div>
-                  </Show>
-                </div>
-              </div>
-
-              {/* Emoji picker */}
-              <Show when={showEmoji()}>
-                <div
-                  ref={emojiPanelRef}
-                  class="mt-3 rounded-xl border border-neutral-800 bg-neutral-900 p-2"
-                >
-                  <EmojiPicker onSelect={insertEmoji} />
-                </div>
-              </Show>
-            </div>
-
             {/* Modal Footer */}
             <div class="flex shrink-0 items-center gap-2 px-4 py-3 border-t border-neutral-800">
               {/* The server accepts JPEG/PNG/GIF/WebP images and MP4/WebM
@@ -619,11 +641,6 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
               <Show when={props.uploadError}>
                 <span role="alert" class="text-sm text-red-500">
                   {props.uploadError}
-                </span>
-              </Show>
-              <Show when={props.uploadedMedia.length > 0}>
-                <span class="text-xs text-neutral-500">
-                  {t("compose.mediaMemoryOnly")}
                 </span>
               </Show>
             </div>
