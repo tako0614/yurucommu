@@ -717,7 +717,8 @@ a {
   z-index: 1000;
   padding: 0.5rem 0.9rem;
   background: var(--accent);
-  color: #fff;
+  /* Dark on the light accent, as text selection does: white was 2.39:1. */
+  color: var(--bg);
   text-decoration: none;
   border-radius: 0 0 8px 0;
 }

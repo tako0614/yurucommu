@@ -42,7 +42,10 @@ export function PostActionsMenu(props: PostActionsMenuProps) {
   const [pendingModeration, setPendingModeration] = createSignal<
     "mute" | "block" | null
   >(null);
-  const [copied, setCopied] = createSignal(false);
+  // The result of リンクをコピー: shown above the button and announced.
+  const [copyNote, setCopyNote] = createSignal<string | null>(null);
+  let copyNoteTimer: ReturnType<typeof setTimeout> | undefined;
+  onCleanup(() => clearTimeout(copyNoteTimer));
   let root: HTMLDivElement | undefined;
   let triggerBtn: HTMLButtonElement | undefined;
 
@@ -90,10 +93,28 @@ export function PostActionsMenu(props: PostActionsMenuProps) {
     const url = `${globalThis.location.origin}/post/${encodeURIComponent(
       props.post.ap_id,
     )}`;
-    void navigator.clipboard?.writeText(url);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1600);
+    // A second copy restarts the note (and is announced again: the region
+    // is emptied first, since the same text set twice is not a change).
+    const note = (text: string) => {
+      clearTimeout(copyNoteTimer);
+      setCopyNote(null);
+      queueMicrotask(() => setCopyNote(text));
+      copyNoteTimer = setTimeout(() => setCopyNote(null), 1600);
+    };
+    // Say copied only once the clipboard took it; it used to show even when
+    // the write failed.
+    const write = navigator.clipboard?.writeText(url);
+    if (write) {
+      write.then(
+        () => note(t("settings.linkCopied")),
+        () => note(t("common.error")),
+      );
+    } else {
+      note(t("common.error"));
+    }
     close();
+    // The focused item is gone with the menu: back to その他, not <body>.
+    triggerBtn?.focus();
   };
 
   const itemClass =
@@ -118,11 +139,18 @@ export function PostActionsMenu(props: PostActionsMenuProps) {
         <MoreIcon />
       </button>
 
-      <Show when={copied()}>
-        <span class="absolute right-0 -top-7 whitespace-nowrap px-2 py-1 bg-neutral-800 text-white text-xs rounded-md shadow-lg">
-          {t("settings.linkCopied")}
+      <Show when={copyNote()}>
+        <span
+          aria-hidden="true"
+          class="absolute right-0 -top-7 whitespace-nowrap px-2 py-1 bg-neutral-800 text-white text-xs rounded-md shadow-lg"
+        >
+          {copyNote()}
         </span>
       </Show>
+      {/* Mounted from the start so the note is announced when it appears. */}
+      <span role="status" class="sr-only">
+        {copyNote() ?? ""}
+      </span>
 
       <Show when={open()}>
         <div
