@@ -695,6 +695,22 @@ export function StoryViewer(props: StoryViewerProps) {
         <div
           ref={containerRef}
           tabindex="-1"
+          // Focus starts on the story itself; Shift+Tab from there wraps to
+          // the last control instead of leaving for the page behind.
+          onKeyDown={(e) => {
+            if (e.key !== "Tab" || !e.shiftKey || e.target !== containerRef)
+              return;
+            const controls = Array.from(
+              containerRef.querySelectorAll<HTMLElement>(
+                "a[href], button:not([disabled]), input:not([disabled])",
+              ),
+            ).filter((el) => el.getClientRects().length > 0);
+            const last = controls[controls.length - 1];
+            if (last) {
+              e.preventDefault();
+              last.focus();
+            }
+          }}
           class="relative w-full h-full cursor-pointer select-none overflow-hidden bg-neutral-900 [-webkit-touch-callout:none] sm:h-[calc(100vh-2rem)] sm:aspect-[9/16] sm:w-auto sm:max-h-[900px] sm:rounded-xl [&_a]:[-webkit-touch-callout:default] [&_input]:[-webkit-touch-callout:default] [&_textarea]:[-webkit-touch-callout:default]"
           onClick={handleClick}
           onPointerDown={handlePressStart}
@@ -890,6 +906,7 @@ export function StoryViewer(props: StoryViewerProps) {
 
         <StoryViewerDeleteDialog
           open={showDeleteConfirm()}
+          returnFocus={() => containerRef}
           onCancel={cancelDelete}
           onConfirm={confirmDelete}
         />
