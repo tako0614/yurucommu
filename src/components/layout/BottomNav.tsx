@@ -16,7 +16,7 @@ import { showPostModalAtom } from "../../atoms/timeline.ts";
 import { NavBadge } from "./NavBadge.tsx";
 import { MOBILE_NAV_ITEMS, type NavItem } from "./navItems.ts";
 import { CreateNavIcon } from "./NavIcons.tsx";
-import { conversationOnScreen } from "./routeChrome.ts";
+import { composeAsideOnScreen, conversationOnScreen } from "./routeChrome.ts";
 
 // X-like mobile bar: keep only core destinations in the bottom rail. Compose is
 // a floating action button; Profile stays in the avatar menu.
@@ -148,7 +148,7 @@ export function BottomNav() {
 
   return (
     <>
-      <Show when={fabRoute()}>
+      <Show when={fabRoute() && !composeAsideOnScreen()}>
         <button
           ref={fabRef}
           type="button"

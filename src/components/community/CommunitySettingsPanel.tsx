@@ -1,6 +1,7 @@
 import { Show } from "solid-js";
 import type { CommunityDetail, CommunitySettings } from "../../lib/api.ts";
 import { useI18n } from "../../lib/i18n.tsx";
+import { markComposeAside } from "../layout/routeChrome.ts";
 
 interface CommunitySettingsPanelProps {
   community: CommunityDetail;
@@ -18,6 +19,8 @@ interface CommunitySettingsPanelProps {
 
 export function CommunitySettingsPanel(props: CommunitySettingsPanelProps) {
   const { t } = useI18n();
+  // On a phone the compose button sat over the 説明 field.
+  markComposeAside();
   return (
     <div class="p-4 space-y-6">
       <Show when={props.settingsError}>
