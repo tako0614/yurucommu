@@ -106,64 +106,69 @@ export function ProfileSummary(props: ProfileSummaryProps) {
         {/* Follow Button & Menu */}
         <div class="flex justify-end pt-3 pb-8 gap-2 min-[360px]:pb-12">
           <Show when={!props.isOwnProfile}>
-            <div class="relative" ref={menuRoot}>
-              <button
-                ref={menuTrigger}
-                onClick={props.onToggleMenu}
-                aria-label={props.t("profile.moreOptions")}
-                // "true" not "menu": the popup is a plain list of buttons
-                // without role="menu"/menuitem/arrow-key semantics.
-                aria-haspopup="true"
-                aria-expanded={props.showMenu}
-                class="p-2 border border-neutral-600 rounded-full hover:bg-neutral-900 transition-colors"
-              >
-                <MoreIcon />
-              </button>
-              <Show when={props.showMenu}>
-                <div
-                  ref={(el) =>
-                    queueMicrotask(() => el.querySelector("button")?.focus())
-                  }
-                  class="absolute right-0 top-full mt-1 bg-neutral-900 rounded-xl shadow-lg py-1 min-w-[180px] z-20 border border-neutral-800"
+            {/* The menu hangs from this group's right edge (the follow
+                button's), not from the … button: anchored there, its 180px
+                ran off the left of a 320px screen and cut ミュート/ブロック. */}
+            <div class="relative flex gap-2">
+              <div ref={menuRoot}>
+                <button
+                  ref={menuTrigger}
+                  onClick={props.onToggleMenu}
+                  aria-label={props.t("profile.moreOptions")}
+                  // "true" not "menu": the popup is a plain list of buttons
+                  // without role="menu"/menuitem/arrow-key semantics.
+                  aria-haspopup="true"
+                  aria-expanded={props.showMenu}
+                  class="p-2 border border-neutral-600 rounded-full hover:bg-neutral-900 transition-colors"
                 >
-                  <button
-                    onClick={() => {
-                      props.onCloseMenu();
-                      props.onMute();
-                    }}
-                    class="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-neutral-800 transition-colors"
+                  <MoreIcon />
+                </button>
+                <Show when={props.showMenu}>
+                  <div
+                    ref={(el) =>
+                      queueMicrotask(() => el.querySelector("button")?.focus())
+                    }
+                    class="absolute right-0 top-full mt-1 bg-neutral-900 rounded-xl shadow-lg py-1 min-w-[180px] z-20 border border-neutral-800"
                   >
-                    {props.t("profile.mute")}
-                  </button>
-                  <button
-                    onClick={() => {
-                      props.onCloseMenu();
-                      props.onBlock();
-                    }}
-                    class="w-full flex items-center gap-3 px-4 py-3 text-left text-red-500 hover:bg-neutral-800 transition-colors"
-                  >
-                    {props.t("profile.block")}
-                  </button>
-                </div>
-              </Show>
-            </div>
-            <button
-              onClick={props.onToggleFollow}
-              disabled={props.followPending || props.followBusy}
-              class={`px-4 py-2 rounded-full font-bold transition-colors ${
-                props.followPending
-                  ? "bg-transparent border border-neutral-700 text-neutral-400 cursor-default"
+                    <button
+                      onClick={() => {
+                        props.onCloseMenu();
+                        props.onMute();
+                      }}
+                      class="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-neutral-800 transition-colors"
+                    >
+                      {props.t("profile.mute")}
+                    </button>
+                    <button
+                      onClick={() => {
+                        props.onCloseMenu();
+                        props.onBlock();
+                      }}
+                      class="w-full flex items-center gap-3 px-4 py-3 text-left text-red-500 hover:bg-neutral-800 transition-colors"
+                    >
+                      {props.t("profile.block")}
+                    </button>
+                  </div>
+                </Show>
+              </div>
+              <button
+                onClick={props.onToggleFollow}
+                disabled={props.followPending || props.followBusy}
+                class={`px-4 py-2 rounded-full font-bold transition-colors ${
+                  props.followPending
+                    ? "bg-transparent border border-neutral-700 text-neutral-400 cursor-default"
+                    : props.isFollowing
+                      ? "bg-transparent border border-neutral-600 text-white hover:border-red-500 hover:text-red-500"
+                      : "bg-white text-black hover:bg-neutral-200"
+                }`}
+              >
+                {props.followPending
+                  ? props.t("profile.followRequested")
                   : props.isFollowing
-                    ? "bg-transparent border border-neutral-600 text-white hover:border-red-500 hover:text-red-500"
-                    : "bg-white text-black hover:bg-neutral-200"
-              }`}
-            >
-              {props.followPending
-                ? props.t("profile.followRequested")
-                : props.isFollowing
-                  ? props.t("profile.unfollow")
-                  : props.t("profile.follow")}
-            </button>
+                    ? props.t("profile.unfollow")
+                    : props.t("profile.follow")}
+              </button>
+            </div>
           </Show>
           <Show when={props.isOwnProfile}>
             <button
