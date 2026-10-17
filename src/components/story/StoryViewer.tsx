@@ -64,7 +64,11 @@ export function StoryViewer(props: StoryViewerProps) {
   const [showDeleteConfirm, setShowDeleteConfirm] = createSignal(false);
   const [showInsights, setShowInsights] = createSignal(false);
   const [isMuted, setIsMuted] = createSignal(true);
-  const [toastMessage, setToastMessage] = createSignal<string | null>(null);
+  // equals: false so the same message twice in a row (two replies within
+  // the 2s window) restarts the timer instead of expiring with the first.
+  const [toastMessage, setToastMessage] = createSignal<string | null>(null, {
+    equals: false,
+  });
   let containerRef!: HTMLDivElement;
   let storyContainerRef!: HTMLDivElement;
   let videoRef: HTMLVideoElement | undefined;
