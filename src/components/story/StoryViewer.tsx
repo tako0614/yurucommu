@@ -1,4 +1,5 @@
 import {
+  batch,
   createEffect,
   createMemo,
   createSignal,
@@ -114,6 +115,10 @@ export function StoryViewer(props: StoryViewerProps) {
       props.onClose();
     },
     container: () => containerRef,
+    // Focus the story itself, not its first button: on 閉じる (or on your own
+    // story, ストーリーを削除) a Space meant for "next" activated the button.
+    // From the story, Space / → go on, ← goes back, Escape closes.
+    initialFocus: () => containerRef,
   });
 
   createEffect(() => {
@@ -204,10 +209,14 @@ export function StoryViewer(props: StoryViewerProps) {
       return;
     }
 
-    // Next user
+    // Next user. Both indices move in one batch: one at a time, the viewer
+    // briefly showed (or recorded a view of) a story that was not the target,
+    // or an out-of-range one that remounted the dialog.
     if (actorIndex() < localActorStories().length - 1) {
-      setActorIndex(actorIndex() + 1);
-      setStoryIndex(0);
+      batch(() => {
+        setActorIndex(actorIndex() + 1);
+        setStoryIndex(0);
+      });
       return;
     }
 
@@ -227,11 +236,17 @@ export function StoryViewer(props: StoryViewerProps) {
       storyIndex(),
     );
     if (!prev) {
+      // Restart: setProgress(0) alone was overwritten by the running timer's
+      // next tick, which kept its elapsed time.
       setProgress(0);
+      if (isVideo() && videoRef) videoRef.currentTime = 0;
+      else startTimer();
       return;
     }
-    setActorIndex(prev.actorIndex);
-    setStoryIndex(prev.storyIndex);
+    batch(() => {
+      setActorIndex(prev.actorIndex);
+      setStoryIndex(prev.storyIndex);
+    });
   };
 
   // Auto-advance timer (for images only, videos use onEnded). Elapsed is
@@ -550,15 +565,17 @@ export function StoryViewer(props: StoryViewerProps) {
         props.onClose();
         return;
       }
-      setLocalActorStories(groups);
-      if (groupSurvives) {
-        // Same actor: the next story slid into this index (clamp to new last).
-        setStoryIndex(Math.min(si, groups[ai].stories.length - 1));
-      } else {
-        // The actor's group was removed; move to the next available actor.
-        setActorIndex(Math.min(ai, groups.length - 1));
-        setStoryIndex(0);
-      }
+      batch(() => {
+        setLocalActorStories(groups);
+        if (groupSurvives) {
+          // Same actor: the next story slid into this index (clamp to new last).
+          setStoryIndex(Math.min(si, groups[ai].stories.length - 1));
+        } else {
+          // The actor's group was removed; move to the next available actor.
+          setActorIndex(Math.min(ai, groups.length - 1));
+          setStoryIndex(0);
+        }
+      });
     } catch (e) {
       console.error("Failed to delete story:", e);
       setToastMessage(t("common.error"));
@@ -677,6 +694,7 @@ export function StoryViewer(props: StoryViewerProps) {
             overlay coords (storyContainerRef) are both measured from it. */}
         <div
           ref={containerRef}
+          tabindex="-1"
           class="relative w-full h-full cursor-pointer select-none overflow-hidden bg-neutral-900 [-webkit-touch-callout:none] sm:h-[calc(100vh-2rem)] sm:aspect-[9/16] sm:w-auto sm:max-h-[900px] sm:rounded-xl [&_a]:[-webkit-touch-callout:default] [&_input]:[-webkit-touch-callout:default] [&_textarea]:[-webkit-touch-callout:default]"
           onClick={handleClick}
           onPointerDown={handlePressStart}
