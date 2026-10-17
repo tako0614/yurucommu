@@ -44,6 +44,8 @@ export function PostActionsMenu(props: PostActionsMenuProps) {
   >(null);
   // The result of リンクをコピー: shown above the button and announced.
   const [copyNote, setCopyNote] = createSignal<string | null>(null);
+  let copyNoteTimer: ReturnType<typeof setTimeout> | undefined;
+  onCleanup(() => clearTimeout(copyNoteTimer));
   let root: HTMLDivElement | undefined;
   let triggerBtn: HTMLButtonElement | undefined;
 
@@ -91,9 +93,13 @@ export function PostActionsMenu(props: PostActionsMenuProps) {
     const url = `${globalThis.location.origin}/post/${encodeURIComponent(
       props.post.ap_id,
     )}`;
+    // A second copy restarts the note (and is announced again: the region
+    // is emptied first, since the same text set twice is not a change).
     const note = (text: string) => {
-      setCopyNote(text);
-      setTimeout(() => setCopyNote(null), 1600);
+      clearTimeout(copyNoteTimer);
+      setCopyNote(null);
+      queueMicrotask(() => setCopyNote(text));
+      copyNoteTimer = setTimeout(() => setCopyNote(null), 1600);
     };
     // Say copied only once the clipboard took it; it used to show even when
     // the write failed.
