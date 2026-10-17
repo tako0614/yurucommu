@@ -183,9 +183,16 @@ export function BottomNav() {
                 </Show>
               );
               return (
+                // With unread items the link's own name carries the count:
+                // aria-label="メッセージ" overrode the badge, so a screen
+                // reader heard no count at all.
                 <A
                   href={item.route!}
-                  aria-label={t(item.labelKey)}
+                  aria-label={
+                    item.badge && badgeCount(item) > 0
+                      ? badgeLabel(item)
+                      : t(item.labelKey)
+                  }
                   aria-current={active(item) ? "page" : undefined}
                   class={itemClass(item)}
                 >
