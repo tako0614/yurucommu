@@ -32,10 +32,6 @@ const QrIcon = () => (
   </svg>
 );
 
-// Profile top bar. The account switcher / Bookmarks / Settings now live in the
-// shared AppMenu (Phase A), so this header no longer duplicates account-switch
-// logic — it only carries the back affordance, the prominent federated handle,
-// and (on the own profile) a QR/share trigger.
 // Rendered alongside the back button so the phone shell's avatar bar steps
 // aside. /users/<name> (the public profile URL) cannot do that from the URL:
 // the same path shape is also the owner's own profile, which keeps the bar.
@@ -44,6 +40,10 @@ function BackHeaderMark() {
   return null;
 }
 
+// Profile top bar. The account switcher / Bookmarks / Settings now live in the
+// shared AppMenu (Phase A), so this header no longer duplicates account-switch
+// logic — it only carries the back affordance, the prominent federated handle,
+// and (on the own profile) a QR/share trigger.
 export function ProfileHeader(props: ProfileHeaderProps) {
   const { t } = useI18n();
   const location = useLocation();
