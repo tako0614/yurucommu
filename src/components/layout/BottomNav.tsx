@@ -28,11 +28,11 @@ export function BottomNav() {
   const openComposer = useSetAtom(showPostModalAtom);
 
   // The compose button floats over the last row of every scrolling page (a
-  // post's その他, a community's last member). Hide it once the reader has scrolled
-  // 24px down, keep it hidden at the end of the page (so an iOS bounce does
-  // not bring it back over the last row), and show it again after 16px up, at
-  // the top, on a new page, or when the page that hid it is gone. Distances
-  // add up across events, so a slow scroll counts too.
+  // post's その他, a community's last member). Hide it once the reader has
+  // scrolled 24px down, keep it hidden at the end of the page (so an iOS
+  // bounce does not bring it back over the last row), and show it again after
+  // 16px up, at the top, on a new page, or when the page that hid it is gone.
+  // Distances add up across events, so a slow scroll counts too.
   //
   // Scroll events do not bubble, so one capture-phase listener follows the
   // page's own scrollers: only inside <main>, never a text field, and only

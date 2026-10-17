@@ -208,8 +208,11 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
                 </label>
                 {/* The file input is visually hidden but focusable (it was
                     display:none, out of reach of Tab and screen readers); its
-                    keyboard focus rings the image it changes. */}
-                <label class="relative block h-28 w-full cursor-pointer overflow-hidden rounded-lg bg-neutral-800 has-[input:focus-visible]:ring-2 has-[input:focus-visible]:ring-accent has-[input:focus-visible]:ring-offset-2 has-[input:focus-visible]:ring-offset-neutral-900">
+                    keyboard focus outlines the image it changes (an outline,
+                    which forced-colors mode keeps). It is not disabled while
+                    uploading, which dropped focus to <body>: a second pick is
+                    refused on click instead. */}
+                <label class="relative block h-28 w-full cursor-pointer overflow-hidden rounded-lg bg-neutral-800 has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-accent">
                   <Show when={props.editHeaderUrl}>
                     <img
                       src={props.editHeaderUrl}
@@ -234,7 +237,10 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
                     type="file"
                     accept="image/*"
                     class="sr-only"
-                    disabled={uploadingHeader()}
+                    aria-disabled={uploadingHeader() ? "true" : undefined}
+                    onClick={(e) => {
+                      if (uploadingHeader()) e.preventDefault();
+                    }}
                     onChange={(e) => {
                       void handleUpload(
                         e.currentTarget.files?.[0],
@@ -255,7 +261,7 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
                 >
                   {props.t("profile.changeAvatar")}
                 </label>
-                <label class="relative inline-flex h-20 w-20 cursor-pointer items-center justify-center overflow-hidden rounded-full bg-neutral-800 has-[input:focus-visible]:ring-2 has-[input:focus-visible]:ring-accent has-[input:focus-visible]:ring-offset-2 has-[input:focus-visible]:ring-offset-neutral-900">
+                <label class="relative inline-flex h-20 w-20 cursor-pointer items-center justify-center overflow-hidden rounded-full bg-neutral-800 has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-accent">
                   <UserAvatar
                     avatarUrl={props.editIconUrl ?? null}
                     name={props.editName || "?"}
@@ -279,7 +285,10 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
                     type="file"
                     accept="image/*"
                     class="sr-only"
-                    disabled={uploadingIcon()}
+                    aria-disabled={uploadingIcon() ? "true" : undefined}
+                    onClick={(e) => {
+                      if (uploadingIcon()) e.preventDefault();
+                    }}
                     onChange={(e) => {
                       void handleUpload(
                         e.currentTarget.files?.[0],
