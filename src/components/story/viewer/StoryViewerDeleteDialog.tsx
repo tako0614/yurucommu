@@ -6,6 +6,8 @@ interface StoryViewerDeleteDialogProps {
   open: boolean;
   onCancel: () => void;
   onConfirm: () => void;
+  // Where focus goes if the delete button is gone (the last own story).
+  returnFocus?: () => HTMLElement | undefined;
 }
 
 export function StoryViewerDeleteDialog(props: StoryViewerDeleteDialogProps) {
@@ -20,6 +22,7 @@ export function StoryViewerDeleteDialog(props: StoryViewerDeleteDialogProps) {
     onClose: () => props.onCancel(),
     container: () => dialogRef,
     initialFocus: () => cancelRef,
+    returnFocus: () => props.returnFocus?.(),
   });
   return (
     <Show when={props.open}>
