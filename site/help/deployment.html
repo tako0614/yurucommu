@@ -15,7 +15,7 @@
       property="og:url"
       content="https://yurucommu.com/help/deployment.html"
     />
-    <meta property="og:image" content="https://yurucommu.com/img/og.png?v=3" />
+    <meta property="og:image" content="https://yurucommu.com/img/og.png?v=4" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta
@@ -28,7 +28,7 @@
       name="twitter:description"
       content="yurucommuのビルドとデプロイ方法"
     />
-    <meta name="twitter:image" content="https://yurucommu.com/img/og.png?v=3" />
+    <meta name="twitter:image" content="https://yurucommu.com/img/og.png?v=4" />
     <meta
       name="twitter:image:alt"
       content="yurucommu の紹介画像。「投稿、ストーリー、DM。自分で運用できるSNS。」とホーム画面。"
@@ -42,7 +42,7 @@
       href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="../styles.css?v=6" />
+    <link rel="stylesheet" href="../styles.css?v=7" />
   </head>
   <body>
     <a class="skip" href="#main">Skip to content</a>
@@ -287,7 +287,7 @@ bun run check</code></pre>
           <li><code>GET /healthz</code>で不足している接続がないか確認する</li>
           <li><code>GET /readyz</code>が準備完了を返すことを確認する</li>
           <li>ログイン、投稿、画像のアップロードを試す</li>
-          <li>外部サーバーへの配信と失敗キューを確認する</li>
+          <li>ほかのサーバーへの配信と失敗キューを確認する</li>
         </ol>
         <p>
           <code>/healthz</code>
@@ -315,7 +315,7 @@ bun run check</code></pre>
           >、<code>KV</code>、<code>APP_URL</code>、<code>ENCRYPTION_KEY</code>、認証方法を確認します。
         </p>
 
-        <h3>投稿はできるが外部へ届かない</h3>
+        <h3>投稿はできるがほかのサーバーへ届かない</h3>
         <p>
           <code>DELIVERY_QUEUE</code> と <code>DELIVERY_DLQ</code>
           の接続、キューを処理するWorker、失敗回数を確認します。
