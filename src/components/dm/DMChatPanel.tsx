@@ -630,16 +630,18 @@ export function DMChatPanel(props: DMChatPanelProps) {
                               : "bg-neutral-800 text-white rounded-bl-sm"
                           }`}
                         >
+                          {/* Mine is told apart by side and colour only;
+                              a screen reader hears 「あなた: 」 first. It sits
+                              beside the text, not in it, so the paragraph
+                              is the message alone (search, copy, tests).
+                              The bubble is `relative` so this absolutely
+                              placed text stays inside the scrolling log:
+                              placed against the page, the ones scrolled out
+                              of view made the whole page scroll. */}
+                          <Show when={isMine()}>
+                            <span class="sr-only">{t("dm.youPrefix")}</span>
+                          </Show>
                           <p class="text-sm whitespace-pre-wrap wrap-anywhere">
-                            {/* Mine is told apart by side and colour only;
-                                a screen reader hears 「あなた: 」 first. The
-                                bubble is `relative` so this absolutely
-                                placed text stays inside the scrolling log:
-                                placed against the page, the ones scrolled
-                                out of view made the whole page scroll. */}
-                            <Show when={isMine()}>
-                              <span class="sr-only">{t("dm.youPrefix")}</span>
-                            </Show>
                             {msg.content}
                           </p>
                         </div>
