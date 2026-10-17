@@ -617,8 +617,11 @@ export function DMChatPanel(props: DMChatPanelProps) {
                             {msg.sender.name || msg.sender.preferred_username}
                           </div>
                         </Show>
+                        {/* text-left: the column is right-aligned to put
+                            my bubble and its time on the right, but a wrapped
+                            message inside it reads left to right. */}
                         <div
-                          class={`inline-block px-4 py-2 rounded-2xl ${
+                          class={`inline-block px-4 py-2 rounded-2xl text-left ${
                             isMine()
                               ? "bg-accent text-white rounded-br-sm"
                               : "bg-neutral-800 text-white rounded-bl-sm"
