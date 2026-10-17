@@ -22,6 +22,10 @@ export function SetupScreen(props: SetupScreenProps) {
 
   const normalized = createMemo(() => handle().trim().toLowerCase());
   const valid = createMemo(() => HANDLE_PATTERN.test(normalized()));
+  // The rule shows under the field from the start and turns amber while what
+  // is typed breaks it: the button stayed disabled with no reason given, and
+  // the format error could only appear on a submit that was disabled.
+  const invalid = () => normalized().length > 0 && !valid();
   const previewDomain = () =>
     typeof location === "undefined" ? "" : location.hostname;
 
@@ -53,8 +57,14 @@ export function SetupScreen(props: SetupScreenProps) {
     <div class="flex min-h-screen flex-col items-center justify-center bg-neutral-950 p-6 text-neutral-100">
       <div class="w-full max-w-sm space-y-6">
         <div class="space-y-2 text-center">
-          <h1 class="text-2xl font-bold">{t("setup.instanceTitle")}</h1>
-          <p class="text-sm text-neutral-400">
+          {/* Break between phrases where the browser can (Chromium's
+              auto-phrase; elsewhere as before): at 320px the title split
+              「立ち / 上げる」 and the lead 「でつ / ながる」. Word-level
+              <wbr> breaks would also let 「。」 start a line. */}
+          <h1 class="text-2xl font-bold [word-break:auto-phrase]">
+            {t("setup.instanceTitle")}
+          </h1>
+          <p class="text-sm text-neutral-400 [word-break:auto-phrase]">
             {t("setup.instanceDescription")}
           </p>
         </div>
@@ -72,6 +82,12 @@ export function SetupScreen(props: SetupScreenProps) {
               <input
                 id="setup-handle"
                 type="text"
+                aria-describedby={
+                  error()
+                    ? "setup-handle-hint setup-error"
+                    : "setup-handle-hint"
+                }
+                aria-invalid={invalid()}
                 value={handle()}
                 onInput={(e) => {
                   setHandle(e.currentTarget.value);
@@ -86,9 +102,17 @@ export function SetupScreen(props: SetupScreenProps) {
                 autofocus
               />
             </div>
+            <p
+              id="setup-handle-hint"
+              class={`mt-1 text-xs [word-break:auto-phrase] ${invalid() ? "text-amber-400" : "text-neutral-500"}`}
+            >
+              {t("setup.usernameFormatError")}
+            </p>
           </div>
 
-          <Show when={normalized().length > 0}>
+          {/* Only an address that can exist: 「@taro-1@…」 previewed as if it
+              were fine while 立ち上げる stayed disabled. */}
+          <Show when={valid()}>
             <p class="text-sm text-neutral-500">
               {t("setup.handlePreview")}:{" "}
               <span class="font-mono text-neutral-300">
@@ -98,7 +122,11 @@ export function SetupScreen(props: SetupScreenProps) {
           </Show>
 
           <Show when={error()}>
-            <div class="rounded-md border border-red-800 bg-red-900/30 px-3 py-2 text-sm text-red-400">
+            <div
+              id="setup-error"
+              role="alert"
+              class="rounded-md border border-red-800 bg-red-900/30 px-3 py-2 text-sm text-red-400 [word-break:auto-phrase]"
+            >
               {error()}
             </div>
           </Show>

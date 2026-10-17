@@ -573,8 +573,9 @@ const translations = {
     "friends.noFollowers": "フォロワーはいません",
     "friends.sendMessage": "メッセージを送る",
     "setup.usernameFormatError":
-      "ユーザー名は3-30文字の英小文字、数字、アンダースコアのみ",
-    "setup.usernameTakenError": "このユーザー名は既に使用されています",
+      "英小文字・数字・アンダースコア（_）で3〜30文字にしてください",
+    "setup.usernameTakenError":
+      "このハンドルはすでに使われています。別のハンドルにしてください",
     "setup.instanceTitle": "あなたのサーバーを立ち上げる",
     "setup.instanceDescription":
       "@ハンドルを決めると、ActivityPub でつながるあなた専用の居場所が作られます。",
