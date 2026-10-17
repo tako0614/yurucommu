@@ -631,6 +631,11 @@ export function DMChatPanel(props: DMChatPanelProps) {
                           }`}
                         >
                           <p class="text-sm whitespace-pre-wrap wrap-anywhere">
+                            {/* Mine is told apart by side and colour only;
+                                a screen reader hears 「あなた: 」 first. */}
+                            <Show when={isMine()}>
+                              <span class="sr-only">{t("dm.youPrefix")}</span>
+                            </Show>
                             {msg.content}
                           </p>
                         </div>
