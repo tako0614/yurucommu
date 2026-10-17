@@ -49,6 +49,27 @@ export function markBackHeaderOnScreen(): void {
   onCleanup(() => setBackHeaders((n) => Math.max(0, n - 1)));
 }
 
+// The router stamps each history entry with its depth (history.state._depth,
+// @solidjs/router). Where the app's own entries start lets a back button go
+// back only to a page of this app: a profile opened straight from a link has
+// nothing behind it here, and navigate(-1) would leave the app.
+let startDepth: number | null = null;
+const depthNow = (): number | null => {
+  const depth = (window.history.state as { _depth?: unknown } | null)?._depth;
+  return typeof depth === "number" ? depth : null;
+};
+
+/** Call once from the app shell. */
+export function rememberHistoryStart(): void {
+  if (startDepth === null) startDepth = depthNow();
+}
+
+/** True when the previous history entry is a page of this app. */
+export function canGoBackInApp(): boolean {
+  const depth = depthNow();
+  return startDepth !== null && depth !== null && depth > startDepth;
+}
+
 // How many forms that keep their page's URL are mounted where the compose
 // button would sit over their controls (a community's settings tab, its
 // members tab for a manager). BottomNav leaves the button out meanwhile, as it
