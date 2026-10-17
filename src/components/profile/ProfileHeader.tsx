@@ -1,8 +1,11 @@
 import { Show } from "solid-js";
-import { A, useLocation } from "@solidjs/router";
+import { A, useLocation, useNavigate } from "@solidjs/router";
 import { BackIcon } from "./ProfileIcons.tsx";
 import { useI18n } from "../../lib/i18n.tsx";
-import { markBackHeaderOnScreen } from "../layout/routeChrome.ts";
+import {
+  canGoBackInApp,
+  markBackHeaderOnScreen,
+} from "../layout/routeChrome.ts";
 
 interface ProfileHeaderProps {
   actorId?: string;
@@ -47,6 +50,7 @@ function BackHeaderMark() {
 export function ProfileHeader(props: ProfileHeaderProps) {
   const { t } = useI18n();
   const location = useLocation();
+  const navigate = useNavigate();
   // Another user's profile has a back button whichever URL it was opened at;
   // at /users/<name> it used to have none, under the avatar bar.
   const showBack = () =>
@@ -59,8 +63,18 @@ export function ProfileHeader(props: ProfileHeaderProps) {
         <div class="w-10">
           <Show when={showBack()}>
             <BackHeaderMark />
+            {/* Back to where the profile was opened from (知り合い, a
+                community's members, a post): it always went home. Opened
+                straight from a link, it still goes home. */}
             <A
               href="/"
+              onClick={(e) => {
+                // A modified click keeps the link's own meaning (new tab).
+                if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+                if (!canGoBackInApp()) return;
+                e.preventDefault();
+                navigate(-1);
+              }}
               aria-label={t("common.back")}
               class="p-2 -ml-2 hover:bg-neutral-900 rounded-full inline-block"
             >
