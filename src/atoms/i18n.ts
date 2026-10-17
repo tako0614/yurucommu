@@ -572,9 +572,11 @@ const translations = {
     "friends.notFollowing": "まだ誰もフォローしていません",
     "friends.noFollowers": "フォロワーはいません",
     "friends.sendMessage": "メッセージを送る",
+    // \u2060 (word joiner) keeps 「3〜30」 on one line.
     "setup.usernameFormatError":
-      "ユーザー名は3-30文字の英小文字、数字、アンダースコアのみ",
-    "setup.usernameTakenError": "このユーザー名は既に使用されています",
+      "半角の英小文字・数字・アンダースコア（_）で3\u2060〜\u206030文字にしてください",
+    "setup.usernameTakenError":
+      "このハンドルはすでに使われています。別のハンドルにしてください。",
     "setup.instanceTitle": "あなたのサーバーを立ち上げる",
     "setup.instanceDescription":
       "@ハンドルを決めると、ActivityPub でつながるあなた専用の居場所が作られます。",
