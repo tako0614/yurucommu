@@ -92,8 +92,16 @@ export function Sidebar() {
                     </button>
                   }
                 >
+                  {/* With unread items the name is 「メッセージ（未読 3件）」
+                      once; from the content it read the badge and then the
+                      visible label again. */}
                   <A
                     href={item.route!}
+                    aria-label={
+                      item.badge && badgeCount(item) > 0
+                        ? badgeLabel(item)
+                        : undefined
+                    }
                     aria-current={active(item) ? "page" : undefined}
                     class={rowClass(item)}
                   >

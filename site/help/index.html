@@ -45,11 +45,11 @@
       href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="../styles.css?v=7" />
+    <link rel="stylesheet" href="../styles.css?v=8" />
   </head>
   <body>
     <!-- Header -->
-    <a class="skip" href="#main">Skip to content</a>
+    <a class="skip" href="#main">本文へ移動</a>
     <header class="header">
       <div class="header-inner">
         <a href="/" class="logo">yurucommu</a>
@@ -136,6 +136,33 @@
           </div>
         </details>
       </nav>
+      <script>
+        // Phones: the open page list covers the page under it. Escape closes it and
+        // returns to its toggle; so does moving focus out of it (Tab past the last
+        // link used to land on content hidden under the list). Wide screens keep
+        // the list open and hide the toggle, so this does nothing there.
+        (() => {
+          const menu =
+            document.currentScript.previousElementSibling.querySelector(
+              "details.docs-menu",
+            );
+          const toggle = menu && menu.querySelector("summary");
+          if (!toggle) return;
+          const collapsible = () => getComputedStyle(toggle).display !== "none";
+          menu.addEventListener("keydown", (e) => {
+            if (e.key === "Escape" && menu.open && collapsible()) {
+              menu.open = false;
+              toggle.focus();
+            }
+          });
+          menu.addEventListener("focusout", (e) => {
+            const next = e.relatedTarget;
+            if (menu.open && collapsible() && next && !menu.contains(next)) {
+              menu.open = false;
+            }
+          });
+        })();
+      </script>
 
       <!-- Content -->
       <main class="docs-content" id="main">
