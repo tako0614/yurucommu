@@ -109,7 +109,7 @@ export function ProfileSummary(props: ProfileSummaryProps) {
             {/* The menu hangs from this group's right edge (the follow
                 button's), not from the … button: anchored there, its 180px
                 ran off the left of a 320px screen and cut ミュート/ブロック. */}
-            <div class="relative flex gap-2">
+            <div class="relative flex items-center gap-2">
               <div ref={menuRoot}>
                 <button
                   ref={menuTrigger}
