@@ -633,9 +633,11 @@ export async function qualifyBrowserFeed({
   );
   await chooseFile(
     page,
+    // The image that holds the file input named アイコンを変更 (its caption
+    // names it; the image itself shows a camera, not the words).
     profileDialog
       .locator('label:has(input[type="file"])')
-      .filter({ hasText: "アイコンを変更" }),
+      .filter({ has: page.getByRole("button", { name: "アイコンを変更" }) }),
     { name: "旅行.png", mimeType: "image/png", buffer: PNG },
   );
   const profileUploadResponse = await profileUploadPromise;
