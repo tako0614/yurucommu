@@ -1,7 +1,8 @@
 import { Show } from "solid-js";
-import { A } from "@solidjs/router";
+import { A, useLocation } from "@solidjs/router";
 import { BackIcon } from "./ProfileIcons.tsx";
 import { useI18n } from "../../lib/i18n.tsx";
+import { markBackHeaderOnScreen } from "../layout/routeChrome.ts";
 
 interface ProfileHeaderProps {
   actorId?: string;
@@ -31,18 +32,33 @@ const QrIcon = () => (
   </svg>
 );
 
+// Rendered alongside the back button so the phone shell's avatar bar steps
+// aside. /users/<name> (the public profile URL) cannot do that from the URL:
+// the same path shape is also the owner's own profile, which keeps the bar.
+function BackHeaderMark() {
+  markBackHeaderOnScreen();
+  return null;
+}
+
 // Profile top bar. The account switcher / Bookmarks / Settings now live in the
 // shared AppMenu (Phase A), so this header no longer duplicates account-switch
 // logic — it only carries the back affordance, the prominent federated handle,
 // and (on the own profile) a QR/share trigger.
 export function ProfileHeader(props: ProfileHeaderProps) {
   const { t } = useI18n();
+  const location = useLocation();
+  // Another user's profile has a back button whichever URL it was opened at;
+  // at /users/<name> it used to have none, under the avatar bar.
+  const showBack = () =>
+    Boolean(props.actorId) ||
+    (!props.isOwnProfile && location.pathname.startsWith("/users/"));
   return (
     <header class="sticky top-0 bg-neutral-900/80 backdrop-blur-sm border-b border-neutral-900 z-10">
       <div class="flex items-center justify-between px-4 py-3">
         {/* Left: Back button (only when viewing another's profile) */}
         <div class="w-10">
-          <Show when={props.actorId}>
+          <Show when={showBack()}>
+            <BackHeaderMark />
             <A
               href="/"
               aria-label={t("common.back")}
