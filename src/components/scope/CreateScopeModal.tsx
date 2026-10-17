@@ -185,46 +185,8 @@ export function CreateScopeModal(props: CreateScopeModalProps) {
             <p class="mt-1 text-sm text-neutral-400">{t("scope.createDesc")}</p>
 
             <div class="mt-4 space-y-4">
-              <div>
-                <label
-                  for="create-scope-name"
-                  class="mb-1 block text-sm font-medium text-neutral-300"
-                >
-                  {t("scope.createName")}
-                </label>
-                <input
-                  id="create-scope-name"
-                  type="text"
-                  value={name()}
-                  onInput={(e) => setName(e.currentTarget.value)}
-                  placeholder={t("scope.createNamePlaceholder")}
-                  maxlength={32}
-                  autocomplete="off"
-                  autocapitalize="off"
-                  spellcheck={false}
-                  disabled={submitting()}
-                  class="w-full rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm text-white outline-none placeholder-neutral-600 focus:border-[var(--accent)] disabled:opacity-50"
-                />
-                <Show
-                  when={isReserved()}
-                  fallback={
-                    <p
-                      class={`mt-1 text-xs ${
-                        name().trim().length > 0 && !isNameValid(name())
-                          ? "text-amber-400"
-                          : "text-neutral-500"
-                      }`}
-                    >
-                      {t("scope.createNameHint")}
-                    </p>
-                  }
-                >
-                  <p class="mt-1 text-xs text-red-400">
-                    {t("community.nameReserved")}
-                  </p>
-                </Show>
-              </div>
-
+              {/* The display name comes first: it is where the community's own
+                  name, in any script, goes. */}
               <div>
                 <label
                   for="create-scope-display-name"
@@ -242,6 +204,67 @@ export function CreateScopeModal(props: CreateScopeModalProps) {
                   disabled={submitting()}
                   class="w-full rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm text-white outline-none placeholder-neutral-600 focus:border-[var(--accent)] disabled:opacity-50"
                 />
+              </div>
+
+              <div>
+                <label
+                  for="create-scope-name"
+                  class="mb-1 block text-sm font-medium text-neutral-300"
+                >
+                  {t("scope.createName")}
+                </label>
+                {/* The name becomes the community's @handle, so the field reads
+                    as one: a Japanese name typed here only turned the hint
+                    amber and left 作成する disabled. The @ sits over the
+                    input, so the whole box still takes a tap and keeps the
+                    sibling fields' focus state. */}
+                <div class="relative">
+                  <span
+                    aria-hidden="true"
+                    class="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-neutral-500 select-none"
+                  >
+                    @
+                  </span>
+                  <input
+                    id="create-scope-name"
+                    type="text"
+                    value={name()}
+                    onInput={(e) => setName(e.currentTarget.value)}
+                    placeholder={t("scope.createNamePlaceholder")}
+                    maxlength={32}
+                    autocomplete="off"
+                    autocapitalize="off"
+                    spellcheck={false}
+                    disabled={submitting()}
+                    aria-describedby="create-scope-name-hint"
+                    aria-invalid={
+                      name().trim().length > 0 && !isNameValid(name())
+                    }
+                    class="w-full rounded-lg border border-neutral-800 bg-neutral-950 py-2 pr-3 pl-7 text-sm text-white outline-none placeholder-neutral-600 focus:border-[var(--accent)] disabled:opacity-50"
+                  />
+                </div>
+                <Show
+                  when={isReserved()}
+                  fallback={
+                    <p
+                      id="create-scope-name-hint"
+                      class={`mt-1 text-xs ${
+                        name().trim().length > 0 && !isNameValid(name())
+                          ? "text-amber-400"
+                          : "text-neutral-500"
+                      }`}
+                    >
+                      {t("scope.createNameHint")}
+                    </p>
+                  }
+                >
+                  <p
+                    id="create-scope-name-hint"
+                    class="mt-1 text-xs text-red-400"
+                  >
+                    {t("community.nameReserved")}
+                  </p>
+                </Show>
               </div>
 
               <div>
