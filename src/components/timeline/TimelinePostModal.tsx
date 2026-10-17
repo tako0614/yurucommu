@@ -243,9 +243,10 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
     const end = el.selectionEnd ?? current.length;
     const next = current.slice(0, start) + emoji + current.slice(end);
     props.onPostContentChange(next);
-    // Restore caret just after the inserted emoji.
+    // Restore caret just after the inserted emoji, without scrolling the
+    // picker away on a short screen (the next pick is often right below).
     queueMicrotask(() => {
-      el.focus();
+      el.focus({ preventScroll: true });
       const pos = start + emoji.length;
       el.setSelectionRange(pos, pos);
     });
@@ -279,7 +280,7 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
                 props.posting || props.uploading || props.draftRecoveryNeeded
               }
               aria-label={t("common.close")}
-              class="text-white hover:text-neutral-400 transition-colors"
+              class="text-white hover:text-neutral-400 transition-colors disabled:opacity-50"
             >
               <CloseIconLarge />
             </button>
@@ -613,7 +614,7 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
                 onClick={() => setShowEmoji((v) => !v)}
                 aria-label={t("posts.addEmoji")}
                 aria-pressed={showEmoji()}
-                class={`p-2 rounded-full transition-colors ${
+                class={`p-2 rounded-full transition-colors disabled:opacity-50 ${
                   showEmoji()
                     ? "text-accent bg-accent-soft"
                     : "text-accent hover:bg-[var(--accent)]/10"
@@ -625,7 +626,7 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
                 onClick={() => setShowCw((v) => !v)}
                 aria-label={t("posts.cwToggle")}
                 aria-pressed={showCw()}
-                class={`px-2 py-1 rounded-full text-sm font-bold transition-colors ${
+                class={`px-2 py-1 rounded-full text-sm font-bold transition-colors disabled:opacity-50 ${
                   showCw()
                     ? "text-accent bg-accent-soft"
                     : "text-accent hover:bg-[var(--accent)]/10"
