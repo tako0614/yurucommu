@@ -200,10 +200,16 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
               </Show>
               {/* Header image */}
               <div>
-                <label class="block text-sm text-neutral-400 mb-1">
+                <label
+                  for="profile-edit-header"
+                  class="block text-sm text-neutral-400 mb-1"
+                >
                   {props.t("profile.changeHeader")}
                 </label>
-                <label class="relative block h-28 w-full cursor-pointer overflow-hidden rounded-lg bg-neutral-800">
+                {/* The file input is visually hidden but focusable (it was
+                    display:none, out of reach of Tab and screen readers); its
+                    keyboard focus rings the image it changes. */}
+                <label class="relative block h-28 w-full cursor-pointer overflow-hidden rounded-lg bg-neutral-800 has-[input:focus-visible]:ring-2 has-[input:focus-visible]:ring-accent has-[input:focus-visible]:ring-offset-2 has-[input:focus-visible]:ring-offset-neutral-900">
                   <Show when={props.editHeaderUrl}>
                     <img
                       src={props.editHeaderUrl}
@@ -212,7 +218,7 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
                     />
                   </Show>
                   {/* A camera, not the caption again: the words repeated
-                      the label above. They stay as the input's name. */}
+                      the caption above, which names the input. */}
                   <div class="absolute inset-0 flex items-center justify-center bg-black/30 text-sm text-white">
                     <Show
                       when={!uploadingHeader()}
@@ -221,15 +227,13 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
                       <span class="grid h-10 w-10 place-items-center rounded-full bg-black/50">
                         <CameraIcon />
                       </span>
-                      <span class="sr-only">
-                        {props.t("profile.changeHeader")}
-                      </span>
                     </Show>
                   </div>
                   <input
+                    id="profile-edit-header"
                     type="file"
                     accept="image/*"
-                    class="hidden"
+                    class="sr-only"
                     disabled={uploadingHeader()}
                     onChange={(e) => {
                       void handleUpload(
@@ -245,31 +249,36 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
 
               {/* Avatar */}
               <div>
-                <label class="block text-sm text-neutral-400 mb-1">
+                <label
+                  for="profile-edit-avatar"
+                  class="block text-sm text-neutral-400 mb-1"
+                >
                   {props.t("profile.changeAvatar")}
                 </label>
-                <label class="relative inline-flex h-20 w-20 cursor-pointer items-center justify-center overflow-hidden rounded-full bg-neutral-800">
+                <label class="relative inline-flex h-20 w-20 cursor-pointer items-center justify-center overflow-hidden rounded-full bg-neutral-800 has-[input:focus-visible]:ring-2 has-[input:focus-visible]:ring-accent has-[input:focus-visible]:ring-offset-2 has-[input:focus-visible]:ring-offset-neutral-900">
                   <UserAvatar
                     avatarUrl={props.editIconUrl ?? null}
                     name={props.editName || "?"}
                     size={80}
+                    decorative
                   />
-                  {/* 「アイコンを変更」 ran past the 80px circle's edges. */}
+                  {/* 「アイコンを変更」 ran past the 80px circle's edges. The
+                      disc keeps the camera visible over a light avatar. */}
                   <div class="absolute inset-0 flex items-center justify-center bg-black/40 text-center text-[11px] leading-tight text-white">
                     <Show
                       when={!uploadingIcon()}
                       fallback={props.t("common.loading")}
                     >
-                      <CameraIcon />
-                      <span class="sr-only">
-                        {props.t("profile.changeAvatar")}
+                      <span class="grid h-9 w-9 place-items-center rounded-full bg-black/50">
+                        <CameraIcon class="h-5 w-5" />
                       </span>
                     </Show>
                   </div>
                   <input
+                    id="profile-edit-avatar"
                     type="file"
                     accept="image/*"
-                    class="hidden"
+                    class="sr-only"
                     disabled={uploadingIcon()}
                     onChange={(e) => {
                       void handleUpload(
@@ -378,7 +387,7 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
                 </Show>
               </div>
 
-              <div class="flex items-center justify-between py-2">
+              <div class="flex items-center justify-between gap-3 py-2">
                 <div>
                   <div class="text-white font-medium">
                     {props.t("profile.followApproval")}

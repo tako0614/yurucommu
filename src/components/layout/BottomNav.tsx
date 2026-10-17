@@ -28,7 +28,7 @@ export function BottomNav() {
   const openComposer = useSetAtom(showPostModalAtom);
 
   // The compose button floats over the last row of every scrolling page (a
-  // post's その他, the settings buttons). Hide it once the reader has scrolled
+  // post's その他, a community's last member). Hide it once the reader has scrolled
   // 24px down, keep it hidden at the end of the page (so an iOS bounce does
   // not bring it back over the last row), and show it again after 16px up, at
   // the top, on a new page, or when the page that hid it is gone. Distances
@@ -74,8 +74,8 @@ export function BottomNav() {
     if (travel >= HIDE_AFTER_PX) hideFab(el);
     else if (travel <= -SHOW_AFTER_PX) showFab();
   };
-  // A click can swap the page under the button without a scroll (a settings
-  // section, 戻る): show it once the scroller that hid it is gone, back at the
+  // A click can swap the page under the button without a scroll (a community
+  // tab, 戻る): show it once the scroller that hid it is gone, back at the
   // top, or no longer scrolls.
   const recheckFab = () => {
     const el = hiddenBy;
