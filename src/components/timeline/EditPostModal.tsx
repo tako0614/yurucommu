@@ -118,12 +118,15 @@ export function EditPostModal(props: EditPostModalProps) {
           aria-modal="true"
           aria-label={t("editPost.title")}
           // Header (保存) and footer stay put; only the body scrolls, as in
-          // the post composer. A long post on a phone scrolled 保存 away.
+          // the post composer. With the CW row open on a landscape phone the
+          // dialog outgrew the screen and its CW toggle sat below the edge.
           class="bg-neutral-900 w-full max-w-lg max-h-[calc(100dvh-4rem)] flex flex-col overflow-hidden rounded-2xl border border-neutral-800"
         >
           {/* Header */}
-          <div class="flex shrink-0 items-center justify-between px-4 py-3 border-b border-neutral-800">
-            <div class="flex items-center gap-3">
+          {/* At 320px the title ran into the counter: the counter and 保存
+              keep their width and stay on one line, the title gives way. */}
+          <div class="flex shrink-0 items-center justify-between gap-2 px-4 py-3 border-b border-neutral-800">
+            <div class="flex min-w-0 items-center gap-2">
               <button
                 onClick={requestClose}
                 aria-label={t("common.close")}
@@ -131,11 +134,13 @@ export function EditPostModal(props: EditPostModalProps) {
               >
                 <CloseIconLarge />
               </button>
-              <h2 class="text-base font-bold">{t("editPost.title")}</h2>
+              <h2 class="min-w-0 truncate text-base font-bold">
+                {t("editPost.title")}
+              </h2>
             </div>
-            <div class="flex items-center gap-3">
+            <div class="flex shrink-0 items-center gap-2">
               <span
-                class={`text-xs tabular-nums ${
+                class={`whitespace-nowrap text-xs tabular-nums ${
                   contentOverLimit() ? "text-red-500" : "text-neutral-500"
                 }`}
               >
@@ -146,7 +151,7 @@ export function EditPostModal(props: EditPostModalProps) {
               <button
                 onClick={handleSave}
                 disabled={!canSave()}
-                class="px-4 py-1.5 bg-accent disabled:bg-neutral-700 disabled:text-neutral-500 rounded-full font-bold text-sm transition-colors"
+                class="whitespace-nowrap px-4 py-1.5 bg-accent disabled:bg-neutral-700 disabled:text-neutral-500 rounded-full font-bold text-sm transition-colors"
               >
                 {props.saving ? t("common.loading") : t("common.save")}
               </button>
