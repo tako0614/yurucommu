@@ -624,7 +624,7 @@ export function DMChatPanel(props: DMChatPanelProps) {
                             widen the bubble past the screen's edge, since
                             break-words does not lower its min-content width. */}
                         <div
-                          class={`inline-block max-w-full px-4 py-2 rounded-2xl text-left ${
+                          class={`relative inline-block max-w-full px-4 py-2 rounded-2xl text-left ${
                             isMine()
                               ? "bg-accent text-white rounded-br-sm"
                               : "bg-neutral-800 text-white rounded-bl-sm"
@@ -632,7 +632,11 @@ export function DMChatPanel(props: DMChatPanelProps) {
                         >
                           <p class="text-sm whitespace-pre-wrap wrap-anywhere">
                             {/* Mine is told apart by side and colour only;
-                                a screen reader hears 「あなた: 」 first. */}
+                                a screen reader hears 「あなた: 」 first. The
+                                bubble is `relative` so this absolutely
+                                placed text stays inside the scrolling log:
+                                placed against the page, the ones scrolled
+                                out of view made the whole page scroll. */}
                             <Show when={isMine()}>
                               <span class="sr-only">{t("dm.youPrefix")}</span>
                             </Show>
