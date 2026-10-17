@@ -120,6 +120,17 @@ export function BottomNav() {
       .replace("{count}", String(badgeCount(item)));
   };
 
+  // Not in messages (the composer is the conversation's own) or settings:
+  // nobody posts from a form, and the button sat over its last action, such
+  // as 「フォロワーを別のアカウントへ移行」 on a 320px phone where the page
+  // scrolls too little for the button to step aside.
+  const fabRoute = () => {
+    const path = location.pathname;
+    return !["/dm", "/settings"].some(
+      (base) => path === base || path.startsWith(`${base}/`),
+    );
+  };
+
   const isActive = (route: string) => {
     if (route === "/") return location.pathname === "/";
     // "/profile" is the OWN profile; foreign profiles live at
@@ -137,11 +148,7 @@ export function BottomNav() {
 
   return (
     <>
-      <Show
-        when={
-          location.pathname !== "/dm" && !location.pathname.startsWith("/dm/")
-        }
-      >
+      <Show when={fabRoute()}>
         <button
           ref={fabRef}
           type="button"
