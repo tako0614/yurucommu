@@ -485,14 +485,18 @@ export function StoryComposer(props: StoryComposerProps) {
 
   // The error shows in the footer, which is hidden while drawing (the drawing
   // panel docks over it): a photo or video picked meanwhile failed with no
-  // message. Drawing ends when a new one arrives, so it is seen (one already
-  // showing does not keep drawing from starting).
+  // message. Drawing ends when a new one arrives, so it is seen, and focus
+  // left in the closed panel goes back to 描画. Starting to draw clears the
+  // one already showing (hidden from then on): the same message again would
+  // not change the signal, and stayed hidden.
   createEffect(
     on(
       error,
       (message) => {
-        if (message && untrack(interactionState).mode === "draw")
+        if (message && untrack(interactionState).mode === "draw") {
           setMode("select");
+          focusToolIfOutside("draw");
+        }
       },
       { defer: true },
     ),
@@ -567,9 +571,15 @@ export function StoryComposer(props: StoryComposerProps) {
     setShowBackgroundPanel(false);
     setShowToolPanel(false);
     setActiveTool(null);
-    // A toggle, as its aria-pressed says: pressed again, drawing ends.
-    if (interactionState().mode === "draw") setMode("select");
-    else handleTabChange("draw");
+    // A toggle, as its aria-pressed says: pressed again, drawing ends. (A tap
+    // does not move focus on Safari, so focus may still be in the panel.)
+    if (interactionState().mode === "draw") {
+      setMode("select");
+      focusToolIfOutside("draw");
+    } else {
+      setError(null);
+      handleTabChange("draw");
+    }
   };
 
   const handleToggleBackground = () => {
