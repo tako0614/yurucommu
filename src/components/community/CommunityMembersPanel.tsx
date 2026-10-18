@@ -188,6 +188,35 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
         <For each={props.members}>
           {(member, index) => {
             const nameId = () => `community-member-name-${index()}`;
+            // A marker set for this row is spent once its save or removal
+            // settles without the row going away (a failed request), so it
+            // cannot move focus later on some unrelated re-render. (A
+            // cancelled owner promotion never starts a save and leaves the
+            // role marker; it only acts while focus is lost, landing on this
+            // member's select.)
+            createEffect(
+              on(
+                () => props.updatingMemberRole[member.ap_id],
+                (saving, wasSaving) => {
+                  if (wasSaving && !saving && refocusRoleFor === member.ap_id)
+                    queueMicrotask(() => {
+                      if (refocusRoleFor === member.ap_id)
+                        refocusRoleFor = null;
+                    });
+                },
+              ),
+            );
+            createEffect(
+              on(
+                () => props.removingMember[member.ap_id],
+                (removing, wasRemoving) => {
+                  if (wasRemoving && !removing)
+                    queueMicrotask(() => {
+                      refocusRowAt = null;
+                    });
+                },
+              ),
+            );
             return (
               // The row's padding belongs to the link, so a tap on it still
               // opens the profile as it did when the whole row was the link.
@@ -269,8 +298,12 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
                         ? "true"
                         : undefined
                     }
-                    class={`shrink-0 bg-neutral-900 border border-neutral-700 text-xs text-white rounded-lg px-2 py-1.5 ${
-                      props.updatingMemberRole[member.ap_id] ? "opacity-50" : ""
+                    // Dimmed by colour, not opacity, so the focus ring keeps
+                    // its full strength while saving.
+                    class={`shrink-0 bg-neutral-900 border text-xs rounded-lg px-2 py-1.5 ${
+                      props.updatingMemberRole[member.ap_id]
+                        ? "border-neutral-800 text-neutral-500"
+                        : "border-neutral-700 text-white"
                     }`}
                   >
                     <option value="member">{props.t("members.member")}</option>
@@ -297,12 +330,23 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
                   <button
                     type="button"
                     aria-describedby={nameId()}
+                    // Not disabled while removing, for the same reason as the
+                    // select: the confirm hands focus back to it, and a
+                    // disabled button dropped it to <body> (and kept it there
+                    // on a failure). A press meanwhile is refused.
                     onClick={() => {
+                      if (props.removingMember[member.ap_id]) return;
                       refocusRowAt = index();
                       props.onRemoveMember(member);
                     }}
-                    disabled={props.removingMember[member.ap_id]}
-                    class="-my-1 -mr-2.5 shrink-0 rounded-lg px-2.5 py-2 text-xs text-rose-400 hover:bg-rose-500/10 hover:text-rose-300 disabled:opacity-50"
+                    aria-disabled={
+                      props.removingMember[member.ap_id] ? "true" : undefined
+                    }
+                    class={`-my-1 -mr-2.5 shrink-0 rounded-lg px-2.5 py-2 text-xs ${
+                      props.removingMember[member.ap_id]
+                        ? "text-rose-400/50"
+                        : "text-rose-400 hover:bg-rose-500/10 hover:text-rose-300"
+                    }`}
                   >
                     {props.t("members.remove")}
                   </button>
