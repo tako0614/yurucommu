@@ -93,41 +93,54 @@ export function DMChatPanel(props: DMChatPanelProps) {
   const [pendingDeleteMessage, setPendingDeleteMessage] = createSignal<{
     message: ChatMessage;
     token: DMHistoryToken;
+    /** 削除 was pressed from the keyboard (a click with detail 0). */
+    byKeyboard: boolean;
   } | null>(null);
   // Keyboard focus through a delete. The confirm hands focus back to 削除,
   // which was disabled while deleting (focus fell to <body>), and the removed
   // bubble took its 削除 with it. 削除 now stays focusable while the request
-  // runs, and once the bubble goes, focus moves to the 削除 of my next message
-  // (or the one before it, or the message field), but only if it is nowhere.
-  let refocusAfterDeleteOf: string | null = null;
+  // runs. Once the bubble goes, if focus went with it, focus moves to the
+  // nearest of my other messages' 削除 that is not deleting (later first at
+  // the same distance), or else the message field.
+  // Only for a delete pressed from the keyboard: a mouse click or tap also
+  // leaves focus on 削除, and moving it scrolled the chat away from where the
+  // user was reading (and could raise the on-screen keyboard).
+  const refocusAfterDelete = new Set<string>();
+  // The 削除 that had focus last, so focus lost elsewhere (a button that
+  // disabled itself meanwhile) is not pulled onto a 削除.
+  let focusedDeleteFor: string | null = null;
   const focusIsLost = () => {
     const active = document.activeElement;
     return !active || active === document.body || !active.isConnected;
   };
+  const deleteButtonFor = (id: string) =>
+    scrollContainerRef?.querySelector<HTMLElement>(
+      `[data-delete-for="${CSS.escape(id)}"]:not([aria-disabled="true"])`,
+    );
   createEffect(
     on(
       () => messages().map((message) => message.id),
       (ids, previous) => {
-        const removed = refocusAfterDeleteOf;
-        if (!previous || removed === null || ids.includes(removed)) return;
-        refocusAfterDeleteOf = null;
-        const at = previous.indexOf(removed);
-        if (at === -1) return;
-        const nearest = [
-          ...previous.slice(at + 1),
-          ...previous.slice(0, at).reverse(),
-        ];
-        queueMicrotask(() => {
-          if (!focusIsLost()) return;
-          const next = nearest
-            .map((id) =>
-              scrollContainerRef?.querySelector<HTMLElement>(
-                `[data-delete-for="${CSS.escape(id)}"]`,
-              ),
-            )
-            .find(Boolean);
-          (next ?? composerRef)?.focus();
-        });
+        if (!previous) return;
+        for (const removed of [...refocusAfterDelete]) {
+          if (ids.includes(removed)) continue;
+          refocusAfterDelete.delete(removed);
+          const at = previous.indexOf(removed);
+          if (at === -1 || focusedDeleteFor !== removed) continue;
+          const nearest: string[] = [];
+          for (let d = 1; d < previous.length; d++) {
+            if (at + d < previous.length) nearest.push(previous[at + d]);
+            if (at - d >= 0) nearest.push(previous[at - d]);
+          }
+          queueMicrotask(() => {
+            if (!focusIsLost()) return;
+            const next = nearest
+              .filter((id) => ids.includes(id))
+              .map(deleteButtonFor)
+              .find(Boolean);
+            (next ?? composerRef)?.focus();
+          });
+        }
       },
     ),
   );
@@ -153,7 +166,7 @@ export function DMChatPanel(props: DMChatPanelProps) {
       }
     } finally {
       // Spent by the bubble going away; a failure leaves focus on 削除.
-      if (refocusAfterDeleteOf === msg.id) refocusAfterDeleteOf = null;
+      refocusAfterDelete.delete(msg.id);
       if (history.owns(token))
         setDeletingMessage((prev) => ({ ...prev, [msg.id]: false }));
     }
@@ -243,7 +256,7 @@ export function DMChatPanel(props: DMChatPanelProps) {
         setRetryingHistory(false);
         setDeletingMessage({});
         setPendingDeleteMessage(null);
-        refocusAfterDeleteOf = null;
+        refocusAfterDelete.clear();
         setErrorMessage(null);
 
         // Reset scroll tracking so the new conversation jumps to its bottom once.
@@ -695,33 +708,40 @@ export function DMChatPanel(props: DMChatPanelProps) {
                               isMine() && props.contact.type === "community"
                             }
                           >
-                            {/* Grey like the time beside it: red on every
-                                one of my messages was the loudest thing in
-                                the chat, for an action the confirm already
-                                marks as destructive. Described by its
-                                message (each one read only 「削除」), with a
-                                28px-high target in the same 16px line. Not
-                                disabled while deleting, so focus stays on
-                                it; a press meanwhile is refused. */}
+                            {/* Quiet grey (a step lighter than the time,
+                                for contrast): red on every one of my
+                                messages was the loudest thing in the chat,
+                                for an action the confirm already marks as
+                                destructive. Described by its message (each
+                                one read only 「削除」), with a 28px-high
+                                target in the same 16px line, stacked above
+                                the bubble and with its ring drawn inside.
+                                Not disabled while deleting, so focus stays
+                                on it; a press meanwhile is refused. */}
                             <button
                               type="button"
                               data-delete-for={msg.id}
                               aria-describedby={`chat-message-${index()}`}
-                              onClick={() => {
+                              onFocus={() => (focusedDeleteFor = msg.id)}
+                              onBlur={(e) => {
+                                if (e.relatedTarget) focusedDeleteFor = null;
+                              }}
+                              onClick={(e) => {
                                 if (deletingMessage()[msg.id]) return;
                                 if (activation)
                                   setPendingDeleteMessage({
                                     message: msg,
                                     token: activation,
+                                    byKeyboard: e.detail === 0,
                                   });
                               }}
                               aria-disabled={
                                 deletingMessage()[msg.id] ? "true" : undefined
                               }
-                              class={`-my-1.5 -mr-1.5 ml-0.5 rounded px-1.5 py-1.5 ${
+                              class={`focus-inset relative -my-1.5 -mr-1.5 ml-0.5 rounded px-1.5 py-1.5 ${
                                 deletingMessage()[msg.id]
                                   ? "text-neutral-600"
-                                  : "text-neutral-500 hover:text-rose-400"
+                                  : "text-neutral-400 hover:text-rose-400"
                               }`}
                             >
                               {t("common.delete")}
@@ -784,7 +804,7 @@ export function DMChatPanel(props: DMChatPanelProps) {
         destructive
         onConfirm={() => {
           const pending = pendingDeleteMessage();
-          if (pending) refocusAfterDeleteOf = pending.message.id;
+          if (pending?.byKeyboard) refocusAfterDelete.add(pending.message.id);
           setPendingDeleteMessage(null);
           if (pending)
             void handleDeleteCommunityMessage(pending.message, pending.token);
