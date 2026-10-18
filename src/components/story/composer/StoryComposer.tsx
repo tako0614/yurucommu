@@ -469,6 +469,9 @@ export function StoryComposer(props: StoryComposerProps) {
     get gradientAngle() {
       return gradientAngle();
     },
+    get keepTransparent() {
+      return !!video.videoPreview();
+    },
     onUpdate: bumpRenderKey,
   });
 
@@ -503,6 +506,23 @@ export function StoryComposer(props: StoryComposerProps) {
   );
 
   // Custom pointer down that detects double-tap for text editing
+  // With a video, which presses are the canvas's: a drawing stroke, or a
+  // press on a placed layer (the rest move the video).
+  const routeToCanvas = (e: PointerEvent) => {
+    if (interactionState().mode === "draw") return true;
+    const sc = storyCanvas();
+    if (!sc || !canvasContainerRef) return false;
+    const rect = canvasContainerRef.getBoundingClientRect();
+    const scale = CANVAS_WIDTH / rect.width;
+    const hit = sc.hitTest(
+      (e.clientX - rect.left) * scale,
+      (e.clientY - rect.top) * scale,
+    );
+    return !!hit && hit.type !== "background";
+  };
+  const wheelToCanvas = () =>
+    interactionState().mode !== "draw" && !!selectedLayer();
+
   const handleCanvasPointerDown = (e: MouseEvent | TouchEvent) => {
     // A tap that reaches the canvas is not on an overlay (overlays stop
     // propagation), so clear any overlay selection / its edit toolbar.
@@ -704,6 +724,8 @@ export function StoryComposer(props: StoryComposerProps) {
             videoRotation={video.videoRotation()}
             onCanvasPointerDown={handleCanvasPointerDown}
             onCanvasWheel={handleWheel}
+            routeToCanvas={routeToCanvas}
+            wheelToCanvas={wheelToCanvas}
             onVideoPointerDown={videoTransform.handlePointerDown}
             onVideoPointerMove={videoTransform.handlePointerMove}
             onVideoPointerUp={videoTransform.handlePointerUp}
