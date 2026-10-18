@@ -327,8 +327,9 @@ export function AppMenu() {
                 </div>
               </Show>
 
-              {/* Utility navigation */}
-              <nav class="p-2">
+              {/* Utility navigation. Named: beside the bottom nav it was a
+                  second unnamed navigation landmark in the page. */}
+              <nav aria-label={t("menu.title")} class="p-2">
                 <A
                   href="/profile"
                   onClick={close}
