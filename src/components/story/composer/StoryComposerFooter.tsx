@@ -24,12 +24,22 @@ const SendIcon = () => (
   </svg>
 );
 
+// The server refuses a longer (trimmed) caption, but only after the media has
+// uploaded, which left the story on the recovery screen.
+const CAPTION_MAX = 500;
+const CAPTION_COUNT_FROM = 450;
+
 export function StoryComposerFooter(props: StoryComposerFooterProps) {
   const { t } = useI18n();
+  const captionLength = () => props.caption.trim().length;
+  // maxlength stops typing and pasting at the limit, but an IME composition
+  // that ends because the field loses focus is committed past it.
+  const captionTooLong = () => captionLength() > CAPTION_MAX;
   const postDisabled = () =>
     !props.canPost ||
     props.posting ||
-    !!(props.videoFile && !props.ffmpegReady);
+    !!(props.videoFile && !props.ffmpegReady) ||
+    captionTooLong();
 
   // The single post button is labelled by the inhabited scope: a community
   // scope shares "to #<community>", personal shares "to your story".
@@ -49,15 +59,30 @@ export function StoryComposerFooter(props: StoryComposerFooterProps) {
         <input
           type="text"
           value={props.caption}
-          // The server refuses a caption over 500 characters, but only after
-          // the media has uploaded, which left the story on the recovery
-          // screen. The field stops at the same length instead.
-          maxLength={500}
+          maxLength={CAPTION_MAX}
           onInput={(e) => props.onCaptionChange(e.currentTarget.value)}
           placeholder={t("story.captionPlaceholder")}
           aria-label={t("story.captionPlaceholder")}
+          aria-describedby={
+            captionLength() >= CAPTION_COUNT_FROM
+              ? "story-caption-count"
+              : undefined
+          }
           class="w-full bg-transparent text-white placeholder-white/50 text-base py-2 outline-none"
         />
+        {/* Near the limit, how much is left: typing just stopped at 500. */}
+        <Show when={captionLength() >= CAPTION_COUNT_FROM}>
+          <p
+            id="story-caption-count"
+            class={`text-right text-xs ${
+              captionTooLong() ? "text-red-400" : "text-white/60"
+            }`}
+          >
+            {t("notes.charCount")
+              .replace("{count}", String(captionLength()))
+              .replace("{max}", String(CAPTION_MAX))}
+          </p>
+        </Show>
       </div>
 
       {/* Current scope indicator: shows where the story will be shared. */}

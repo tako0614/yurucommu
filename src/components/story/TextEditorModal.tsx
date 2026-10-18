@@ -206,8 +206,8 @@ export function TextEditorModal(props: TextEditorModalProps) {
                     }`}
                     style={{ "font-family": font.family }}
                   >
-                    {/* FONTS holds i18n keys: the chips read
-                        「story.fontGothic」 instead of 「ゴシック」. */}
+                    {/* FONTS holds i18n keys, not names: shown as they
+                        were, the chips read 「story.fontGothic」. */}
                     {t(font.name as TranslationKey)}
                   </button>
                 )}
