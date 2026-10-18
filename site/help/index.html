@@ -45,7 +45,7 @@
       href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="../styles.css?v=8" />
+    <link rel="stylesheet" href="../styles.css?v=9" />
   </head>
   <body>
     <!-- Header -->
@@ -150,6 +150,14 @@
           const toggle = menu && menu.querySelector("summary");
           if (!toggle) return;
           const collapsible = () => getComputedStyle(toggle).display !== "none";
+          // Wide screens show the list through CSS while the <details> stayed
+          // closed, which accessibility checkers read as hidden content. Open it
+          // where it cannot be collapsed, and close it when the screen narrows.
+          const sync = () => {
+            menu.open = !collapsible();
+          };
+          sync();
+          window.matchMedia("(width > 900px)").addEventListener("change", sync);
           menu.addEventListener("keydown", (e) => {
             if (e.key === "Escape" && menu.open && collapsible()) {
               menu.open = false;
@@ -196,7 +204,9 @@
         </p>
 
         <h3>1. リポジトリをクローン</h3>
-        <pre><code>git clone https://github.com/tako0614/yurucommu.git
+        <pre
+          tabindex="0"
+        ><code>git clone https://github.com/tako0614/yurucommu.git
 cd yurucommu
 bun install
 bun run dev:mock</code></pre>

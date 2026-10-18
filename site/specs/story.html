@@ -45,7 +45,7 @@
       href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="../styles.css?v=8" />
+    <link rel="stylesheet" href="../styles.css?v=9" />
   </head>
   <body>
     <!-- Header -->
@@ -154,6 +154,14 @@
           const toggle = menu && menu.querySelector("summary");
           if (!toggle) return;
           const collapsible = () => getComputedStyle(toggle).display !== "none";
+          // Wide screens show the list through CSS while the <details> stayed
+          // closed, which accessibility checkers read as hidden content. Open it
+          // where it cannot be collapsed, and close it when the screen narrows.
+          const sync = () => {
+            menu.open = !collapsible();
+          };
+          sync();
+          window.matchMedia("(width > 900px)").addEventListener("change", sync);
           menu.addEventListener("keydown", (e) => {
             if (e.key === "Escape" && menu.open && collapsible()) {
               menu.open = false;
@@ -184,7 +192,7 @@
         </div>
 
         <h2>送信するオブジェクト</h2>
-        <pre><code>{
+        <pre tabindex="0"><code>{
   "@context": [
     "https://www.w3.org/ns/activitystreams",
     {
@@ -277,7 +285,7 @@
           <code>position</code
           >の<code>x</code>、<code>y</code>、<code>width</code>、<code>height</code>は、すべて<code>0.0</code>から<code>1.0</code>までの正規化した数値です。ピクセル数ではありません。<code>x</code>と<code>y</code>はオーバーレイの中心を表します。
         </p>
-        <pre><code>{
+        <pre tabindex="0"><code>{
   "type": "Link",
   "name": "詳細を見る",
   "href": "https://example.com/article",

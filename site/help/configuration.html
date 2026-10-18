@@ -51,7 +51,7 @@
       href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="../styles.css?v=8" />
+    <link rel="stylesheet" href="../styles.css?v=9" />
   </head>
   <body>
     <a class="skip" href="#main">本文へ移動</a>
@@ -156,6 +156,14 @@
           const toggle = menu && menu.querySelector("summary");
           if (!toggle) return;
           const collapsible = () => getComputedStyle(toggle).display !== "none";
+          // Wide screens show the list through CSS while the <details> stayed
+          // closed, which accessibility checkers read as hidden content. Open it
+          // where it cannot be collapsed, and close it when the screen narrows.
+          const sync = () => {
+            menu.open = !collapsible();
+          };
+          sync();
+          window.matchMedia("(width > 900px)").addEventListener("change", sync);
           menu.addEventListener("keydown", (e) => {
             if (e.key === "Escape" && menu.open && collapsible()) {
               menu.open = false;
@@ -178,16 +186,20 @@
         </p>
 
         <h2>ローカルで試す</h2>
-        <pre><code>bun run dev:mock</code></pre>
+        <pre tabindex="0"><code>bun run dev:mock</code></pre>
         <p>
           モックAPIとWeb画面が一緒に起動します。Cloudflareのbindingやシークレットは必要ありません。ログアウト状態から試す場合は次のように起動します。
         </p>
-        <pre><code>YURUCOMMU_MOCK_AUTH=signed-out bun run dev:mock</code></pre>
+        <pre
+          tabindex="0"
+        ><code>YURUCOMMU_MOCK_AUTH=signed-out bun run dev:mock</code></pre>
         <p>
           <code>bun run dev</code>
           はWeb画面だけを起動します。既存のAPIへ接続する場合にだけ、接続先を指定してください。
         </p>
-        <pre><code>YURUCOMMU_DEV_PROXY_TARGET=http://localhost:8787 bun run dev</code></pre>
+        <pre
+          tabindex="0"
+        ><code>YURUCOMMU_DEV_PROXY_TARGET=http://localhost:8787 bun run dev</code></pre>
 
         <h2>本番で最初に決める設定</h2>
         <div
@@ -455,14 +467,14 @@
           公開してよい値は、実際に使用するWrangler設定の <code>vars</code>
           に記述できます。
         </p>
-        <pre><code>"vars": {
+        <pre tabindex="0"><code>"vars": {
   "APP_URL": "https://yurucommu.example.com",
   "OIDC_ISSUER_URL": "https://issuer.example.com",
   "OIDC_CLIENT_ID": "your-client-id"
 }</code></pre>
 
         <p>シークレットは設定ファイルへ書かず、対話形式で登録します。</p>
-        <pre><code>bunx wrangler secret put AUTH_PASSWORD_HASH
+        <pre tabindex="0"><code>bunx wrangler secret put AUTH_PASSWORD_HASH
 bunx wrangler secret put ENCRYPTION_KEY
 bunx wrangler secret put YURUCOMMU_SESSION_HASH_SALT
 bunx wrangler secret put OIDC_CLIENT_SECRET</code></pre>
@@ -473,7 +485,7 @@ bunx wrangler secret put OIDC_CLIENT_SECRET</code></pre>
         </p>
 
         <h2>設定を確認する</h2>
-        <pre><code>bunx wrangler secret list</code></pre>
+        <pre tabindex="0"><code>bunx wrangler secret list</code></pre>
         <p>
           Secretの一覧には値は表示されません。公開後は <code>/healthz</code> と
           <code>/readyz</code>

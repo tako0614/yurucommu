@@ -48,7 +48,7 @@
       href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="../styles.css?v=8" />
+    <link rel="stylesheet" href="../styles.css?v=9" />
   </head>
   <body>
     <a class="skip" href="#main">本文へ移動</a>
@@ -157,6 +157,14 @@
           const toggle = menu && menu.querySelector("summary");
           if (!toggle) return;
           const collapsible = () => getComputedStyle(toggle).display !== "none";
+          // Wide screens show the list through CSS while the <details> stayed
+          // closed, which accessibility checkers read as hidden content. Open it
+          // where it cannot be collapsed, and close it when the screen narrows.
+          const sync = () => {
+            menu.open = !collapsible();
+          };
+          sync();
+          window.matchMedia("(width > 900px)").addEventListener("change", sync);
           menu.addEventListener("keydown", (e) => {
             if (e.key === "Escape" && menu.open && collapsible()) {
               menu.open = false;
@@ -282,7 +290,7 @@
         </div>
 
         <h2>コンテキストを参照する例</h2>
-        <pre><code>{
+        <pre tabindex="0"><code>{
   "@context": [
     "https://www.w3.org/ns/activitystreams",
     "https://yurucommu.com/ns/story/context.jsonld"

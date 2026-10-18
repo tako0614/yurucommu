@@ -45,7 +45,7 @@
       href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="../styles.css?v=8" />
+    <link rel="stylesheet" href="../styles.css?v=9" />
   </head>
   <body>
     <a class="skip" href="#main">本文へ移動</a>
@@ -148,6 +148,14 @@
           const toggle = menu && menu.querySelector("summary");
           if (!toggle) return;
           const collapsible = () => getComputedStyle(toggle).display !== "none";
+          // Wide screens show the list through CSS while the <details> stayed
+          // closed, which accessibility checkers read as hidden content. Open it
+          // where it cannot be collapsed, and close it when the screen narrows.
+          const sync = () => {
+            menu.open = !collapsible();
+          };
+          sync();
+          window.matchMedia("(width > 900px)").addEventListener("change", sync);
           menu.addEventListener("keydown", (e) => {
             if (e.key === "Escape" && menu.open && collapsible()) {
               menu.open = false;
@@ -182,7 +190,7 @@
           >
           も同じ情報を返す互換URLです。
         </p>
-        <pre><code>{
+        <pre tabindex="0"><code>{
   "product": "yurucommu",
   "apiBaseUrl": "https://social.example.com",
   "issuer": "https://accounts.example.com",
@@ -201,7 +209,9 @@
           <code>/api</code>
           の場所や認証方法を決め打ちせず、このレスポンスを起点にすると、別ドメインで動くインスタンスにも接続できます。
         </p>
-        <pre><code>const serverOrigin = "https://social.example.com";
+        <pre
+          tabindex="0"
+        ><code>const serverOrigin = "https://social.example.com";
 const discovery = await fetch(
   new URL("/.well-known/social-server", serverOrigin),
 ).then((response) =&gt; response.json());</code></pre>
@@ -212,7 +222,7 @@ const discovery = await fetch(
           <code>@takosjp/yurucommu-api</code>
           の利用を推奨します。投稿、プロフィール、コミュニティ、DM、通知などの型とリクエスト関数をまとめて利用できます。
         </p>
-        <pre><code>import {
+        <pre tabindex="0"><code>import {
   fetchTimeline,
   setYurucommuApiTransport,
 } from "@takosjp/yurucommu-api";
@@ -286,14 +296,14 @@ const page = await fetchTimeline({ limit: 20 });</code></pre>
         </p>
 
         <h3>モバイルのパスワードログイン</h3>
-        <pre><code>POST /api/auth/mobile/login
+        <pre tabindex="0"><code>POST /api/auth/mobile/login
 Content-Type: application/json
 
 {
   "password": "your-password"
 }</code></pre>
         <p>成功すると、次の形式でセッション情報が返ります。</p>
-        <pre><code>{
+        <pre tabindex="0"><code>{
   "access_token": "...",
   "token_type": "Bearer",
   "expires_in": 2592000
@@ -365,7 +375,7 @@ Content-Type: application/json
           別のownerが持つアカウントへは切り替えられません。切り替え時には古いセッションが破棄され、新しいセッションが発行されます。現在の
           <code>/api/auth/switch</code> はブラウザのCookieセッション専用です。
         </p>
-        <pre><code>{
+        <pre tabindex="0"><code>{
   "ap_id": "https://social.example.com/ap/users/sub-account"
 }</code></pre>
 
@@ -398,12 +408,12 @@ Content-Type: application/json
           が返ります。その値を変更せず、次のリクエストの
           <code>before</code> に渡してください。
         </p>
-        <pre><code>{
+        <pre tabindex="0"><code>{
   "posts": [],
   "has_more": true,
   "next_cursor": "server-issued-value"
 }</code></pre>
-        <pre><code>const params = new URLSearchParams({
+        <pre tabindex="0"><code>const params = new URLSearchParams({
   limit: "20",
   before: previousPage.next_cursor,
 });
@@ -425,7 +435,9 @@ const nextPage = await fetch(
           形式のURLです。パスの1区間に入れる場合は、値全体を
           <code>encodeURIComponent</code> でエンコードします。
         </p>
-        <pre><code>const path = `/api/posts/${encodeURIComponent(post.ap_id)}`;
+        <pre
+          tabindex="0"
+        ><code>const path = `/api/posts/${encodeURIComponent(post.ap_id)}`;
 const dmPath =
   `/api/dm/user/${encodeURIComponent(otherActor.ap_id)}/messages`;</code></pre>
         <p>
@@ -618,7 +630,7 @@ const dmPath =
           Cookieセッション、またはモバイル用Bearerセッションが必要です。
         </p>
         <p><strong>body:</strong></p>
-        <pre><code>{
+        <pre tabindex="0"><code>{
   "content": "今日の進捗です",
   "summary": "開発メモ",
   "visibility": "public",
@@ -639,7 +651,7 @@ const dmPath =
           を使用できます。コミュニティを指定した場合は、そのコミュニティの参加状態と投稿ルールも確認されます。
         </p>
         <p><strong>成功レスポンス:</strong></p>
-        <pre><code>{
+        <pre tabindex="0"><code>{
   "post": {
     "ap_id": "https://social.example.com/ap/objects/...",
     "content": "今日の進捗です",
@@ -662,7 +674,7 @@ const dmPath =
           </li>
         </ul>
         <p>多くの失敗レスポンスは、次の形式です。</p>
-        <pre><code>{
+        <pre tabindex="0"><code>{
   "error": "説明",
   "code": "BAD_REQUEST"
 }</code></pre>
@@ -746,7 +758,7 @@ const dmPath =
           <code>Authorization: Bearer ...</code> で送ります。
         </p>
         <p><strong>body:</strong></p>
-        <pre><code>{
+        <pre tabindex="0"><code>{
   "files": [
     {
       "path": "index.html",
@@ -760,7 +772,7 @@ const dmPath =
           はBase64です。1回のリクエストで送れるファイルは最大1000件です。
         </p>
         <p><strong>成功レスポンス:</strong></p>
-        <pre><code>{
+        <pre tabindex="0"><code>{
   "url": "https://social.example.com/hosted/oauth-subject/my-app/",
   "files": 1
 }</code></pre>

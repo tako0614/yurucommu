@@ -32,7 +32,7 @@
         <p>
           公開中で削除されていないコミュニティだけが<code>/ap/groups/:name</code>で取得できます。非公開コミュニティはActivityPubのアクターとして公開されず、このURLは<code>404</code>を返します。<code>@name@host</code>はWebFingerでこのアクターに解決されます。
         </p>
-        <pre><code>{
+        <pre tabindex="0"><code>{
   "@context": "https://www.w3.org/ns/activitystreams",
   "id": "https://example.com/ap/groups/tech",
   "type": "Group",
@@ -99,7 +99,7 @@
         <p>
           公開コミュニティからリモートへ届けるときは、Groupアクターが投稿を<code>Announce</code>します。ローカルメンバーには元の<code>Create</code>が渡ります。
         </p>
-        <pre><code>{
+        <pre tabindex="0"><code>{
   "@context": "https://www.w3.org/ns/activitystreams",
   "id": "https://example.com/ap/activities/announce-1",
   "type": "Announce",
