@@ -60,20 +60,26 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
     return !active || active === document.body || !active.isConnected;
   };
   let refocusRoleFor: string | null = null;
-  let refocusRowAt: number | null = null;
+  // Whose 削除 was pressed, not a row index: another removal or a refetch can
+  // drop or shift rows while this one is in flight, and only this member's
+  // own removal (or its failure) spends the marker.
+  let refocusRemovalOf: string | null = null;
   createEffect(
     on(
-      () => props.members.length,
-      (length, previous) => {
-        if (previous === undefined || length >= previous) return;
-        const at = refocusRowAt;
-        refocusRowAt = null;
-        if (at === null || length === 0) return;
+      () => props.members.map((member) => member.ap_id),
+      (ids, previous) => {
+        const removed = refocusRemovalOf;
+        if (!previous || removed === null || ids.includes(removed)) return;
+        refocusRemovalOf = null;
+        const at = previous.indexOf(removed);
+        if (at === -1 || ids.length === 0) return;
+        // The row now in its place: the members above it that are still here.
+        const place = previous.slice(0, at).filter((id) => ids.includes(id));
         queueMicrotask(() => {
           if (!focusIsLost()) return;
           document
             .querySelector<HTMLElement>(
-              `[data-member-row="${Math.min(at, length - 1)}"] a`,
+              `[data-member-row="${Math.min(place.length, ids.length - 1)}"] a`,
             )
             ?.focus();
         });
@@ -191,9 +197,9 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
             // A marker set for this row is spent once its save or removal
             // settles without the row going away (a failed request), so it
             // cannot move focus later on some unrelated re-render. (A
-            // cancelled owner promotion never starts a save and leaves the
-            // role marker; it only acts while focus is lost, landing on this
-            // member's select.)
+            // cancelled owner promotion or removal never starts a request and
+            // leaves its marker; it only acts while focus is lost, landing on
+            // this member's select or the row after this member.)
             createEffect(
               on(
                 () => props.updatingMemberRole[member.ap_id],
@@ -210,9 +216,14 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
               on(
                 () => props.removingMember[member.ap_id],
                 (removing, wasRemoving) => {
-                  if (wasRemoving && !removing)
+                  if (
+                    wasRemoving &&
+                    !removing &&
+                    refocusRemovalOf === member.ap_id
+                  )
                     queueMicrotask(() => {
-                      refocusRowAt = null;
+                      if (refocusRemovalOf === member.ap_id)
+                        refocusRemovalOf = null;
                     });
                 },
               ),
@@ -336,7 +347,7 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
                     // on a failure). A press meanwhile is refused.
                     onClick={() => {
                       if (props.removingMember[member.ap_id]) return;
-                      refocusRowAt = index();
+                      refocusRemovalOf = member.ap_id;
                       props.onRemoveMember(member);
                     }}
                     aria-disabled={
