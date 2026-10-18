@@ -80,13 +80,42 @@ export function TextEditorModal(props: TextEditorModalProps) {
   const [showColorPicker, setShowColorPicker] = createSignal(false);
   let inputRef!: HTMLTextAreaElement;
   let rootRef: HTMLDivElement | undefined;
+  let fontToggleRef: HTMLButtonElement | undefined;
+  let colorToggleRef: HTMLButtonElement | undefined;
+  // The colour input returns lowercase hex; the swatches are uppercase.
+  const sameColor = (a: string, b: string) =>
+    a.toLowerCase() === b.toLowerCase();
+  // An opened list takes focus on its checked item, as the composer's
+  // panels do: from the toggle, Tab went to 完了 first.
+  const focusList = (list: "font" | "color") =>
+    queueMicrotask(() =>
+      rootRef
+        ?.querySelector<HTMLElement>(
+          `[data-text-list="${list}"] [tabindex="0"]`,
+        )
+        ?.focus(),
+    );
 
   // Full-screen text editor: trap focus, lock scroll, and close on Escape. It
   // sits ABOVE the composer on the shared dialog stack, so Escape dismisses the
   // text editor first (returning to the composer) rather than the whole sheet.
   useDialog({
     isOpen: () => props.isOpen,
-    onClose: () => props.onClose(),
+    // Escape closes an open list first, back to its toggle: it closed the
+    // whole editor and dropped the typed text.
+    onClose: () => {
+      if (showColorPicker()) {
+        setShowColorPicker(false);
+        colorToggleRef?.focus();
+        return;
+      }
+      if (showFontPicker()) {
+        setShowFontPicker(false);
+        fontToggleRef?.focus();
+        return;
+      }
+      props.onClose();
+    },
     container: () => rootRef,
     initialFocus: () => inputRef,
     returnFocus: () => props.returnFocus?.(),
@@ -109,6 +138,9 @@ export function TextEditorModal(props: TextEditorModalProps) {
   createEffect(() => {
     if (props.isOpen) {
       setText(props.initialText || defaultTextData);
+      // A list left open stayed open the next time the editor opened.
+      setShowColorPicker(false);
+      setShowFontPicker(false);
     }
   });
 
@@ -157,10 +189,12 @@ export function TextEditorModal(props: TextEditorModalProps) {
           <div class="flex gap-2">
             {/* Font picker toggle */}
             <button
+              ref={fontToggleRef}
               type="button"
               onClick={() => {
                 setShowFontPicker(!showFontPicker());
                 setShowColorPicker(false);
+                if (showFontPicker()) focusList("font");
               }}
               // It read only 「Aa」.
               aria-label={t("story.font")}
@@ -175,9 +209,12 @@ export function TextEditorModal(props: TextEditorModalProps) {
             </button>
             {/* Color picker toggle */}
             <button
+              ref={colorToggleRef}
+              type="button"
               onClick={() => {
                 setShowColorPicker(!showColorPicker());
                 setShowFontPicker(false);
+                if (showColorPicker()) focusList("color");
               }}
               aria-label={t("story.textColor")}
               aria-haspopup="true"
@@ -200,6 +237,7 @@ export function TextEditorModal(props: TextEditorModalProps) {
             {/* One choice of several: a radio group with one Tab stop, and
                 arrow keys inside (the chips gave no sign of which was on). */}
             <div
+              data-text-list="font"
               role="radiogroup"
               aria-label={t("story.font")}
               onKeyDown={onSwatchKeyDown}
@@ -221,7 +259,8 @@ export function TextEditorModal(props: TextEditorModalProps) {
                     onClick={() =>
                       setText((prev) => ({ ...prev, fontFamily: font.family }))
                     }
-                    class={`px-4 py-2 rounded-full whitespace-nowrap text-sm transition-colors ${
+                    // Ring drawn inside: the scrolling row clipped it.
+                    class={`focus-inset px-4 py-2 rounded-full whitespace-nowrap text-sm transition-colors ${
                       text().fontFamily === font.family
                         ? "bg-white text-black"
                         : "bg-white/20 text-white"
@@ -247,6 +286,7 @@ export function TextEditorModal(props: TextEditorModalProps) {
                   Eleven 32px circles in a row did not fit a phone: 「＋」
                   (custom) ran off the right edge. Two rows of five there. */}
               <div
+                data-text-list="color"
                 role="radiogroup"
                 aria-label={t("story.textColor")}
                 onKeyDown={onSwatchKeyDown}
@@ -261,15 +301,15 @@ export function TextEditorModal(props: TextEditorModalProps) {
                         "{color}",
                         color,
                       )}
-                      aria-checked={text().color === color}
+                      aria-checked={sameColor(text().color, color)}
                       tabIndex={swatchTabIndex(
-                        text().color === color,
+                        sameColor(text().color, color),
                         index(),
-                        COLORS.includes(text().color),
+                        COLORS.some((c) => sameColor(text().color, c)),
                       )}
                       onClick={() => setText((prev) => ({ ...prev, color }))}
                       class={`size-8 rounded-full transition-transform ${
-                        text().color === color
+                        sameColor(text().color, color)
                           ? "scale-125 ring-2 ring-white ring-offset-2 ring-offset-black"
                           : ""
                       }`}
@@ -294,7 +334,9 @@ export function TextEditorModal(props: TextEditorModalProps) {
                   }
                   class="opacity-0 absolute w-0 h-0"
                 />
-                <span class="text-white text-xs">+</span>
+                <span aria-hidden="true" class="text-white text-xs">
+                  +
+                </span>
               </label>
             </div>
           </div>

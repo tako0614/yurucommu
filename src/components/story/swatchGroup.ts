@@ -31,28 +31,38 @@ export function onSwatchKeyDown(
   const firstRowEnd = radios.findIndex((radio) => radio.offsetTop !== top);
   const columns = firstRowEnd === -1 ? radios.length : firstRowEnd;
   const last = radios.length - 1;
+  // One row (alignment, fonts, a wide colour row): ↑ / ↓ are previous / next,
+  // as in any radio group; they did nothing there.
+  const key =
+    columns === radios.length
+      ? e.key === "ArrowDown"
+        ? "ArrowRight"
+        : e.key === "ArrowUp"
+          ? "ArrowLeft"
+          : e.key
+      : e.key;
   const next =
-    e.key === "ArrowRight"
+    key === "ArrowRight"
       ? at === last
         ? 0
         : at + 1
-      : e.key === "ArrowLeft"
+      : key === "ArrowLeft"
         ? at === 0
           ? last
           : at - 1
         : // At the top or bottom row ↑ / ↓ stay put: clamping picked a
           // different swatch (from the bottom row, the last one).
-          e.key === "ArrowDown"
+          key === "ArrowDown"
           ? at + columns <= last
             ? at + columns
             : at
-          : e.key === "ArrowUp"
+          : key === "ArrowUp"
             ? at - columns >= 0
               ? at - columns
               : at
-            : e.key === "Home"
+            : key === "Home"
               ? 0
-              : e.key === "End"
+              : key === "End"
                 ? last
                 : null;
   if (next === null) return;
