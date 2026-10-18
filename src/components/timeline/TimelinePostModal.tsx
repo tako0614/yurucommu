@@ -211,8 +211,11 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
         // Bring the grid, not just its first chip, into view on a short
         // screen.
         emojiPanelRef?.scrollIntoView({ block: "nearest" });
-        const first =
-          emojiPanelRef?.querySelector<HTMLElement>("button, [tabindex]");
+        // The first Tab stop: the selected category, not the picker's
+        // scroll containers (tabindex -1, kept out of Firefox's Tab order).
+        const first = emojiPanelRef?.querySelector<HTMLElement>(
+          'button:not([tabindex="-1"])',
+        );
         first?.focus({ preventScroll: true });
       });
     }

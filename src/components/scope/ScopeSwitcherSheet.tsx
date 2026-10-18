@@ -96,6 +96,14 @@ export function ScopeSwitcherSheet(props: ScopeSwitcherSheetProps) {
     isOpen: () => props.open,
     onClose: () => props.onClose(),
     container: () => dialogRef,
+    // Opens on the checked filter. The dialog's first Tab stop was the radio
+    // left holding the roving stop from the last open (an arrow move then
+    // Escape), which could be an unchecked one; the reset below runs only
+    // after focus is placed.
+    initialFocus: () =>
+      dialogRef?.querySelector<HTMLElement>(
+        '[role="radio"][aria-checked="true"]',
+      ) ?? undefined,
   });
 
   // Joined communities only; the picker never offers a scope the owner has not
