@@ -14,7 +14,7 @@ export function focusPanelStart(panel: HTMLElement) {
   queueMicrotask(() => {
     panel
       .querySelector<HTMLElement>(
-        "[data-panel-start] :is(button, input, select):not(:disabled)",
+        '[data-panel-start] :is(button, input, select):not(:disabled):not([tabindex="-1"])',
       )
       ?.focus();
   });

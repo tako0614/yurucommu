@@ -6,6 +6,7 @@
 
 import { createSignal, For, Show } from "solid-js";
 import { useI18n } from "../../lib/i18n.tsx";
+import { onSwatchKeyDown, swatchTabIndex } from "./swatchGroup.ts";
 
 interface ColorPickerProps {
   color: string;
@@ -69,14 +70,26 @@ export function ColorPicker(props: ColorPickerProps) {
         <label class="text-neutral-400 text-sm">{props.label}</label>
       </Show>
 
-      {/* Preset colors */}
-      <div class="grid grid-cols-8 gap-1">
+      {/* Preset colors: one radio group, one Tab stop, arrow keys inside. */}
+      <div
+        role="radiogroup"
+        aria-label={props.label ?? t("story.color")}
+        onKeyDown={onSwatchKeyDown}
+        class="grid grid-cols-8 gap-1"
+      >
         <For each={PRESET_COLORS}>
-          {(preset) => (
+          {(preset, index) => (
             <button
+              type="button"
+              role="radio"
               onClick={() => handlePresetClick(preset)}
               aria-label={t("story.selectColor").replace("{color}", preset)}
-              aria-pressed={props.color === preset}
+              aria-checked={props.color === preset}
+              tabIndex={swatchTabIndex(
+                props.color === preset,
+                index(),
+                PRESET_COLORS.includes(props.color),
+              )}
               class={`aspect-square w-full max-w-8 justify-self-center rounded-lg border-2 transition-all ${
                 props.color === preset
                   ? "border-white scale-110 shadow-lg"
@@ -138,17 +151,32 @@ export function GradientPicker(props: GradientPickerProps) {
         <label class="text-neutral-400 text-sm">{props.label}</label>
       </Show>
 
-      {/* Preset gradients */}
-      <div class="grid grid-cols-4 gap-2">
+      {/* Preset gradients: one radio group, one Tab stop, arrow keys. */}
+      <div
+        role="radiogroup"
+        aria-label={props.label ?? t("story.gradient")}
+        onKeyDown={onSwatchKeyDown}
+        class="grid grid-cols-4 gap-2"
+      >
         <For each={GRADIENT_PRESETS}>
-          {(preset) => (
+          {(preset, index) => (
             <button
+              type="button"
+              role="radio"
               onClick={() => props.onChange(preset.colors, preset.angle)}
               // Named by its colours: all eight read 「グラデーションを選択」.
               aria-label={`${t("story.selectGradient")}: ${preset.colors.join("、")}`}
-              aria-pressed={
+              aria-checked={
                 JSON.stringify(props.colors) === JSON.stringify(preset.colors)
               }
+              tabIndex={swatchTabIndex(
+                JSON.stringify(props.colors) === JSON.stringify(preset.colors),
+                index(),
+                GRADIENT_PRESETS.some(
+                  (p) =>
+                    JSON.stringify(props.colors) === JSON.stringify(p.colors),
+                ),
+              )}
               class={`w-full aspect-square rounded-lg border-2 transition-all ${
                 JSON.stringify(props.colors) === JSON.stringify(preset.colors)
                   ? "border-white scale-105 shadow-lg"
