@@ -13,6 +13,7 @@ import { FONTS } from "../../lib/story-canvas.ts";
 import { useI18n } from "../../lib/i18n.tsx";
 import type { TranslationKey } from "../../lib/i18n.tsx";
 import { useDialog } from "../../lib/useDialog.ts";
+import { onSwatchKeyDown, swatchTabIndex } from "./swatchGroup.ts";
 
 // Text style presets (Instagram-like A, A, A buttons)
 const TEXT_STYLES = [
@@ -79,13 +80,48 @@ export function TextEditorModal(props: TextEditorModalProps) {
   const [showColorPicker, setShowColorPicker] = createSignal(false);
   let inputRef!: HTMLTextAreaElement;
   let rootRef: HTMLDivElement | undefined;
+  let fontToggleRef: HTMLButtonElement | undefined;
+  let colorToggleRef: HTMLButtonElement | undefined;
+  // The colour input returns lowercase hex; the swatches are uppercase.
+  const sameColor = (a: string, b: string) =>
+    a.toLowerCase() === b.toLowerCase();
+  // An opened list takes focus on its checked item, as the composer's
+  // panels do: from the toggle, Tab went to 完了 first.
+  const focusList = (list: "font" | "color") =>
+    queueMicrotask(() =>
+      rootRef
+        ?.querySelector<HTMLElement>(
+          `[data-text-list="${list}"] [tabindex="0"]`,
+        )
+        ?.focus(),
+    );
 
   // Full-screen text editor: trap focus, lock scroll, and close on Escape. It
   // sits ABOVE the composer on the shared dialog stack, so Escape dismisses the
   // text editor first (returning to the composer) rather than the whole sheet.
   useDialog({
     isOpen: () => props.isOpen,
-    onClose: () => props.onClose(),
+    // Escape closes an open list first, back to its toggle: it closed the
+    // whole editor and dropped the typed text.
+    // Focus goes back to the toggle only from inside the list: from the
+    // text field it took the typing away.
+    onClose: () => {
+      const inList = (list: string) =>
+        !!document.activeElement?.closest(`[data-text-list="${list}"]`);
+      if (showColorPicker()) {
+        const back = inList("color");
+        setShowColorPicker(false);
+        if (back) colorToggleRef?.focus();
+        return;
+      }
+      if (showFontPicker()) {
+        const back = inList("font");
+        setShowFontPicker(false);
+        if (back) fontToggleRef?.focus();
+        return;
+      }
+      props.onClose();
+    },
     container: () => rootRef,
     initialFocus: () => inputRef,
     returnFocus: () => props.returnFocus?.(),
@@ -108,6 +144,9 @@ export function TextEditorModal(props: TextEditorModalProps) {
   createEffect(() => {
     if (props.isOpen) {
       setText(props.initialText || defaultTextData);
+      // A list left open stayed open the next time the editor opened.
+      setShowColorPicker(false);
+      setShowFontPicker(false);
     }
   });
 
@@ -156,10 +195,16 @@ export function TextEditorModal(props: TextEditorModalProps) {
           <div class="flex gap-2">
             {/* Font picker toggle */}
             <button
+              ref={fontToggleRef}
+              type="button"
               onClick={() => {
                 setShowFontPicker(!showFontPicker());
                 setShowColorPicker(false);
+                if (showFontPicker()) focusList("font");
               }}
+              // It read only 「Aa」.
+              aria-label={t("story.font")}
+              aria-expanded={showFontPicker()}
               class={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
                 showFontPicker()
                   ? "bg-white text-black"
@@ -170,9 +215,12 @@ export function TextEditorModal(props: TextEditorModalProps) {
             </button>
             {/* Color picker toggle */}
             <button
+              ref={colorToggleRef}
+              type="button"
               onClick={() => {
                 setShowColorPicker(!showColorPicker());
                 setShowFontPicker(false);
+                if (showColorPicker()) focusList("color");
               }}
               aria-label={t("story.textColor")}
               aria-haspopup="true"
@@ -192,14 +240,33 @@ export function TextEditorModal(props: TextEditorModalProps) {
         {/* Font picker dropdown */}
         <Show when={showFontPicker()}>
           <div class="px-4 py-2 bg-black/50">
-            <div class="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+            {/* One choice of several: a radio group with one Tab stop, and
+                arrow keys inside (the chips gave no sign of which was on). */}
+            <div
+              data-text-list="font"
+              role="radiogroup"
+              aria-label={t("story.font")}
+              onKeyDown={onSwatchKeyDown}
+              // A scroll container is a Tab stop in Firefox.
+              tabIndex={-1}
+              class="flex gap-2 overflow-x-auto pb-2 scrollbar-hide"
+            >
               <For each={FONTS}>
-                {(font) => (
+                {(font, index) => (
                   <button
+                    type="button"
+                    role="radio"
+                    aria-checked={text().fontFamily === font.family}
+                    tabIndex={swatchTabIndex(
+                      text().fontFamily === font.family,
+                      index(),
+                      FONTS.some((f) => f.family === text().fontFamily),
+                    )}
                     onClick={() =>
                       setText((prev) => ({ ...prev, fontFamily: font.family }))
                     }
-                    class={`px-4 py-2 rounded-full whitespace-nowrap text-sm transition-colors ${
+                    // Ring drawn inside: the scrolling row clipped it.
+                    class={`focus-inset px-4 py-2 rounded-full whitespace-nowrap text-sm transition-colors ${
                       text().fontFamily === font.family
                         ? "bg-white text-black"
                         : "bg-white/20 text-white"
@@ -218,25 +285,53 @@ export function TextEditorModal(props: TextEditorModalProps) {
 
         {/* Color picker dropdown */}
         <Show when={showColorPicker()}>
-          <div class="px-4 py-3 bg-black/50">
-            <div class="flex gap-2 justify-center">
-              <For each={COLORS}>
-                {(color) => (
-                  <button
-                    onClick={() => setText((prev) => ({ ...prev, color }))}
-                    class={`w-8 h-8 rounded-full transition-transform ${
-                      text().color === color
-                        ? "scale-125 ring-2 ring-white ring-offset-2 ring-offset-black"
-                        : ""
-                    }`}
-                    style={{ "background-color": color }}
-                  />
-                )}
-              </For>
-              {/* Custom color input */}
-              <label class="w-8 h-8 rounded-full bg-gradient-to-br from-red-500 via-green-500 to-blue-500 cursor-pointer flex items-center justify-center">
+          {/* The whole panel, so the custom colour input counts as inside
+              the list too (Escape from it lost focus to <body>). */}
+          <div data-text-list="color" class="px-4 py-3 bg-black/50">
+            <div class="flex items-center justify-center gap-3">
+              {/* The swatches had no name and no state: one radio group with
+                  one Tab stop, named by colour like the drawing panel's.
+                  Eleven 32px circles in a row did not fit a phone: 「＋」
+                  (custom) ran off the right edge. Two rows of five there. */}
+              <div
+                role="radiogroup"
+                aria-label={t("story.textColor")}
+                onKeyDown={onSwatchKeyDown}
+                class="grid grid-cols-5 gap-2 sm:flex"
+              >
+                <For each={COLORS}>
+                  {(color, index) => (
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-label={t("story.selectColor").replace(
+                        "{color}",
+                        color,
+                      )}
+                      aria-checked={sameColor(text().color, color)}
+                      tabIndex={swatchTabIndex(
+                        sameColor(text().color, color),
+                        index(),
+                        COLORS.some((c) => sameColor(text().color, c)),
+                      )}
+                      onClick={() => setText((prev) => ({ ...prev, color }))}
+                      class={`size-8 rounded-full transition-transform ${
+                        sameColor(text().color, color)
+                          ? "scale-125 ring-2 ring-white ring-offset-2 ring-offset-black"
+                          : ""
+                      }`}
+                      style={{ "background-color": color }}
+                    />
+                  )}
+                </For>
+              </div>
+              {/* Custom color input. The input itself is invisible, so its
+                  focus is shown on the round label (it had no visible focus
+                  and no name). */}
+              <label class="relative size-8 shrink-0 rounded-full bg-gradient-to-br from-red-500 via-green-500 to-blue-500 cursor-pointer flex items-center justify-center has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-white">
                 <input
                   type="color"
+                  aria-label={t("story.customColor")}
                   value={text().color}
                   onInput={(e) =>
                     setText((prev) => ({
@@ -246,7 +341,9 @@ export function TextEditorModal(props: TextEditorModalProps) {
                   }
                   class="opacity-0 absolute w-0 h-0"
                 />
-                <span class="text-white text-xs">+</span>
+                <span aria-hidden="true" class="text-white text-xs">
+                  +
+                </span>
               </label>
             </div>
           </div>
@@ -333,11 +430,31 @@ export function TextEditorModal(props: TextEditorModalProps) {
             </For>
           </div>
 
-          {/* Alignment */}
-          <div class="flex justify-center gap-2">
+          {/* Alignment: icons only, so named; one radio group. */}
+          <div
+            role="radiogroup"
+            aria-label={t("story.align")}
+            onKeyDown={onSwatchKeyDown}
+            class="flex justify-center gap-2"
+          >
             <For each={["left", "center", "right"] as const}>
-              {(align) => (
+              {(align, index) => (
                 <button
+                  type="button"
+                  role="radio"
+                  aria-label={t(
+                    align === "left"
+                      ? "story.alignLeft"
+                      : align === "center"
+                        ? "story.alignCenter"
+                        : "story.alignRight",
+                  )}
+                  aria-checked={text().textAlign === align}
+                  tabIndex={swatchTabIndex(
+                    text().textAlign === align,
+                    index(),
+                    true,
+                  )}
                   onClick={() =>
                     setText((prev) => ({ ...prev, textAlign: align }))
                   }
@@ -398,6 +515,11 @@ export function TextEditorModal(props: TextEditorModalProps) {
               type="range"
               min="24"
               max="120"
+              // It had no name.
+              aria-label={t("story.fontSize").replace(
+                "{value}",
+                String(text().fontSize),
+              )}
               value={text().fontSize}
               onInput={(e) =>
                 setText((prev) => ({
@@ -412,7 +534,10 @@ export function TextEditorModal(props: TextEditorModalProps) {
 
           {/* Bold / Italic toggle */}
           <div class="flex justify-center gap-2">
+            {/* Toggles: their state was only the colour. */}
             <button
+              type="button"
+              aria-pressed={text().fontWeight === "bold"}
               onClick={() =>
                 setText((prev) => ({
                   ...prev,
@@ -428,6 +553,8 @@ export function TextEditorModal(props: TextEditorModalProps) {
               B
             </button>
             <button
+              type="button"
+              aria-pressed={text().fontStyle === "italic"}
               onClick={() =>
                 setText((prev) => ({
                   ...prev,
@@ -443,6 +570,10 @@ export function TextEditorModal(props: TextEditorModalProps) {
               I
             </button>
             <button
+              type="button"
+              // It read 「A」, like the background styles.
+              aria-label={t("story.stroke")}
+              aria-pressed={!!text().stroke}
               onClick={() =>
                 setText((prev) => ({
                   ...prev,
