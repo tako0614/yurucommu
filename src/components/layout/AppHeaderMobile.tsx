@@ -43,7 +43,10 @@ export function AppHeaderMobile() {
             aria-haspopup="dialog"
             class="rounded-full ring-1 ring-neutral-700 transition-colors hover:ring-neutral-500"
           >
+            {/* The button is named メニューを開く; the avatar's alt repeated
+                the account's name. */}
             <UserAvatar
+              decorative
               avatarUrl={current().icon_url}
               name={current().name || current().preferred_username}
               size={32}

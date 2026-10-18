@@ -49,15 +49,9 @@ export function AppLayout(props: { children?: JSX.Element }) {
             bottom nav and its last row could not be reached. */}
         <div class="flex min-h-0 flex-1 flex-col">{props.children}</div>
       </main>
-      {/* A landmark of its own: its recommendations and the connect panel
-          were outside every landmark. Named by whichever heading it shows,
-          apart from the left sidebar's aside. */}
-      <aside
-        aria-labelledby="sidebar-suggested-title sidebar-connect-title"
-        class="hidden lg:block w-80 bg-neutral-900 shrink-0"
-      >
+      <div class="hidden lg:block w-80 bg-neutral-900 shrink-0">
         <RightSidebar />
-      </aside>
+      </div>
       <BottomNav />
       {/* App-shell overlays mounted once so they work from any route. */}
       <AppMenu />

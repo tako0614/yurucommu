@@ -150,8 +150,11 @@ export function RightSidebar() {
 
   return (
     <div class="sticky top-0">
+      {/* Each panel is a named landmark of its own (they were outside every
+          landmark). Not the column: often neither panel shows, and an empty
+          unnamed aside beside the left sidebar's was a new violation. */}
       <Show when={showRecommendations()}>
-        <div class="p-4 pb-0">
+        <aside aria-labelledby="sidebar-suggested-title" class="p-4 pb-0">
           <div class="bg-neutral-900/50 rounded-2xl overflow-hidden">
             <h2
               id="sidebar-suggested-title"
@@ -177,10 +180,10 @@ export function RightSidebar() {
               </For>
             </Show>
           </div>
-        </div>
+        </aside>
       </Show>
       <Show when={showConnect()}>
-        <section aria-labelledby="sidebar-connect-title" class="p-4 pb-0">
+        <aside aria-labelledby="sidebar-connect-title" class="p-4 pb-0">
           <div class="space-y-6 rounded-2xl bg-neutral-900/50 p-4">
             <h2 id="sidebar-connect-title" class="text-lg font-bold">
               {t("firstFeed.sidebarTitle")}
@@ -188,7 +191,7 @@ export function RightSidebar() {
             <FollowByAddressForm id="sidebar-connect-address" compact />
             <OwnAddressPanel compact />
           </div>
-        </section>
+        </aside>
       </Show>
       <PluginSlot name="right-sidebar.below-recommendations" />
     </div>
