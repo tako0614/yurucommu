@@ -46,6 +46,9 @@ function ComposeAside() {
 }
 
 export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
+  // The owner changes another member's role with a select in that row.
+  const roleSelectShown = (member: CommunityMember) =>
+    props.isOwner && member.ap_id !== props.actorApId;
   // Brief "Copied" feedback after copying the freshly-created invite code, so the
   // owner doesn't have to hand-select the code text to share it.
   const [inviteCopied, setInviteCopied] = createSignal(false);
@@ -155,10 +158,12 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
           {(member, index) => {
             const nameId = () => `community-member-name-${index()}`;
             return (
-              <div class="flex items-center gap-3 px-4 py-3 hover:bg-neutral-900/30 transition-colors">
+              // The row's padding belongs to the link, so a tap on it still
+              // opens the profile as it did when the whole row was the link.
+              <div class="flex items-center gap-3 pr-4 hover:bg-neutral-900/30 transition-colors">
                 <A
                   href={`/profile/${encodeURIComponent(member.ap_id)}`}
-                  class="flex min-w-0 flex-1 items-center gap-3"
+                  class="flex min-w-0 flex-1 items-center gap-3 py-3 pl-4"
                 >
                   {/* Decorative: the name follows as text, so the link
                       read the name twice. */}
@@ -173,15 +178,19 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
                       <span id={nameId()} class="font-bold text-white truncate">
                         {member.name || member.preferred_username}
                       </span>
-                      <Show when={member.role === "owner"}>
-                        <span class="px-1.5 py-0.5 text-xs bg-yellow-500/20 text-yellow-400 rounded">
-                          {props.t("members.owner")}
-                        </span>
-                      </Show>
-                      <Show when={member.role === "moderator"}>
-                        <span class="px-1.5 py-0.5 text-xs bg-accent-soft text-accent rounded">
-                          {props.t("members.moderator")}
-                        </span>
+                      {/* One line, never squeezed into a column; left out
+                          where the owner's role select already shows it. */}
+                      <Show when={!roleSelectShown(member)}>
+                        <Show when={member.role === "owner"}>
+                          <span class="shrink-0 whitespace-nowrap px-1.5 py-0.5 text-xs bg-yellow-500/20 text-yellow-400 rounded">
+                            {props.t("members.owner")}
+                          </span>
+                        </Show>
+                        <Show when={member.role === "moderator"}>
+                          <span class="shrink-0 whitespace-nowrap px-1.5 py-0.5 text-xs bg-accent-soft text-accent rounded">
+                            {props.t("members.moderator")}
+                          </span>
+                        </Show>
                       </Show>
                     </div>
                     <div class="text-neutral-500 truncate">
@@ -189,7 +198,7 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
                     </div>
                   </div>
                 </A>
-                <Show when={props.isOwner && member.ap_id !== props.actorApId}>
+                <Show when={roleSelectShown(member)}>
                   <select
                     value={member.role}
                     aria-label={props
@@ -215,17 +224,18 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
                     <option value="owner">{props.t("members.owner")}</option>
                   </select>
                 </Show>
-                {/* Remove (kick): a manager may remove non-owners; only an owner
-                    may remove another owner — mirrors the backend requireManager +
-                    owner-vs-owner guard. Never shown for self (use leave).
-                    Named by its visible 削除, described by the member's name
-                    (its name used to be the confirmation question); a 32px
-                    tap target instead of 24x16. */}
+                {/* Remove (kick): an owner may remove anyone else; a moderator
+                    only plain members — the backend refuses a moderator
+                    removing a manager (403 "Owner role required to remove a
+                    manager"), which the button used to offer. Never shown for
+                    self (use leave). Named by its visible 削除, described by
+                    the member's name (its name used to be the confirmation
+                    question); a 32px tap target instead of 24x16. */}
                 <Show
                   when={
                     props.canManage &&
                     member.ap_id !== props.actorApId &&
-                    (member.role !== "owner" || props.isOwner)
+                    (props.isOwner || member.role === "member")
                   }
                 >
                   <button
@@ -233,7 +243,7 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
                     aria-describedby={nameId()}
                     onClick={() => props.onRemoveMember(member)}
                     disabled={props.removingMember[member.ap_id]}
-                    class="-my-1 shrink-0 rounded-lg px-2.5 py-2 text-xs text-rose-400 hover:bg-rose-500/10 hover:text-rose-300 disabled:opacity-50"
+                    class="-my-1 -mr-2.5 shrink-0 rounded-lg px-2.5 py-2 text-xs text-rose-400 hover:bg-rose-500/10 hover:text-rose-300 disabled:opacity-50"
                   >
                     {props.t("members.remove")}
                   </button>
