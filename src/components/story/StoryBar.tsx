@@ -89,7 +89,11 @@ export function StoryBar(props: StoryBarProps) {
               >
                 <div class="relative">
                   <div class="w-16 h-16 rounded-full ring-2 ring-neutral-700 flex items-center justify-center">
+                    {/* Decorative here and below: each button is named
+                        (ストーリーを追加 / あなたのストーリーを見る / …), and the
+                        avatar's alt repeated the name. */}
                     <UserAvatar
+                      decorative
                       avatarUrl={props.actor.icon_url}
                       name={props.actor.name || props.actor.username}
                       size={60}
@@ -130,6 +134,7 @@ export function StoryBar(props: StoryBarProps) {
                   <div class="relative">
                     <div class="w-16 h-16 rounded-full ring-2 ring-neutral-700 flex items-center justify-center">
                       <UserAvatar
+                        decorative
                         avatarUrl={props.actor.icon_url}
                         name={props.actor.name || props.actor.username}
                         size={60}
@@ -177,6 +182,7 @@ export function StoryBar(props: StoryBarProps) {
                   >
                     <div class="w-full h-full rounded-full bg-neutral-900 p-0.5">
                       <UserAvatar
+                        decorative
                         avatarUrl={props.actor.icon_url}
                         name={props.actor.name || props.actor.username}
                         size={56}
@@ -230,6 +236,7 @@ export function StoryBar(props: StoryBarProps) {
                     >
                       <div class="w-full h-full rounded-full bg-neutral-900 p-0.5">
                         <UserAvatar
+                          decorative
                           avatarUrl={as.actor.icon_url}
                           name={as.actor.name || as.actor.preferred_username}
                           size={56}

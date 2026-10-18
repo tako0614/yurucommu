@@ -19,7 +19,8 @@ export function CommunityAboutPanel(props: CommunityAboutPanelProps) {
         }
       >
         <div>
-          <h3 class="text-lg font-bold mb-2">{t("community.about")}</h3>
+          {/* h2 under the community's h1: an h3 skipped a level. */}
+          <h2 class="text-lg font-bold mb-2">{t("community.about")}</h2>
           <p class="text-neutral-300 whitespace-pre-wrap">
             {props.community.summary}
           </p>
