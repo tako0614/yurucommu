@@ -1,4 +1,12 @@
-import { createEffect, createSignal, For, on, onCleanup, Show } from "solid-js";
+import {
+  createEffect,
+  createSignal,
+  createUniqueId,
+  For,
+  on,
+  onCleanup,
+  Show,
+} from "solid-js";
 import { A, useLocation } from "@solidjs/router";
 import { useSetAtom } from "solid-jotai";
 import { useRequiredActor } from "../../hooks/useRequiredActor.ts";
@@ -14,9 +22,12 @@ import { pushToast, toastsAtom } from "../../atoms/toast.ts";
 
 function RecommendedUserCard(props: {
   user: RecommendedUser;
-  onFollowed: (apId: string) => void;
+  /** hadFocus: the card's button had focus as it went away. */
+  onFollowed: (apId: string, hadFocus: boolean) => void;
 }) {
   const { t } = useI18n();
+  const nameId = createUniqueId();
+  let buttonRef: HTMLButtonElement | undefined;
   const setToasts = useSetAtom(toastsAtom);
   const [following, setFollowing] = createSignal(false);
   const [requested, setRequested] = createSignal(false);
@@ -42,7 +53,11 @@ function RecommendedUserCard(props: {
       } else {
         setFollowing(true);
         followTimeout = setTimeout(
-          () => props.onFollowed(props.user.ap_id),
+          () =>
+            props.onFollowed(
+              props.user.ap_id,
+              document.activeElement === buttonRef,
+            ),
           600,
         );
       }
@@ -71,7 +86,7 @@ function RecommendedUserCard(props: {
           size="small"
         />
         <div class="flex-1 min-w-0">
-          <div class="text-sm font-bold text-white truncate">
+          <div id={nameId} class="text-sm font-bold text-white truncate">
             {props.user.name || props.user.preferred_username}
           </div>
           <div class="text-xs text-neutral-500 truncate">
@@ -79,9 +94,18 @@ function RecommendedUserCard(props: {
           </div>
         </div>
       </A>
+      {/* Described by whose card it is (every one read only フォロー). Not
+          disabled while following, so the focus stays on it (it fell to
+          <body>); a press then is refused. */}
       <button
+        ref={buttonRef}
+        type="button"
+        data-rec-follow
+        aria-describedby={nameId}
         onClick={handleFollow}
-        disabled={loading() || following() || requested()}
+        aria-disabled={
+          loading() || following() || requested() ? "true" : undefined
+        }
         class={`px-3 py-1 rounded-full text-xs font-bold transition-colors shrink-0 ${
           following() || requested()
             ? "bg-transparent text-neutral-500 border border-neutral-700"
@@ -132,8 +156,25 @@ export function RightSidebar() {
     ),
   );
 
-  const handleFollowed = (apId: string) => {
+  // A followed card goes away; if its button had focus, focus moves to the
+  // follow button of the card now in its place (or the last one), or, after
+  // the last card, to the connect panel that replaces the list.
+  let listRef: HTMLDivElement | undefined;
+  const handleFollowed = (apId: string, hadFocus: boolean) => {
+    const at = users().findIndex((u) => u.ap_id === apId);
     setUsers((prev) => prev.filter((u) => u.ap_id !== apId));
+    if (!hadFocus || at === -1) return;
+    queueMicrotask(() => {
+      // After the last card the list is gone, but the ref still holds it and
+      // its detached buttons, which cannot take focus.
+      const buttons = listRef?.isConnected
+        ? listRef.querySelectorAll<HTMLElement>("[data-rec-follow]")
+        : [];
+      const next =
+        buttons[Math.min(at, buttons.length - 1)] ??
+        document.querySelector<HTMLElement>("[data-sidebar-connect]");
+      next?.focus();
+    });
   };
 
   const showRecommendations = () => loading() || users().length > 0;
@@ -155,7 +196,10 @@ export function RightSidebar() {
           unnamed aside beside the left sidebar's was a new violation. */}
       <Show when={showRecommendations()}>
         <aside aria-labelledby="sidebar-suggested-title" class="p-4 pb-0">
-          <div class="bg-neutral-900/50 rounded-2xl overflow-hidden">
+          <div
+            ref={listRef}
+            class="bg-neutral-900/50 rounded-2xl overflow-hidden"
+          >
             <h2
               id="sidebar-suggested-title"
               class="text-lg font-bold px-4 pt-4 pb-2"
@@ -183,7 +227,12 @@ export function RightSidebar() {
         </aside>
       </Show>
       <Show when={showConnect()}>
-        <aside aria-labelledby="sidebar-connect-title" class="p-4 pb-0">
+        <aside
+          aria-labelledby="sidebar-connect-title"
+          data-sidebar-connect
+          tabindex="-1"
+          class="focus-card p-4 pb-0"
+        >
           <div class="space-y-6 rounded-2xl bg-neutral-900/50 p-4">
             <h2 id="sidebar-connect-title" class="text-lg font-bold">
               {t("firstFeed.sidebarTitle")}
