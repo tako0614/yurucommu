@@ -80,10 +80,11 @@ export function StoryComposerBackgroundPanel(
         {/* Quick preset swatches, named by their colours (they had no
             name at all) like the custom picker's: one radio group, one Tab
             stop, arrow keys inside. */}
+        {/* Unnamed: inside the panel's 「背景」 group under its 「背景」
+            heading, a third 「背景」 only repeated. */}
         <div
           data-panel-start
           role="radiogroup"
-          aria-label={t("story.background")}
           onKeyDown={onSwatchKeyDown}
           class="mb-4 grid grid-cols-8 gap-2"
         >
