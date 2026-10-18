@@ -75,7 +75,8 @@ export function StoryInsightsSheet(props: StoryInsightsSheetProps) {
           <div class="mx-auto mb-3 h-1 w-10 rounded-full bg-white/30" />
 
           <div class="mb-4 flex items-baseline justify-between">
-            <h3 class="text-base font-semibold">{t("story.insights.title")}</h3>
+            {/* The sheet's top heading: h2 (an h3 skipped a level). */}
+            <h2 class="text-base font-semibold">{t("story.insights.title")}</h2>
             {/* On a failed fetch the count is unknown — showing "seen by 0"
                 would be a lie; the error + retry renders in the list below. */}
             {/* Reading viewers() inside these local <Suspense>s keeps the
@@ -98,9 +99,9 @@ export function StoryInsightsSheet(props: StoryInsightsSheetProps) {
           <Show when={poll()}>
             {(p) => (
               <div class="mb-4 rounded-xl bg-white/5 p-3">
-                <p class="mb-2 text-sm font-medium">
+                <h3 class="mb-2 text-sm font-medium">
                   {t("story.insights.pollResults")}
-                </p>
+                </h3>
                 <p class="mb-2 text-sm text-white/80">{p().name}</p>
                 <div class="space-y-1.5">
                   <For each={p().oneOf}>
@@ -139,7 +140,9 @@ export function StoryInsightsSheet(props: StoryInsightsSheetProps) {
           </Show>
 
           {/* Viewer list */}
-          <p class="mb-2 text-sm font-medium">{t("story.insights.viewers")}</p>
+          <h3 class="mb-2 text-sm font-medium">
+            {t("story.insights.viewers")}
+          </h3>
           <Suspense
             fallback={
               <p class="text-sm text-white/50">{t("common.loading")}</p>

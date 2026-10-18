@@ -143,7 +143,7 @@ export function StoryOverlayEditorModal(props: StoryOverlayEditorModalProps) {
           onSubmit={submit}
           class="w-full max-w-sm rounded-2xl bg-neutral-900 p-5 text-white shadow-2xl"
         >
-          <h3 class="mb-4 text-lg font-semibold">{title()}</h3>
+          <h2 class="mb-4 text-lg font-semibold">{title()}</h2>
 
           <Show when={props.kind === "Question"}>
             <label class="mb-2 block text-sm text-white/70">

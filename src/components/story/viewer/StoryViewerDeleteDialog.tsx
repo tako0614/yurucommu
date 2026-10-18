@@ -40,12 +40,12 @@ export function StoryViewerDeleteDialog(props: StoryViewerDeleteDialogProps) {
           class="bg-neutral-800 rounded-2xl p-6 max-w-xs mx-4"
           onClick={(e) => e.stopPropagation()}
         >
-          <h3
+          <h2
             id="story-delete-title"
             class="text-white font-semibold text-lg mb-2"
           >
             {t("story.deleteTitle")}
-          </h3>
+          </h2>
           <p id="story-delete-desc" class="text-neutral-400 text-sm mb-4">
             {t("story.deleteConfirm")}
           </p>

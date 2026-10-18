@@ -65,7 +65,7 @@ export function StoryComposerStickerPanel(
         }}
       >
         <div class="flex items-center justify-between mb-3">
-          <h3 class="text-white font-medium">{t("story.stamp")}</h3>
+          <h2 class="text-white font-medium">{t("story.stamp")}</h2>
           <button
             type="button"
             onClick={props.onClose}
