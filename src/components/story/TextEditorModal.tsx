@@ -182,10 +182,15 @@ export function TextEditorModal(props: TextEditorModalProps) {
         role="dialog"
         aria-modal="true"
         aria-label={t("story.textEditorAriaLabel")}
-        class="fixed inset-0 z-[60] bg-black/90 flex flex-col"
+        // Scrolls when it does not fit: on a phone on its side, and on a
+        // 320×568 phone with a list open, the alignment, size and B / I rows
+        // were below the screen and could not be reached. Spacing is tighter
+        // on short screens so it usually fits without scrolling.
+        class="fixed inset-0 z-[60] bg-black/90 flex flex-col overflow-y-auto overscroll-contain"
       >
-        {/* Header */}
-        <div class="flex items-center justify-between px-4 py-3">
+        {/* Header: stays at the top when the editor scrolls, with キャンセル
+            and 完了. */}
+        <div class="sticky top-0 z-10 flex items-center justify-between bg-black px-4 py-3">
           <button
             onClick={props.onClose}
             class="text-white text-lg font-medium"
@@ -350,7 +355,7 @@ export function TextEditorModal(props: TextEditorModalProps) {
         </Show>
 
         {/* Main text input area */}
-        <div class="flex-1 flex items-center justify-center p-8">
+        <div class="flex-1 flex items-center justify-center p-8 [@media(max-height:600px)]:p-4">
           <div
             class="w-full max-w-md"
             style={{
@@ -402,7 +407,7 @@ export function TextEditorModal(props: TextEditorModalProps) {
         </div>
 
         {/* Bottom toolbar */}
-        <div class="px-4 py-4 bg-black/50 space-y-4">
+        <div class="px-4 py-4 bg-black/50 space-y-4 [@media(max-height:600px)]:py-2 [@media(max-height:600px)]:space-y-2">
           {/* Text style buttons (A, A, A) */}
           <div class="flex justify-center gap-4">
             <For each={TEXT_STYLES}>
