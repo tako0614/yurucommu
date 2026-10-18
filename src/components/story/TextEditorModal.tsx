@@ -103,15 +103,21 @@ export function TextEditorModal(props: TextEditorModalProps) {
     isOpen: () => props.isOpen,
     // Escape closes an open list first, back to its toggle: it closed the
     // whole editor and dropped the typed text.
+    // Focus goes back to the toggle only from inside the list: from the
+    // text field it took the typing away.
     onClose: () => {
+      const inList = (list: string) =>
+        !!document.activeElement?.closest(`[data-text-list="${list}"]`);
       if (showColorPicker()) {
+        const back = inList("color");
         setShowColorPicker(false);
-        colorToggleRef?.focus();
+        if (back) colorToggleRef?.focus();
         return;
       }
       if (showFontPicker()) {
+        const back = inList("font");
         setShowFontPicker(false);
-        fontToggleRef?.focus();
+        if (back) fontToggleRef?.focus();
         return;
       }
       props.onClose();
