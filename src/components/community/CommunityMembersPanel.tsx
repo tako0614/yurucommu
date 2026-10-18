@@ -1,4 +1,4 @@
-import { createSignal, For, Show } from "solid-js";
+import { createEffect, createSignal, For, on, Show } from "solid-js";
 import { A } from "@solidjs/router";
 import type { CommunityJoinRequest } from "../../lib/api.ts";
 import type {
@@ -49,6 +49,37 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
   // The owner changes another member's role with a select in that row.
   const roleSelectShown = (member: CommunityMember) =>
     props.isOwner && member.ap_id !== props.actorApId;
+
+  // Keyboard focus through a role change and a removal. A saved role
+  // re-creates its row (a new member object), and a removal drops the row,
+  // so the focused control went away and focus fell to <body>. Focus comes
+  // back to the new row's select, or to the row now in the removed one's
+  // place, but only if it is still nowhere.
+  const focusIsLost = () => {
+    const active = document.activeElement;
+    return !active || active === document.body || !active.isConnected;
+  };
+  let refocusRoleFor: string | null = null;
+  let refocusRowAt: number | null = null;
+  createEffect(
+    on(
+      () => props.members.length,
+      (length, previous) => {
+        if (previous === undefined || length >= previous) return;
+        const at = refocusRowAt;
+        refocusRowAt = null;
+        if (at === null || length === 0) return;
+        queueMicrotask(() => {
+          if (!focusIsLost()) return;
+          document
+            .querySelector<HTMLElement>(
+              `[data-member-row="${Math.min(at, length - 1)}"] a`,
+            )
+            ?.focus();
+        });
+      },
+    ),
+  );
   // Brief "Copied" feedback after copying the freshly-created invite code, so the
   // owner doesn't have to hand-select the code text to share it.
   const [inviteCopied, setInviteCopied] = createSignal(false);
@@ -160,7 +191,10 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
             return (
               // The row's padding belongs to the link, so a tap on it still
               // opens the profile as it did when the whole row was the link.
-              <div class="flex items-center gap-3 pr-4 hover:bg-neutral-900/30 transition-colors">
+              <div
+                data-member-row={index()}
+                class="flex items-center gap-3 pr-4 hover:bg-neutral-900/30 transition-colors"
+              >
                 <A
                   href={`/profile/${encodeURIComponent(member.ap_id)}`}
                   class="focus-inset flex min-w-0 flex-1 items-center gap-3 py-3 pl-4"
@@ -200,6 +234,13 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
                 </A>
                 <Show when={roleSelectShown(member)}>
                   <select
+                    ref={(el) => {
+                      if (refocusRoleFor !== member.ap_id) return;
+                      refocusRoleFor = null;
+                      queueMicrotask(() => {
+                        if (el.isConnected && focusIsLost()) el.focus();
+                      });
+                    }}
                     value={member.role}
                     aria-label={props
                       .t("members.changeRole")
@@ -211,14 +252,26 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
                     // and to the new one when the row updates on success. A
                     // cancelled owner promotion or a failed save left the
                     // picked role showing, and the badge is not shown here.
+                    // Not disabled while saving (that dropped keyboard focus to
+                    // <body>): aria-disabled and dimmed, and a pick then is
+                    // refused.
                     onChange={(e) => {
                       const next = e.currentTarget.value as
                         "owner" | "moderator" | "member";
                       e.currentTarget.value = member.role;
+                      if (props.updatingMemberRole[member.ap_id]) return;
+                      if (e.currentTarget.matches(":focus"))
+                        refocusRoleFor = member.ap_id;
                       props.onUpdateMemberRole(member, next);
                     }}
-                    disabled={props.updatingMemberRole[member.ap_id]}
-                    class="shrink-0 bg-neutral-900 border border-neutral-700 text-xs text-white rounded-lg px-2 py-1.5"
+                    aria-disabled={
+                      props.updatingMemberRole[member.ap_id]
+                        ? "true"
+                        : undefined
+                    }
+                    class={`shrink-0 bg-neutral-900 border border-neutral-700 text-xs text-white rounded-lg px-2 py-1.5 ${
+                      props.updatingMemberRole[member.ap_id] ? "opacity-50" : ""
+                    }`}
                   >
                     <option value="member">{props.t("members.member")}</option>
                     <option value="moderator">
@@ -244,7 +297,10 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
                   <button
                     type="button"
                     aria-describedby={nameId()}
-                    onClick={() => props.onRemoveMember(member)}
+                    onClick={() => {
+                      refocusRowAt = index();
+                      props.onRemoveMember(member);
+                    }}
                     disabled={props.removingMember[member.ap_id]}
                     class="-my-1 -mr-2.5 shrink-0 rounded-lg px-2.5 py-2 text-xs text-rose-400 hover:bg-rose-500/10 hover:text-rose-300 disabled:opacity-50"
                   >
