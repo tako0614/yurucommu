@@ -186,7 +186,9 @@ export function AppMenu() {
               {/* Profile Header */}
               <div class="p-4 border-b border-neutral-800">
                 <div class="flex items-center justify-between mb-3">
+                  {/* Decorative: the name follows as text, so it read twice. */}
                   <UserAvatar
+                    decorative
                     avatarUrl={current.icon_url}
                     name={current.name || current.preferred_username}
                     size={48}
@@ -327,8 +329,9 @@ export function AppMenu() {
                 </div>
               </Show>
 
-              {/* Utility navigation */}
-              <nav class="p-2">
+              {/* Utility navigation. Named: beside the bottom nav it was a
+                  second unnamed navigation landmark in the page. */}
+              <nav aria-label={t("menu.title")} class="p-2">
                 <A
                   href="/profile"
                   onClick={close}
