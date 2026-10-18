@@ -26,7 +26,9 @@ import {
   CANVAS_HEIGHT,
   CANVAS_WIDTH,
   StoryCanvas,
+  type DrawingLayer,
 } from "../../../lib/story-canvas.ts";
+import { isPointInLayer } from "../../../lib/story-canvas-transforms.ts";
 import {
   type SnapGuide,
   useCanvasInteraction,
@@ -507,19 +509,66 @@ export function StoryComposer(props: StoryComposerProps) {
 
   // Custom pointer down that detects double-tap for text editing
   // With a video, which presses are the canvas's: a drawing stroke, or a
-  // press on a placed layer (the rest move the video).
+  // press on a placed layer (the rest move the video). A drawing counts only
+  // near its strokes: its area is the whole canvas, so once something was
+  // drawn every press went to it and the video could not be moved.
+  const nearStroke = (layer: DrawingLayer, x: number, y: number) => {
+    const px = x - layer.x;
+    const py = y - layer.y;
+    return layer.paths.some((path) => {
+      const reach = path.width / 2 + 24;
+      return path.points.some((point, i) => {
+        const prev = path.points[i - 1] ?? point;
+        const dx = point.x - prev.x;
+        const dy = point.y - prev.y;
+        const lengthSq = dx * dx + dy * dy;
+        const t = lengthSq
+          ? Math.max(
+              0,
+              Math.min(1, ((px - prev.x) * dx + (py - prev.y) * dy) / lengthSq),
+            )
+          : 0;
+        return (
+          Math.hypot(px - (prev.x + t * dx), py - (prev.y + t * dy)) <= reach
+        );
+      });
+    });
+  };
   const routeToCanvas = (e: PointerEvent) => {
     if (interactionState().mode === "draw") return true;
     const sc = storyCanvas();
     if (!sc || !canvasContainerRef) return false;
     const rect = canvasContainerRef.getBoundingClientRect();
     const scale = CANVAS_WIDTH / rect.width;
-    const hit = sc.hitTest(
-      (e.clientX - rect.left) * scale,
-      (e.clientY - rect.top) * scale,
-    );
-    return !!hit && hit.type !== "background";
+    const x = (e.clientX - rect.left) * scale;
+    const y = (e.clientY - rect.top) * scale;
+    return sc
+      .getLayers()
+      .filter(
+        (layer) =>
+          layer.visible && !layer.locked && layer.type !== "background",
+      )
+      .some((layer) =>
+        layer.type === "drawing"
+          ? nearStroke(layer, x, y)
+          : isPointInLayer(x, y, layer),
+      );
   };
+  const handleVideoPress = () => {
+    overlayState.setSelectedId(null);
+    selectLayer(null);
+  };
+  // A background panel opened while a picked video was being read stays open
+  // over the video it can no longer change (its button is disabled then).
+  createEffect(
+    on(video.videoPreview, (preview) => {
+      if (preview && showBackgroundPanel()) {
+        setShowBackgroundPanel(false);
+        // Its button is disabled now, so not back there.
+        focusHomeIfOutside();
+      }
+    }),
+  );
   const wheelToCanvas = () =>
     interactionState().mode !== "draw" && !!selectedLayer();
 
@@ -726,6 +775,7 @@ export function StoryComposer(props: StoryComposerProps) {
             onCanvasWheel={handleWheel}
             routeToCanvas={routeToCanvas}
             wheelToCanvas={wheelToCanvas}
+            onVideoPress={handleVideoPress}
             onVideoPointerDown={videoTransform.handlePointerDown}
             onVideoPointerMove={videoTransform.handlePointerMove}
             onVideoPointerUp={videoTransform.handlePointerUp}

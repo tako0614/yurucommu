@@ -177,8 +177,8 @@ export function StoryComposerHeader(props: StoryComposerHeaderProps) {
           expands
           onClick={props.onBackground}
           active={props.backgroundActive}
-          // The video is the background.
-          disabled={props.hasVideo}
+          // The video is the background (also while a picked one is read).
+          disabled={props.hasVideo || props.uploading}
         />
       </div>
     </>

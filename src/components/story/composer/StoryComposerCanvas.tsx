@@ -21,6 +21,8 @@ interface StoryComposerCanvasProps {
   routeToCanvas: (e: PointerEvent) => boolean;
   /** With a video: whether the wheel resizes the selected layer. */
   wheelToCanvas: () => boolean;
+  /** With a video: a press that moves the video clears the selection. */
+  onVideoPress: () => void;
   onVideoPointerDown: JSX.EventHandler<HTMLDivElement, PointerEvent>;
   onVideoPointerMove: JSX.EventHandler<HTMLDivElement, PointerEvent>;
   onVideoPointerUp: JSX.EventHandler<HTMLDivElement, PointerEvent>;
@@ -79,9 +81,19 @@ export function StoryComposerCanvas(props: StoryComposerCanvasProps) {
         props.canvasContainerRef(el);
       }}
       class="absolute inset-0 flex items-center justify-center"
-      onMouseDown={props.videoPreview ? undefined : props.onCanvasPointerDown}
-      onTouchStart={props.videoPreview ? undefined : props.onCanvasPointerDown}
-      onWheel={props.videoPreview ? undefined : props.onCanvasWheel}
+      // Event props are bound once, so the video case is decided per press:
+      // a press the capture phase left to the video only clears the
+      // selection (the canvas's own hit test would grab the drawing, whose
+      // area is the whole canvas, and drag it along with the video).
+      onMouseDown={(e) =>
+        props.videoPreview ? props.onVideoPress() : props.onCanvasPointerDown(e)
+      }
+      onTouchStart={(e) =>
+        props.videoPreview ? props.onVideoPress() : props.onCanvasPointerDown(e)
+      }
+      onWheel={(e) => {
+        if (!props.videoPreview) props.onCanvasWheel(e);
+      }}
     >
       <Show when={props.videoPreview}>
         {/* Under the canvas (DOM order, no z-index): the canvas draws the
