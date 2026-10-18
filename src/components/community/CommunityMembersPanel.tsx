@@ -163,7 +163,7 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
               <div class="flex items-center gap-3 pr-4 hover:bg-neutral-900/30 transition-colors">
                 <A
                   href={`/profile/${encodeURIComponent(member.ap_id)}`}
-                  class="flex min-w-0 flex-1 items-center gap-3 py-3 pl-4"
+                  class="focus-inset flex min-w-0 flex-1 items-center gap-3 py-3 pl-4"
                 >
                   {/* Decorative: the name follows as text, so the link
                       read the name twice. */}
@@ -207,13 +207,16 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
                         "{name}",
                         member.name || member.preferred_username,
                       )}
-                    onChange={(e) =>
-                      props.onUpdateMemberRole(
-                        member,
-                        e.currentTarget.value as
-                          "owner" | "moderator" | "member",
-                      )
-                    }
+                    // The select shows the saved role: back to it at once,
+                    // and to the new one when the row updates on success. A
+                    // cancelled owner promotion or a failed save left the
+                    // picked role showing, and the badge is not shown here.
+                    onChange={(e) => {
+                      const next = e.currentTarget.value as
+                        "owner" | "moderator" | "member";
+                      e.currentTarget.value = member.role;
+                      props.onUpdateMemberRole(member, next);
+                    }}
                     disabled={props.updatingMemberRole[member.ap_id]}
                     class="shrink-0 bg-neutral-900 border border-neutral-700 text-xs text-white rounded-lg px-2 py-1.5"
                   >
