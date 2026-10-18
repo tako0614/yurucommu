@@ -285,14 +285,15 @@ export function TextEditorModal(props: TextEditorModalProps) {
 
         {/* Color picker dropdown */}
         <Show when={showColorPicker()}>
-          <div class="px-4 py-3 bg-black/50">
+          {/* The whole panel, so the custom colour input counts as inside
+              the list too (Escape from it lost focus to <body>). */}
+          <div data-text-list="color" class="px-4 py-3 bg-black/50">
             <div class="flex items-center justify-center gap-3">
               {/* The swatches had no name and no state: one radio group with
                   one Tab stop, named by colour like the drawing panel's.
                   Eleven 32px circles in a row did not fit a phone: 「＋」
                   (custom) ran off the right edge. Two rows of five there. */}
               <div
-                data-text-list="color"
                 role="radiogroup"
                 aria-label={t("story.textColor")}
                 onKeyDown={onSwatchKeyDown}
