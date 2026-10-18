@@ -182,10 +182,17 @@ export function TextEditorModal(props: TextEditorModalProps) {
         role="dialog"
         aria-modal="true"
         aria-label={t("story.textEditorAriaLabel")}
-        class="fixed inset-0 z-[60] bg-black/90 flex flex-col"
+        // Scrolls when it does not fit: on a phone on its side, and on a
+        // 320×568 phone with a list open, the alignment, size and B / I rows
+        // were below the screen and could not be reached. Spacing is tighter
+        // on short screens so it usually fits without scrolling.
+        // scroll-pt-14: what scrolls into view lands below the sticky header
+        // (it hid the first line of the text in landscape).
+        class="fixed inset-0 z-[60] bg-black/90 flex flex-col overflow-y-auto overscroll-contain scroll-pt-14"
       >
-        {/* Header */}
-        <div class="flex items-center justify-between px-4 py-3">
+        {/* Header: stays at the top when the editor scrolls, with キャンセル
+            and 完了. */}
+        <div class="sticky top-0 z-10 flex items-center justify-between bg-black px-4 py-3">
           <button
             onClick={props.onClose}
             class="text-white text-lg font-medium"
@@ -350,7 +357,7 @@ export function TextEditorModal(props: TextEditorModalProps) {
         </Show>
 
         {/* Main text input area */}
-        <div class="flex-1 flex items-center justify-center p-8">
+        <div class="flex-1 flex items-center justify-center p-8 [@media(max-height:700px)]:p-4">
           <div
             class="w-full max-w-md"
             style={{
@@ -369,7 +376,8 @@ export function TextEditorModal(props: TextEditorModalProps) {
                 }))
               }
               placeholder={t("story.textPlaceholder")}
-              class="w-full bg-transparent border-none outline-none resize-none text-center"
+              // block: an inline textarea left a baseline gap below it.
+              class="block w-full bg-transparent border-none outline-none resize-none text-center"
               style={{
                 "font-family": text().fontFamily,
                 "font-size": `${Math.min(text().fontSize, 48)}px`,
@@ -402,7 +410,7 @@ export function TextEditorModal(props: TextEditorModalProps) {
         </div>
 
         {/* Bottom toolbar */}
-        <div class="px-4 py-4 bg-black/50 space-y-4">
+        <div class="px-4 py-4 bg-black/50 space-y-4 [@media(max-height:700px)]:py-2 [@media(max-height:700px)]:space-y-2">
           {/* Text style buttons (A, A, A) */}
           <div class="flex justify-center gap-4">
             <For each={TEXT_STYLES}>
