@@ -516,6 +516,8 @@ export function StoryComposer(props: StoryComposerProps) {
     const px = x - layer.x;
     const py = y - layer.y;
     return layer.paths.some((path) => {
+      // A click without a move stores one point, which is never drawn.
+      if (path.points.length < 2) return false;
       const reach = path.width / 2 + 24;
       return path.points.some((point, i) => {
         const prev = path.points[i - 1] ?? point;
@@ -572,10 +574,23 @@ export function StoryComposer(props: StoryComposerProps) {
   const wheelToCanvas = () =>
     interactionState().mode !== "draw" && !!selectedLayer();
 
+  // A browser follows a tap with mouse events for pages that only listen to
+  // the mouse. They reached here as a second press within the double-tap
+  // window, so one tap on a text opened its editor; so did a second finger
+  // landing to pinch it.
+  let lastTouchAt = 0;
   const handleCanvasPointerDown = (e: MouseEvent | TouchEvent) => {
+    const touch = "touches" in e;
+    if (touch) lastTouchAt = Date.now();
+    else if (Date.now() - lastTouchAt < 800) return;
     // A tap that reaches the canvas is not on an overlay (overlays stop
     // propagation), so clear any overlay selection / its edit toolbar.
     overlayState.setSelectedId(null);
+    if (touch && e.touches.length > 1) {
+      lastTapTime = 0;
+      handlePointerDown(e);
+      return;
+    }
     const clientX = "touches" in e ? e.touches[0].clientX : e.clientX;
     const clientY = "touches" in e ? e.touches[0].clientY : e.clientY;
     const now = Date.now();
