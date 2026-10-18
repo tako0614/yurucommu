@@ -22,6 +22,9 @@ interface StoryOverlayEditorModalProps {
   initial?: StoryOverlay | null;
   onSave: (overlay: StoryOverlay) => void;
   onClose: () => void;
+  // Where focus goes on close when the button that opened the editor is
+  // gone (re-rendered, or the create flow's panel closed): not <body>.
+  returnFocus?: () => HTMLElement | null | undefined;
 }
 
 function isValidUrl(url: string): boolean {
@@ -48,6 +51,7 @@ export function StoryOverlayEditorModal(props: StoryOverlayEditorModalProps) {
     isOpen: () => props.open,
     onClose: props.onClose,
     container: () => rootRef,
+    returnFocus: () => props.returnFocus?.(),
   });
 
   // Seed the form whenever the modal opens (create → blank/defaults, edit →
