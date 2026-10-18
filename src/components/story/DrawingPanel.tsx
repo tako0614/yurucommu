@@ -16,56 +16,89 @@ interface DrawingPanelProps {
   onOpacityChange: (opacity: number) => void;
   onClear: () => void;
   onUndo: () => void;
+  onDone: () => void;
 }
 
+// Compact, so it can dock below the drawing instead of over it: the actions
+// share the title row, the two sliders share a row, and the brush preview sits
+// beside them instead of in a box of its own. Where the stage is too narrow
+// for the preview (a 320px phone, a phone on its side), the sliders keep the
+// room, and a label that still does not fit wraps at its space rather than
+// cutting off the value.
 export function DrawingPanel(props: DrawingPanelProps) {
   const { t } = useI18n();
+  const thickness = () =>
+    t("story.thickness").replace("{value}", String(props.width));
+  const opacity = () =>
+    t("story.opacity").replace(
+      "{value}",
+      String(Math.round(props.opacity * 100)),
+    );
   return (
-    <div class="space-y-4">
-      <div class="flex items-center justify-between">
-        <h3 class="text-white font-medium">{t("story.drawing")}</h3>
-        <div class="flex gap-2">
-          <button
-            onClick={props.onUndo}
-            class="px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 rounded-lg text-sm transition-colors"
-          >
-            {t("story.undo")}
-          </button>
-          <button
-            onClick={props.onClear}
-            class="px-3 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg text-sm transition-colors"
-          >
-            {t("story.clear")}
-          </button>
-        </div>
+    <div class="@container space-y-3">
+      <div class="flex flex-wrap items-center gap-2">
+        <h3 class="mr-auto font-medium text-white">{t("story.drawing")}</h3>
+        <button
+          type="button"
+          onClick={props.onUndo}
+          class="rounded-lg bg-neutral-800 px-3 py-1.5 text-sm text-white transition-colors hover:bg-neutral-700"
+        >
+          {t("story.undo")}
+        </button>
+        <button
+          type="button"
+          onClick={props.onClear}
+          class="rounded-lg bg-red-500/20 px-3 py-1.5 text-sm text-red-400 transition-colors hover:bg-red-500/30"
+        >
+          {t("story.clear")}
+        </button>
+        <button
+          type="button"
+          onClick={props.onDone}
+          class="rounded-lg bg-white px-3 py-1.5 text-sm font-medium text-black hover:bg-white/90"
+        >
+          {t("story.done")}
+        </button>
       </div>
 
-      {/* Color */}
-      <ColorPicker
-        label={t("story.color")}
-        color={props.color}
-        onChange={props.onColorChange}
-      />
+      <div data-panel-start>
+        <ColorPicker color={props.color} onChange={props.onColorChange} />
+      </div>
 
-      {/* Width */}
-      <div>
-        <label class="text-neutral-400 text-sm">
-          {t("story.thickness").replace("{value}", String(props.width))}
-        </label>
-        <input
-          type="range"
-          min="2"
-          max="50"
-          aria-label={t("story.thickness").replace(
-            "{value}",
-            String(props.width),
-          )}
-          value={props.width}
-          onInput={(e) => props.onWidthChange(parseInt(e.currentTarget.value))}
-          class="w-full mt-1 accent-blue-500"
-        />
-        {/* Width preview */}
-        <div class="flex items-center justify-center h-12 mt-2 bg-neutral-800 rounded-lg">
+      <div class="flex items-center gap-3">
+        <div class="grid min-w-0 flex-1 grid-cols-2 gap-3">
+          <label class="min-w-0 text-sm text-neutral-400">
+            <span class="block break-keep">{thickness()}</span>
+            <input
+              type="range"
+              min="2"
+              max="50"
+              value={props.width}
+              onInput={(e) =>
+                props.onWidthChange(parseInt(e.currentTarget.value))
+              }
+              class="mt-1 w-full accent-blue-500"
+            />
+          </label>
+          <label class="min-w-0 text-sm text-neutral-400">
+            <span class="block break-keep">{opacity()}</span>
+            <input
+              type="range"
+              min="10"
+              max="100"
+              value={props.opacity * 100}
+              onInput={(e) =>
+                props.onOpacityChange(parseInt(e.currentTarget.value) / 100)
+              }
+              class="mt-1 w-full accent-blue-500"
+            />
+          </label>
+        </div>
+        {/* Brush preview, at its real size (up to the 50px maximum). */}
+        <div
+          aria-hidden="true"
+          class="hidden size-13 shrink-0 items-center justify-center rounded-lg bg-neutral-800 @[20rem]:flex"
+        >
           <div
             class="rounded-full"
             style={{
@@ -76,30 +109,6 @@ export function DrawingPanel(props: DrawingPanelProps) {
             }}
           />
         </div>
-      </div>
-
-      {/* Opacity */}
-      <div>
-        <label class="text-neutral-400 text-sm">
-          {t("story.opacity").replace(
-            "{value}",
-            String(Math.round(props.opacity * 100)),
-          )}
-        </label>
-        <input
-          type="range"
-          min="10"
-          max="100"
-          aria-label={t("story.opacity").replace(
-            "{value}",
-            String(Math.round(props.opacity * 100)),
-          )}
-          value={props.opacity * 100}
-          onInput={(e) =>
-            props.onOpacityChange(parseInt(e.currentTarget.value) / 100)
-          }
-          class="w-full mt-1 accent-blue-500"
-        />
       </div>
     </div>
   );

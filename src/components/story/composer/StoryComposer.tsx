@@ -10,7 +10,15 @@
  *   useStoryTextEditor, useStoryLayerActions, useStoryPost, useStoryImageUpload
  */
 
-import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
+import {
+  createEffect,
+  createSignal,
+  on,
+  onCleanup,
+  onMount,
+  Show,
+  untrack,
+} from "solid-js";
 import { useI18n } from "../../../lib/i18n.tsx";
 import { useDialog } from "../../../lib/useDialog.ts";
 import { ConfirmSheet } from "../../ConfirmSheet.tsx";
@@ -112,6 +120,10 @@ export function StoryComposer(props: StoryComposerProps) {
   } | null>(null);
 
   const openOverlayCreate = (kind: OverlayKind) => {
+    // The sticker panel closes under the editor. Its rail button takes focus
+    // first, so the editor opens from it and gives focus back to it: the
+    // editor opened from <body> and returned focus to the composer's 閉じる.
+    toolButton("sticker")?.focus();
     setShowToolPanel(false);
     setActiveTool(null);
     setOverlayEditor({ kind });
@@ -173,15 +185,36 @@ export function StoryComposer(props: StoryComposerProps) {
       if (!composerRootRef?.contains(document.activeElement))
         composerHome()?.focus();
     });
+  // A tool panel's rail button: where focus goes back when the panel closes
+  // from inside (its 閉じる / 完了, a picked emoji, Escape), which removed the
+  // focused control and left focus on <body>.
+  const toolButton = (tool: "sticker" | "draw" | "background") =>
+    composerRootRef?.querySelector<HTMLElement>(
+      `[data-composer-tool="${tool}"]`,
+    );
+  const focusToolIfOutside = (tool: "sticker" | "draw" | "background") =>
+    queueMicrotask(() => {
+      if (!composerRootRef?.contains(document.activeElement))
+        toolButton(tool)?.focus();
+    });
   const handleComposerEscape = () => {
     if (postActions.posting()) return;
     if (showBackgroundPanel()) {
       setShowBackgroundPanel(false);
+      focusToolIfOutside("background");
       return;
     }
     if (showToolPanel()) {
       setShowToolPanel(false);
       setActiveTool(null);
+      focusToolIfOutside("sticker");
+      return;
+    }
+    // Drawing is a mode with its own panel: Escape leaves it first, as the
+    // panels close first. It went straight to 「下書きを破棄しますか？」.
+    if (interactionState().mode === "draw") {
+      setMode("select");
+      focusToolIfOutside("draw");
       return;
     }
     requestClose();
@@ -450,6 +483,25 @@ export function StoryComposer(props: StoryComposerProps) {
     }
   };
 
+  // The error shows in the footer, which is hidden while drawing (the drawing
+  // panel docks over it): a photo or video picked meanwhile failed with no
+  // message. Drawing ends when a new one arrives, so it is seen, and focus
+  // left in the closed panel goes back to 描画. Starting to draw clears the
+  // one already showing (hidden from then on): the same message again would
+  // not change the signal, and stayed hidden.
+  createEffect(
+    on(
+      error,
+      (message) => {
+        if (message && untrack(interactionState).mode === "draw") {
+          setMode("select");
+          focusToolIfOutside("draw");
+        }
+      },
+      { defer: true },
+    ),
+  );
+
   // Custom pointer down that detects double-tap for text editing
   const handleCanvasPointerDown = (e: MouseEvent | TouchEvent) => {
     // A tap that reaches the canvas is not on an overlay (overlays stop
@@ -501,6 +553,9 @@ export function StoryComposer(props: StoryComposerProps) {
     setShowBackgroundPanel(false);
     setShowToolPanel(false);
     setActiveTool(null);
+    // Text is another tool: the new text stayed selected in drawing mode,
+    // with its toolbar under the docked drawing panel on a short screen.
+    setMode("select");
     textEditor.handleAddText();
   };
 
@@ -516,7 +571,15 @@ export function StoryComposer(props: StoryComposerProps) {
     setShowBackgroundPanel(false);
     setShowToolPanel(false);
     setActiveTool(null);
-    handleTabChange("draw");
+    // A toggle, as its aria-pressed says: pressed again, drawing ends. (A tap
+    // does not move focus on Safari, so focus may still be in the panel.)
+    if (interactionState().mode === "draw") {
+      setMode("select");
+      focusToolIfOutside("draw");
+    } else {
+      setError(null);
+      handleTabChange("draw");
+    }
   };
 
   const handleToggleBackground = () => {
@@ -663,7 +726,8 @@ export function StoryComposer(props: StoryComposerProps) {
           />
 
           {/* Empty-canvas affordance — only a background, nothing placed yet. */}
-          <Show when={isCanvasEmpty()}>
+          {/* Not while drawing: it sat mid-canvas and took the stroke. */}
+          <Show when={isCanvasEmpty() && interactionState().mode !== "draw"}>
             <div class="pointer-events-none absolute inset-0 z-[5] flex items-center justify-center">
               <button
                 type="button"
@@ -710,6 +774,7 @@ export function StoryComposer(props: StoryComposerProps) {
             error={error()}
             onDismissError={() => setError(null)}
             scopeLabel={null}
+            hidden={interactionState().mode === "draw"}
           />
 
           <StoryComposerStickerPanel
@@ -718,12 +783,14 @@ export function StoryComposer(props: StoryComposerProps) {
               handleAddEmoji(emoji);
               setShowToolPanel(false);
               setActiveTool(null);
+              focusToolIfOutside("sticker");
             }}
             onAddOverlay={openOverlayCreate}
             canAddOverlay={overlayState.canAdd}
             onClose={() => {
               setShowToolPanel(false);
               setActiveTool(null);
+              focusToolIfOutside("sticker");
             }}
           />
 
@@ -743,7 +810,10 @@ export function StoryComposer(props: StoryComposerProps) {
               setGradientAngle(angle);
             }}
             onFillTypeChange={setBackgroundType}
-            onClose={() => setShowBackgroundPanel(false)}
+            onClose={() => {
+              setShowBackgroundPanel(false);
+              focusToolIfOutside("background");
+            }}
           />
 
           <StoryComposerDrawingPanel
@@ -752,7 +822,10 @@ export function StoryComposer(props: StoryComposerProps) {
             onDrawingSettingsChange={setDrawingSettings}
             onClear={clearDrawing}
             onUndo={undoDrawing}
-            onDone={() => setMode("select")}
+            onDone={() => {
+              setMode("select");
+              focusToolIfOutside("draw");
+            }}
           />
 
           {/* Hidden file inputs */}
@@ -797,8 +870,9 @@ export function StoryComposer(props: StoryComposerProps) {
                 open
                 kind={editor().kind}
                 initial={editor().initial ?? null}
-                // The panel that opened it closes first, so its button is no
-                // opener to return to: keep focus in the composer instead.
+                // A new one opens from スタンプ (openOverlayCreate), so focus
+                // comes back there. Otherwise, if its opener went away, keep
+                // focus in the composer.
                 onSave={(overlay) => {
                   handleOverlaySave(overlay);
                   focusHomeIfOutside();

@@ -5,18 +5,14 @@
  */
 
 import { EmojiPicker } from "./EmojiPicker.tsx";
-import { useI18n } from "../../lib/i18n.tsx";
 
 interface StickerPanelProps {
   onAddEmoji: (emoji: string) => void;
 }
 
+// No heading of its own: the composer's sticker panel already titles it
+// スタンプ, and the picker showed a second スタンプ under the poll / note /
+// link stickers.
 export function StickerPanel(props: StickerPanelProps) {
-  const { t } = useI18n();
-  return (
-    <div class="space-y-4">
-      <h3 class="text-white font-medium">{t("story.stamp")}</h3>
-      <EmojiPicker onSelect={props.onAddEmoji} />
-    </div>
-  );
+  return <EmojiPicker onSelect={props.onAddEmoji} />;
 }

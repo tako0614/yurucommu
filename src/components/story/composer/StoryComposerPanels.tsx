@@ -4,6 +4,22 @@ import { StickerPanel } from "../StickerPanel.tsx";
 import { useI18n } from "../../../lib/i18n.tsx";
 import type { OverlayKind } from "./useStoryOverlays.ts";
 
+/**
+ * A tool panel takes focus when it opens, on its first enabled control inside
+ * `[data-panel-start]`. The panels come after the caption and 投稿 in the DOM,
+ * so from the rail button that opened one it took a Tab through the rest of
+ * the rail and the footer to reach it.
+ */
+export function focusPanelStart(panel: HTMLElement) {
+  queueMicrotask(() => {
+    panel
+      .querySelector<HTMLElement>(
+        "[data-panel-start] :is(button, input, select):not(:disabled)",
+      )
+      ?.focus();
+  });
+}
+
 interface StoryComposerStickerPanelProps {
   open: boolean;
   onAddEmoji: (emoji: string) => void;
@@ -40,6 +56,9 @@ export function StoryComposerStickerPanel(
   return (
     <Show when={props.open}>
       <div
+        ref={focusPanelStart}
+        role="group"
+        aria-label={t("story.stamp")}
         class="absolute left-4 right-4 z-20 bg-neutral-900/95 backdrop-blur-sm rounded-2xl p-4 max-h-[40vh] overflow-y-auto"
         style={{
           bottom: "calc(max(env(safe-area-inset-bottom, 0px), 16px) + 130px)",
@@ -48,6 +67,7 @@ export function StoryComposerStickerPanel(
         <div class="flex items-center justify-between mb-3">
           <h3 class="text-white font-medium">{t("story.stamp")}</h3>
           <button
+            type="button"
             onClick={props.onClose}
             aria-label={t("common.close")}
             class="text-white/60 hover:text-white p-1"
@@ -55,25 +75,27 @@ export function StoryComposerStickerPanel(
             <CloseIcon />
           </button>
         </div>
-        {/* Interactive stickers (poll / note / link) — federate as StoryOverlay
-            and stay editable/positionable over the media, unlike emoji which
-            bake into the image. */}
-        <div class="mb-3 grid grid-cols-3 gap-2">
-          <For each={INTERACTIVE_STICKERS}>
-            {(sticker) => (
-              <button
-                type="button"
-                disabled={!props.canAddOverlay(sticker.kind)}
-                onClick={() => props.onAddOverlay(sticker.kind)}
-                class="flex flex-col items-center gap-1 rounded-xl bg-white/10 py-3 text-white transition-colors hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                <span class="text-2xl">{sticker.icon}</span>
-                <span class="text-xs">{t(sticker.labelKey)}</span>
-              </button>
-            )}
-          </For>
+        <div data-panel-start>
+          {/* Interactive stickers (poll / note / link) — federate as
+              StoryOverlay and stay editable/positionable over the media,
+              unlike emoji which bake into the image. */}
+          <div class="mb-3 grid grid-cols-3 gap-2">
+            <For each={INTERACTIVE_STICKERS}>
+              {(sticker) => (
+                <button
+                  type="button"
+                  disabled={!props.canAddOverlay(sticker.kind)}
+                  onClick={() => props.onAddOverlay(sticker.kind)}
+                  class="flex flex-col items-center gap-1 rounded-xl bg-white/10 py-3 text-white transition-colors hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <span class="text-2xl">{sticker.icon}</span>
+                  <span class="text-xs">{t(sticker.labelKey)}</span>
+                </button>
+              )}
+            </For>
+          </div>
+          <StickerPanel onAddEmoji={props.onAddEmoji} />
         </div>
-        <StickerPanel onAddEmoji={props.onAddEmoji} />
       </div>
     </Show>
   );
@@ -94,6 +116,9 @@ interface StoryComposerDrawingPanelProps {
   onDone: () => void;
 }
 
+// Docked at the stage's bottom edge, over the caption and 投稿 (hidden while
+// drawing): the panel sat in the middle of the canvas and covered most of it,
+// so a stroke could not be seen or even started there.
 export function StoryComposerDrawingPanel(
   props: StoryComposerDrawingPanelProps,
 ) {
@@ -101,9 +126,12 @@ export function StoryComposerDrawingPanel(
   return (
     <Show when={props.isDrawing}>
       <div
-        class="absolute left-20 z-20 bg-neutral-900/95 backdrop-blur-sm rounded-2xl p-4"
+        ref={focusPanelStart}
+        role="group"
+        aria-label={t("story.drawing")}
+        class="absolute left-3 right-3 z-20 max-h-[45%] overflow-y-auto rounded-2xl bg-neutral-900/95 p-3 shadow-2xl backdrop-blur-sm"
         style={{
-          bottom: "calc(max(env(safe-area-inset-bottom, 0px), 16px) + 130px)",
+          bottom: "max(env(safe-area-inset-bottom, 0px), 12px)",
         }}
       >
         <DrawingPanel
@@ -124,13 +152,8 @@ export function StoryComposerDrawingPanel(
           }
           onClear={props.onClear}
           onUndo={props.onUndo}
+          onDone={props.onDone}
         />
-        <button
-          onClick={props.onDone}
-          class="mt-3 w-full py-2 bg-white/10 hover:bg-white/20 rounded-lg text-white text-sm transition-colors"
-        >
-          {t("story.done")}
-        </button>
       </div>
     </Show>
   );
