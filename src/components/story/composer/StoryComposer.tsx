@@ -163,6 +163,16 @@ export function StoryComposer(props: StoryComposerProps) {
     null,
   );
   let submissionReturnFocus: HTMLElement | null = null;
+  // The composer's own 閉じる, where it opens: the fallback for focus whose
+  // opener went away (a text or overlay editor's) or that is outside the
+  // composer when a prompt is cancelled.
+  const composerHome = () =>
+    composerRootRef?.querySelector<HTMLElement>("[data-composer-close]");
+  const focusHomeIfOutside = () =>
+    queueMicrotask(() => {
+      if (!composerRootRef?.contains(document.activeElement))
+        composerHome()?.focus();
+    });
   const handleComposerEscape = () => {
     if (postActions.posting()) return;
     if (showBackgroundPanel()) {
@@ -176,8 +186,12 @@ export function StoryComposer(props: StoryComposerProps) {
     }
     requestClose();
   };
+  // Stays registered while the discard / recovery-close prompts are up (the
+  // dialog stack gives them Escape and Tab first). Unregistering ran this
+  // dialog's focus restore under the prompt: focus went to ストーリーを追加 on
+  // the page behind while the prompt was showing, and to <main> after 破棄.
   useDialog({
-    isOpen: () => !showDiscard() && !showRecoveryClose(),
+    isOpen: () => true,
     onClose: handleComposerEscape,
     container: () => composerRootRef,
     busyFocus: () => (postActions.posting() ? submissionStatus() : null),
@@ -764,9 +778,16 @@ export function StoryComposer(props: StoryComposerProps) {
           {/* Text editor modal */}
           <TextEditorModal
             isOpen={textEditor.isTextEditorOpen()}
-            onClose={textEditor.handleTextEditorClose}
-            onSave={textEditor.handleTextSave}
+            onClose={() => {
+              textEditor.handleTextEditorClose();
+              focusHomeIfOutside();
+            }}
+            onSave={(text) => {
+              textEditor.handleTextSave(text);
+              focusHomeIfOutside();
+            }}
             initialText={textEditor.getInitialTextData()}
+            returnFocus={composerHome}
           />
 
           {/* Interactive overlay editor modal */}
@@ -776,8 +797,17 @@ export function StoryComposer(props: StoryComposerProps) {
                 open
                 kind={editor().kind}
                 initial={editor().initial ?? null}
-                onSave={handleOverlaySave}
-                onClose={() => setOverlayEditor(null)}
+                // The panel that opened it closes first, so its button is no
+                // opener to return to: keep focus in the composer instead.
+                onSave={(overlay) => {
+                  handleOverlaySave(overlay);
+                  focusHomeIfOutside();
+                }}
+                onClose={() => {
+                  setOverlayEditor(null);
+                  focusHomeIfOutside();
+                }}
+                returnFocus={composerHome}
               />
             )}
           </Show>
@@ -792,7 +822,12 @@ export function StoryComposer(props: StoryComposerProps) {
             cancelLabel={t("posts.keepEditing")}
             destructive
             onConfirm={confirmDiscard}
-            onCancel={() => setShowDiscard(false)}
+            onCancel={() => {
+              setShowDiscard(false);
+              // Focus may have been on <body> before the prompt (a closed
+              // panel or picker left it there); keep it in the composer.
+              focusHomeIfOutside();
+            }}
           />
         </fieldset>
         <ConfirmSheet
@@ -806,7 +841,10 @@ export function StoryComposer(props: StoryComposerProps) {
             setShowRecoveryClose(false);
             postActions.keepRecoveryAndClose();
           }}
-          onCancel={() => setShowRecoveryClose(false)}
+          onCancel={() => {
+            setShowRecoveryClose(false);
+            focusHomeIfOutside();
+          }}
         />
         <StoryComposerStatusOverlay
           ffmpegLoading={video.ffmpegLoading()}

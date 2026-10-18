@@ -113,6 +113,7 @@ export function StoryComposerHeader(props: StoryComposerHeaderProps) {
       {/* Close — top-left, anchored to the stage. */}
       <button
         type="button"
+        data-composer-close
         onClick={props.onClose}
         aria-label={t("common.close")}
         class="absolute z-20 flex h-11 w-11 items-center justify-center rounded-full bg-black/45 text-white shadow-md backdrop-blur-sm transition-colors hover:bg-black/65"
