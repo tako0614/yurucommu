@@ -1,6 +1,7 @@
 import { For, Show } from "solid-js";
 import { BackgroundPanel } from "../BackgroundPanel.tsx";
 import { useI18n } from "../../../lib/i18n.tsx";
+import { focusPanelStart } from "./StoryComposerPanels.tsx";
 
 // Instagram-style quick background presets: a row of one-tap swatches for the
 // common case, with the full solid/gradient custom picker below.
@@ -47,6 +48,9 @@ export function StoryComposerBackgroundPanel(
   return (
     <Show when={props.open}>
       <div
+        ref={focusPanelStart}
+        role="group"
+        aria-label={t("story.background")}
         class="absolute left-3 right-3 z-30 max-h-[44%] overflow-y-auto rounded-2xl bg-neutral-900/95 p-4 shadow-2xl backdrop-blur-sm"
         style={{
           bottom: "calc(max(env(safe-area-inset-bottom, 0px), 12px) + 96px)",
@@ -64,8 +68,9 @@ export function StoryComposerBackgroundPanel(
           </button>
         </div>
 
-        {/* Quick preset swatches. */}
-        <div class="mb-4 grid grid-cols-8 gap-2">
+        {/* Quick preset swatches, named by their colours (they had no
+            name at all) like the custom picker's. */}
+        <div data-panel-start class="mb-4 grid grid-cols-8 gap-2">
           <For each={GRADIENT_PRESETS}>
             {(preset) => {
               const active = () =>
@@ -79,6 +84,8 @@ export function StoryComposerBackgroundPanel(
                     props.onFillTypeChange("gradient");
                     props.onGradientChange(preset.colors, preset.angle);
                   }}
+                  aria-label={`${t("story.selectGradient")}: ${preset.colors.join(" → ")}`}
+                  aria-pressed={active()}
                   class={`aspect-square rounded-full ${
                     active()
                       ? "ring-2 ring-white ring-offset-2 ring-offset-neutral-900"
@@ -102,6 +109,8 @@ export function StoryComposerBackgroundPanel(
                     props.onFillTypeChange("solid");
                     props.onSolidColorChange(color);
                   }}
+                  aria-label={t("story.selectColor").replace("{color}", color)}
+                  aria-pressed={active()}
                   class={`aspect-square rounded-full border border-white/20 ${
                     active()
                       ? "ring-2 ring-white ring-offset-2 ring-offset-neutral-900"

@@ -22,6 +22,10 @@ interface RailButtonProps {
   onClick: () => void;
   active?: boolean;
   disabled?: boolean;
+  /** The panel it opens: its state is announced, and focus comes back here. */
+  tool?: "sticker" | "draw" | "background";
+  /** A panel toggle (aria-expanded) rather than a mode (aria-pressed). */
+  expands?: boolean;
 }
 
 // Instagram-style vertical tool rail button: a single circular icon button,
@@ -35,6 +39,9 @@ function RailButton(props: RailButtonProps) {
       disabled={props.disabled}
       aria-label={props.label}
       title={props.label}
+      data-composer-tool={props.tool}
+      aria-expanded={props.tool && props.expands ? !!props.active : undefined}
+      aria-pressed={props.tool && !props.expands ? !!props.active : undefined}
       class={`flex h-11 w-11 items-center justify-center rounded-full text-white shadow-md backdrop-blur-sm transition-colors disabled:opacity-40 ${
         props.active
           ? "bg-white/30 ring-2 ring-white/80"
@@ -138,12 +145,15 @@ export function StoryComposerHeader(props: StoryComposerHeaderProps) {
         <RailButton
           icon={<StickerIcon />}
           label={t("story.stamp")}
+          tool="sticker"
+          expands
           onClick={props.onSticker}
           active={props.stickerActive}
         />
         <RailButton
           icon={<DrawIcon />}
           label={t("story.drawing")}
+          tool="draw"
           onClick={props.onDraw}
           active={props.drawActive}
         />
@@ -163,6 +173,8 @@ export function StoryComposerHeader(props: StoryComposerHeaderProps) {
         <RailButton
           icon={<BackgroundIcon />}
           label={t("story.changeBackground")}
+          tool="background"
+          expands
           onClick={props.onBackground}
           active={props.backgroundActive}
         />

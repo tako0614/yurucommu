@@ -112,6 +112,10 @@ export function StoryComposer(props: StoryComposerProps) {
   } | null>(null);
 
   const openOverlayCreate = (kind: OverlayKind) => {
+    // The sticker panel closes under the editor. Its rail button takes focus
+    // first, so the editor opens from it and gives focus back to it: the
+    // editor opened from <body> and returned focus to the composer's 閉じる.
+    toolButton("sticker")?.focus();
     setShowToolPanel(false);
     setActiveTool(null);
     setOverlayEditor({ kind });
@@ -173,15 +177,36 @@ export function StoryComposer(props: StoryComposerProps) {
       if (!composerRootRef?.contains(document.activeElement))
         composerHome()?.focus();
     });
+  // A tool panel's rail button: where focus goes back when the panel closes
+  // from inside (its 閉じる / 完了, a picked emoji, Escape), which removed the
+  // focused control and left focus on <body>.
+  const toolButton = (tool: "sticker" | "draw" | "background") =>
+    composerRootRef?.querySelector<HTMLElement>(
+      `[data-composer-tool="${tool}"]`,
+    );
+  const focusToolIfOutside = (tool: "sticker" | "draw" | "background") =>
+    queueMicrotask(() => {
+      if (!composerRootRef?.contains(document.activeElement))
+        toolButton(tool)?.focus();
+    });
   const handleComposerEscape = () => {
     if (postActions.posting()) return;
     if (showBackgroundPanel()) {
       setShowBackgroundPanel(false);
+      focusToolIfOutside("background");
       return;
     }
     if (showToolPanel()) {
       setShowToolPanel(false);
       setActiveTool(null);
+      focusToolIfOutside("sticker");
+      return;
+    }
+    // Drawing is a mode with its own panel: Escape leaves it first, as the
+    // panels close first. It went straight to 「下書きを破棄しますか？」.
+    if (interactionState().mode === "draw") {
+      setMode("select");
+      focusToolIfOutside("draw");
       return;
     }
     requestClose();
@@ -663,7 +688,8 @@ export function StoryComposer(props: StoryComposerProps) {
           />
 
           {/* Empty-canvas affordance — only a background, nothing placed yet. */}
-          <Show when={isCanvasEmpty()}>
+          {/* Not while drawing: it sat mid-canvas and took the stroke. */}
+          <Show when={isCanvasEmpty() && interactionState().mode !== "draw"}>
             <div class="pointer-events-none absolute inset-0 z-[5] flex items-center justify-center">
               <button
                 type="button"
@@ -710,6 +736,7 @@ export function StoryComposer(props: StoryComposerProps) {
             error={error()}
             onDismissError={() => setError(null)}
             scopeLabel={null}
+            hidden={interactionState().mode === "draw"}
           />
 
           <StoryComposerStickerPanel
@@ -718,12 +745,14 @@ export function StoryComposer(props: StoryComposerProps) {
               handleAddEmoji(emoji);
               setShowToolPanel(false);
               setActiveTool(null);
+              focusToolIfOutside("sticker");
             }}
             onAddOverlay={openOverlayCreate}
             canAddOverlay={overlayState.canAdd}
             onClose={() => {
               setShowToolPanel(false);
               setActiveTool(null);
+              focusToolIfOutside("sticker");
             }}
           />
 
@@ -743,7 +772,10 @@ export function StoryComposer(props: StoryComposerProps) {
               setGradientAngle(angle);
             }}
             onFillTypeChange={setBackgroundType}
-            onClose={() => setShowBackgroundPanel(false)}
+            onClose={() => {
+              setShowBackgroundPanel(false);
+              focusToolIfOutside("background");
+            }}
           />
 
           <StoryComposerDrawingPanel
@@ -752,7 +784,10 @@ export function StoryComposer(props: StoryComposerProps) {
             onDrawingSettingsChange={setDrawingSettings}
             onClear={clearDrawing}
             onUndo={undoDrawing}
-            onDone={() => setMode("select")}
+            onDone={() => {
+              setMode("select");
+              focusToolIfOutside("draw");
+            }}
           />
 
           {/* Hidden file inputs */}

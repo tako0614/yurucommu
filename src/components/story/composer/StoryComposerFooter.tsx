@@ -16,6 +16,11 @@ interface StoryComposerFooterProps {
   // (self + followers). A non-null label is the community display name and
   // binds the story to that community (reach == members).
   scopeLabel: string | null;
+  /**
+   * While drawing: the drawing panel docks over this area, so the caption and
+   * 投稿 are out of sight and out of the Tab order until drawing is done.
+   */
+  hidden?: boolean;
 }
 
 const SendIcon = () => (
@@ -41,6 +46,7 @@ export function StoryComposerFooter(props: StoryComposerFooterProps) {
   return (
     <div
       class="absolute left-0 right-0 bottom-0 z-10 bg-gradient-to-t from-black via-black/90 to-transparent"
+      classList={{ invisible: props.hidden }}
       style={{
         "padding-bottom": "max(env(safe-area-inset-bottom, 0px), 16px)",
       }}

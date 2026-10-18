@@ -22,12 +22,14 @@ export function BackgroundPanel(props: BackgroundPanelProps) {
   const { t } = useI18n();
   return (
     <div class="space-y-4">
-      <h3 class="text-white font-medium">{t("story.background")}</h3>
-
-      {/* Fill type toggle */}
+      {/* No heading of its own: the composer's background panel already
+          titles it 背景, and a second 背景 sat between the presets and these
+          pickers. Fill type toggle: */}
       <div class="flex gap-2">
         <button
+          type="button"
           onClick={() => props.onFillTypeChange("solid")}
+          aria-pressed={props.fillType === "solid"}
           class={`flex-1 py-2 rounded-lg text-sm transition-colors ${
             props.fillType === "solid"
               ? "bg-accent text-white"
@@ -37,7 +39,9 @@ export function BackgroundPanel(props: BackgroundPanelProps) {
           {t("story.solid")}
         </button>
         <button
+          type="button"
           onClick={() => props.onFillTypeChange("gradient")}
+          aria-pressed={props.fillType === "gradient"}
           class={`flex-1 py-2 rounded-lg text-sm transition-colors ${
             props.fillType === "gradient"
               ? "bg-accent text-white"
