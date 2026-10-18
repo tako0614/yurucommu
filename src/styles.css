@@ -142,16 +142,16 @@ select:focus-visible,
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
+/* No border-radius here: the outline already follows the element's own
+   corners. Setting one turned pill buttons into rounded rectangles and
+   rounded inputs (radius inherited from a square parent) square while
+   focused. */
+
 /* A focusable that runs to the edge of a scrolling container draws its ring
    inside itself, or the container clips the ring's outer side. */
 .focus-inset:focus-visible {
   outline-offset: -2px;
 }
-
-/* No border-radius here: the outline already follows the element's own
-   corners. Setting one turned pill buttons into rounded rectangles and
-   rounded inputs (radius inherited from a square parent) square while
-   focused. */
 
 /* A field that draws its own accent (or error red) focus state, as a ring
    on the field or its wrapper, or an accent border, does not get the outline
