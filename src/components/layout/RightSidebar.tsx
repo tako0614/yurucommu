@@ -153,7 +153,10 @@ export function RightSidebar() {
       <Show when={showRecommendations()}>
         <div class="p-4 pb-0">
           <div class="bg-neutral-900/50 rounded-2xl overflow-hidden">
-            <h2 class="text-lg font-bold px-4 pt-4 pb-2">
+            <h2
+              id="sidebar-suggested-title"
+              class="text-lg font-bold px-4 pt-4 pb-2"
+            >
               {t("profile.suggestedUsers")}
             </h2>
             <Show

@@ -116,7 +116,7 @@ export function InstancePendingScreen(props: InstancePendingScreenProps) {
                 }}
               </For>
               <Show when={health().checked_at}>
-                <li class="pt-1 text-xs text-neutral-600">
+                <li class="pt-1 text-xs text-neutral-500">
                   {t("instance.lastChecked").replace(
                     "{time}",
                     new Date(health().checked_at).toLocaleTimeString(

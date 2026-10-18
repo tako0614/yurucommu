@@ -252,7 +252,7 @@ export function NoteBar(props: NoteBarProps) {
                 maxLength={MAX_NOTE_LENGTH}
                 onInput={(event) => setDraft(event.currentTarget.value)}
                 placeholder={t("notes.placeholder")}
-                class="h-28 w-full resize-none rounded-xl border border-neutral-800 bg-neutral-900 px-3 py-3 text-sm leading-relaxed text-white outline-none transition-colors placeholder:text-neutral-600 focus:border-neutral-600"
+                class="h-28 w-full resize-none rounded-xl border border-neutral-800 bg-neutral-900 px-3 py-3 text-sm leading-relaxed text-white outline-none transition-colors placeholder:text-neutral-500 focus:border-neutral-600"
                 autofocus
               />
               <div class="mt-2 flex items-center justify-between gap-3">

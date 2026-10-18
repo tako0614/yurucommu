@@ -29,6 +29,17 @@
 }
 
 /*
+ * neutral-500 is the app's muted text (handles, times, counts, hints; it is
+ * used for text and placeholders only). Tailwind's #737373 measured 3.8:1 on
+ * the neutral-900 surfaces and about 4:1 on the neutral-950 page, under the
+ * 4.5:1 that small text needs, on nearly every screen. This shade keeps it a
+ * step below neutral-400 while reaching 4.9:1 even on neutral-800.
+ */
+@theme {
+  --color-neutral-500: oklch(0.65 0 0);
+}
+
+/*
  * bg-accent, text-accent, border-accent and ring-accent are generated from
  * the theme color above, inside Tailwind's utilities layer. They used to be
  * hand-written here, outside any layer, which made them beat every variant:
