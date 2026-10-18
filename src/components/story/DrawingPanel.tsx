@@ -37,7 +37,7 @@ export function DrawingPanel(props: DrawingPanelProps) {
   return (
     <div class="@container space-y-3">
       <div class="flex flex-wrap items-center gap-2">
-        <h3 class="mr-auto font-medium text-white">{t("story.drawing")}</h3>
+        <h2 class="mr-auto font-medium text-white">{t("story.drawing")}</h2>
         <button
           type="button"
           onClick={props.onUndo}

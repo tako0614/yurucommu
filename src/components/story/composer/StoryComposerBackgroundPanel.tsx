@@ -66,7 +66,7 @@ export function StoryComposerBackgroundPanel(
         }}
       >
         <div class="mb-3 flex items-center justify-between">
-          <h3 class="font-medium text-white">{t("story.background")}</h3>
+          <h2 class="font-medium text-white">{t("story.background")}</h2>
           <button
             type="button"
             onClick={props.onClose}
