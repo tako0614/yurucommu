@@ -91,6 +91,9 @@ function focusableWithin(root: HTMLElement): HTMLElement[] {
   ).filter(
     (el) =>
       !el.hasAttribute("disabled") &&
+      // Out of the Tab order (a roving tabindex, as in the emoji picker):
+      // counted as the last stop, Tab from the real last one left the dialog.
+      el.tabIndex >= 0 &&
       !el.closest("[inert]") &&
       el.getAttribute("aria-hidden") !== "true" &&
       // offsetParent is null for display:none; visibility:hidden also fails.
