@@ -692,17 +692,28 @@ export function EmojiPicker(props: EmojiPickerProps) {
   const emojiButtons = () =>
     gridRef ? [...gridRef.querySelectorAll<HTMLElement>("button")] : [];
 
+  const tabs = () =>
+    tabsRef ? [...tabsRef.querySelectorAll<HTMLElement>("[role=tab]")] : [];
+
   const selectCategory = (index: number, focusTab: boolean) => {
+    // A click that does not move focus (Safari) left it on an emoji that the
+    // new category's list replaces: it goes to the tab instead of <body>.
+    const fromGrid = !!gridRef?.contains(document.activeElement);
     setActiveCategory(index);
     setCurrent(0);
     scrollRef?.scrollTo({ top: 0 });
-    if (focusTab)
-      tabsRef?.querySelectorAll<HTMLElement>("[role=tab]")[index]?.focus();
+    if (focusTab || fromGrid) tabs()[index]?.focus();
   };
 
+  // Arrow keys with a modifier stay the browser's (Alt+← is Back).
+  const modified = (e: KeyboardEvent) => e.altKey || e.ctrlKey || e.metaKey;
+
   const onTabsKeyDown = (e: KeyboardEvent) => {
+    if (modified(e)) return;
     const count = EMOJI_CATEGORIES.length;
-    const at = activeCategory();
+    // From the focused tab, which a screen reader can move off the selected one.
+    const focused = tabs().indexOf(e.target as HTMLElement);
+    const at = focused === -1 ? activeCategory() : focused;
     const next =
       e.key === "ArrowRight"
         ? (at + 1) % count
@@ -727,6 +738,7 @@ export function EmojiPicker(props: EmojiPickerProps) {
   };
 
   const onGridKeyDown = (e: KeyboardEvent) => {
+    if (modified(e)) return;
     const buttons = emojiButtons();
     if (buttons.length === 0) return;
     const last = buttons.length - 1;
@@ -762,6 +774,9 @@ export function EmojiPicker(props: EmojiPickerProps) {
       <div
         ref={tabsRef}
         role="tablist"
+        // Scroll containers are Tab stops in Firefox; this one and the grid's
+        // made the picker four stops there instead of two.
+        tabIndex={-1}
         onKeyDown={onTabsKeyDown}
         class="flex gap-1 overflow-x-auto pb-2 scrollbar-thin"
       >
@@ -793,6 +808,7 @@ export function EmojiPicker(props: EmojiPickerProps) {
         id={`${id}-panel`}
         role="tabpanel"
         aria-labelledby={`${id}-tab-${activeCategory()}`}
+        tabIndex={-1}
         class="h-48 overflow-y-auto"
       >
         {/* As many 36px columns as fit: eight fixed ones were 316px wide
