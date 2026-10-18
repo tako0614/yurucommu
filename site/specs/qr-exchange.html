@@ -48,7 +48,7 @@
       href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="../styles.css?v=8" />
+    <link rel="stylesheet" href="../styles.css?v=9" />
   </head>
   <body>
     <a class="skip" href="#main">本文へ移動</a>
@@ -157,6 +157,27 @@
           const toggle = menu && menu.querySelector("summary");
           if (!toggle) return;
           const collapsible = () => getComputedStyle(toggle).display !== "none";
+          // Wide screens show the list through CSS while the <details> stayed
+          // closed, which accessibility checkers read as hidden content. Open it
+          // where it cannot be collapsed, and when the screen narrows close only a
+          // list opened here (not one the reader opened), with focus back on the
+          // toggle if it was in the list.
+          let opened = false;
+          const sync = () => {
+            if (!collapsible()) {
+              if (!menu.open) {
+                menu.open = true;
+                opened = true;
+              }
+            } else if (opened) {
+              opened = false;
+              const hadFocus = menu.contains(document.activeElement);
+              menu.open = false;
+              if (hadFocus) toggle.focus();
+            }
+          };
+          sync();
+          window.matchMedia("(width > 900px)").addEventListener("change", sync);
           menu.addEventListener("keydown", (e) => {
             if (e.key === "Escape" && menu.open && collapsible()) {
               menu.open = false;
@@ -195,7 +216,9 @@
         <p>
           QRコードには秘密情報やログイン情報ではなく、次の形のプロフィールURLだけを入れます。
         </p>
-        <pre><code>https://example.com/profile/https%3A%2F%2Fexample.com%2Fap%2Fusers%2Falice#alice</code></pre>
+        <pre
+          tabindex="0"
+        ><code>https://example.com/profile/https%3A%2F%2Fexample.com%2Fap%2Fusers%2Falice#alice</code></pre>
         <div
           class="docs-table-scroll"
           role="region"

@@ -51,7 +51,7 @@
       href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="../styles.css?v=8" />
+    <link rel="stylesheet" href="../styles.css?v=9" />
   </head>
   <body>
     <a class="skip" href="#main">本文へ移動</a>
@@ -156,6 +156,27 @@
           const toggle = menu && menu.querySelector("summary");
           if (!toggle) return;
           const collapsible = () => getComputedStyle(toggle).display !== "none";
+          // Wide screens show the list through CSS while the <details> stayed
+          // closed, which accessibility checkers read as hidden content. Open it
+          // where it cannot be collapsed, and when the screen narrows close only a
+          // list opened here (not one the reader opened), with focus back on the
+          // toggle if it was in the list.
+          let opened = false;
+          const sync = () => {
+            if (!collapsible()) {
+              if (!menu.open) {
+                menu.open = true;
+                opened = true;
+              }
+            } else if (opened) {
+              opened = false;
+              const hadFocus = menu.contains(document.activeElement);
+              menu.open = false;
+              if (hadFocus) toggle.focus();
+            }
+          };
+          sync();
+          window.matchMedia("(width > 900px)").addEventListener("change", sync);
           menu.addEventListener("keydown", (e) => {
             if (e.key === "Escape" && menu.open && collapsible()) {
               menu.open = false;
@@ -286,7 +307,7 @@
         </div>
 
         <h2>認証を確認する</h2>
-        <pre><code>bunx wrangler login
+        <pre tabindex="0"><code>bunx wrangler login
 bunx wrangler whoami</code></pre>
         <p>
           CIやOpenTofuでAPIトークンを使う場合は、必要な操作だけに権限を絞り、リポジトリへ保存しません。実行前に対象のCloudflareアカウントを確認してください。
@@ -315,7 +336,7 @@ bunx wrangler whoami</code></pre>
         <p>
           公開してよい値とシークレットを分けます。Wranglerを使う場合、シークレットは次のように対話形式で登録できます。
         </p>
-        <pre><code>bunx wrangler secret put ENCRYPTION_KEY
+        <pre tabindex="0"><code>bunx wrangler secret put ENCRYPTION_KEY
 bunx wrangler secret put YURUCOMMU_SESSION_HASH_SALT
 bunx wrangler secret put AUTH_PASSWORD_HASH</code></pre>
         <p>

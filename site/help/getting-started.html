@@ -51,7 +51,7 @@
       href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="../styles.css?v=8" />
+    <link rel="stylesheet" href="../styles.css?v=9" />
   </head>
   <body>
     <a class="skip" href="#main">本文へ移動</a>
@@ -158,6 +158,27 @@
           const toggle = menu && menu.querySelector("summary");
           if (!toggle) return;
           const collapsible = () => getComputedStyle(toggle).display !== "none";
+          // Wide screens show the list through CSS while the <details> stayed
+          // closed, which accessibility checkers read as hidden content. Open it
+          // where it cannot be collapsed, and when the screen narrows close only a
+          // list opened here (not one the reader opened), with focus back on the
+          // toggle if it was in the list.
+          let opened = false;
+          const sync = () => {
+            if (!collapsible()) {
+              if (!menu.open) {
+                menu.open = true;
+                opened = true;
+              }
+            } else if (opened) {
+              opened = false;
+              const hadFocus = menu.contains(document.activeElement);
+              menu.open = false;
+              if (hadFocus) toggle.focus();
+            }
+          };
+          sync();
+          window.matchMedia("(width > 900px)").addEventListener("change", sync);
           menu.addEventListener("keydown", (e) => {
             if (e.key === "Escape" && menu.open && collapsible()) {
               menu.open = false;
@@ -187,7 +208,9 @@
 
         <h2>ローカルで確認する</h2>
         <p>リポジトリをクローンし、モックAPI付きの開発画面を起動します。</p>
-        <pre><code>git clone https://github.com/tako0614/yurucommu.git
+        <pre
+          tabindex="0"
+        ><code>git clone https://github.com/tako0614/yurucommu.git
 cd yurucommu
 bun install
 bun run dev:mock</code></pre>
@@ -197,7 +220,9 @@ bun run dev:mock</code></pre>
         </p>
 
         <h3>ログアウト状態から試す</h3>
-        <pre><code>YURUCOMMU_MOCK_AUTH=signed-out bun run dev:mock</code></pre>
+        <pre
+          tabindex="0"
+        ><code>YURUCOMMU_MOCK_AUTH=signed-out bun run dev:mock</code></pre>
 
         <h3>既存のAPIにつなぐ</h3>
         <p>
@@ -205,7 +230,9 @@ bun run dev:mock</code></pre>
           はWeb画面だけを起動します。すでに動いているYurucommu
           APIへ接続する場合は、接続先を指定します。
         </p>
-        <pre><code>YURUCOMMU_DEV_PROXY_TARGET=http://localhost:8787 bun run dev</code></pre>
+        <pre
+          tabindex="0"
+        ><code>YURUCOMMU_DEV_PROXY_TARGET=http://localhost:8787 bun run dev</code></pre>
 
         <h2>本番で使う場所を選ぶ</h2>
         <p>
@@ -217,7 +244,9 @@ bun run dev:mock</code></pre>
           Takosumiなら、<a href="/#start">トップページの「Takosumi で入れる」</a
           >から確認済みの版でインストール画面を開けます。Gitからアプリの定義を読み込めるほかのホストでは、次の内容を指定します。
         </p>
-        <pre><code>Git URL: https://github.com/tako0614/yurucommu.git
+        <pre
+          tabindex="0"
+        ><code>Git URL: https://github.com/tako0614/yurucommu.git
 ref: 安定版のタグ、または確認済みのコミット
 path: deploy/takoform</code></pre>
         <p>

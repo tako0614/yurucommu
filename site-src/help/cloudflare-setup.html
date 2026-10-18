@@ -131,7 +131,7 @@
         </div>
 
         <h2>認証を確認する</h2>
-        <pre><code>bunx wrangler login
+        <pre tabindex="0"><code>bunx wrangler login
 bunx wrangler whoami</code></pre>
         <p>
           CIやOpenTofuでAPIトークンを使う場合は、必要な操作だけに権限を絞り、リポジトリへ保存しません。実行前に対象のCloudflareアカウントを確認してください。
@@ -160,7 +160,7 @@ bunx wrangler whoami</code></pre>
         <p>
           公開してよい値とシークレットを分けます。Wranglerを使う場合、シークレットは次のように対話形式で登録できます。
         </p>
-        <pre><code>bunx wrangler secret put ENCRYPTION_KEY
+        <pre tabindex="0"><code>bunx wrangler secret put ENCRYPTION_KEY
 bunx wrangler secret put YURUCOMMU_SESSION_HASH_SALT
 bunx wrangler secret put AUTH_PASSWORD_HASH</code></pre>
         <p>

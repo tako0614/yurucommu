@@ -90,6 +90,15 @@ a:focus-visible {
   outline-offset: 5px;
 }
 
+/* Code blocks scroll sideways, so they take keyboard focus (tabindex in the
+   page) to be scrolled with the arrow keys. The ring is drawn inside, on the
+   dark block: outside, on the light page, the dark-surface focus colour was
+   2.35:1. */
+.code:focus-visible {
+  outline: 3px solid var(--color-focus);
+  outline-offset: -4px;
+}
+
 .wrap {
   width: min(100% - 6rem, 1200px);
   margin-inline: auto;

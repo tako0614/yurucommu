@@ -57,6 +57,27 @@
     const toggle = menu && menu.querySelector("summary");
     if (!toggle) return;
     const collapsible = () => getComputedStyle(toggle).display !== "none";
+    // Wide screens show the list through CSS while the <details> stayed
+    // closed, which accessibility checkers read as hidden content. Open it
+    // where it cannot be collapsed, and when the screen narrows close only a
+    // list opened here (not one the reader opened), with focus back on the
+    // toggle if it was in the list.
+    let opened = false;
+    const sync = () => {
+      if (!collapsible()) {
+        if (!menu.open) {
+          menu.open = true;
+          opened = true;
+        }
+      } else if (opened) {
+        opened = false;
+        const hadFocus = menu.contains(document.activeElement);
+        menu.open = false;
+        if (hadFocus) toggle.focus();
+      }
+    };
+    sync();
+    window.matchMedia("(width > 900px)").addEventListener("change", sync);
     menu.addEventListener("keydown", (e) => {
       if (e.key === "Escape" && menu.open && collapsible()) {
         menu.open = false;
