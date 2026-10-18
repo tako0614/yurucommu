@@ -11,6 +11,7 @@
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import { FONTS } from "../../lib/story-canvas.ts";
 import { useI18n } from "../../lib/i18n.tsx";
+import type { TranslationKey } from "../../lib/i18n.tsx";
 import { useDialog } from "../../lib/useDialog.ts";
 
 // Text style presets (Instagram-like A, A, A buttons)
@@ -205,7 +206,9 @@ export function TextEditorModal(props: TextEditorModalProps) {
                     }`}
                     style={{ "font-family": font.family }}
                   >
-                    {font.name}
+                    {/* FONTS holds i18n keys, not names: shown as they
+                        were, the chips read 「story.fontGothic」. */}
+                    {t(font.name as TranslationKey)}
                   </button>
                 )}
               </For>

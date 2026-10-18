@@ -29,8 +29,19 @@ const SendIcon = () => (
   </svg>
 );
 
+// The server refuses a longer (trimmed) caption, but only after the media has
+// uploaded, which leaves the story on the recovery screen. Near the limit the
+// field says how long the caption is, and turns red past it. It does not stop
+// typing or posting: the release smoke posts a 501-character caption to check
+// that recovery keeps a pre-write refusal, so a hard limit here needs that
+// smoke (scripts/release-browser-story-outcome.mjs) changed first.
+const CAPTION_MAX = 500;
+const CAPTION_COUNT_FROM = 450;
+
 export function StoryComposerFooter(props: StoryComposerFooterProps) {
   const { t } = useI18n();
+  const captionLength = () => props.caption.trim().length;
+  const captionTooLong = () => captionLength() > CAPTION_MAX;
   const postDisabled = () =>
     !props.canPost ||
     props.posting ||
@@ -58,8 +69,26 @@ export function StoryComposerFooter(props: StoryComposerFooterProps) {
           onInput={(e) => props.onCaptionChange(e.currentTarget.value)}
           placeholder={t("story.captionPlaceholder")}
           aria-label={t("story.captionPlaceholder")}
+          aria-describedby={
+            captionLength() >= CAPTION_COUNT_FROM
+              ? "story-caption-count"
+              : undefined
+          }
           class="w-full bg-transparent text-white placeholder-white/50 text-base py-2 outline-none"
         />
+        {/* Near the limit, how long it is; red once the server would refuse it. */}
+        <Show when={captionLength() >= CAPTION_COUNT_FROM}>
+          <p
+            id="story-caption-count"
+            class={`text-right text-xs ${
+              captionTooLong() ? "text-red-400" : "text-white/60"
+            }`}
+          >
+            {t("notes.charCount")
+              .replace("{count}", String(captionLength()))
+              .replace("{max}", String(CAPTION_MAX))}
+          </p>
+        </Show>
       </div>
 
       {/* Current scope indicator: shows where the story will be shared. */}
