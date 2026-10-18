@@ -49,6 +49,10 @@ export function StoryComposerFooter(props: StoryComposerFooterProps) {
         <input
           type="text"
           value={props.caption}
+          // The server refuses a caption over 500 characters, but only after
+          // the media has uploaded, which left the story on the recovery
+          // screen. The field stops at the same length instead.
+          maxLength={500}
           onInput={(e) => props.onCaptionChange(e.currentTarget.value)}
           placeholder={t("story.captionPlaceholder")}
           aria-label={t("story.captionPlaceholder")}
