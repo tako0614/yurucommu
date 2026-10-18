@@ -2,6 +2,7 @@ import { For, Show } from "solid-js";
 import { BackgroundPanel } from "../BackgroundPanel.tsx";
 import { useI18n } from "../../../lib/i18n.tsx";
 import { focusPanelStart } from "./StoryComposerPanels.tsx";
+import { onSwatchKeyDown, swatchTabIndex } from "../swatchGroup.ts";
 
 // Instagram-style quick background presets: a row of one-tap swatches for the
 // common case, with the full solid/gradient custom picker below.
@@ -45,6 +46,14 @@ export function StoryComposerBackgroundPanel(
   props: StoryComposerBackgroundPanelProps,
 ) {
   const { t } = useI18n();
+  const gradientActive = (preset: { colors: string[] }) =>
+    props.fillType === "gradient" &&
+    props.gradientColors[0] === preset.colors[0] &&
+    props.gradientColors[1] === preset.colors[1];
+  const solidActive = (color: string) =>
+    props.fillType === "solid" && props.solidColor === color;
+  const anyActive = () =>
+    GRADIENT_PRESETS.some(gradientActive) || SOLID_PRESETS.some(solidActive);
   return (
     <Show when={props.open}>
       <div
@@ -69,23 +78,30 @@ export function StoryComposerBackgroundPanel(
         </div>
 
         {/* Quick preset swatches, named by their colours (they had no
-            name at all) like the custom picker's. */}
-        <div data-panel-start class="mb-4 grid grid-cols-8 gap-2">
+            name at all) like the custom picker's: one radio group, one Tab
+            stop, arrow keys inside. */}
+        {/* Unnamed: inside the panel's 「背景」 group under its 「背景」
+            heading, a third 「背景」 only repeated. */}
+        <div
+          data-panel-start
+          role="radiogroup"
+          onKeyDown={onSwatchKeyDown}
+          class="mb-4 grid grid-cols-8 gap-2"
+        >
           <For each={GRADIENT_PRESETS}>
-            {(preset) => {
-              const active = () =>
-                props.fillType === "gradient" &&
-                props.gradientColors[0] === preset.colors[0] &&
-                props.gradientColors[1] === preset.colors[1];
+            {(preset, index) => {
+              const active = () => gradientActive(preset);
               return (
                 <button
                   type="button"
+                  role="radio"
                   onClick={() => {
                     props.onFillTypeChange("gradient");
                     props.onGradientChange(preset.colors, preset.angle);
                   }}
                   aria-label={`${t("story.selectGradient")}: ${preset.colors.join("、")}`}
-                  aria-pressed={active()}
+                  aria-checked={active()}
+                  tabIndex={swatchTabIndex(active(), index(), anyActive())}
                   class={`aspect-square rounded-full ${
                     active()
                       ? "ring-2 ring-white ring-offset-2 ring-offset-neutral-900"
@@ -100,17 +116,19 @@ export function StoryComposerBackgroundPanel(
           </For>
           <For each={SOLID_PRESETS}>
             {(color) => {
-              const active = () =>
-                props.fillType === "solid" && props.solidColor === color;
+              const active = () => solidActive(color);
               return (
                 <button
                   type="button"
+                  role="radio"
                   onClick={() => {
                     props.onFillTypeChange("solid");
                     props.onSolidColorChange(color);
                   }}
                   aria-label={t("story.selectColor").replace("{color}", color)}
-                  aria-pressed={active()}
+                  aria-checked={active()}
+                  // After the gradients, so never the first swatch.
+                  tabIndex={active() ? 0 : -1}
                   class={`aspect-square rounded-full border border-white/20 ${
                     active()
                       ? "ring-2 ring-white ring-offset-2 ring-offset-neutral-900"
