@@ -7,12 +7,17 @@ interface StoryBackgroundOptions {
   solidColor: string;
   gradientColors: string[];
   gradientAngle: number;
+  /** A video is the background: the canvas stays transparent over it. */
+  keepTransparent: boolean;
   onUpdate: () => void;
 }
 
 export function useStoryBackground(opts: StoryBackgroundOptions) {
   createEffect(() => {
     if (!opts.storyCanvas) return;
+    // A colour here would be drawn over the video in the posted story (the
+    // canvas is composited on top), hiding it.
+    if (opts.keepTransparent) return;
 
     let fill: BackgroundFill;
     if (opts.backgroundType === "solid") {
