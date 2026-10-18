@@ -87,16 +87,22 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
                 </div>
               }
             >
+              {/* 承認 / 拒否 are described by whose request they answer:
+                  repeated per row, they did not say. */}
               <For each={props.joinRequests}>
-                {(request) => (
+                {(request, index) => (
                   <div class="flex items-center gap-3 px-4 py-3 border-t border-neutral-900">
                     <UserAvatar
                       avatarUrl={request.icon_url}
                       name={request.name || request.preferred_username}
                       size={40}
+                      decorative
                     />
                     <div class="flex-1 min-w-0">
-                      <div class="font-semibold text-white truncate">
+                      <div
+                        id={`community-request-name-${index()}`}
+                        class="font-semibold text-white truncate"
+                      >
                         {request.name || request.preferred_username}
                       </div>
                       <div class="text-sm text-neutral-500 truncate">
@@ -105,6 +111,7 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
                     </div>
                     <div class="flex gap-2">
                       <button
+                        aria-describedby={`community-request-name-${index()}`}
                         onClick={() => props.onAcceptRequest(request)}
                         disabled={props.requestAction[request.ap_id]}
                         class="px-3 py-1 text-xs bg-accent text-white rounded-full transition-colors disabled:opacity-50"
@@ -112,6 +119,7 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
                         {props.t("dm.accept")}
                       </button>
                       <button
+                        aria-describedby={`community-request-name-${index()}`}
                         onClick={() => props.onRejectRequest(request)}
                         disabled={props.requestAction[request.ap_id]}
                         class="px-3 py-1 text-xs bg-neutral-800 text-neutral-200 rounded-full hover:bg-neutral-700 transition-colors disabled:opacity-50"
@@ -139,99 +147,100 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
           </div>
         }
       >
+        {/* The row is not one link any more: the role select and 削除 sat
+            inside the profile link (interactive content in <a> is invalid,
+            and the link read 「Akari … Akari をコミュニティから削除しますか？」).
+            The link is the avatar and name; the controls follow it. */}
         <For each={props.members}>
-          {(member) => (
-            <A
-              href={`/profile/${encodeURIComponent(member.ap_id)}`}
-              class="flex items-center gap-3 px-4 py-3 hover:bg-neutral-900/30 transition-colors"
-            >
-              <UserAvatar
-                avatarUrl={member.icon_url}
-                name={member.name || member.preferred_username}
-                size={48}
-              />
-              <div class="flex-1 min-w-0">
-                <div class="flex items-center gap-2">
-                  <span class="font-bold text-white truncate">
-                    {member.name || member.preferred_username}
-                  </span>
-                  <Show when={member.role === "owner"}>
-                    <span class="px-1.5 py-0.5 text-xs bg-yellow-500/20 text-yellow-400 rounded">
-                      {props.t("members.owner")}
-                    </span>
-                  </Show>
-                  <Show when={member.role === "moderator"}>
-                    <span class="px-1.5 py-0.5 text-xs bg-accent-soft text-accent rounded">
+          {(member, index) => {
+            const nameId = () => `community-member-name-${index()}`;
+            return (
+              <div class="flex items-center gap-3 px-4 py-3 hover:bg-neutral-900/30 transition-colors">
+                <A
+                  href={`/profile/${encodeURIComponent(member.ap_id)}`}
+                  class="flex min-w-0 flex-1 items-center gap-3"
+                >
+                  {/* Decorative: the name follows as text, so the link
+                      read the name twice. */}
+                  <UserAvatar
+                    avatarUrl={member.icon_url}
+                    name={member.name || member.preferred_username}
+                    size={48}
+                    decorative
+                  />
+                  <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-2">
+                      <span id={nameId()} class="font-bold text-white truncate">
+                        {member.name || member.preferred_username}
+                      </span>
+                      <Show when={member.role === "owner"}>
+                        <span class="px-1.5 py-0.5 text-xs bg-yellow-500/20 text-yellow-400 rounded">
+                          {props.t("members.owner")}
+                        </span>
+                      </Show>
+                      <Show when={member.role === "moderator"}>
+                        <span class="px-1.5 py-0.5 text-xs bg-accent-soft text-accent rounded">
+                          {props.t("members.moderator")}
+                        </span>
+                      </Show>
+                    </div>
+                    <div class="text-neutral-500 truncate">
+                      @{member.username}
+                    </div>
+                  </div>
+                </A>
+                <Show when={props.isOwner && member.ap_id !== props.actorApId}>
+                  <select
+                    value={member.role}
+                    aria-label={props
+                      .t("members.changeRole")
+                      .replace(
+                        "{name}",
+                        member.name || member.preferred_username,
+                      )}
+                    onChange={(e) =>
+                      props.onUpdateMemberRole(
+                        member,
+                        e.currentTarget.value as
+                          "owner" | "moderator" | "member",
+                      )
+                    }
+                    disabled={props.updatingMemberRole[member.ap_id]}
+                    class="shrink-0 bg-neutral-900 border border-neutral-700 text-xs text-white rounded-lg px-2 py-1.5"
+                  >
+                    <option value="member">{props.t("members.member")}</option>
+                    <option value="moderator">
                       {props.t("members.moderator")}
-                    </span>
-                  </Show>
-                </div>
-                <div class="text-neutral-500 truncate">@{member.username}</div>
-              </div>
-              <Show when={props.isOwner && member.ap_id !== props.actorApId}>
-                <select
-                  value={member.role}
-                  aria-label={props
-                    .t("members.changeRole")
-                    .replace(
-                      "{name}",
-                      member.name || member.preferred_username,
-                    )}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                  }}
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                  }}
-                  onChange={(e) =>
-                    props.onUpdateMemberRole(
-                      member,
-                      e.currentTarget.value as "owner" | "moderator" | "member",
-                    )
+                    </option>
+                    <option value="owner">{props.t("members.owner")}</option>
+                  </select>
+                </Show>
+                {/* Remove (kick): a manager may remove non-owners; only an owner
+                    may remove another owner — mirrors the backend requireManager +
+                    owner-vs-owner guard. Never shown for self (use leave).
+                    Named by its visible 削除, described by the member's name
+                    (its name used to be the confirmation question); a 32px
+                    tap target instead of 24x16. */}
+                <Show
+                  when={
+                    props.canManage &&
+                    member.ap_id !== props.actorApId &&
+                    (member.role !== "owner" || props.isOwner)
                   }
-                  disabled={props.updatingMemberRole[member.ap_id]}
-                  class="ml-auto bg-neutral-900 border border-neutral-700 text-xs text-white rounded-lg px-2 py-1"
                 >
-                  <option value="member">{props.t("members.member")}</option>
-                  <option value="moderator">
-                    {props.t("members.moderator")}
-                  </option>
-                  <option value="owner">{props.t("members.owner")}</option>
-                </select>
-              </Show>
-              {/* Remove (kick): a manager may remove non-owners; only an owner
-                  may remove another owner — mirrors the backend requireManager +
-                  owner-vs-owner guard. Never shown for self (use leave). */}
-              <Show
-                when={
-                  props.canManage &&
-                  member.ap_id !== props.actorApId &&
-                  (member.role !== "owner" || props.isOwner)
-                }
-              >
-                <button
-                  type="button"
-                  aria-label={props
-                    .t("members.removeConfirm")
-                    .replace(
-                      "{name}",
-                      member.name || member.preferred_username,
-                    )}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    props.onRemoveMember(member);
-                  }}
-                  disabled={props.removingMember[member.ap_id]}
-                  class="text-xs text-rose-400 hover:text-rose-300 disabled:opacity-50 shrink-0"
-                >
-                  {props.t("members.remove")}
-                </button>
-              </Show>
-            </A>
-          )}
+                  <button
+                    type="button"
+                    aria-describedby={nameId()}
+                    onClick={() => props.onRemoveMember(member)}
+                    disabled={props.removingMember[member.ap_id]}
+                    class="-my-1 shrink-0 rounded-lg px-2.5 py-2 text-xs text-rose-400 hover:bg-rose-500/10 hover:text-rose-300 disabled:opacity-50"
+                  >
+                    {props.t("members.remove")}
+                  </button>
+                </Show>
+              </div>
+            );
+          }}
         </For>
       </Show>
       <Show when={props.canManage && props.joinPolicy === "invite"}>
