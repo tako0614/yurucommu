@@ -25,21 +25,22 @@ const SendIcon = () => (
 );
 
 // The server refuses a longer (trimmed) caption, but only after the media has
-// uploaded, which left the story on the recovery screen.
+// uploaded, which leaves the story on the recovery screen. Near the limit the
+// field says how long the caption is, and turns red past it. It does not stop
+// typing or posting: the release smoke posts a 501-character caption to check
+// that recovery keeps a pre-write refusal, so a hard limit here needs that
+// smoke (scripts/release-browser-story-outcome.mjs) changed first.
 const CAPTION_MAX = 500;
 const CAPTION_COUNT_FROM = 450;
 
 export function StoryComposerFooter(props: StoryComposerFooterProps) {
   const { t } = useI18n();
   const captionLength = () => props.caption.trim().length;
-  // maxlength stops typing and pasting at the limit, but an IME composition
-  // that ends because the field loses focus is committed past it.
   const captionTooLong = () => captionLength() > CAPTION_MAX;
   const postDisabled = () =>
     !props.canPost ||
     props.posting ||
-    !!(props.videoFile && !props.ffmpegReady) ||
-    captionTooLong();
+    !!(props.videoFile && !props.ffmpegReady);
 
   // The single post button is labelled by the inhabited scope: a community
   // scope shares "to #<community>", personal shares "to your story".
@@ -59,7 +60,6 @@ export function StoryComposerFooter(props: StoryComposerFooterProps) {
         <input
           type="text"
           value={props.caption}
-          maxLength={CAPTION_MAX}
           onInput={(e) => props.onCaptionChange(e.currentTarget.value)}
           placeholder={t("story.captionPlaceholder")}
           aria-label={t("story.captionPlaceholder")}
@@ -70,7 +70,7 @@ export function StoryComposerFooter(props: StoryComposerFooterProps) {
           }
           class="w-full bg-transparent text-white placeholder-white/50 text-base py-2 outline-none"
         />
-        {/* Near the limit, how much is left: typing just stopped at 500. */}
+        {/* Near the limit, how long it is; red once the server would refuse it. */}
         <Show when={captionLength() >= CAPTION_COUNT_FROM}>
           <p
             id="story-caption-count"
