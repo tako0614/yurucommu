@@ -10,7 +10,15 @@
  *   useStoryTextEditor, useStoryLayerActions, useStoryPost, useStoryImageUpload
  */
 
-import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
+import {
+  createEffect,
+  createSignal,
+  on,
+  onCleanup,
+  onMount,
+  Show,
+  untrack,
+} from "solid-js";
 import { useI18n } from "../../../lib/i18n.tsx";
 import { useDialog } from "../../../lib/useDialog.ts";
 import { ConfirmSheet } from "../../ConfirmSheet.tsx";
@@ -475,6 +483,21 @@ export function StoryComposer(props: StoryComposerProps) {
     }
   };
 
+  // The error shows in the footer, which is hidden while drawing (the drawing
+  // panel docks over it): a photo or video picked meanwhile failed with no
+  // message. Drawing ends when a new one arrives, so it is seen (one already
+  // showing does not keep drawing from starting).
+  createEffect(
+    on(
+      error,
+      (message) => {
+        if (message && untrack(interactionState).mode === "draw")
+          setMode("select");
+      },
+      { defer: true },
+    ),
+  );
+
   // Custom pointer down that detects double-tap for text editing
   const handleCanvasPointerDown = (e: MouseEvent | TouchEvent) => {
     // A tap that reaches the canvas is not on an overlay (overlays stop
@@ -526,6 +549,9 @@ export function StoryComposer(props: StoryComposerProps) {
     setShowBackgroundPanel(false);
     setShowToolPanel(false);
     setActiveTool(null);
+    // Text is another tool: the new text stayed selected in drawing mode,
+    // with its toolbar under the docked drawing panel on a short screen.
+    setMode("select");
     textEditor.handleAddText();
   };
 
@@ -541,7 +567,9 @@ export function StoryComposer(props: StoryComposerProps) {
     setShowBackgroundPanel(false);
     setShowToolPanel(false);
     setActiveTool(null);
-    handleTabChange("draw");
+    // A toggle, as its aria-pressed says: pressed again, drawing ends.
+    if (interactionState().mode === "draw") setMode("select");
+    else handleTabChange("draw");
   };
 
   const handleToggleBackground = () => {
@@ -832,8 +860,9 @@ export function StoryComposer(props: StoryComposerProps) {
                 open
                 kind={editor().kind}
                 initial={editor().initial ?? null}
-                // The panel that opened it closes first, so its button is no
-                // opener to return to: keep focus in the composer instead.
+                // A new one opens from スタンプ (openOverlayCreate), so focus
+                // comes back there. Otherwise, if its opener went away, keep
+                // focus in the composer.
                 onSave={(overlay) => {
                   handleOverlaySave(overlay);
                   focusHomeIfOutside();

@@ -84,7 +84,7 @@ export function StoryComposerBackgroundPanel(
                     props.onFillTypeChange("gradient");
                     props.onGradientChange(preset.colors, preset.angle);
                   }}
-                  aria-label={`${t("story.selectGradient")}: ${preset.colors.join(" → ")}`}
+                  aria-label={`${t("story.selectGradient")}: ${preset.colors.join("、")}`}
                   aria-pressed={active()}
                   class={`aspect-square rounded-full ${
                     active()

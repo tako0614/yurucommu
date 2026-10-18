@@ -77,7 +77,7 @@ export function ColorPicker(props: ColorPickerProps) {
               onClick={() => handlePresetClick(preset)}
               aria-label={t("story.selectColor").replace("{color}", preset)}
               aria-pressed={props.color === preset}
-              class={`aspect-square w-full max-w-8 rounded-lg border-2 transition-all ${
+              class={`aspect-square w-full max-w-8 justify-self-center rounded-lg border-2 transition-all ${
                 props.color === preset
                   ? "border-white scale-110 shadow-lg"
                   : "border-transparent hover:scale-105"
@@ -144,7 +144,8 @@ export function GradientPicker(props: GradientPickerProps) {
           {(preset) => (
             <button
               onClick={() => props.onChange(preset.colors, preset.angle)}
-              aria-label={t("story.selectGradient")}
+              // Named by its colours: all eight read 「グラデーションを選択」.
+              aria-label={`${t("story.selectGradient")}: ${preset.colors.join("、")}`}
               aria-pressed={
                 JSON.stringify(props.colors) === JSON.stringify(preset.colors)
               }

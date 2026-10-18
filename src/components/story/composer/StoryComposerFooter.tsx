@@ -82,7 +82,10 @@ export function StoryComposerFooter(props: StoryComposerFooterProps) {
       </div>
 
       <Show when={props.error}>
-        <div class="mx-4 mb-4 p-3 bg-red-500/20 border border-red-500/30 rounded-xl">
+        <div
+          role="alert"
+          class="mx-4 mb-4 p-3 bg-red-500/20 border border-red-500/30 rounded-xl"
+        >
           <p class="text-red-400 text-sm">{props.error}</p>
           <button
             onClick={props.onDismissError}

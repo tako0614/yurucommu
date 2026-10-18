@@ -23,7 +23,8 @@ interface DrawingPanelProps {
 // share the title row, the two sliders share a row, and the brush preview sits
 // beside them instead of in a box of its own. Where the stage is too narrow
 // for the preview (a 320px phone, a phone on its side), the sliders keep the
-// room, so their values stay readable.
+// room, and a label that still does not fit wraps at its space rather than
+// cutting off the value.
 export function DrawingPanel(props: DrawingPanelProps) {
   const { t } = useI18n();
   const thickness = () =>
@@ -67,7 +68,7 @@ export function DrawingPanel(props: DrawingPanelProps) {
       <div class="flex items-center gap-3">
         <div class="grid min-w-0 flex-1 grid-cols-2 gap-3">
           <label class="min-w-0 text-sm text-neutral-400">
-            <span class="block truncate">{thickness()}</span>
+            <span class="block break-keep">{thickness()}</span>
             <input
               type="range"
               min="2"
@@ -80,7 +81,7 @@ export function DrawingPanel(props: DrawingPanelProps) {
             />
           </label>
           <label class="min-w-0 text-sm text-neutral-400">
-            <span class="block truncate">{opacity()}</span>
+            <span class="block break-keep">{opacity()}</span>
             <input
               type="range"
               min="10"
