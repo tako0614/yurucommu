@@ -1,7 +1,14 @@
 #!/usr/bin/env bun
 
 import { createHash } from "node:crypto";
-import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  copyFile,
+  mkdir,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -31,6 +38,8 @@ type SchemaBundle = {
 export type PrepareTakoformV1SourceOptions = {
   readonly repositoryRoot?: string;
   readonly workerInputRelativePath?: string;
+  /** Validate tracked SQL in place; only the untracked Worker copy is prepared. */
+  readonly checkMigrations?: boolean;
 };
 
 function sha256(bytes: Uint8Array): string {
@@ -115,8 +124,28 @@ export async function prepareTakoformV1Source(
 
   const workerOutput = join(repositoryRoot, WORKER_OUTPUT_RELATIVE_PATH);
   const migrationOutput = join(repositoryRoot, MIGRATION_OUTPUT_RELATIVE_PATH);
-  await rm(migrationOutput, { force: true, recursive: true });
-  await mkdir(migrationOutput, { recursive: true });
+  if (options.checkMigrations) {
+    const prepared = await readdir(migrationOutput, { withFileTypes: true });
+    const names = prepared.map((entry) => entry.name).sort();
+    if (
+      prepared.some((entry) => !entry.isFile()) ||
+      names.length !== bundle.entries.length ||
+      names.some((name, index) => name !== bundle.entries[index]?.name)
+    ) {
+      throw new Error(
+        "prepared migration files do not match the schema bundle",
+      );
+    }
+    for (const entry of bundle.entries) {
+      const bytes = await readFile(join(migrationOutput, entry.name));
+      if (!bytes.equals(Buffer.from(entry.sql, "utf8"))) {
+        throw new Error("prepared migration bytes differ: " + entry.name);
+      }
+    }
+  } else {
+    await rm(migrationOutput, { force: true, recursive: true });
+    await mkdir(migrationOutput, { recursive: true });
+  }
   await mkdir(resolve(workerOutput, ".."), { recursive: true });
   await copyFile(workerInput, workerOutput);
   const copiedWorkerSha256 = sha256(
@@ -125,11 +154,13 @@ export async function prepareTakoformV1Source(
   if (copiedWorkerSha256 !== workerSha256) {
     throw new Error("prepared Worker artifact digest mismatch");
   }
-  for (const entry of bundle.entries) {
-    await writeFile(join(migrationOutput, entry.name), entry.sql, {
-      encoding: "utf8",
-      mode: 0o644,
-    });
+  if (!options.checkMigrations) {
+    for (const entry of bundle.entries) {
+      await writeFile(join(migrationOutput, entry.name), entry.sql, {
+        encoding: "utf8",
+        mode: 0o644,
+      });
+    }
   }
   return {
     workerBytes: workerBytes.length,
@@ -139,7 +170,13 @@ export async function prepareTakoformV1Source(
 }
 
 if (import.meta.main) {
-  const result = await prepareTakoformV1Source();
+  const args = process.argv.slice(2);
+  if (args.length > 1 || (args.length === 1 && args[0] !== "--check")) {
+    throw new Error("expected no arguments or --check");
+  }
+  const result = await prepareTakoformV1Source({
+    checkMigrations: args[0] === "--check",
+  });
   process.stdout.write(
     JSON.stringify({
       kind: "yurucommu.takoform-v1-source@v1",
