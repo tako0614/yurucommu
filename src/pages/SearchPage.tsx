@@ -6,6 +6,7 @@ import {
   onCleanup,
   onMount,
   Show,
+  untrack,
 } from "solid-js";
 import { A, useSearchParams } from "@solidjs/router";
 import { useAtomValue, useSetAtom } from "solid-jotai";
@@ -91,6 +92,15 @@ function getSingleSearchParam(
     return value[0];
   }
   return value;
+}
+
+function getSearchTab(
+  value: string | string[] | undefined,
+): SearchTab | undefined {
+  const tab = getSingleSearchParam(value);
+  return tab === "users" || tab === "posts" || tab === "communities"
+    ? tab
+    : undefined;
 }
 
 export function SearchPage() {
@@ -196,10 +206,6 @@ export function SearchPage() {
   };
 
   onMount(() => {
-    setSearchQuery("");
-    setSearched(false);
-    setSearchUsersResult([]);
-    setSearchPostsResult([]);
     refreshTrendingHashtags();
     refreshDiscoverCommunities();
     fetchFollowing(actor.ap_id)
@@ -227,19 +233,6 @@ export function SearchPage() {
     refreshDiscoverCommunities();
   });
 
-  // Handle search query parameter from URL
-  createEffect(() => {
-    const searchParam = getSingleSearchParam(searchParams.search);
-    if (searchParam) {
-      setSearchQuery(searchParam);
-      // setSearchParams({}) is a no-op in the router (nothing to merge), which
-      // left the stale ?search= in the URL; clearing requires an explicit
-      // undefined (same pattern as TimelinePage's ?story= cleanup).
-      setSearchParams({ search: undefined }, { replace: true });
-      performSearch(searchParam);
-    }
-  });
-
   // Whether the current query is a webfinger-style handle (@user@host). Remote
   // lookup only makes sense for these; the toggle is hidden otherwise.
   const lastQueryIsRemoteHandle = createMemo(() =>
@@ -263,6 +256,7 @@ export function SearchPage() {
   // then "bob" must not let the slower "alice" response (or its remote merge)
   // overwrite "bob"; clearing must invalidate any in-flight search.
   let searchGen = 0;
+  onCleanup(() => searchGen++);
 
   const performSearch = async (query: string, suppressAutoSelect = false) => {
     const trimmedQuery = query.trim();
@@ -323,13 +317,16 @@ export function SearchPage() {
       // blank screen while results are sitting one tab over. Suppressed when the
       // caller has an explicit tab intent (e.g. tapping a trending hashtag pins
       // the posts tab) so it is never bounced off by an empty result.
-      if (!suppressAutoSelect) {
+      if (!suppressAutoSelect && !getSearchTab(searchParams.tab)) {
         autoSelectNonEmptyTab({
           users: usersRes.items.length,
           posts: postsRes.items.length,
           communities: matchedCommunities.length,
         });
       }
+      // Keep the settled tab on this history entry. A later Back/reload must
+      // not auto-select a different tab while its results are still loading.
+      setSearchParams({ tab: searchTab() }, { replace: true, scroll: false });
 
       // If the owner has remote lookup enabled and the query is a handle,
       // fan out to other servers and merge the extra actors in.
@@ -561,15 +558,74 @@ export function SearchPage() {
     }
   };
 
-  const clearSearch = () => {
+  const resetSearch = () => {
     searchGen++; // invalidate any in-flight search/remote merge
     setSearchQuery("");
+    setLastQuery("");
     setSearched(false);
+    setSearching(false);
+    setLoadingMore(false);
     setSearchError(null);
     setSearchUsersResult([]);
     setSearchPostsResult([]);
     setFilteredCommunities([]);
     setSearchingRemote(false);
+  };
+
+  // URL entries retain submitted intent, not keystrokes or result payloads.
+  // Re-fetch on Back/Forward/reload and leave explicit tab choices in place.
+  let routeQuery: string | undefined;
+  createEffect(() => {
+    const query = (getSingleSearchParam(searchParams.search) ?? "").trim();
+    const tab = getSearchTab(searchParams.tab);
+    untrack(() => {
+      if (query !== routeQuery) {
+        routeQuery = query;
+        setSearchQuery(query);
+        if (tab) setSearchTab(tab);
+        if (query) void performSearch(query, !!tab);
+        else resetSearch();
+      } else if (tab) {
+        setSearchTab(tab);
+      }
+    });
+  });
+
+  // Community discovery can finish after a restored query's post/user reads.
+  createEffect(() => {
+    const query = lastQuery().toLowerCase();
+    setFilteredCommunities(
+      query
+        ? communities().filter(
+            (c) =>
+              (c.display_name || c.name).toLowerCase().includes(query) ||
+              (c.summary || "").toLowerCase().includes(query),
+          )
+        : [],
+    );
+  });
+
+  const clearSearch = () => {
+    setSearchParams({ search: undefined, tab: undefined }, { scroll: false });
+    resetSearch();
+  };
+
+  const submitSearch = (query: string, tab?: SearchTab) => {
+    const trimmed = query.trim();
+    if (!trimmed) return clearSearch();
+    const repeat = routeQuery === trimmed;
+    const nextTab =
+      tab ?? (repeat ? getSearchTab(searchParams.tab) : undefined);
+    if (nextTab) setSearchTab(nextTab);
+    setSearchParams({ search: trimmed, tab: nextTab }, { scroll: false });
+    // Re-submitting the same query is an explicit refresh; the route effect
+    // only starts a new request when the query changes.
+    if (repeat) void performSearch(trimmed, !!nextTab);
+  };
+
+  const selectSearchTab = (tab: SearchTab) => {
+    setSearchTab(tab);
+    setSearchParams({ tab }, { replace: true, scroll: false });
   };
 
   const handleLike = async (post: Post) => {
@@ -752,7 +808,7 @@ export function SearchPage() {
             class="flex items-center gap-2 bg-neutral-900 rounded-lg px-3 py-2"
             onSubmit={(e) => {
               e.preventDefault();
-              performSearch(searchQuery());
+              submitSearch(searchQuery());
             }}
           >
             <button
@@ -801,7 +857,7 @@ export function SearchPage() {
               const list = tabs();
               const cur = list.findIndex((tb) => tb.key === searchTab());
               handleTablistKeydown(e, list.length, cur < 0 ? 0 : cur, (i) =>
-                setSearchTab(list[i].key),
+                selectSearchTab(list[i].key),
               );
             }}
           >
@@ -811,7 +867,7 @@ export function SearchPage() {
                   role="tab"
                   aria-selected={searchTab() === key}
                   tabindex={searchTab() === key ? 0 : -1}
-                  onClick={() => setSearchTab(key)}
+                  onClick={() => selectSearchTab(key)}
                   class={`flex-1 py-3 text-center text-sm font-medium relative ${
                     searchTab() === key ? "text-white" : "text-neutral-500"
                   }`}
@@ -980,11 +1036,9 @@ export function SearchPage() {
                           {({ tag, count }) => (
                             <button
                               onClick={() => {
-                                setSearchQuery(`#${tag}`);
-                                setSearchTab("posts");
                                 // Explicit posts-tab intent: keep it pinned even
                                 // if the search comes back empty.
-                                performSearch(`#${tag}`, true);
+                                submitSearch(`#${tag}`, "posts");
                               }}
                               class="block w-full text-left px-3 py-2.5 rounded-lg hover:bg-neutral-900/50 transition-colors"
                             >
