@@ -516,14 +516,16 @@ export function PostDetailPage() {
                   size={48}
                 />
               </A>
-              <div class="flex-1">
+              <div class="flex-1 min-w-0">
                 <A
                   href={`/profile/${encodeURIComponent(post()!.author.ap_id)}`}
-                  class="font-bold text-white hover:underline"
+                  class="font-bold text-white hover:underline break-all"
                 >
                   {post()!.author.name || post()!.author.preferred_username}
                 </A>
-                <div class="text-neutral-500">@{post()!.author.username}</div>
+                <div class="text-neutral-500 break-all">
+                  @{post()!.author.username}
+                </div>
               </div>
               <Show when={post()!.author.ap_id === actor.ap_id}>
                 <div class="flex items-center gap-1">
