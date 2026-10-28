@@ -46,7 +46,6 @@ async function run(baseUrlArg, evidenceDirArg) {
   let localPostIds;
   const result = {
     baseSource: BASE_SOURCE_SHA,
-    baseURL: baseUrlArg,
     evidenceDir: evidenceDirArg,
     browserExecutable: BROWSER_EXECUTABLE,
     runtime: "built-in dev:mock only; local seeded posts post-1/post-2",
@@ -64,7 +63,13 @@ async function run(baseUrlArg, evidenceDirArg) {
   let page;
 
   try {
-    base = new URL(baseUrlArg);
+    try {
+      base = new URL(baseUrlArg);
+    } catch {
+      throw new CheckFailure(
+        "baseURL must be an unauthenticated loopback HTTP URL",
+      );
+    }
     assert(
       base.protocol === "http:" &&
         ["127.0.0.1", "localhost"].includes(base.hostname) &&
@@ -76,6 +81,7 @@ async function run(baseUrlArg, evidenceDirArg) {
     base.search = "";
     base.hash = "";
     const baseOrigin = base.origin;
+    result.baseURL = baseOrigin;
     localPostIds = {
       [SEARCH_QUERY]: new URL("/ap/notes/post-1", base).href,
       [NEXT_QUERY]: new URL("/ap/notes/post-2", base).href,
@@ -184,6 +190,36 @@ async function run(baseUrlArg, evidenceDirArg) {
         webSocket.connectToServer();
       });
     }
+
+    // The API reads search JSON through Response.text(). Observe both old
+    // result bodies in the browser; after both are consumed, Promise.all and
+    // the search handler can settle before the assertion's render barrier.
+    await context.addInitScript(
+      ({ origin, oldQuery }) => {
+        globalThis.__uxSearchOldBodiesConsumed = { actors: 0, posts: 0 };
+        const originalText = Response.prototype.text;
+        Response.prototype.text = async function (...args) {
+          const body = await originalText.apply(this, args);
+          try {
+            const url = new URL(this.url);
+            if (
+              url.origin === origin &&
+              url.searchParams.get("q") === oldQuery
+            ) {
+              if (url.pathname === "/api/search/actors") {
+                globalThis.__uxSearchOldBodiesConsumed.actors++;
+              } else if (url.pathname === "/api/search/posts") {
+                globalThis.__uxSearchOldBodiesConsumed.posts++;
+              }
+            }
+          } catch {
+            // A response without a parseable URL is outside this local probe.
+          }
+          return body;
+        };
+      },
+      { origin: baseOrigin, oldQuery: SEARCH_QUERY },
+    );
 
     page = context.pages()[0] ?? (await context.newPage());
     await page.setViewportSize({ width: 1280, height: 800 });
@@ -690,8 +726,7 @@ async function run(baseUrlArg, evidenceDirArg) {
         );
         delay.release.resolve();
         activeDelay = undefined;
-        await response;
-        await nextAnimationFrame();
+        await waitForDelayedBodyAndRender(response);
         const state = await readSearchState();
         assert(state.pathname === "/search", "clear left search route");
         assert(state.query === "", `clear restored query ${state.query}`);
@@ -738,8 +773,7 @@ async function run(baseUrlArg, evidenceDirArg) {
         );
         delay.release.resolve();
         activeDelay = undefined;
-        await oldResponse;
-        await nextAnimationFrame();
+        await waitForDelayedBodyAndRender(oldResponse);
         const afterOldResponse = await assertSearchState(
           NEXT_QUERY,
           "投稿",
@@ -774,9 +808,36 @@ async function run(baseUrlArg, evidenceDirArg) {
     result.error = safeError(error);
   } finally {
     if (activeDelay) activeDelay.release.resolve();
-    if (context) await context.close().catch(() => {});
-    if (profileDir)
-      await rm(profileDir, { recursive: true, force: true }).catch(() => {});
+    result.cleanup = {
+      browserContext: "not opened",
+      profileDir: "not created",
+    };
+    const cleanupErrors = [];
+    if (context) {
+      try {
+        await context.close();
+        result.cleanup.browserContext = "closed";
+      } catch (error) {
+        result.cleanup.browserContext = "failed";
+        cleanupErrors.push({
+          step: "browserContext.close",
+          ...safeError(error),
+        });
+      }
+    }
+    if (profileDir) {
+      try {
+        await rm(profileDir, { recursive: true, force: true });
+        result.cleanup.profileDir = "removed";
+      } catch (error) {
+        result.cleanup.profileDir = "failed";
+        cleanupErrors.push({ step: "profileDir.rm", ...safeError(error) });
+      }
+    }
+    if (cleanupErrors.length > 0) {
+      result.cleanup.errors = cleanupErrors;
+      result.status = "HARNESS_ERROR";
+    }
     await mkdir(evidenceDirArg, { recursive: true, mode: 0o700 });
     result.finishedAt = new Date().toISOString();
     result.status ??= result.checks.some((check) => !check.pass)
@@ -824,6 +885,20 @@ async function run(baseUrlArg, evidenceDirArg) {
           requestAnimationFrame(() => requestAnimationFrame(resolve)),
         ),
     );
+  }
+
+  async function waitForDelayedBodyAndRender(responsePromise) {
+    const response = await responsePromise;
+    const bodyError = await response.finished();
+    assert(!bodyError, "delayed search response body did not finish");
+    await page.waitForFunction(
+      () =>
+        globalThis.__uxSearchOldBodiesConsumed.actors > 0 &&
+        globalThis.__uxSearchOldBodiesConsumed.posts > 0,
+      null,
+      { timeout: REQUEST_TIMEOUT_MS },
+    );
+    await nextAnimationFrame();
   }
 }
 
