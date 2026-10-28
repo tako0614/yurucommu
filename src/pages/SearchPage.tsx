@@ -263,6 +263,7 @@ export function SearchPage() {
     if (!trimmedQuery) return;
 
     const gen = ++searchGen;
+    setSearchingRemote(false);
     setSearching(true);
     setSearched(true);
     setSearchError(null);
@@ -345,6 +346,7 @@ export function SearchPage() {
   // Secondary, opt-in remote (webfinger) lookup. Merges any remote actors not
   // already present into the users result without disturbing the inward set.
   const runRemoteSearch = async (query: string) => {
+    if (searchingRemote()) return;
     const gen = searchGen; // augments the CURRENT result set; bail if superseded
     setSearchingRemote(true);
     try {
@@ -365,7 +367,7 @@ export function SearchPage() {
         pushToast(setToasts, t("search.remoteSearchFailed"), { kind: "error" });
       }
     } finally {
-      setSearchingRemote(false);
+      if (gen === searchGen) setSearchingRemote(false);
     }
   };
 
@@ -445,6 +447,7 @@ export function SearchPage() {
     const trimmedQuery = query.trim();
     if (!trimmedQuery) return;
     const gen = ++searchGen;
+    setSearchingRemote(false);
     setSearching(true);
     setSearchError(null);
     try {
@@ -473,6 +476,7 @@ export function SearchPage() {
     const trimmedQuery = query.trim();
     if (!trimmedQuery) return;
     const gen = ++searchGen;
+    setSearchingRemote(false);
     setSearching(true);
     setSearchError(null);
     try {
