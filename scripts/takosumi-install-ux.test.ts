@@ -342,10 +342,12 @@ describe("repository-owned Takosumi install UX", () => {
     expect(
       rootModule.features?.find((feature) => feature.id === "notification-push")
         ?.inputs,
-    ).toEqual([
-      "notification_push_gateway_url",
+    ).toEqual(["notification_push_gateway_url"]);
+    // Core 4.2.0 derives the instance's VAPID key from ENCRYPTION_KEY and
+    // ignores a manual key, so the install form must not ask for one.
+    expect(rootInputNames).not.toContain(
       "notification_push_web_push_public_key",
-    ]);
+    );
     expect(rootModuleSource).toContain(
       'workers_dev_url               = trimspace(var.cloudflare_workers_subdomain) != "" ? "https://${local.worker_name}.${trimspace(var.cloudflare_workers_subdomain)}.workers.dev" : null',
     );

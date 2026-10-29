@@ -101,9 +101,9 @@ interfaceの補助情報を足すだけで、候補の作成・順序・既定�
 
 Takosumi の Cloudflare profile は Takosumi Accounts の OIDC を使います。
 初回インストール画面では、sealed な保存経路を持たない初期パスワードと認証付き
-Push gateway token は受け付けません。認証不要の Push gateway は URL と公開鍵を
+Push gateway token は受け付けません。認証不要の Push gateway は URL を
 指定できます。token が必要な gateway は、sealed install input が用意されるまで
-手動セルフホストの運用範囲です。
+手動セルフホストの運用範囲です。ブラウザの Web Push にはどちらも不要です。
 
 1. Git URL を渡す
 2. Takosumi がソース tree と manifest を同期し、作成するものを表示する
@@ -220,23 +220,30 @@ Web アプリは Solid と Vite で構築されています。サーバーの Ac
 アプリ内の通知一覧は追加設定なしで使えます。ブラウザを閉じている間にも通知を届ける
 Web Push は任意です。利用者が設定画面で有効にするまで、ブラウザへ通知権限を要求しません。
 
+ブラウザの Web Push に追加の設定は要りません。Yurucommu の Worker が標準の Web Push
+（RFC 8291・RFC 8292）を自分で送ります。VAPID 鍵は `ENCRYPTION_KEY` から導出し、公開鍵は
+`GET /api/notifications/pushers/config` の `web_push_instance_public_key` でブラウザへ渡します。
+push gateway も手入力の公開鍵も使いません。`ENCRYPTION_KEY` を変えると VAPID 鍵も変わり、
+有効にしてあった購読は新しい鍵で作り直されます。
+
 プッシュ通知の本文には投稿や DM の内容を含めません。受信後は Yurucommu の通知画面を
 開き、内容は認証済みの API から読み込みます。
 
-Cloudflare の OpenTofu 経路で Web Push を有効にする場合は、次の項目を設定します。
+push gateway は、ネイティブアプリの端末へ送る場合と、以前の版で gateway 経由に登録した
+ブラウザの購読がまだ移っていない場合にだけ使います。Cloudflare の OpenTofu 経路では
+次の項目で設定します。
 
-| 入力                                    | 用途                                    |
-| --------------------------------------- | --------------------------------------- |
-| `notification_push_gateway_url`         | HTTPS の通知送信先                      |
-| `notification_push_gateway_token`       | 送信先が認証を求める場合だけ使う Secret |
-| `notification_push_web_push_public_key` | ブラウザへ渡す公開 VAPID 鍵             |
+| 入力                              | 用途                                    |
+| --------------------------------- | --------------------------------------- |
+| `notification_push_gateway_url`   | push gateway の HTTPS 通知送信先        |
+| `notification_push_gateway_token` | 送信先が認証を求める場合だけ使う Secret |
 
-URL と公開鍵は必ず一緒に設定します。対応する秘密鍵は通知送信先だけに保存し、
-Yurucommu のデータベース、ブラウザ、OpenTofu Output には置きません。
+以前の `notification_push_web_push_public_key` 入力は廃止しました（core 4.2.0 以降は
+手入力の鍵を無視します）。
 
 `deploy/takoform` はプッシュ通知の Secret を状態へ保存しません。Takosumi などの
-管理ホストが Web Push を提供する場合は、URL と公開鍵、および必要な場合だけ token
-を実行時設定として安全に渡します。
+管理ホストが push gateway を提供する場合は、URL と、必要な場合だけ token を
+実行時設定として安全に渡します。
 
 ## 運用とトラブルシューティング
 
@@ -303,9 +310,11 @@ binding 権限のいずれかが未解決ならリンクは表示されません
 
 ### プッシュ通知が届かない
 
-ブラウザ側で通知を有効にしたか、Gateway URL と公開 VAPID 鍵を組で設定したかを
-確認します。Gateway が認証を求める場合は、Worker に token が Secret として
-渡っているかも確認してください。Web Push には HTTPS が必要です。
+ブラウザ側で通知を有効にしたかを確認します。サーバー側は
+`GET /api/notifications/pushers/config` の `web_push_instance_public_key` が空でなければ
+有効で、空なら `ENCRYPTION_KEY` が渡っていません。Web Push には HTTPS が必要です。
+ネイティブアプリへの通知は Gateway URL を、Gateway が認証を求める場合は Worker に
+token が Secret として渡っているかも確認してください。
 
 ### 外部サーバーへの配送が進まない
 

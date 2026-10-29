@@ -113,8 +113,9 @@ the public URL, migrations, and runtime authorization.
 Takosumi's Cloudflare profile uses Takosumi Accounts OIDC. The initial install
 screen does not accept an initial password or an authenticated push-gateway
 token because that path has no sealed input transport. A gateway that needs no
-token can still use its URL and public key. Token-authenticated gateways remain
-a manual self-hosting concern until sealed install inputs exist.
+token can still use its URL. Token-authenticated gateways remain a manual
+self-hosting concern until sealed install inputs exist. Browser Web Push needs
+neither.
 
 1. Pass the Git URL.
 2. Let Takosumi sync the source tree and manifest and show what it will create.
@@ -240,25 +241,33 @@ In-app notifications work without additional infrastructure. Browser Web Push
 while the app is closed is optional. Yurucommu does not request browser
 permission until a person enables it in Settings.
 
+Browser Web Push needs no extra configuration. The Yurucommu Worker sends
+standard Web Push (RFC 8291, RFC 8292) itself. Its VAPID key is derived from
+`ENCRYPTION_KEY`, and browsers receive the public key as
+`web_push_instance_public_key` from `GET /api/notifications/pushers/config`.
+No push gateway and no hand-entered public key are involved. Changing
+`ENCRYPTION_KEY` changes the VAPID key, and enabled subscriptions are recreated
+with the new key.
+
 Push payloads do not contain post or direct-message content. A notification
 opens Yurucommu's notification view, which retrieves the content from the
 authenticated API.
 
-The Cloudflare OpenTofu path accepts three Web Push inputs:
+A push gateway is used only to reach native app devices, and for browser
+subscriptions that an earlier version registered through a gateway and that
+have not moved yet. The Cloudflare OpenTofu path configures it with:
 
-| Input                                   | Purpose                                                  |
-| --------------------------------------- | -------------------------------------------------------- |
-| `notification_push_gateway_url`         | HTTPS notification endpoint                              |
-| `notification_push_gateway_token`       | Optional Secret when the gateway requires authentication |
-| `notification_push_web_push_public_key` | Public VAPID key sent to browsers                        |
+| Input                             | Purpose                                                  |
+| --------------------------------- | -------------------------------------------------------- |
+| `notification_push_gateway_url`   | HTTPS notify endpoint of the push gateway                |
+| `notification_push_gateway_token` | Optional Secret when the gateway requires authentication |
 
-Configure the URL and public key together. Keep the matching private key at the
-gateway; never store it in the Yurucommu database, browser, or OpenTofu
-outputs.
+The former `notification_push_web_push_public_key` input is gone (core 4.2.0
+and later ignore a hand-entered key).
 
 `deploy/takoform` does not put push secrets in state. A managed host that
-offers Web Push must inject the URL and public key at runtime, together with a
-token only when its gateway requires one.
+offers a push gateway must inject its URL at runtime, together with a token
+only when the gateway requires one.
 
 ## Operations and troubleshooting
 
@@ -330,10 +339,12 @@ resource ID.
 
 ### Browser push does not arrive
 
-Check browser permission first, then confirm that the gateway URL and public
-VAPID key were configured together. If the gateway requires authentication,
-also verify that the Worker received its token as a Secret. Web Push requires
-HTTPS.
+Check browser permission first. The server side is enabled when
+`web_push_instance_public_key` from `GET /api/notifications/pushers/config` is
+not empty; when it is empty, the Worker did not receive `ENCRYPTION_KEY`. Web
+Push requires HTTPS. For native app notifications, also confirm the gateway URL
+and, when the gateway requires authentication, that the Worker received its
+token as a Secret.
 
 ### Delivery to another server is stalled
 

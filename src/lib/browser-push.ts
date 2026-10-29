@@ -14,9 +14,9 @@ const browserPushIdentity = {
 
 /**
  * The shared yurucommu-core resolver owns which runtime values enable browser
- * push: the instance's `GET /api/notifications/pushers/config`, with the
- * build-time values below only as an offline fallback. On a core that sends
- * standard Web Push itself, the instance's own VAPID key is enough.
+ * push: the instance's own VAPID key from
+ * `GET /api/notifications/pushers/config`. There is no build-time fallback
+ * and no gateway: the instance sends standard Web Push itself.
  */
 function resolver() {
   return createBrowserPushConfigResolver({
@@ -26,17 +26,6 @@ function resolver() {
     },
     resolveServerOrigin: () =>
       typeof window === "undefined" ? null : window.location.origin,
-    buildTimeValues: () => {
-      const env = (
-        import.meta as unknown as {
-          readonly env?: Readonly<Record<string, string | undefined>>;
-        }
-      ).env;
-      return {
-        gatewayUrl: env?.VITE_YURUCOMMU_NOTIFICATION_PUSH_GATEWAY_URL,
-        vapidPublicKey: env?.VITE_YURUCOMMU_WEB_PUSH_PUBLIC_KEY,
-      };
-    },
   });
 }
 
@@ -45,10 +34,6 @@ function currentLanguage(): string | null {
   if (typeof document === "undefined") return null;
   const lang = document.documentElement.lang.trim();
   return /^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$/.test(lang) ? lang : null;
-}
-
-export function yurucommuBrowserPushConfig(): BrowserNotificationPushConfig | null {
-  return resolver().buildTimeConfig();
 }
 
 export async function resolveYurucommuBrowserPushConfig(): Promise<BrowserNotificationPushConfig | null> {
