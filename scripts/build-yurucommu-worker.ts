@@ -201,7 +201,11 @@ const backendApp = createYurucommuBackendApp({
   discovery: ${JSON.stringify(discovery, null, 2)},
   browserMedia: ${JSON.stringify(browserMedia, null, 2)},
 });
-const EMBEDDED_ASSETS = ${JSON.stringify(assets, null, 2)};
+// Looked up with the request path, so it must hold only its own entries: a
+// plain object literal would answer /constructor or /__proto__ with an
+// Object.prototype member and fail decoding its missing body.
+const EMBEDDED_ASSETS: Record<string, { contentType: string; body: string }> =
+  Object.assign(Object.create(null), ${JSON.stringify(assets, null, 2)});
 
 function decodeBase64(value: string): Uint8Array {
   const binary = atob(value);
