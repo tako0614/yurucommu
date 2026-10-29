@@ -1,5 +1,13 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  readdir,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
+import { sep } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { contentTypeFor, createEntrySource } from "./build-yurucommu-worker.ts";
@@ -32,6 +40,17 @@ const manifest = JSON.parse(manifestText) as {
   background_color: string;
   icons: { src: string; sizes: string; type: string; purpose: string }[];
 };
+
+// Every file Vite copies from public/ keeps its name, so each one is served
+// under the hourly cache rule. Listed from disk so a new public file is covered
+// without editing this test.
+const publicFiles: string[] = [];
+for (const path of await readdir(publicDir, { recursive: true })) {
+  if ((await stat(new URL(path, publicDir))).isFile()) {
+    publicFiles.push(path.split(sep).join("/"));
+  }
+}
+publicFiles.sort();
 
 // PNG colour types (ISO/IEC 15948 §11.2.2): 2 is RGB without alpha.
 const PNG_RGB = 2;
@@ -125,11 +144,7 @@ describe("Worker serving of the manifest and icons", () => {
   );
   const origin = "https://yurucommu.example.test";
   const hashedAsset = "assets/index-0123abcd.js";
-  const servedFiles = [
-    "manifest.webmanifest",
-    "apple-touch-icon.png",
-    ...manifest.icons.map(({ src }) => src.slice(1)),
-  ];
+  const servedFiles = publicFiles;
   let worker: {
     fetch(request: Request, env: unknown, ctx: unknown): Promise<Response>;
   };
@@ -214,21 +229,42 @@ describe("Worker serving of the manifest and icons", () => {
     }
   });
 
-  test("serves every icon byte-for-byte as image/png", async () => {
+  test("serves every fixed-name public file byte-for-byte, revalidated hourly and never immutable", async () => {
+    // The manifest, every icon, the existing SVG mark and the push service
+    // worker. The service worker is the one whose name ends in .js like the
+    // fingerprinted bundles, so a cache rule keyed on the extension would
+    // make it immutable again; it must stay on the fixed-name rule.
+    expect(servedFiles).toEqual(
+      expect.arrayContaining([
+        "manifest.webmanifest",
+        "apple-touch-icon.png",
+        "icons/yurucommu.svg",
+        "notification-push-sw.js",
+        ...manifest.icons.map(({ src }) => src.slice(1)),
+      ]),
+    );
+    const expectedTypes: Record<string, string> = {
+      "manifest.webmanifest": "application/manifest+json",
+      "notification-push-sw.js": "text/javascript; charset=utf-8",
+      "icons/yurucommu.svg": "image/svg+xml",
+    };
     const { fetch } = await loadWorker();
-    for (const path of servedFiles.filter((path) => path.endsWith(".png"))) {
+    for (const path of servedFiles) {
       const response = await fetch(
-        new Request(`${origin}/${path}`, { headers: { accept: "image/*" } }),
+        new Request(`${origin}/${path}`, { headers: { accept: "*/*" } }),
         env(),
         ctx,
       );
       expect(response.status, path).toBe(200);
-      expect(response.headers.get("content-type")).toBe("image/png");
-      expect(response.headers.get("cache-control")).toBe(
-        "public, max-age=3600",
+      expect(response.headers.get("content-type"), path).toBe(
+        expectedTypes[path] ??
+          (path.endsWith(".png") ? "image/png" : contentTypeFor(path)),
       );
-      expect(new Uint8Array(await response.arrayBuffer())).toEqual(
-        (await readPng(path)).bytes,
+      const cacheControl = response.headers.get("cache-control");
+      expect(cacheControl, path).toBe("public, max-age=3600");
+      expect(cacheControl, path).not.toContain("immutable");
+      expect(new Uint8Array(await response.arrayBuffer()), path).toEqual(
+        new Uint8Array(await readFile(new URL(path, publicDir))),
       );
     }
   });
@@ -267,10 +303,12 @@ describe("Worker serving of the manifest and icons", () => {
         .filter(([name]) => name)
         .map(([name, ...sources]) => [name, sources]),
     );
-    // No manifest-src: the manifest fetch falls back to default-src.
-    expect(directives.has("manifest-src")).toBe(false);
-    expect(directives.get("default-src")).toContain("'self'");
-    expect(directives.get("img-src")).toContain("'self'");
+    // The effective source list: a fetch directive when the policy names one,
+    // otherwise default-src (CSP3 fallback). Either way it must allow 'self'.
+    const effective = (directive: string) =>
+      directives.get(directive) ?? directives.get("default-src") ?? [];
+    expect(effective("manifest-src")).toContain("'self'");
+    expect(effective("img-src")).toContain("'self'");
   });
 
   test("a missing manifest-like file is a 404, not the SPA shell", async () => {
