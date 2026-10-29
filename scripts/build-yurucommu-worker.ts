@@ -66,11 +66,13 @@ const browserMedia = {
   microphone: false,
 } as const;
 
-function contentTypeFor(path: string): string {
+export function contentTypeFor(path: string): string {
   if (path.endsWith(".html")) return "text/html; charset=utf-8";
   if (path.endsWith(".css")) return "text/css; charset=utf-8";
   if (path.endsWith(".js")) return "text/javascript; charset=utf-8";
   if (path.endsWith(".json")) return "application/json; charset=utf-8";
+  // The media type the W3C Web App Manifest spec registers for manifests.
+  if (path.endsWith(".webmanifest")) return "application/manifest+json";
   if (path.endsWith(".svg")) return "image/svg+xml";
   if (path.endsWith(".png")) return "image/png";
   if (path.endsWith(".jpg") || path.endsWith(".jpeg")) return "image/jpeg";
@@ -230,6 +232,18 @@ function resolveAssetPath(request: Request): string {
   return pathname.startsWith("/") ? pathname.slice(1) : pathname;
 }
 
+// Only Vite's fingerprinted output under assets/ can be cached forever. The
+// files copied from public/ keep fixed names (the web app manifest, its icons,
+// the push service worker), so a year-long immutable cache would pin a phone's
+// home-screen icon and manifest to the first version it ever fetched.
+function cacheControlFor(assetPath: string): string {
+  if (assetPath === "index.html") return "no-cache";
+  if (assetPath.startsWith("assets/")) {
+    return "public, max-age=31536000, immutable";
+  }
+  return "public, max-age=3600";
+}
+
 function createAssetResponse(assetPath: string, request: Request): Response {
   const asset = EMBEDDED_ASSETS[assetPath];
   if (!asset) return new Response("Not found", { status: 404 });
@@ -237,9 +251,7 @@ function createAssetResponse(assetPath: string, request: Request): Response {
   return new Response(body, {
     headers: {
       "content-type": asset.contentType,
-      "cache-control": assetPath === "index.html"
-        ? "no-cache"
-        : "public, max-age=31536000, immutable",
+      "cache-control": cacheControlFor(assetPath),
     },
   });
 }
