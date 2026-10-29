@@ -254,8 +254,8 @@ function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
-async function boundedText(response) {
-  if (!response.body) return "";
+async function boundedBytes(response) {
+  if (!response.body) return new Uint8Array(0);
   const reader = response.body.getReader();
   const chunks = [];
   let length = 0;
@@ -281,7 +281,63 @@ async function boundedText(response) {
     bytes.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  return new TextDecoder().decode(bytes);
+  return bytes;
+}
+
+async function boundedText(response) {
+  return new TextDecoder().decode(await boundedBytes(response));
+}
+
+const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+
+// The home-screen install surface is public/ copied by Vite and embedded by
+// the Worker build. Fetch it from the built bytes, not from the source tree:
+// the manifest must keep its registered type and point at an icon the
+// artifact actually serves.
+async function qualifyWebAppManifest(worker) {
+  const manifestResponse = await worker.dispatchFetch(
+    `${APP_ORIGIN}/manifest.webmanifest`,
+    { headers: { accept: "*/*" } },
+  );
+  const manifestType = manifestResponse.headers.get("content-type");
+  const manifestText = await boundedText(manifestResponse);
+  let manifest;
+  try {
+    manifest = JSON.parse(manifestText);
+  } catch {
+    manifest = undefined;
+  }
+  const icon = Array.isArray(manifest?.icons)
+    ? manifest.icons.find(
+        (candidate) =>
+          candidate?.type === "image/png" &&
+          typeof candidate.src === "string" &&
+          /^\/[^/]/.test(candidate.src),
+      )
+    : undefined;
+  if (
+    manifestResponse.status !== 200 ||
+    manifestType !== "application/manifest+json" ||
+    manifest?.display !== "standalone" ||
+    !icon
+  ) {
+    throw new Error(
+      `embedded web app manifest was not served from the artifact: status=${manifestResponse.status} content-type=${manifestType} body=${JSON.stringify(manifestText.slice(0, 120))}`,
+    );
+  }
+  const iconResponse = await worker.dispatchFetch(`${APP_ORIGIN}${icon.src}`, {
+    headers: { accept: "image/*" },
+  });
+  const iconBytes = await boundedBytes(iconResponse);
+  if (
+    iconResponse.status !== 200 ||
+    iconResponse.headers.get("content-type") !== "image/png" ||
+    PNG_SIGNATURE.some((byte, index) => iconBytes[index] !== byte)
+  ) {
+    throw new Error(
+      `embedded web app manifest icon ${icon.src} was not served from the artifact: status=${iconResponse.status} content-type=${iconResponse.headers.get("content-type")}`,
+    );
+  }
 }
 
 async function requireJson(response, label) {
@@ -1108,6 +1164,10 @@ async function smokeNativeWorker(
       throw new Error("embedded Yurucommu UI did not boot from the artifact");
     }
 
+    await runPhase(lane, "web-app-manifest", () =>
+      qualifyWebAppManifest(worker),
+    );
+
     const journeys = await runPhase(lane, "product-journeys", () =>
       qualifyProductJourneys(worker, {
         origin: APP_ORIGIN,
@@ -1130,6 +1190,7 @@ async function smokeNativeWorker(
         "readyz",
         "discovery",
         "embedded-ui",
+        "web-app-manifest",
         "queue-fanout",
         "queue-dlq",
         "scheduled-retention",
