@@ -76,19 +76,6 @@
             "advanced": true
           },
           {
-            "name": "notification_push_web_push_public_key",
-            "source": {
-              "kind": "user"
-            },
-            "type": "string",
-            "required": false,
-            "label": {
-              "ja": "Web Push公開鍵",
-              "en": "Web Push public key"
-            },
-            "advanced": true
-          },
-          {
             "name": "worker_name",
             "source": {
               "kind": "module_default"
@@ -147,8 +134,7 @@
               "en": "Push notifications"
             },
             "inputs": [
-              "notification_push_gateway_url",
-              "notification_push_web_push_public_key"
+              "notification_push_gateway_url"
             ]
           }
         ],

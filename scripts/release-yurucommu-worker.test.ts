@@ -1190,7 +1190,7 @@ describe("production yurucommu Worker publisher", () => {
       }
     }));
 
-  test("queries all Core 4.1.15 schema terms within the live D1 five-term limit", () =>
+  test("queries all Core 4.2.0 schema terms within the live D1 five-term limit", () =>
     cleanFixture(async ({ repo, target }) => {
       const sqlRequests: string[] = [];
       const provider = createCloudflareWorkerProvider({

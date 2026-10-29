@@ -149,7 +149,7 @@ variable "allow_unpinned_owner_claim" {
 }
 
 variable "notification_push_gateway_url" {
-  description = "Optional public HTTPS notify endpoint for the stateless notification push gateway."
+  description = "Optional public HTTPS notify endpoint of the stateless push gateway for native app pushers. Browsers need no gateway: the Yurucommu Worker sends standard Web Push with a VAPID key derived from its ENCRYPTION_KEY."
   type        = string
   default     = ""
 
@@ -168,17 +168,6 @@ variable "notification_push_gateway_token" {
   type        = string
   default     = ""
   sensitive   = true
-}
-
-variable "notification_push_web_push_public_key" {
-  description = "Optional public base64url VAPID P-256 key exposed to browser clients for Web Push subscription."
-  type        = string
-  default     = ""
-
-  validation {
-    condition     = trimspace(var.notification_push_web_push_public_key) == "" || can(regex("^B[A-P][A-Za-z0-9_-]{85}$", trimspace(var.notification_push_web_push_public_key)))
-    error_message = "notification_push_web_push_public_key must be empty or an unpadded 87-character base64url uncompressed P-256 public key."
-  }
 }
 
 variable "env" {
@@ -391,10 +380,9 @@ locals {
     "^https://([^/:?#]+)",
     local.notification_push_gateway_url,
   )[0], "")
-  notification_push_web_push_public_key = trimspace(var.notification_push_web_push_public_key)
-  notification_push_gateway_token       = trimspace(var.notification_push_gateway_token)
-  oidc_owner_sub                        = trimspace(var.oidc_owner_sub)
-  oidc_allowed_subs                     = trimspace(var.oidc_allowed_subs)
+  notification_push_gateway_token = trimspace(var.notification_push_gateway_token)
+  oidc_owner_sub                  = trimspace(var.oidc_owner_sub)
+  oidc_allowed_subs               = trimspace(var.oidc_allowed_subs)
 
   d1_database_name    = "${local.resource_prefix}-db"
   r2_media_bucket     = "${local.resource_prefix}-media"
@@ -618,13 +606,6 @@ resource "cloudflare_workers_script" "worker" {
         text = local.notification_push_gateway_host
       },
     ] : [],
-    local.notification_push_web_push_public_key != "" ? [
-      {
-        type = "plain_text"
-        name = "YURUCOMMU_NOTIFICATION_PUSH_WEB_PUSH_PUBLIC_KEY"
-        text = local.notification_push_web_push_public_key
-      },
-    ] : [],
     local.notification_push_gateway_token != "" ? [
       {
         type = "secret_text"
@@ -687,11 +668,6 @@ resource "cloudflare_workers_script" "worker" {
     precondition {
       condition     = local.worker_bundle_uses_url || local.worker_bundle_uses_manifest || local.worker_bundle_expected_sha256 == "" || local.worker_bundle_expected_sha256 == local.worker_bundle_content_sha256
       error_message = "worker_bundle_sha256 does not match worker_bundle_path."
-    }
-
-    precondition {
-      condition     = (local.notification_push_gateway_url == "") == (local.notification_push_web_push_public_key == "")
-      error_message = "notification_push_gateway_url and notification_push_web_push_public_key must be configured together."
     }
 
     precondition {

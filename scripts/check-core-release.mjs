@@ -7,9 +7,12 @@ import { fileURLToPath } from "node:url";
 // v2.4 requires fail-closed session revocation and opt-in atomic owner claims.
 // Core/API 4.1.13 fixed authenticated Follow on the guarded INSERT ... SELECT path.
 // Core/API 4.1.14 fixes authenticated recommendations on their guarded request path.
+// Core/API 4.2.0 sends standard Web Push from the instance with a VAPID key
+// derived from ENCRYPTION_KEY; this product no longer ships a gateway key or
+// build-time push fallback, so browser push stays unconfigured on 4.1.x.
 // Releases before 4.1.12 can falsely acknowledge logout after a storage fault
 // and do not enforce this product's singleOwner composition option.
-export const MINIMUM_PRODUCT_RELEASE = "4.1.14";
+export const MINIMUM_PRODUCT_RELEASE = "4.2.0";
 
 const PACKAGE_NAMES = ["@takosjp/yurucommu-core", "@takosjp/yurucommu-api"];
 const REQUIRED_API_EXPORTS = [
