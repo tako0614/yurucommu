@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Use Core/API 4.2.1. A fresh managed install creates its first owner
+  again: since 2026-10-29 Takosumi Accounts adds `app_role` to the signed
+  `takosumi` ID-token claim, which Core 4.2.0 and earlier refused, so the first
+  sign-in was rejected. Existing instances were unaffected. Migrations are
+  unchanged.
+
 - Use Core/API 4.2.0. The instance sends standard Web Push itself with a VAPID
   key derived from `ENCRYPTION_KEY`, so browser notifications need no push
   gateway or hand-entered key. The service worker shows Declarative Web Push

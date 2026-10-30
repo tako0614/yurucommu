@@ -10,7 +10,7 @@ export type FreshIntegrationSchemaOptions = {
 export type FreshIntegrationSchemaResult = {
   status: "APPLIED";
   databaseId: string;
-  coreVersion: "4.2.0";
+  coreVersion: "4.2.1";
   migrationCount: 35;
   migrations: string[];
   mapSha256: string;
@@ -20,7 +20,7 @@ export type Prefix32RecoveryResult = {
   status: "APPLIED";
   phase: "recover-prefix32";
   databaseId: string;
-  coreVersion: "4.2.0";
+  coreVersion: "4.2.1";
   prefixLength: 32;
   migrationCount: 35;
   applied: string[];

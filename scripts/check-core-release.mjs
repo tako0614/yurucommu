@@ -12,7 +12,10 @@ import { fileURLToPath } from "node:url";
 // build-time push fallback, so browser push stays unconfigured on 4.1.x.
 // Releases before 4.1.12 can falsely acknowledge logout after a storage fault
 // and do not enforce this product's singleOwner composition option.
-export const MINIMUM_PRODUCT_RELEASE = "4.2.0";
+// Core/API 4.2.1 accepts the Takosumi per-app claims (`app_role`) in the ID
+// token; 4.2.0 and earlier refuse them, so a fresh managed install never
+// creates its first owner.
+export const MINIMUM_PRODUCT_RELEASE = "4.2.1";
 
 const PACKAGE_NAMES = ["@takosjp/yurucommu-core", "@takosjp/yurucommu-api"];
 const REQUIRED_API_EXPORTS = [
