@@ -290,6 +290,235 @@
             ]
           }
         ]
+      },
+      "deploy/cloudflare": {
+        "inputs": [
+          {
+            "name": "project_name",
+            "source": {
+              "kind": "capsule_name"
+            },
+            "role": "service_name",
+            "type": "string",
+            "format": "subdomain",
+            "label": {
+              "ja": "サービス名",
+              "en": "Service name"
+            },
+            "helper": {
+              "ja": "ワークスペース内で使うYurucommuの名前です。Cloudflare上のWorker、D1、KV、R2、Queueの名前にも使います。",
+              "en": "The name of this Yurucommu service in the workspace. It also names the Worker, D1, KV, R2, and Queues on Cloudflare."
+            },
+            "advanced": true
+          },
+          {
+            "name": "app_url",
+            "source": {
+              "kind": "user"
+            },
+            "type": "string",
+            "format": "url",
+            "required": true,
+            "label": {
+              "ja": "公開URL",
+              "en": "Public URL"
+            },
+            "helper": {
+              "ja": "https://<サービス名>.<Cloudflareのworkers.devサブドメイン>.workers.dev の形で入力します。独自ドメインを使う場合は、そのホスト名のURLとゾーンIDを入力します。末尾の / は付けません。",
+              "en": "Enter https://<service name>.<your Cloudflare workers.dev subdomain>.workers.dev. For a custom domain, enter that hostname's URL and its zone ID. No trailing slash."
+            },
+            "placeholder": "https://yurucommu.example.workers.dev"
+          },
+          {
+            "name": "allow_unpinned_owner_claim",
+            "source": {
+              "kind": "user"
+            },
+            "type": "boolean",
+            "required": false,
+            "label": {
+              "ja": "最初にサインインした人を所有者にする",
+              "en": "Make the first person to sign in the owner"
+            },
+            "helper": {
+              "ja": "Cloudflareへ直接入れる場合、Takosumiは所有者をまだ指定できません。有効にすると最初にサインインした人が所有者になるので、導入後すぐに自分でサインインしてください。無効のままではPlanが止まります。",
+              "en": "Takosumi cannot name the owner of a direct Cloudflare install yet. When enabled, the first person to sign in becomes the owner, so sign in yourself right after installing. Plan stops while this is off."
+            }
+          },
+          {
+            "name": "cloudflare_zone_id",
+            "source": {
+              "kind": "user"
+            },
+            "type": "string",
+            "required": false,
+            "label": {
+              "ja": "独自ドメインのゾーンID",
+              "en": "Custom domain zone ID"
+            },
+            "helper": {
+              "ja": "公開URLがworkers.devではない場合だけ入力します。",
+              "en": "Enter this only when the public URL is not on workers.dev."
+            },
+            "advanced": true
+          },
+          {
+            "name": "takosumi_accounts_url",
+            "source": {
+              "kind": "module_default"
+            },
+            "type": "string",
+            "format": "url",
+            "label": {
+              "ja": "Takosumi Accounts URL",
+              "en": "Takosumi Accounts URL"
+            },
+            "advanced": true
+          },
+          {
+            "name": "takosumi_accounts_issuer_url",
+            "source": {
+              "kind": "module_default"
+            },
+            "type": "string",
+            "format": "url",
+            "label": {
+              "ja": "Takosumi Accounts発行者",
+              "en": "Takosumi Accounts issuer"
+            },
+            "advanced": true
+          },
+          {
+            "name": "takosumi_accounts_client_id",
+            "source": {
+              "kind": "module_default"
+            },
+            "type": "string",
+            "label": {
+              "ja": "Takosumi Accountsクライアント",
+              "en": "Takosumi Accounts client"
+            },
+            "advanced": true
+          },
+          {
+            "name": "takosumi_accounts_redirect_uri",
+            "source": {
+              "kind": "module_default"
+            },
+            "type": "string",
+            "format": "url",
+            "label": {
+              "ja": "登録済みコールバックURL",
+              "en": "Registered callback URL"
+            },
+            "advanced": true
+          },
+          {
+            "name": "notification_push_gateway_url",
+            "source": {
+              "kind": "user"
+            },
+            "type": "string",
+            "format": "url",
+            "required": false,
+            "label": {
+              "ja": "PushゲートウェイURL",
+              "en": "Push gateway URL"
+            },
+            "advanced": true
+          }
+        ],
+        "features": [
+          {
+            "id": "notification-push",
+            "optional": true,
+            "label": {
+              "ja": "プッシュ通知",
+              "en": "Push notifications"
+            },
+            "inputs": [
+              "notification_push_gateway_url"
+            ]
+          }
+        ],
+        "requires": [
+          {
+            "kind": "http.endpoint",
+            "deliver": {
+              "variables": {
+                "url": "app_url"
+              }
+            }
+          },
+          {
+            "kind": "identity.oidc",
+            "callbackPath": "/api/auth/callback/takos",
+            "scopes": ["openid", "profile", "email"],
+            "deliver": {
+              "variables": {
+                "accountsUrl": "takosumi_accounts_url",
+                "issuerUrl": "takosumi_accounts_issuer_url",
+                "clientId": "takosumi_accounts_client_id",
+                "redirectUri": "takosumi_accounts_redirect_uri"
+              }
+            }
+          }
+        ],
+        "sourceBuild": {
+          "commands": [
+            {
+              "argv": ["bun", "install", "--frozen-lockfile"]
+            },
+            {
+              "argv": ["bun", "run", "build:worker"]
+            },
+            {
+              "argv": ["bun", "scripts/prepare-cloudflare-source.ts"]
+            }
+          ],
+          "outputs": [
+            "deploy/cloudflare/.generated/yurucommu-worker.js"
+          ]
+        },
+        "interfaces": [
+          {
+            "key": "launcher",
+            "name": "yurucommu.launcher",
+            "spec": {
+              "type": "interface.ui.surface",
+              "version": "1",
+              "document": {
+                "launcher": true,
+                "display": {
+                  "title": "Yurucommu",
+                  "icon": "/icons/yurucommu.svg"
+                }
+              },
+              "inputs": {
+                "url": {
+                  "source": "output",
+                  "outputName": "launch_url",
+                  "outputType": "url"
+                }
+              },
+              "access": {
+                "visibility": "workspace"
+              }
+            },
+            "bindingRequests": [
+              {
+                "key": "installer",
+                "subject": {
+                  "source": "installing_principal"
+                },
+                "permissions": ["ui.open"],
+                "delivery": {
+                  "type": "none"
+                }
+              }
+            ]
+          }
+        ]
       }
     }
   }

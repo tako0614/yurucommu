@@ -8,6 +8,8 @@ import {
   stageActorCandidateCore,
 } from "./actor-candidate-core.ts";
 import { PRODUCT_WIRE_IDENTITY } from "../src/product-identity.ts";
+import { readBundledD1Migrations } from "./bundled-d1-migrations.ts";
+import type { BundledD1Migration } from "./yurucommu-d1-migrations.ts";
 
 type StaticAsset = {
   contentType: string;
@@ -154,6 +156,7 @@ async function run(command: string[]): Promise<void> {
 export function createEntrySource(
   assets: Record<string, StaticAsset>,
   profile: WorkerEntryProfile = "default",
+  migrations: readonly BundledD1Migration[] = [],
 ): string {
   const actorBindingTypes =
     profile === "actor-candidate"
@@ -185,6 +188,17 @@ import type {
   YurucommuRuntimeEnv,
   YurucommuWorkerBindings,
 } from "../scripts/yurucommu-worker-bindings.ts";
+import {
+  APPLY_BUNDLED_MIGRATIONS_VAR,
+  BundledMigrationError,
+  BundledSchemaConfigError,
+  createBundledSchemaGate,
+  resolveApplyBundledMigrations,
+} from "../scripts/yurucommu-d1-migrations.ts";
+import type {
+  BundledD1Migration,
+  D1MigrationDatabase,
+} from "../scripts/yurucommu-d1-migrations.ts";
 import type {
   Fetcher,
   MessageBatch,
@@ -208,6 +222,49 @@ const backendApp = createYurucommuBackendApp({
 // Object.prototype member and fail decoding its missing body.
 const EMBEDDED_ASSETS: Record<string, { contentType: string; body: string }> =
   Object.assign(Object.create(null), ${JSON.stringify(assets, null, 2)});
+
+// The locked product schema, pre-split into single D1 statements at build
+// time. Inert unless the deployment opts in with
+// YURUCOMMU_APPLY_BUNDLED_MIGRATIONS=true on the cloudflare lane (the
+// deploy/cloudflare module does); every other deployment applies its schema
+// exactly as before. See scripts/yurucommu-d1-migrations.ts.
+const BUNDLED_D1_MIGRATIONS: readonly BundledD1Migration[] = ${JSON.stringify(migrations)};
+const bundledSchema = createBundledSchemaGate(BUNDLED_D1_MIGRATIONS);
+
+// Call only after wrapYurucommuWorkerBindings accepted the lane and salt, so a
+// misconfigured Worker still refuses before any binding effect. Configuration
+// errors throw; a failed or still-running migration rejects from ensure().
+async function ensureBundledSchema(env: WorkerBindings): Promise<void> {
+  const declared = (env as unknown as Record<string, unknown>)[
+    APPLY_BUNDLED_MIGRATIONS_VAR
+  ];
+  if (!resolveApplyBundledMigrations(declared)) return;
+  if (resolveYurucommuRuntimeLane(env) !== "cloudflare") {
+    throw new BundledSchemaConfigError(
+      APPLY_BUNDLED_MIGRATIONS_VAR + "=true requires the cloudflare runtime " +
+        "lane; a portable Host applies the schema itself.",
+    );
+  }
+  await bundledSchema.ensure(env.DB as unknown as D1MigrationDatabase);
+}
+
+function schemaUnavailableResponse(): Response {
+  // The cause is in the Worker log; SQL errors are not client information.
+  return new Response(
+    JSON.stringify({
+      error: "schema_unavailable",
+      message: "The database schema could not be brought up to date yet.",
+    }),
+    {
+      status: 503,
+      headers: {
+        "content-type": "application/json; charset=utf-8",
+        "cache-control": "no-store",
+        "retry-after": "5",
+      },
+    },
+  );
+}
 
 function decodeBase64(value: string): Uint8Array {
   const binary = atob(value);
@@ -333,6 +390,13 @@ export default {
     // an explicit \`APP_URL\` was set — one rule, owned by the package that
     // mints the actor ids from it.
     const bindings = wrapYurucommuWorkerBindings(env);
+    const schemaReady = ensureBundledSchema(env);
+    try {
+      await schemaReady;
+    } catch (error) {
+      if (!(error instanceof BundledMigrationError)) throw error;
+      return schemaUnavailableResponse();
+    }
     const runtimeEnv = bindings.ASSETS
       ? bindings
       : { ...bindings, ASSETS: embeddedAssetsFetcher };
@@ -355,11 +419,13 @@ export default {
     // no request to read the origin off. \`APP_URL\`, then the pinned origin,
     // then a \`PublicOriginError\` — the batch is retried once traffic has
     // established one, rather than delivered under \`undefined/ap/users/...\`.
+    const bindings = wrapYurucommuWorkerBindings(env);
+    // A batch never runs against a schema older than this code; a failed or
+    // in-progress migration throws, so the platform retries the batch.
+    await ensureBundledSchema(env);
     const runtimeEnv = withDeliveryConsumerIdentity(
       queueBatch,
-      await withRequiredBackgroundPublicOrigin(
-        wrapYurucommuWorkerBindings(env) as Env,
-      ),
+      await withRequiredBackgroundPublicOrigin(bindings as Env),
     );
     void ctx;
     return handleYurucommuQueueBatch(queueBatch, runtimeEnv as Env);
@@ -380,6 +446,7 @@ export default {
     void controller;
     void ctx;
     const runtimeEnv = wrapYurucommuWorkerBindings(env);
+    await ensureBundledSchema(env);
     await runRetention(runtimeEnv);
   },
 };
@@ -388,10 +455,14 @@ ${actorExports}`;
 
 export async function main(): Promise<void> {
   resolveWorkerEntryProfile();
+  const migrations = await readBundledD1Migrations();
   await run(["bun", "run", "build:client"]);
   const assets: Record<string, StaticAsset> = {};
   await collectAssets(distDir, assets);
-  await writeFile(tempEntryFile, createEntrySource(assets));
+  await writeFile(
+    tempEntryFile,
+    createEntrySource(assets, "default", migrations),
+  );
   try {
     await build({
       entryPoints: [tempEntryFile.pathname],

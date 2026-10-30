@@ -69,6 +69,7 @@ const manifest = JSON.parse(manifestText) as {
 };
 const rootModule = manifest.install.modules["."];
 const managedModule = manifest.install.modules["deploy/takoform"];
+const directModule = manifest.install.modules["deploy/cloudflare"];
 const rootModuleSource = await readFile(new URL("main.tf", rootUrl), "utf8");
 const rootOutputsSource = await readFile(
   new URL("outputs.tf", rootUrl),
@@ -82,6 +83,40 @@ const managedModuleOutputsSource = await readFile(
   new URL("deploy/takoform/outputs.tf", rootUrl),
   "utf8",
 );
+const directModuleSource = await readFile(
+  new URL("deploy/cloudflare/main.tf", rootUrl),
+  "utf8",
+);
+const directModuleOutputsSource = await readFile(
+  new URL("deploy/cloudflare/outputs.tf", rootUrl),
+  "utf8",
+);
+// Variable delivery is the only OIDC form that reaches a plain
+// cloudflare/cloudflare module, and Takosumi pairs it with exactly one
+// same-module public endpoint whose URL it registers the redirect against.
+const expectedDirectRuntimeRequirements = [
+  {
+    kind: "http.endpoint",
+    deliver: {
+      variables: {
+        url: "app_url",
+      },
+    },
+  },
+  {
+    kind: "identity.oidc",
+    callbackPath: "/api/auth/callback/takos",
+    scopes: ["openid", "profile", "email"],
+    deliver: {
+      variables: {
+        accountsUrl: "takosumi_accounts_url",
+        issuerUrl: "takosumi_accounts_issuer_url",
+        clientId: "takosumi_accounts_client_id",
+        redirectUri: "takosumi_accounts_redirect_uri",
+      },
+    },
+  },
+];
 const expectedManagedRuntimeRequirements = [
   {
     kind: "secret.generated",
@@ -227,7 +262,7 @@ function assertLauncherInterface(
 }
 
 describe("repository-owned Takosumi install UX", () => {
-  test("describes both real module paths without choosing a default", () => {
+  test("describes every real module path without choosing a default", () => {
     expect(
       new TextEncoder().encode(manifestText).byteLength,
     ).toBeLessThanOrEqual(128 * 1024);
@@ -243,11 +278,13 @@ describe("repository-owned Takosumi install UX", () => {
     ]);
     expect(Object.keys(manifest.install.modules).sort()).toEqual([
       ".",
+      "deploy/cloudflare",
       "deploy/takoform",
     ]);
     expect(rootModule).toBeDefined();
     expect(managedModule).toBeDefined();
-    for (const module of [rootModule, managedModule]) {
+    expect(directModule).toBeDefined();
+    for (const module of [rootModule, managedModule, directModule]) {
       expect(module.inputs.length).toBeLessThanOrEqual(128);
       expect(module.requires?.length ?? 0).toBeLessThanOrEqual(16);
       expect(module.features?.length ?? 0).toBeLessThanOrEqual(32);
@@ -263,8 +300,16 @@ describe("repository-owned Takosumi install UX", () => {
       "sourceBuild",
       "interfaces",
     ]);
+    assertExactKeys(directModule as unknown as Record<string, unknown>, [
+      "inputs",
+      "features",
+      "requires",
+      "sourceBuild",
+      "interfaces",
+    ]);
     assertLauncherInterface(rootModule, "yurucommu.launcher");
     assertLauncherInterface(managedModule, "yurucommu.launcher");
+    assertLauncherInterface(directModule, "yurucommu.launcher");
   });
 
   test("uses only the bounded repository presentation vocabulary", () => {
@@ -385,12 +430,17 @@ describe("repository-owned Takosumi install UX", () => {
 
     expect(rootOutputsSource).toContain('output "launch_url"');
     expect(managedModuleOutputsSource).toContain('output "launch_url"');
+    expect(directModuleOutputsSource).toContain('output "launch_url"');
   });
 
   test("declares only provider-neutral runtime requirements", () => {
     expect(rootModule.requires).toBeUndefined();
     expect(managedModule.requires).toEqual(expectedManagedRuntimeRequirements);
-    expect(manifestText).not.toContain('"kind": "http.endpoint"');
+    expect(directModule.requires).toEqual(expectedDirectRuntimeRequirements);
+    // Only the variable-delivered direct lane needs a public endpoint pair;
+    // the Takoform Host learns the origin from its own upload.
+    expect(JSON.stringify(rootModule)).not.toContain('"http.endpoint"');
+    expect(JSON.stringify(managedModule)).not.toContain('"http.endpoint"');
     expect(manifestText).toContain('"kind": "identity.oidc"');
     expect(manifestText).toContain('"kind": "secret.generated"');
     expect(manifestText).not.toContain('"defaultModule"');
@@ -428,6 +478,7 @@ describe("repository-owned Takosumi install UX", () => {
     expect(manifestText).not.toContain("oidc_owner_sub");
     expect(manifestText).not.toContain("oidc_allowed_subs");
     expect(manifestText).not.toContain("encryption_key");
+    expect(manifestText).not.toContain("session_hash_salt");
   });
 
   test("Takoform install asks no provider or runtime-internal questions", () => {
@@ -510,5 +561,118 @@ describe("repository-owned Takosumi install UX", () => {
     );
     expect(manifestText).not.toContain("runtime_lane");
     expect(manifestText).not.toContain("YURUCOMMU_RUNTIME_LANE");
+  });
+
+  test("direct Cloudflare install builds from source and asks only what Takosumi cannot supply", () => {
+    const moduleVariables = new Set(
+      Array.from(
+        directModuleSource.matchAll(/variable\s+"([^"]+)"\s*\{/g),
+        (match) => match[1],
+      ),
+    );
+    const inputNames = directModule.inputs.map((input) => input.name);
+    expect(inputNames.filter((name) => !moduleVariables.has(name))).toEqual([]);
+    for (const input of directModule.inputs.filter(
+      (candidate) => candidate.source.kind === "module_default",
+    )) {
+      const blockStart = directModuleSource.indexOf(
+        `variable "${input.name}" {`,
+      );
+      const nextBlock = directModuleSource.indexOf(
+        "\nvariable ",
+        blockStart + 1,
+      );
+      expect(
+        directModuleSource.slice(
+          blockStart,
+          nextBlock < 0 ? undefined : nextBlock,
+        ),
+      ).toMatch(/\n\s+default\s+=/);
+    }
+    // A checked Cloudflare connection supplies these two by exact name, so
+    // the module declares them and the form never asks for them.
+    expect(moduleVariables).toContain("cloudflare_account_id");
+    expect(moduleVariables).toContain("cloudflare_workers_subdomain");
+    expect(inputNames).not.toContain("cloudflare_account_id");
+    expect(inputNames).not.toContain("cloudflare_workers_subdomain");
+    // The OIDC redirect is registered against the reviewed public origin.
+    expect(
+      directModule.inputs.find((input) => input.name === "app_url"),
+    ).toMatchObject({
+      source: { kind: "user" },
+      required: true,
+      format: "url",
+    });
+    for (const name of [
+      "takosumi_accounts_url",
+      "takosumi_accounts_issuer_url",
+      "takosumi_accounts_client_id",
+      "takosumi_accounts_redirect_uri",
+    ]) {
+      expect(
+        directModule.inputs.find((input) => input.name === name)?.source,
+      ).toEqual({ kind: "module_default" });
+    }
+    // Takosumi cannot deliver an owner subject by variable, so the owner race
+    // is an explicit, visible acknowledgement rather than a hidden default.
+    expect(
+      directModule.inputs.find(
+        (input) => input.name === "allow_unpinned_owner_claim",
+      ),
+    ).toMatchObject({ source: { kind: "user" }, type: "boolean" });
+    expect(directModuleSource).toMatch(
+      /variable "allow_unpinned_owner_claim" \{[^}]*default\s+= false/,
+    );
+    // No unsealed secrets on the form: no password, no gateway token, and no
+    // key or salt (the module generates those, see below).
+    expect(directModule.inputs.some((input) => input.secret)).toBe(false);
+    for (const name of [
+      "auth_password_hash",
+      "notification_push_gateway_token",
+      "encryption_key",
+      "session_hash_salt",
+    ]) {
+      expect(inputNames).not.toContain(name);
+    }
+    // secret.generated reaches only a Takoform Host's runtime inputs, so it
+    // would be inert here; the module generates and keeps both values itself.
+    expect(JSON.stringify(directModule.requires)).not.toContain(
+      "secret.generated",
+    );
+    // random_bytes keeps both values sensitive; random_id would print them.
+    expect(directModuleSource).toContain(
+      'resource "random_bytes" "encryption_key"',
+    );
+    expect(directModuleSource).toContain(
+      'resource "random_bytes" "session_hash_salt"',
+    );
+    expect(directModuleSource).not.toContain('resource "random_id"');
+    expect(directModule.sourceBuild).toEqual({
+      commands: [
+        { argv: ["bun", "install", "--frozen-lockfile"] },
+        { argv: ["bun", "run", "build:worker"] },
+        { argv: ["bun", "scripts/prepare-cloudflare-source.ts"] },
+      ],
+      outputs: ["deploy/cloudflare/.generated/yurucommu-worker.js"],
+    });
+    expect(directModuleSource).toContain(
+      'worker_bundle_path = "${path.module}/.generated/yurucommu-worker.js"',
+    );
+    expect(directModuleSource).not.toContain("${path.module}/../");
+    expect(directModuleSource).toContain('source  = "cloudflare/cloudflare"');
+    expect(directModuleSource).not.toContain("tako0614/takoform");
+    expect(directModuleSource).not.toMatch(/resource "takoform_/);
+    // The raw Cloudflare lane, with the schema applied by the Worker itself.
+    expect(directModuleSource).toContain(
+      'YURUCOMMU_RUNTIME_LANE             = "cloudflare"',
+    );
+    expect(directModuleSource).toContain(
+      'YURUCOMMU_APPLY_BUNDLED_MIGRATIONS = "true"',
+    );
+    expect(
+      directModule.features?.find(
+        (feature) => feature.id === "notification-push",
+      )?.inputs,
+    ).toEqual(["notification_push_gateway_url"]);
   });
 });

@@ -48,10 +48,12 @@ test("portable required secret names equal the manifest delivery slots", () => {
 });
 
 test("salt is not collected as an unsealed direct install form value", () => {
-  const inputs = manifest.install.modules["."].inputs as Array<{
-    name: string;
-  }>;
-  expect(inputs.some((input) => input.name === "session_hash_salt")).toBe(
-    false,
-  );
+  for (const path of [".", "deploy/cloudflare"]) {
+    const inputs = manifest.install.modules[path].inputs as Array<{
+      name: string;
+    }>;
+    expect(inputs.some((input) => input.name === "session_hash_salt")).toBe(
+      false,
+    );
+  }
 });

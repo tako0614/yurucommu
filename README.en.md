@@ -63,15 +63,20 @@ YURUCOMMU_DEV_PROXY_TARGET=http://localhost:8787 bun run dev
 
 ## Choose where to run it
 
-| Goal                    | Use                                            | Data location                                |
-| ----------------------- | ---------------------------------------------- | -------------------------------------------- |
-| Try the UI              | `bun run dev:mock`                             | Memory; cleared on exit                      |
-| Run on Takoserver       | [`deploy/takoform`](deploy/takoform/README.md) | Independent Resources provided by Takoserver |
-| Self-host on Cloudflare | Root `main.tf` or `wrangler.jsonc`             | D1, R2, Workers KV, and Queues               |
+| Goal                                           | Use                                                | Data location                                |
+| ---------------------------------------------- | -------------------------------------------------- | -------------------------------------------- |
+| Try the UI                                     | `bun run dev:mock`                                 | Memory; cleared on exit                      |
+| Run on Takoserver                              | [`deploy/takoform`](deploy/takoform/README.md)     | Independent Resources provided by Takoserver |
+| Install straight onto Cloudflare from Takosumi | [`deploy/cloudflare`](deploy/cloudflare/README.md) | Your D1, R2, Workers KV, and Queues          |
+| Self-host on Cloudflare                        | Root `main.tf` or `wrangler.jsonc`                 | D1, R2, Workers KV, and Queues               |
 
 Yurucommu owns the logical resource roles and connection names. The
-`deploy/takoform` module and root `main.tf` map that same contract to a
-Takoform host and direct Cloudflare respectively. Takosumi runs either as an
+`deploy/takoform` module maps that same contract to a Takoform host;
+`deploy/cloudflare` and the root `main.tf` map it to direct Cloudflare.
+`deploy/cloudflare` is the module Takosumi installs through a Cloudflare
+connection, and its Worker applies the schema to its own D1 database. The root
+`main.tf` publishes a released artifact for manual self-hosting and leaves the
+schema to the operator. Takosumi runs either as an
 ordinary OpenTofu module; product code does not know which adapter was chosen.
 
 ### Install on Takosumi
@@ -84,9 +89,10 @@ https://app.takosumi.com/install?git=https%3A%2F%2Fgithub.com%2Ftako0614%2Fyuruc
 ```
 
 Takosumi scans the OpenTofu tree at one Git revision and derives the real root
-modules and each module's Provider requirements. This repository has two
-candidates, the root and `deploy/takoform`, so the install screen asks which
-one to run. There is no separate source-options document. Adjust the ref,
+modules and each module's Provider requirements. This repository has three
+candidates, the root, `deploy/cloudflare`, and `deploy/takoform`, so the install
+screen asks which one to run. Choose `deploy/cloudflare` to install with a
+Cloudflare connection ([details](deploy/cloudflare/README.md)). There is no separate source-options document. Adjust the ref,
 module path, or service name only when needed.
 
 The install destination this repository declares is `deploy/takoform`, named by
@@ -443,6 +449,7 @@ documentation.
 - [`scripts/dev-mock-server.ts`](scripts/dev-mock-server.ts) — local mock API
 - [`scripts/build-yurucommu-worker.ts`](scripts/build-yurucommu-worker.ts) — Worker build
 - [`deploy/takoform/`](deploy/takoform/) — definition for Takosumi and other managed hosts
+- [`deploy/cloudflare/`](deploy/cloudflare/) — direct Cloudflare install through a Takosumi Cloudflare connection
 - [`main.tf`](main.tf) — OpenTofu module for Cloudflare self-hosting
 - [`site/`](site/) — static `yurucommu.com` site, help, and protocol documents
 - [`site/DEPLOY.md`](site/DEPLOY.md) — website publication guide
