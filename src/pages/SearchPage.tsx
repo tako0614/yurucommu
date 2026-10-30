@@ -1418,30 +1418,20 @@ export function SearchPage() {
     }
   };
 
-  const originalJoinReadButton = (receipt: () => SearchJoinReceipt) => (
-    <button
-      type="button"
-      aria-label={
-        language() === "ja"
-          ? `元の情報を取得: ${receipt().label} (${receipt().id})`
-          : `Read original details: ${receipt().label} (${receipt().id})`
-      }
-      disabled={
-        instancesLoading() ||
-        checkingJoinStatus().has(searchLikeKey(store, receipt().id))
-      }
-      onClick={() => void checkOriginalJoinStatus(receipt())}
-      class="w-fit shrink-0 rounded-full border border-neutral-700 px-4 py-1.5 text-sm font-medium text-neutral-300"
-    >
-      {checkingJoinStatus().has(searchLikeKey(store, receipt().id))
-        ? language() === "ja"
-          ? "取得中..."
-          : "Reading..."
-        : language() === "ja"
-          ? "元の情報を取得"
-          : "Read original details"}
-    </button>
-  );
+  const originalJoinReadAria = (receipt: SearchJoinReceipt) =>
+    language() === "ja"
+      ? `元の情報を取得: ${receipt.label} (${receipt.id})`
+      : `Read original details: ${receipt.label} (${receipt.id})`;
+  const originalJoinReadBusy = (receipt: SearchJoinReceipt) =>
+    checkingJoinStatus().has(searchLikeKey(store, receipt.id));
+  const originalJoinReadText = (receipt: SearchJoinReceipt) =>
+    originalJoinReadBusy(receipt)
+      ? language() === "ja"
+        ? "取得中..."
+        : "Reading..."
+      : language() === "ja"
+        ? "元の情報を取得"
+        : "Read original details";
 
   // Keep the original community and session through navigation. A local receipt
   // is only a reminder to check that target, not a durable membership record.
@@ -1719,7 +1709,22 @@ export function SearchPage() {
                                 : "Unconfirmed; retry unavailable"}
                         </p>
                         <Show when={joinReceipt(original.id)}>
-                          {(receipt) => originalJoinReadButton(receipt)}
+                          {(receipt) => (
+                            <button
+                              type="button"
+                              aria-label={originalJoinReadAria(receipt())}
+                              disabled={
+                                instancesLoading() ||
+                                originalJoinReadBusy(receipt())
+                              }
+                              onClick={() =>
+                                void checkOriginalJoinStatus(receipt())
+                              }
+                              class="w-fit shrink-0 rounded-full border border-neutral-700 px-4 py-1.5 text-sm font-medium text-neutral-300"
+                            >
+                              {originalJoinReadText(receipt())}
+                            </button>
+                          )}
                         </Show>
                       </div>
                     )}
@@ -1875,7 +1880,20 @@ export function SearchPage() {
                                         : "Join again"}
                                     </button>
                                   </Show>
-                                  {originalJoinReadButton(receipt)}
+                                  <button
+                                    type="button"
+                                    aria-label={originalJoinReadAria(receipt())}
+                                    disabled={
+                                      instancesLoading() ||
+                                      originalJoinReadBusy(receipt())
+                                    }
+                                    onClick={() =>
+                                      void checkOriginalJoinStatus(receipt())
+                                    }
+                                    class="w-fit shrink-0 rounded-full border border-neutral-700 px-4 py-1.5 text-sm font-medium text-neutral-300"
+                                  >
+                                    {originalJoinReadText(receipt())}
+                                  </button>
                                 </div>
                               )}
                             </Show>
