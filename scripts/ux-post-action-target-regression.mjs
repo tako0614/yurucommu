@@ -270,6 +270,10 @@ try {
             return json(route, { post: stale });
           }
         }
+        if (current?.holdRevalidation && current.acknowledged && id === idA) {
+          current.revalidationEntered.resolve();
+          await current.releaseRevalidation.promise;
+        }
         if (
           current?.acknowledged &&
           id === (current.target ?? idA) &&
@@ -424,6 +428,104 @@ try {
     });
     await page.close();
   }
+  {
+    current = {
+      action: "like",
+      status: 200,
+      count: 0,
+      entered: pending(),
+      release: pending(),
+      feed: true,
+      holdRevalidation: true,
+      revalidationEntered: pending(),
+      releaseRevalidation: pending(),
+    };
+    const page = await context.newPage();
+    page.on("pageerror", (e) => result.errors.push(e.message));
+    await page.goto(`${origin}/post/${encodeURIComponent(idA)}`);
+    await page.getByRole("link", { name: "Open post B" }).waitFor({ timeout });
+    const bar = page
+      .locator("div.flex.items-center.justify-around.mt-3.pt-3")
+      .first();
+    await bar.getByRole("button", { name: /^(いいね|Like)$/ }).click();
+    await bounded(current.entered.promise, "held first action");
+    await page.locator('aside a[href="/"]').click();
+    await page.waitForURL(origin + "/", { timeout });
+    await page.getByRole("link", { name: "Post A current" }).click();
+    await page.getByRole("link", { name: "Open post B" }).waitFor({ timeout });
+    current.release.resolve();
+    await bounded(current.revalidationEntered.promise, "post-ACK target GET");
+    const button = bar.getByRole("button", { name: /^(いいね|Like)$/ });
+    const busy = await button.getAttribute("aria-disabled");
+    await button.dispatchEvent("click");
+    await new Promise((done) => setTimeout(done, 200));
+    const requests = current.count;
+    current.releaseRevalidation.resolve();
+    await page.evaluate(
+      () =>
+        new Promise((done) =>
+          requestAnimationFrame(() => requestAnimationFrame(done)),
+        ),
+    );
+    result.checks.push({
+      name: "same target cannot duplicate while post-ACK GET is pending",
+      pass: busy === "true" && requests === 1,
+      busy,
+      requests,
+    });
+    await page.close();
+  }
+  {
+    current = {
+      action: "like",
+      status: 200,
+      count: 0,
+      entered: pending(),
+      release: pending(),
+      simulateLogout: true,
+      logoutCount: 0,
+    };
+    const page = await context.newPage();
+    page.on("pageerror", (e) => result.errors.push(e.message));
+    await page.goto(`${origin}/post/${encodeURIComponent(idA)}`);
+    await page.getByRole("link", { name: "Open post B" }).waitFor({ timeout });
+    const bar = page
+      .locator("div.flex.items-center.justify-around.mt-3.pt-3")
+      .first();
+    const button = bar.getByRole("button", { name: /^(いいね|Like)$/ });
+    await button.click();
+    await bounded(current.entered.promise, "held action before failed logout");
+    await page.locator('aside button[aria-haspopup="dialog"]').click();
+    await page.getByRole("button", { name: /^(ログアウト|Logout)$/ }).click();
+    await page
+      .getByRole("alertdialog")
+      .getByRole("button", { name: /^(ログアウト|Logout)$/ })
+      .click();
+    await page
+      .getByText(
+        /ログアウトできたか確認できません|could not confirm.*log.?out/i,
+      )
+      .waitFor({ timeout });
+    const busy = await button.getAttribute("aria-disabled");
+    await button.dispatchEvent("click");
+    await new Promise((done) => setTimeout(done, 200));
+    const requests = current.count;
+    current.release.resolve();
+    await page.waitForFunction(
+      (n) => globalThis.__completedSyntheticActions >= n,
+      requests,
+      { timeout },
+    );
+    result.checks.push({
+      name: "failed logout does not allow duplicate action for same actor",
+      pass: busy === "true" && requests === 1 && current.logoutCount === 1,
+      busy,
+      requests,
+      logoutCount: current.logoutCount,
+    });
+    await page.close();
+  }
+
   {
     // The newer optimistic Unlike is still in flight when the older Like
     // response arrives and the server still reports the older state.
@@ -1058,6 +1160,7 @@ try {
   current?.release.resolve();
   current?.releaseReentryGet?.resolve();
   current?.releaseUndo?.resolve();
+  current?.releaseRevalidation?.resolve();
   if (context) await context.close();
   if (mock && mock.exitCode === null && mock.signalCode === null) {
     const exited = once(mock, "exit");

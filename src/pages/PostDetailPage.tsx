@@ -70,11 +70,14 @@ type InteractionSettlement = {
   parentId: string;
   sameScope: () => boolean;
 };
+type InteractionObserver = (
+  settlement: InteractionSettlement,
+) => Promise<void> | void;
 // Local to a Provider: neither map supplies a durable permission or receipt.
 const pendingInteractionsAtom = atom<ReadonlyMap<string, symbol>>(new Map());
-const interactionObserversAtom = atom<
-  ReadonlySet<(settlement: InteractionSettlement) => void>
->(new Set<(settlement: InteractionSettlement) => void>());
+const interactionObserversAtom = atom<ReadonlySet<InteractionObserver>>(
+  new Set<InteractionObserver>(),
+);
 
 const BackIcon = () => (
   <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -112,6 +115,8 @@ const EditIcon = () => (
 export function PostDetailPage() {
   const actor = useRequiredActor();
   const currentActor = useAtomValue(actorAtom);
+  const currentInstance = useAtomValue(selectedInstanceIdAtom);
+  const currentHostedUser = useAtomValue(hostedUserAtom);
   const store = useStore();
   const acknowledgeBookmark = useSetAtom(acknowledgeTimelineBookmarkAtom);
   const params = useParams();
@@ -140,8 +145,13 @@ export function PostDetailPage() {
   };
   let replyDraftRevision = 0;
   let mounted = true;
+  let resolveDisposed: () => void = () => {};
+  const disposed = new Promise<void>((resolve) => {
+    resolveDisposed = resolve;
+  });
   onCleanup(() => {
     mounted = false;
+    resolveDisposed();
   });
   // Reply composer textarea — the action-bar reply button focuses it.
   let replyInputRef: HTMLTextAreaElement | undefined;
@@ -349,12 +359,13 @@ export function PostDetailPage() {
       );
   };
 
+  // Keep an unresolved action locked across an uncertain logout for the same
+  // actor/instance. The original epoch is still checked before any update.
   const interactionKey = (kind: InteractionKind, id: string) =>
     JSON.stringify([
-      store.get(actorAtom)?.ap_id ?? null,
-      store.get(authSessionEpochAtom),
-      store.get(selectedInstanceIdAtom),
-      store.get(hostedUserAtom)?.id ?? null,
+      currentActor()?.ap_id ?? null,
+      currentInstance(),
+      currentHostedUser()?.id ?? null,
       kind,
       id,
     ]);
@@ -397,7 +408,7 @@ export function PostDetailPage() {
     const key = interactionKey(settlement.kind, settlement.targetId);
     const token = Symbol();
     interactionReadTokens.set(key, token);
-    void Promise.resolve()
+    const refresh = Promise.resolve()
       .then(() =>
         settlement.sameScope() ? fetchPost(settlement.targetId) : null,
       )
@@ -436,6 +447,8 @@ export function PostDetailPage() {
         console.error("Failed to refresh confirmed interaction:", error);
         reportInteractionRefreshFailure();
       });
+    // A replaced page should not keep a request locked after it unmounts.
+    return Promise.race([refresh, disposed]);
   };
   store.set(interactionObserversAtom, (old) =>
     new Set(old).add(observeInteraction),
@@ -447,14 +460,17 @@ export function PostDetailPage() {
       return next;
     });
   });
-  const notifyInteraction = (settlement: InteractionSettlement) => {
+  const notifyInteraction = async (settlement: InteractionSettlement) => {
+    const tasks: Promise<void>[] = [];
     for (const observe of store.get(interactionObserversAtom)) {
       try {
-        observe(settlement);
+        const task = observe(settlement);
+        if (task) tasks.push(task);
       } catch (error) {
         console.error("Failed to notify interaction observer:", error);
       }
     }
+    await Promise.allSettled(tasks);
   };
 
   const reportInteractionError = (
@@ -529,7 +545,7 @@ export function PostDetailPage() {
         reposted,
       );
       if (!samePage())
-        notifyInteraction({
+        await notifyInteraction({
           kind: "repost",
           targetId: currentPost.ap_id,
           parentId: currentPost.ap_id,
@@ -607,7 +623,7 @@ export function PostDetailPage() {
         liked,
       );
       if (!samePage() && parentId)
-        notifyInteraction({
+        await notifyInteraction({
           kind: "like",
           targetId: targetPost.ap_id,
           parentId,
