@@ -79,6 +79,13 @@ const POST_SORTS = ["recent", "popular"] as const;
 // is pending. They are scoped to the Provider and do not represent a receipt.
 type SearchLikeStore = ReturnType<typeof useStore>;
 const pendingSearchLikesAtom = atom<ReadonlyMap<string, symbol>>(new Map());
+const pendingSearchFollowsAtom = atom<ReadonlyMap<string, symbol>>(new Map());
+type SearchFollowReceiptState = {
+  scope: symbol;
+  sameScope: () => boolean;
+  targets: ReadonlySet<string>;
+};
+const searchFollowReceiptsAtom = atom<SearchFollowReceiptState | null>(null);
 const searchLikeActorIdAtom = atom((get) => get(actorAtom)?.ap_id ?? null);
 const searchLikeHostedUserIdAtom = atom(
   (get) => get(hostedUserAtom)?.id ?? null,
@@ -97,12 +104,22 @@ function trackSearchLikeScope(store: SearchLikeStore) {
   // Keep the derived scope live through route unmounts, including A → B → A.
   searchLikeSubscriptions.set(
     store,
-    store.sub(searchLikeScopeAtom, () => {}),
+    store.sub(searchLikeScopeAtom, () => {
+      const receipts = store.get(searchFollowReceiptsAtom);
+      if (receipts && receipts.scope !== store.get(searchLikeScopeAtom))
+        store.set(searchFollowReceiptsAtom, null);
+      stopSearchLikeTrackingIfIdle(store);
+    }),
   );
 }
 
 function stopSearchLikeTrackingIfIdle(store: SearchLikeStore) {
-  if (store.get(pendingSearchLikesAtom).size) return;
+  if (
+    store.get(pendingSearchLikesAtom).size ||
+    store.get(pendingSearchFollowsAtom).size ||
+    store.get(searchFollowReceiptsAtom)?.targets.size
+  )
+    return;
   const stop = searchLikeSubscriptions.get(store);
   searchLikeSubscriptions.delete(store);
   stop?.();
@@ -117,7 +134,11 @@ function searchLikeKey(store: SearchLikeStore, id: string) {
   ]);
 }
 
-function beginSearchLike(store: SearchLikeStore, id: string) {
+function beginSearchLike(
+  store: SearchLikeStore,
+  id: string,
+  kind: "like" | "follow" = "like",
+) {
   if (
     !store.get(searchLikeActorIdAtom) ||
     store.get(logoutBusyAtom) ||
@@ -125,13 +146,18 @@ function beginSearchLike(store: SearchLikeStore, id: string) {
   )
     return null;
   const key = searchLikeKey(store, id);
-  if (store.get(pendingSearchLikesAtom).has(key)) return null;
+  const pendingAtom =
+    kind === "like" ? pendingSearchLikesAtom : pendingSearchFollowsAtom;
+  if (store.get(pendingAtom).has(key)) return null;
   trackSearchLikeScope(store);
   try {
     const scope = store.get(searchLikeScopeAtom);
     const strategy = getAuthStrategy();
     const transport = getYurucommuApiTransport();
-    const path = `/api/posts/${encodeURIComponent(id)}/like`;
+    const path =
+      kind === "like"
+        ? `/api/posts/${encodeURIComponent(id)}/like`
+        : "/api/follow";
     const url = transport.resolveUrl(path);
     const sameScope = () => {
       try {
@@ -147,10 +173,8 @@ function beginSearchLike(store: SearchLikeStore, id: string) {
       }
     };
     const token = Symbol();
-    store.set(pendingSearchLikesAtom, (pending) =>
-      new Map(pending).set(key, token),
-    );
-    return { key, token, sameScope };
+    store.set(pendingAtom, (pending) => new Map(pending).set(key, token));
+    return { key, token, sameScope, kind, scope };
   } catch {
     stopSearchLikeTrackingIfIdle(store);
     return null;
@@ -207,15 +231,36 @@ function settleSearchLikeWhenReady(
 
 function endSearchLike(
   store: SearchLikeStore,
-  attempt: { key: string; token: symbol },
+  attempt: { key: string; token: symbol; kind?: "like" | "follow" },
 ) {
-  store.set(pendingSearchLikesAtom, (pending) => {
+  const pendingAtom =
+    attempt.kind === "follow"
+      ? pendingSearchFollowsAtom
+      : pendingSearchLikesAtom;
+  store.set(pendingAtom, (pending) => {
     if (pending.get(attempt.key) !== attempt.token) return pending;
     const next = new Map(pending);
     next.delete(attempt.key);
     return next;
   });
   stopSearchLikeTrackingIfIdle(store);
+}
+
+// An ACK from a page that has since unmounted is not a current follow status.
+// Retain only a same-session reminder to check the original target before retry.
+function rememberSearchFollowReceipt(
+  store: SearchLikeStore,
+  attempt: { scope: symbol; sameScope: () => boolean },
+  target: string,
+) {
+  const previous = store.get(searchFollowReceiptsAtom);
+  const targets = new Set(previous?.sameScope() ? previous.targets : []);
+  targets.add(target);
+  store.set(searchFollowReceiptsAtom, {
+    scope: attempt.scope,
+    sameScope: attempt.sameScope,
+    targets,
+  });
 }
 
 const CloseIcon = () => (
@@ -266,6 +311,8 @@ export function SearchPage() {
   const currentHostedUser = useAtomValue(hostedUserAtom);
   const instancesLoading = useAtomValue(instancesLoadingAtom);
   const pendingLikes = useAtomValue(pendingSearchLikesAtom);
+  const pendingFollows = useAtomValue(pendingSearchFollowsAtom);
+  const followReceipts = useAtomValue(searchFollowReceiptsAtom);
   const { t, language } = useI18n();
   const setToasts = useSetAtom(toastsAtom);
   const refreshScopes = useSetAtom(refreshScopesAtom);
@@ -277,9 +324,16 @@ export function SearchPage() {
   const [error, setError] = createSignal<string | null>(null);
   // ap_ids with an in-flight follow request — guards the follow button against a
   // double-tap firing duplicate follow() calls.
-  const [followInFlight, setFollowInFlight] = createSignal<Set<string>>(
-    new Set(),
-  );
+  const isFollowInFlight = (id: string) => {
+    currentActor();
+    currentInstance();
+    currentHostedUser();
+    return pendingFollows().has(searchLikeKey(store, id));
+  };
+  const needsFollowConfirmation = (id: string) => {
+    const receipts = followReceipts();
+    return !!receipts?.sameScope() && receipts.targets.has(id);
+  };
   // Follow requests awaiting remote approval are not accepted follows. Keep
   // their local display state by actor id across searches in this page.
   const [followPending, setFollowPending] = createSignal<Set<string>>(
@@ -337,6 +391,8 @@ export function SearchPage() {
   const [joiningApId, setJoiningApId] = createSignal<string | null>(null);
 
   const [following, setFollowing] = createSignal<Actor[]>([]);
+  let followAckVersion = 0;
+  const followAcks = new Map<string, { version: number; actor: Actor }>();
 
   const [trendingHashtags, setTrendingHashtags] = createSignal<
     { tag: string; count: number }[]
@@ -375,8 +431,17 @@ export function SearchPage() {
   onMount(() => {
     refreshTrendingHashtags();
     refreshDiscoverCommunities();
+    const readVersion = followAckVersion;
     fetchFollowing(actor.ap_id)
-      .then((data) => setFollowing(data.actors))
+      .then((data) => {
+        const ids = new Set(data.actors.map((item) => item.ap_id));
+        const newer = [...followAcks.values()]
+          .filter(
+            (ack) => ack.version > readVersion && !ids.has(ack.actor.ap_id),
+          )
+          .map((ack) => ack.actor);
+        setFollowing([...data.actors, ...newer]);
+      })
       .catch((e) => console.error("Failed to fetch following", e));
 
     // Re-fetch when the tab regains focus so a join/leave that happened on
@@ -877,43 +942,84 @@ export function SearchPage() {
     e.preventDefault();
     e.stopPropagation();
     if (
-      followInFlight().has(targetActor.ap_id) ||
-      followPending().has(targetActor.ap_id)
+      isFollowInFlight(targetActor.ap_id) ||
+      followPending().has(targetActor.ap_id) ||
+      needsFollowConfirmation(targetActor.ap_id)
     ) {
       return;
     }
-    setFollowInFlight((s) => new Set(s).add(targetActor.ap_id));
+    const attempt =
+      store.get(actorAtom)?.ap_id === actor.ap_id
+        ? beginSearchLike(store, targetActor.ap_id, "follow")
+        : null;
+    if (!attempt) return;
+    const gen = searchGen;
     try {
-      const { status } = await follow(targetActor.ap_id);
-      // A private/remote account's follow may land as a pending request awaiting
-      // approval — don't misrepresent it as followed or drop it from results.
-      if (status === "pending") {
-        setFollowPending((prev) => new Set(prev).add(targetActor.ap_id));
-        pushToast(setToasts, t("profile.followRequested"), { kind: "success" });
-        return;
+      let outcome: { status: "accepted" | "pending" } | { error: unknown };
+      try {
+        const response = await follow(targetActor.ap_id);
+        outcome =
+          response &&
+          (response.status === "accepted" || response.status === "pending")
+            ? { status: response.status }
+            : { error: new Error("unrecognized follow response") };
+      } catch (error) {
+        console.error("Failed to follow:", error);
+        outcome = { error };
       }
-      setFollowPending((prev) => {
-        const next = new Set(prev);
-        next.delete(targetActor.ap_id);
-        return next;
+      await settleSearchLikeWhenReady(store, attempt.sameScope, () => {
+        if ("error" in outcome) {
+          const rejected = classifyWriteFailure(outcome.error) === "rejected";
+          if (!rejected)
+            rememberSearchFollowReceipt(store, attempt, targetActor.ap_id);
+          pushToast(
+            setToasts,
+            rejected
+              ? language() === "ja"
+                ? `フォローは拒否されました。元のプロフィールを確認してください。 (${targetActor.ap_id})`
+                : `The follow was rejected. Check the original profile. (${targetActor.ap_id})`
+              : language() === "ja"
+                ? `フォローの結果を確認できません。再操作の前に元のプロフィールを確認してください。 (${targetActor.ap_id})`
+                : `The follow outcome is unconfirmed. Check the original profile before trying again. (${targetActor.ap_id})`,
+            { kind: "error", timeout: 0 },
+          );
+          return;
+        }
+        rememberSearchFollowReceipt(store, attempt, targetActor.ap_id);
+        if (gen !== searchGen || !searchUsersResult().includes(targetActor)) {
+          pushToast(
+            setToasts,
+            language() === "ja"
+              ? `フォロー操作は受け付けられました。元のプロフィールで現在の状態を確認してください。 (${targetActor.ap_id})`
+              : `The follow request was accepted. Check the original profile for its current state. (${targetActor.ap_id})`,
+            { kind: "info", timeout: 0 },
+          );
+          return;
+        }
+        if (outcome.status === "pending") {
+          setFollowPending((prev) => new Set(prev).add(targetActor.ap_id));
+          pushToast(setToasts, t("profile.followRequested"), {
+            kind: "success",
+          });
+          return;
+        }
+        setFollowPending((prev) => {
+          const next = new Set(prev);
+          next.delete(targetActor.ap_id);
+          return next;
+        });
+        followAcks.set(targetActor.ap_id, {
+          version: ++followAckVersion,
+          actor: targetActor,
+        });
+        setFollowing((prev) =>
+          prev.some((item) => item.ap_id === targetActor.ap_id)
+            ? prev
+            : [...prev, targetActor],
+        );
       });
-      // Keep the row in the results — it flips to the "following" pill via
-      // isFollowing(). Removing it would make the person the user just searched
-      // for vanish, losing the path to their profile.
-      setFollowing((prev) =>
-        prev.some((actor) => actor.ap_id === targetActor.ap_id)
-          ? prev
-          : [...prev, targetActor],
-      );
-    } catch (e) {
-      console.error("Failed to follow:", e);
-      setError(t("common.error"));
     } finally {
-      setFollowInFlight((s) => {
-        const next = new Set(s);
-        next.delete(targetActor.ap_id);
-        return next;
-      });
+      endSearchLike(store, attempt);
     }
   };
 
@@ -1399,13 +1505,16 @@ export function SearchPage() {
                           when={
                             user.ap_id !== actor.ap_id &&
                             (!isFollowing(user.ap_id) ||
+                              isFollowPending(user.ap_id)) &&
+                            (!needsFollowConfirmation(user.ap_id) ||
                               isFollowPending(user.ap_id))
                           }
                         >
                           <button
                             onClick={(e) => handleFollow(user, e)}
                             disabled={
-                              followInFlight().has(user.ap_id) ||
+                              isFollowInFlight(user.ap_id) ||
+                              instancesLoading() ||
                               isFollowPending(user.ap_id)
                             }
                             class="px-4 py-1.5 bg-white text-black font-medium rounded-full hover:bg-neutral-200 transition-colors text-sm shrink-0 disabled:opacity-50"
@@ -1414,6 +1523,22 @@ export function SearchPage() {
                               ? t("profile.followRequested")
                               : t("profile.follow")}
                           </button>
+                        </Show>
+                        <Show
+                          when={
+                            needsFollowConfirmation(user.ap_id) &&
+                            !isFollowing(user.ap_id) &&
+                            !isFollowPending(user.ap_id)
+                          }
+                        >
+                          <A
+                            href={`/profile/${encodeURIComponent(user.ap_id)}`}
+                            class="px-4 py-1.5 border border-neutral-700 text-neutral-300 rounded-full text-sm shrink-0"
+                          >
+                            {language() === "ja"
+                              ? "状態を確認"
+                              : "Check status"}
+                          </A>
                         </Show>
                         <Show
                           when={
