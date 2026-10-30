@@ -84,6 +84,9 @@ const joinDrained = defer();
 const staleReadEntered = defer();
 const releaseStaleRead = defer();
 const freshReadEntered = defer();
+const releaseFreshRead = defer();
+const omittedReadEntered = defer();
+const releaseOmittedRead = defer();
 const replacedJoinEntered = defer();
 const releaseReplacedJoin = defer();
 const replacedRefreshEntered = defer();
@@ -101,14 +104,19 @@ const releaseNavJoin = defer();
 const navJoinedRefresh = defer();
 let joinCount = 0,
   joinAnswered = 0,
-  betaCount = 0;
+  betaCount = 0,
+  leaveCount = 0;
 let phase = "route";
 let holdNextCommunityRead = false;
 let serverJoined = false;
 let serverBetaJoined = false;
+let hideAlpha = false;
+let hideBeta = false;
+let replaceAlpha = false;
+let holdOmittedRead = false;
 let firstScopeHeld = false;
 let holdHomeRead = false;
-let web, mock, context, profile, origin;
+let web, mock, context, profile, origin, originalDetailUrl, originalDetailPath;
 try {
   await mkdir(output, { recursive: true, mode: 0o700 });
   const dist = resolve("dist");
@@ -202,6 +210,11 @@ try {
     member_role: null,
     join_status: null,
   }));
+  originalDetailPath = `/api/communities/${encodeURIComponent(communities[0].ap_id)}`;
+  originalDetailUrl = `${origin}${originalDetailPath}`;
+  const isOriginalDetail = (response) =>
+    response.url() === originalDetailUrl ||
+    response.url() === `${origin}/api/communities/alpha`;
   profile = await mkdtemp(join(tempRoot, "yuru-follow-profile-"));
   context = await chromium.launchPersistentContext(profile, {
     executablePath: browser,
@@ -219,6 +232,17 @@ try {
   await context.route("**/*", async (route) => {
     const req = route.request(),
       url = new URL(req.url());
+    if (
+      req.method() === "POST" &&
+      url.origin === origin &&
+      url.pathname === "/api/communities/alpha/leave" &&
+      phase === "leave-rejoin"
+    ) {
+      result.intercepted++;
+      leaveCount++;
+      serverJoined = false;
+      return json(route, { success: true });
+    }
     if (
       req.method() === "POST" &&
       url.origin === origin &&
@@ -271,7 +295,11 @@ try {
         result.failures++;
         return json(route, { error: "synthetic join rejected" }, 400);
       }
-      if (phase === "stale" || phase === "refresh-failure") {
+      if (
+        phase === "stale" ||
+        phase === "refresh-failure" ||
+        phase === "leave-rejoin"
+      ) {
         serverJoined = true;
         return json(route, { success: true, status: "joined" });
       }
@@ -315,12 +343,29 @@ try {
     if (url.pathname === "/api/communities") {
       if (phase === "refresh-failure" && serverJoined)
         return json(route, { error: "synthetic list unavailable" }, 503);
-      const snapshot = communities.map((community) =>
-        (community.name === "alpha" && serverJoined) ||
-        (community.name === "beta" && serverBetaJoined)
-          ? { ...community, is_member: true, member_role: "member" }
-          : community,
-      );
+      const snapshot = communities
+        .filter((community) =>
+          community.name === "alpha" ? !hideAlpha : !hideBeta,
+        )
+        .map((community) => {
+          if (community.name === "alpha" && replaceAlpha)
+            return {
+              ...community,
+              ap_id: `${origin}/ap/groups/replacement`,
+              display_name: "Replacement Alpha",
+              is_member: false,
+            };
+          return (community.name === "alpha" && serverJoined) ||
+            (community.name === "beta" && serverBetaJoined)
+            ? { ...community, is_member: true, member_role: "member" }
+            : community;
+        });
+      if (holdOmittedRead) {
+        holdOmittedRead = false;
+        omittedReadEntered.resolve();
+        await releaseOmittedRead.promise;
+        return json(route, { error: "synthetic discovery unavailable" }, 503);
+      }
       if (phase === "two-joins" && holdHomeRead) {
         homeRead.resolve();
         await releaseHomeRead.promise;
@@ -346,14 +391,28 @@ try {
         staleReadEntered.resolve();
         await releaseStaleRead.promise;
       }
-      if (phase === "stale" && serverJoined) freshReadEntered.resolve();
+      if (phase === "stale" && serverJoined) {
+        freshReadEntered.resolve();
+        await releaseFreshRead.promise;
+      }
       if (phase === "replaced" && serverJoined) {
         replacedRefreshEntered.resolve();
         await releaseReplacedRefresh.promise;
       }
       return json(route, { communities: snapshot });
     }
-    if (url.pathname === "/api/communities/alpha") {
+    if (
+      url.pathname === originalDetailPath ||
+      url.pathname === "/api/communities/alpha"
+    ) {
+      if (phase === "leave-rejoin")
+        return json(route, {
+          community: {
+            ...communities[0],
+            is_member: serverJoined,
+            member_role: serverJoined ? "member" : null,
+          },
+        });
       if (phase === "status-fail")
         return json(route, { error: "synthetic status unavailable" }, 503);
       if (phase === "status-wrong-target")
@@ -403,6 +462,9 @@ try {
     phase = nextPhase;
     serverJoined = false;
     serverBetaJoined = false;
+    hideAlpha = false;
+    hideBeta = false;
+    replaceAlpha = false;
     const page = await context.newPage();
     page.setDefaultTimeout(15_000);
     page.on("pageerror", (error) => result.errors.push(error.message));
@@ -430,6 +492,12 @@ try {
       name: /状態を確認|確認中|確認済み|元の情報を取得|取得中|Check status|Checking|Checked|Read original details|Reading/,
     });
   const notice = (page) => page.locator('[role="alert"], [role="status"]');
+  const omittedOriginal = (page) =>
+    page
+      .getByText(
+        /一覧に表示されていない元の参加操作|original join not shown in the list/i,
+      )
+      .locator("..");
   const nextFrame = (page) =>
     page.evaluate(
       () =>
@@ -462,6 +530,130 @@ try {
   check("navigation does not send the same join twice", joinCount === 1, {
     sent: joinCount,
   });
+  hideAlpha = true;
+  const omittedInFlight = page.waitForResponse(
+    (response) => response.url() === `${origin}/api/communities`,
+  );
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await omittedInFlight;
+  await nextFrame(page);
+  await nextFrame(page);
+  check(
+    "an omitted in-flight target retains its original identity without a resend control",
+    (await omittedOriginal(page).count()) === 1 &&
+      (await omittedOriginal(page)
+        .getByText(`${origin}/ap/groups/alpha`, { exact: true })
+        .count()) === 1 &&
+      (await omittedOriginal(page)
+        .getByRole("link", { name: "Synthetic Alpha" })
+        .count()) === 0 &&
+      (await omittedOriginal(page)
+        .getByRole("button", { name: /^(参加|Join)$/ })
+        .count()) === 0,
+  );
+  const homeBeforeOmittedBack = page.waitForResponse(
+    (response) => response.url() === `${origin}/api/communities`,
+  );
+  await page.locator('a[href="/"]:visible').first().click();
+  await homeBeforeOmittedBack;
+  holdOmittedRead = true;
+  await page.goBack();
+  await bounded(omittedReadEntered.promise, "discovery read held after return");
+  await nextFrame(page);
+  await nextFrame(page);
+  check(
+    "a held discovery read retains a neutral original reminder after navigation",
+    (await omittedOriginal(page).count()) === 1 &&
+      !/一覧にありません|not in the current list/i.test(
+        await omittedOriginal(page).innerText(),
+      ) &&
+      joinCount === 1,
+  );
+  const failedDiscovery = page.waitForResponse(
+    (response) =>
+      response.url() === `${origin}/api/communities` &&
+      response.status() === 503,
+  );
+  releaseOmittedRead.resolve();
+  await failedDiscovery;
+  await nextFrame(page);
+  await nextFrame(page);
+  check(
+    "a failed discovery read keeps the original reminder and an explicit failure",
+    (await omittedOriginal(page).count()) === 1 &&
+      (await page.getByRole("button", { name: /再試行|Retry/i }).count()) > 0,
+  );
+  hideBeta = true;
+  const emptyList = page.waitForResponse(
+    (response) => response.url() === `${origin}/api/communities`,
+  );
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await emptyList;
+  await nextFrame(page);
+  await nextFrame(page);
+  check(
+    "an empty successful list does not replace the original reminder with an empty-state claim",
+    (await omittedOriginal(page).count()) === 1 &&
+      (await page
+        .getByText(/参加できるコミュニティがありません|No communities to join/i)
+        .count()) === 0,
+  );
+  hideBeta = false;
+  hideAlpha = false;
+  const restoreOmittedInFlight = page.waitForResponse(
+    (response) => response.url() === `${origin}/api/communities`,
+  );
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await restoreOmittedInFlight;
+  await joinButton(page).waitFor();
+  replaceAlpha = true;
+  const replacementList = page.waitForResponse(
+    (response) => response.url() === `${origin}/api/communities`,
+  );
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await replacementList;
+  await nextFrame(page);
+  await nextFrame(page);
+  const replacementRow = page
+    .getByText("Replacement Alpha", { exact: true })
+    .locator("xpath=ancestor::div[contains(@class,'border-b')][1]");
+  check(
+    "a replacement AP id with the same endpoint name cannot resend the original operation",
+    (await omittedOriginal(page).count()) === 1 &&
+      (await omittedOriginal(page)
+        .getByText(`${origin}/ap/groups/alpha`, { exact: true })
+        .count()) === 1 &&
+      (await replacementRow
+        .getByRole("button", { name: /^(参加|Join)$/ })
+        .count()) === 0 &&
+      joinCount === 1,
+  );
+  replaceAlpha = false;
+  const restoreReplacement = page.waitForResponse(
+    (response) => response.url() === `${origin}/api/communities`,
+  );
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await restoreReplacement;
+  await joinButton(page).waitFor();
+  serverJoined = true;
+  const inFlightList = page.waitForResponse(
+    (response) => response.url() === `${origin}/api/communities`,
+  );
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await inFlightList;
+  await nextFrame(page);
+  await nextFrame(page);
+  check(
+    "an unbound member list cannot hide an in-flight original",
+    (await row(page).count()) === 1 && (await joinButton(page).isDisabled()),
+  );
+  serverJoined = false;
+  const restoredInFlightList = page.waitForResponse(
+    (response) => response.url() === `${origin}/api/communities`,
+  );
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await restoredInFlightList;
+  await joinButton(page).waitFor();
   const beta = joinButton(page, "Beta");
   check(
     "another community remains independently actionable",
@@ -493,6 +685,18 @@ try {
       await row(page).innerText(),
     ),
   );
+  const alphaReadName = await checkStatus(page).getAttribute("aria-label");
+  const betaReadName = await row(page, "Beta")
+    .getByRole("button", { name: /元の情報を取得|Read original details/i })
+    .getAttribute("aria-label");
+  check(
+    "read buttons for separate original targets have distinct accessible names",
+    !!alphaReadName &&
+      !!betaReadName &&
+      alphaReadName !== betaReadName &&
+      alphaReadName.includes("Synthetic Alpha") &&
+      betaReadName.includes("Synthetic Beta"),
+  );
   const routeCheck = checkStatus(page);
   check(
     "unconfirmed target offers its original status instead of blind retry",
@@ -508,10 +712,102 @@ try {
         .getByRole("button", { name: /^(参加|Join)$/ })
         .count()) === 0,
   );
-  phase = "status-fail";
-  const failedRead = page.waitForResponse(
-    (response) => response.url() === `${origin}/api/communities/alpha`,
+  hideAlpha = true;
+  const omittedUnknown = page.waitForResponse(
+    (response) => response.url() === `${origin}/api/communities`,
   );
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await omittedUnknown;
+  await nextFrame(page);
+  await nextFrame(page);
+  check(
+    "an omitted unconfirmed original remains visible without a resend control",
+    (await omittedOriginal(page).count()) === 1 &&
+      /未確認|unconfirmed/i.test(await omittedOriginal(page).innerText()) &&
+      (await omittedOriginal(page)
+        .getByText(`${origin}/ap/groups/alpha`, { exact: true })
+        .count()) === 1 &&
+      (await omittedOriginal(page)
+        .getByRole("link", { name: "Synthetic Alpha" })
+        .count()) === 0 &&
+      (await omittedOriginal(page)
+        .getByRole("button", { name: /^(参加|Join)$/ })
+        .count()) === 0,
+  );
+  const missingRead = omittedOriginal(page).getByRole("button", {
+    name: /元の情報を取得|Read original details/i,
+  });
+  const canReadMissing = (await missingRead.count()) === 1;
+  check(
+    "an omitted original still offers a read of its original details",
+    canReadMissing,
+  );
+  if (canReadMissing) {
+    phase = "status-wrong-target";
+    const wrongMissingRead = page.waitForResponse(isOriginalDetail);
+    await missingRead.click();
+    const wrongMissingResponse = await wrongMissingRead;
+    await nextFrame(page);
+    await nextFrame(page);
+    const wrongMissingText = (await notice(page).allTextContents()).join(" ");
+    check(
+      "an omitted original rejects a same-name read with a different AP id",
+      /状態を取得できません|status could not be read/i.test(wrongMissingText) &&
+        (await omittedOriginal(page)
+          .getByRole("button", { name: /^(参加|Join)$/ })
+          .count()) === 0,
+    );
+    check(
+      "the original details request uses the captured AP id",
+      wrongMissingResponse.url() === originalDetailUrl,
+    );
+    phase = "status-default";
+    const validMissingRead = page.waitForResponse(isOriginalDetail);
+    await missingRead.click();
+    await validMissingRead;
+    await nextFrame(page);
+    await nextFrame(page);
+    const validMissingText = (await notice(page).allTextContents()).join(" ");
+    check(
+      "an omitted original read does not claim current membership or allow retry",
+      /参加状態は確認できません|membership cannot be verified/i.test(
+        validMissingText,
+      ) &&
+        (await omittedOriginal(page)
+          .getByRole("button", { name: /^(参加|Join)$/ })
+          .count()) === 0,
+    );
+  }
+  hideAlpha = false;
+  const restoreOmittedUnknown = page.waitForResponse(
+    (response) => response.url() === `${origin}/api/communities`,
+  );
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await restoreOmittedUnknown;
+  await row(page).waitFor();
+  // The discovery list is also public: a later membership field must not
+  // hide an unresolved original merely because the viewer is unbound.
+  serverJoined = true;
+  const joinedList = page.waitForResponse(
+    (response) => response.url() === `${origin}/api/communities`,
+  );
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await joinedList;
+  await nextFrame(page);
+  await nextFrame(page);
+  check(
+    "an unbound member list cannot hide an unconfirmed original receipt",
+    (await row(page).count()) === 1,
+  );
+  serverJoined = false;
+  const restoredList = page.waitForResponse(
+    (response) => response.url() === `${origin}/api/communities`,
+  );
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await restoredList;
+  await row(page).waitFor();
+  phase = "status-fail";
+  const failedRead = page.waitForResponse(isOriginalDetail);
   await checkStatus(page).click();
   await failedRead;
   await page.waitForFunction(() =>
@@ -527,13 +823,13 @@ try {
       .getByRole("button", { name: /確認後に再試行|Enable retry/ })
       .count()) === 0,
   );
+  while ((await page.locator('[role="alert"] > div button').count()) > 0)
+    await page.locator('[role="alert"] > div button').first().click();
   phase = "status-wrong-target";
   const alertsBeforeWrongRead = await page
     .locator('[role="alert"] > div')
     .count();
-  const wrongRead = page.waitForResponse(
-    (response) => response.url() === `${origin}/api/communities/alpha`,
-  );
+  const wrongRead = page.waitForResponse(isOriginalDetail);
   await checkStatus(page).click();
   await wrongRead;
   await page.waitForFunction(
@@ -547,9 +843,7 @@ try {
       .count()) === 0,
   );
   phase = "status-pending";
-  const pendingRead = page.waitForResponse(
-    (response) => response.url() === `${origin}/api/communities/alpha`,
-  );
+  const pendingRead = page.waitForResponse(isOriginalDetail);
   await checkStatus(page).click();
   await pendingRead;
   await page.waitForFunction(() =>
@@ -573,9 +867,7 @@ try {
     ) && !/参加申請中と表示|current status is a pending/i.test(pendingText),
   );
   phase = "status-hold";
-  const originalRead = page.waitForResponse(
-    (response) => response.url() === `${origin}/api/communities/alpha`,
-  );
+  const originalRead = page.waitForResponse(isOriginalDetail);
   await checkStatus(page).click();
   await bounded(statusReadEntered.promise, "original status GET held");
   check(
@@ -680,9 +972,57 @@ try {
           .getByRole("button", { name: /^(参加|Join)$/ })
           .count()) === 0,
       );
-      const read = current.waitForResponse(
-        (r) => r.url() === `${origin}/api/communities/alpha`,
+      serverJoined = true;
+      const pendingList = current.waitForResponse(
+        (response) => response.url() === `${origin}/api/communities`,
       );
+      await current.evaluate(() => window.dispatchEvent(new Event("focus")));
+      await pendingList;
+      await nextFrame(current);
+      await nextFrame(current);
+      check(
+        "an unbound member list cannot hide an accepted pending receipt",
+        (await row(current).count()) === 1,
+      );
+      check(
+        "a pending receipt describes the accepted request without claiming current status",
+        /申請を受け付けました|request accepted/i.test(
+          await row(current).innerText(),
+        ) &&
+          /現在の状態は未確認|current status unverified/i.test(
+            await row(current).innerText(),
+          ),
+      );
+      hideAlpha = true;
+      const omittedPending = current.waitForResponse(
+        (response) => response.url() === `${origin}/api/communities`,
+      );
+      await current.evaluate(() => window.dispatchEvent(new Event("focus")));
+      await omittedPending;
+      await nextFrame(current);
+      await nextFrame(current);
+      check(
+        "an omitted accepted pending original remains visible without a resend control",
+        (await omittedOriginal(current).count()) === 1 &&
+          /申請を受け付けました|request accepted/i.test(
+            await omittedOriginal(current).innerText(),
+          ) &&
+          /現在の状態は未確認|current status unverified/i.test(
+            await omittedOriginal(current).innerText(),
+          ) &&
+          (await omittedOriginal(current)
+            .getByRole("button", { name: /^(参加|Join)$/ })
+            .count()) === 0,
+      );
+      hideAlpha = false;
+      serverJoined = false;
+      const restoredPendingList = current.waitForResponse(
+        (response) => response.url() === `${origin}/api/communities`,
+      );
+      await current.evaluate(() => window.dispatchEvent(new Event("focus")));
+      await restoredPendingList;
+      await row(current).waitFor();
+      const read = current.waitForResponse(isOriginalDetail);
       await checkStatus(current).click();
       await read;
       await nextFrame(current);
@@ -720,9 +1060,7 @@ try {
   await unknownJoin;
   await checkStatus(memberRead).waitFor();
   phase = "status-member";
-  const unboundMemberRead = memberRead.waitForResponse(
-    (response) => response.url() === `${origin}/api/communities/alpha`,
-  );
+  const unboundMemberRead = memberRead.waitForResponse(isOriginalDetail);
   await checkStatus(memberRead).click();
   await unboundMemberRead;
   await nextFrame(memberRead);
@@ -761,12 +1099,38 @@ try {
     "post-acknowledgement community read",
   );
   await nextFrame(stale);
+  check(
+    "a joined acknowledgement removes the original row while scope refresh is held",
+    (await stale.getByText("Synthetic Alpha", { exact: true }).count()) === 0,
+  );
+  releaseFreshRead.resolve();
   releaseStaleRead.resolve();
   await nextFrame(stale);
   await nextFrame(stale);
   check(
     "pre-ACK read cannot restore the joined community row",
     (await stale.getByText("Synthetic Alpha", { exact: true }).count()) === 0,
+  );
+  serverJoined = false;
+  const unboundAfterJoin = stale.waitForResponse(
+    (response) => response.url() === `${origin}/api/communities`,
+  );
+  await stale.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await unboundAfterJoin;
+  await nextFrame(stale);
+  await nextFrame(stale);
+  check(
+    "a later unbound list shows joined history without claiming current membership",
+    (await row(stale).count()) === 1 &&
+      /前回の参加は受け付けました|previous join was accepted/i.test(
+        await row(stale).innerText(),
+      ) &&
+      /現在の状態は未確認|current status unverified/i.test(
+        await row(stale).innerText(),
+      ) &&
+      (await row(stale)
+        .getByRole("button", { name: /^(参加|Join)$/ })
+        .count()) === 0,
   );
   await stale.close();
 
@@ -794,9 +1158,8 @@ try {
     refreshStarted,
   );
   check(
-    "the old ACK does not patch the newer row",
-    (await row(replaced).count()) === 1 &&
-      (await checkStatus(replaced).count()) === 1,
+    "the joined original does not reopen through a replaced unbound row",
+    (await row(replaced).count()) === 0,
   );
   releaseReplacedRefresh.resolve();
   await replaced.close();
@@ -877,6 +1240,71 @@ try {
   );
   await refresh.close();
 
+  const leavePage = await freshPage("leave-rejoin");
+  const joinsBeforeLeave = joinCount;
+  await joinButton(leavePage).waitFor();
+  const joinedAck = leavePage.waitForResponse(
+    (response) => response.url() === `${origin}/api/communities/alpha/join`,
+  );
+  await joinButton(leavePage).click();
+  await joinedAck;
+  await leavePage.waitForFunction(() =>
+    [...document.querySelectorAll('[role="status"]')].some((node) =>
+      /参加しました|Joined/i.test(node.textContent || ""),
+    ),
+  );
+  const searchInput = leavePage.getByRole("textbox", {
+    name: /^(検索|Search)$/,
+  });
+  await searchInput.fill("alpha");
+  await searchInput.press("Enter");
+  await leavePage
+    .getByRole("tab", { name: /コミュニティ|Communities/ })
+    .click();
+  await leavePage.getByRole("link", { name: /Synthetic Alpha/ }).click();
+  await leavePage.waitForURL(`${origin}/groups/alpha`);
+  await leavePage.getByRole("button", { name: /^(退出|Leave)$/ }).click();
+  const leaveResponse = leavePage.waitForResponse(
+    (response) => response.url() === `${origin}/api/communities/alpha/leave`,
+  );
+  const afterLeaveScope = leavePage.waitForResponse(
+    (response) => response.url() === `${origin}/api/communities`,
+  );
+  await leavePage
+    .getByRole("alertdialog")
+    .getByRole("button", { name: /^(退出|Leave)$/ })
+    .click();
+  await leaveResponse;
+  await afterLeaveScope;
+  await nextFrame(leavePage);
+  await leavePage.goBack();
+  await leavePage
+    .getByRole("button", { name: /検索をクリア|Clear search/ })
+    .click();
+  await nextFrame(leavePage);
+  await nextFrame(leavePage);
+  const joinAgain = row(leavePage).getByRole("button", {
+    name: /^(もう一度参加|Join again)$/,
+  });
+  const canJoinAgain =
+    (await row(leavePage).count()) === 1 && (await joinAgain.count()) === 1;
+  check(
+    "after an explicit leave the prior joined receipt does not permanently block a deliberate new join",
+    canJoinAgain && leaveCount === 1 && joinCount === joinsBeforeLeave + 1,
+  );
+  if (canJoinAgain) {
+    const againResponse = leavePage.waitForResponse(
+      (response) => response.url() === `${origin}/api/communities/alpha/join`,
+    );
+    await joinAgain.click();
+    await againResponse;
+    check(
+      "a deliberate new join after leave sends exactly once",
+      joinCount === joinsBeforeLeave + 2,
+    );
+  }
+  await leavePage.close();
+
   const english = await freshPage("malformed");
   await english.evaluate(() => localStorage.setItem("language", '"en"'));
   await english.reload();
@@ -900,12 +1328,32 @@ try {
           document.documentElement.clientWidth,
       )),
   );
+  hideAlpha = true;
+  const omittedEnglish = english.waitForResponse(
+    (response) => response.url() === `${origin}/api/communities`,
+  );
+  await english.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await omittedEnglish;
+  await nextFrame(english);
+  await nextFrame(english);
+  check(
+    "English omitted original remains legible without 390px overflow",
+    (await omittedOriginal(english).count()) === 1 &&
+      /unconfirmed/i.test(await omittedOriginal(english).innerText()) &&
+      (await english.evaluate(
+        () =>
+          document.documentElement.scrollWidth <=
+          document.documentElement.clientWidth,
+      )),
+  );
   await english.close();
 } catch (error) {
   result.errors.push(String(error?.stack ?? error));
 } finally {
   joinRelease.resolve();
   releaseStaleRead.resolve();
+  releaseFreshRead.resolve();
+  releaseOmittedRead.resolve();
   releaseReplacedJoin.resolve();
   releaseReplacedRefresh.resolve();
   releaseFirstScopeRead.resolve();
@@ -961,7 +1409,8 @@ try {
   const expectedStatusResourceErrors = result.consoleErrors.filter(
     (entry) =>
       /^Failed to load resource:.*503/.test(entry.text) &&
-      entry.url === `${origin}/api/communities/alpha`,
+      (entry.url === originalDetailUrl ||
+        entry.url === `${origin}/api/communities/alpha`),
   );
   const expectedListLogs = result.consoleErrors.filter(
     (entry) =>
@@ -969,15 +1418,23 @@ try {
         entry.text,
       ) && entry.url.startsWith(`${origin}/assets/`),
   );
+  const expectedDiscoveryLogs = result.consoleErrors.filter(
+    (entry) =>
+      /^Failed to fetch communities:? ApiError: synthetic discovery unavailable(?:\n|$)/.test(
+        entry.text,
+      ) && entry.url.startsWith(`${origin}/assets/`),
+  );
   if (
     expectedJoinErrors.length !== result.failures ||
-    expectedListResourceErrors.length !== 1 ||
+    expectedListResourceErrors.length !== 2 ||
     expectedStatusResourceErrors.length !== 1 ||
     expectedListLogs.length !== 1 ||
+    expectedDiscoveryLogs.length !== 1 ||
     expectedJoinErrors.length +
       expectedStatusResourceErrors.length +
       expectedListResourceErrors.length +
-      expectedListLogs.length !==
+      expectedListLogs.length +
+      expectedDiscoveryLogs.length !==
       result.consoleErrors.length
   )
     result.errors.push(

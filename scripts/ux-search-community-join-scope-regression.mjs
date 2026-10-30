@@ -40,7 +40,7 @@ Bun.plugin({
       // Exercise the actual callback, not a separately implemented model.
       const refresh = matches[0].initializer.getText(parsed);
       return {
-        contents: `${source}\nexport { pendingSearchJoinsAtom, searchJoinReceiptsAtom, searchLikeSubscriptions, beginSearchLike, settleSearchLikeWhenReady, endSearchLike, rememberSearchJoinReceipt, searchJoinScopeReadAtom };\nexport const __probeActualRefresh = (store, language, setToasts) => (${refresh});`,
+        contents: `${source}\nexport { pendingSearchJoinsAtom, pendingSearchJoinOriginalsAtom, searchJoinReceiptsAtom, searchLikeSubscriptions, beginSearchLike, settleSearchLikeWhenReady, endSearchLike, rememberSearchJoinReceipt, searchJoinScopeReadAtom };\nexport const __probeActualRefresh = (store, language, setToasts) => (${refresh});`,
         loader: "tsx",
       };
     });
@@ -83,11 +83,28 @@ const make = () => {
 };
 const first = make();
 const second = make();
-const original = registry.beginSearchLike(first, "group-a", "join", "alpha");
+const original = registry.beginSearchLike(
+  first,
+  "group-a",
+  "join",
+  "alpha",
+  "Original Alpha",
+);
 check("join begins in original scope", original?.sameScope());
+check(
+  "in-flight metadata contains the original target",
+  first.get(registry.pendingSearchJoinOriginalsAtom).get(original.key)?.id ===
+    "group-a" &&
+    first.get(registry.pendingSearchJoinOriginalsAtom).get(original.key)
+      ?.label === "Original Alpha",
+);
 check(
   "same target cannot be sent again after remount",
   !registry.beginSearchLike(first, "group-a", "join", "alpha"),
+);
+check(
+  "a different id cannot resend the same original endpoint while it is in flight",
+  !registry.beginSearchLike(first, "replacement-a", "join", "alpha"),
 );
 check(
   "missing original name cannot be sent",
@@ -104,6 +121,10 @@ check(
   "wrong token cannot release an in-flight original",
   !registry.beginSearchLike(first, "group-a", "join", "alpha"),
 );
+check(
+  "wrong token cannot remove the original identity",
+  first.get(registry.pendingSearchJoinOriginalsAtom).has(original.key),
+);
 first.set(auth.actorAtom, { ap_id: "actor-a" });
 first.set(auth.hostedUserAtom, { id: "hosted-a" });
 check(
@@ -116,12 +137,19 @@ const receipt = first.get(registry.searchJoinReceiptsAtom).get(original.key);
 check(
   "unknown receipt keeps only the original target",
   receipt?.name === "alpha" &&
+    receipt.id === "group-a" &&
+    receipt.label === "Original Alpha" &&
+    !first.get(registry.pendingSearchJoinOriginalsAtom).has(original.key) &&
     receipt.status === "unconfirmed" &&
     receipt.sameScope(),
 );
 check(
   "unknown receipt prevents a blind retry after remount",
   !registry.beginSearchLike(first, "group-a", "join", "renamed"),
+);
+check(
+  "an unknown original blocks a different id using the same endpoint name",
+  !registry.beginSearchLike(first, "replacement-a", "join", "alpha"),
 );
 check(
   "receipt keeps scope tracking live",
@@ -143,6 +171,49 @@ check(
   "settled operations release tracking",
   !registry.searchLikeSubscriptions.has(first) &&
     !registry.searchLikeSubscriptions.has(second),
+);
+
+const completed = make();
+const firstJoin = registry.beginSearchLike(
+  completed,
+  "group-a",
+  "join",
+  "alpha",
+);
+registry.rememberSearchJoinReceipt(completed, firstJoin, "alpha", "joined");
+const joinedReceipt = completed
+  .get(registry.searchJoinReceiptsAtom)
+  .get(firstJoin.key);
+check(
+  "joined history cannot be replaced while its original lock is held",
+  !registry.beginSearchLike(completed, "group-a", "join", "alpha") &&
+    completed.get(registry.searchJoinReceiptsAtom).get(firstJoin.key) ===
+      joinedReceipt,
+);
+registry.endSearchLike(completed, firstJoin);
+const deliberateJoin = registry.beginSearchLike(
+  completed,
+  "group-a",
+  "join",
+  "alpha",
+);
+check(
+  "a deliberate new join replaces terminal history only after acquiring its lock",
+  !!deliberateJoin &&
+    completed.get(registry.pendingSearchJoinsAtom).get(deliberateJoin.key) ===
+      deliberateJoin.token &&
+    !completed.get(registry.searchJoinReceiptsAtom).has(deliberateJoin.key),
+);
+registry.rememberSearchJoinReceipt(
+  completed,
+  deliberateJoin,
+  "alpha",
+  "unconfirmed",
+);
+registry.endSearchLike(completed, deliberateJoin);
+check(
+  "a later unknown result cannot reuse the terminal-history exception",
+  !registry.beginSearchLike(completed, "group-a", "join", "alpha"),
 );
 
 const loading = make();
@@ -177,6 +248,11 @@ const stalePending = registry.settleSearchLikeWhenReady(
   () => staleDelivered++,
 );
 loading.set(auth.actorAtom, { ap_id: "actor-b" });
+check(
+  "actor switch removes the pending original from the new scope",
+  loading.get(registry.pendingSearchJoinOriginalsAtom).size === 0 &&
+    loading.get(registry.pendingSearchJoinsAtom).has(stale.key),
+);
 await stalePending;
 loading.set(auth.actorAtom, { ap_id: "actor-a" });
 loading.set(auth.instancesLoadingAtom, false);
