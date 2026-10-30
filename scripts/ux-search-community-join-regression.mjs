@@ -364,6 +364,14 @@ try {
         return json(route, {
           community: { ...communities[0], join_status: "pending" },
         });
+      if (phase === "status-member")
+        return json(route, {
+          community: {
+            ...communities[0],
+            is_member: true,
+            member_role: "member",
+          },
+        });
       if (phase === "status-hold") {
         statusReadEntered.resolve();
         await releaseStatusRead.promise;
@@ -419,7 +427,7 @@ try {
     });
   const checkStatus = (page) =>
     row(page).getByRole("button", {
-      name: /状態を確認|確認中|確認済み|Check status|Checking|Checked/,
+      name: /状態を確認|確認中|確認済み|元の情報を取得|取得中|Check status|Checking|Checked|Read original details|Reading/,
     });
   const notice = (page) => page.locator('[role="alert"], [role="status"]');
   const nextFrame = (page) =>
@@ -473,8 +481,17 @@ try {
   check(
     "503 is described as an unconfirmed original outcome",
     /確認できません|unconfirmed/i.test(routeNotice) &&
+      /この画面では再送できません|retry is unavailable here/i.test(
+        routeNotice,
+      ) &&
       /Synthetic Alpha/.test(routeNotice),
     { text: routeNotice },
+  );
+  check(
+    "the original row keeps a visible unconfirmed and no-retry reminder",
+    /結果未確認・再送不可|unconfirmed; retry unavailable/i.test(
+      await row(page).innerText(),
+    ),
   );
   const routeCheck = checkStatus(page);
   check(
@@ -537,7 +554,7 @@ try {
   await pendingRead;
   await page.waitForFunction(() =>
     [...document.querySelectorAll('[role="status"]')].some((node) =>
-      /参加申請中と表示|current status is a pending/i.test(
+      /参加申請中と表示|current status is a pending|参加状態は確認できません|membership cannot be verified/i.test(
         node.textContent || "",
       ),
     ),
@@ -547,6 +564,13 @@ try {
     (await row(page)
       .getByRole("button", { name: /確認後に再試行|Enable retry/ })
       .count()) === 0,
+  );
+  const pendingText = (await notice(page).allTextContents()).join(" ");
+  check(
+    "an unbound pending response is not attributed to the current actor",
+    /参加状態は確認できません|membership cannot be verified/i.test(
+      pendingText,
+    ) && !/参加申請中と表示|current status is a pending/i.test(pendingText),
   );
   phase = "status-hold";
   const originalRead = page.waitForResponse(
@@ -562,10 +586,11 @@ try {
   );
   releaseStatusRead.resolve();
   await originalRead;
+  await nextFrame(page);
+  await nextFrame(page);
   const enableRetry = row(page).getByRole("button", {
     name: /確認後に再試行を有効化|Enable retry after checking/,
   });
-  await enableRetry.waitFor();
   check(
     "recovery controls fit the 390px viewport",
     await page.evaluate(
@@ -574,12 +599,14 @@ try {
         document.documentElement.clientWidth,
     ),
   );
-  const sendsBeforeEnable = result.intercepted;
-  await enableRetry.click();
+  const unboundText = (await notice(page).allTextContents()).join(" ");
   check(
-    "original status GET and explicit enable allow a later retry without sending one",
-    (await joinButton(page).isEnabled()) &&
-      result.intercepted === sendsBeforeEnable,
+    "anonymous-shaped response cannot enable retry or claim the actor is not joined",
+    (await enableRetry.count()) === 0 &&
+      /参加状態は確認できません|membership cannot be verified/i.test(
+        unboundText,
+      ) &&
+      !/現在は未参加・申請なし|current status is not joined/i.test(unboundText),
   );
   await page.close();
 
@@ -658,16 +685,15 @@ try {
       );
       await checkStatus(current).click();
       await read;
+      await nextFrame(current);
+      await nextFrame(current);
       const unlock = row(current).getByRole("button", {
         name: /確認後に再試行を有効化|Enable retry after checking/,
       });
-      await unlock.waitFor();
-      const before = result.intercepted;
-      await unlock.click();
       check(
-        "after a later non-pending read, an explicitly checked pending request can be retried",
-        (await joinButton(current).isEnabled()) &&
-          result.intercepted === before,
+        "an unbound non-pending read cannot unlock a pending request",
+        (await unlock.count()) === 0 &&
+          (await joinButton(current).count()) === 0,
       );
     }
     if (kind === "invite")
@@ -684,6 +710,33 @@ try {
       );
     await current.close();
   }
+
+  const memberRead = await freshPage("unbound-member");
+  await joinButton(memberRead).waitFor();
+  const unknownJoin = memberRead.waitForResponse(
+    (response) => response.url() === `${origin}/api/communities/alpha/join`,
+  );
+  await joinButton(memberRead).click();
+  await unknownJoin;
+  await checkStatus(memberRead).waitFor();
+  phase = "status-member";
+  const unboundMemberRead = memberRead.waitForResponse(
+    (response) => response.url() === `${origin}/api/communities/alpha`,
+  );
+  await checkStatus(memberRead).click();
+  await unboundMemberRead;
+  await nextFrame(memberRead);
+  await nextFrame(memberRead);
+  const memberText = (await notice(memberRead).allTextContents()).join(" ");
+  check(
+    "unbound member response does not remove the original row or claim actor membership",
+    (await row(memberRead).count()) === 1 &&
+      /参加状態は確認できません|membership cannot be verified/i.test(
+        memberText,
+      ) &&
+      !/現在は参加済みと表示|current status is joined/i.test(memberText),
+  );
+  await memberRead.close();
 
   const stale = await freshPage("stale");
   await joinButton(stale).waitFor();
@@ -823,6 +876,31 @@ try {
     { text: refreshText },
   );
   await refresh.close();
+
+  const english = await freshPage("malformed");
+  await english.evaluate(() => localStorage.setItem("language", '"en"'));
+  await english.reload();
+  await joinButton(english).waitFor();
+  const englishJoin = english.waitForResponse(
+    (response) => response.url() === `${origin}/api/communities/alpha/join`,
+  );
+  await joinButton(english).click();
+  await englishJoin;
+  await english.waitForFunction(() =>
+    [...document.querySelectorAll('[role="alert"]')].some((node) =>
+      /retry is unavailable here/i.test(node.textContent || ""),
+    ),
+  );
+  check(
+    "English unconfirmed controls remain visible without 390px overflow",
+    /Unconfirmed; retry unavailable/.test(await row(english).innerText()) &&
+      (await english.evaluate(
+        () =>
+          document.documentElement.scrollWidth <=
+          document.documentElement.clientWidth,
+      )),
+  );
+  await english.close();
 } catch (error) {
   result.errors.push(String(error?.stack ?? error));
 } finally {

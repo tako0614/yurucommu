@@ -94,7 +94,6 @@ type SearchJoinReceipt = {
   sameScope: () => boolean;
   name: string;
   status: "joined" | "pending" | "unconfirmed";
-  checked: boolean;
 };
 const searchJoinReceiptsAtom = atom<ReadonlyMap<string, SearchJoinReceipt>>(
   new Map(),
@@ -326,26 +325,8 @@ function rememberSearchJoinReceipt(
       sameScope: attempt.sameScope,
       name,
       status,
-      checked: false,
     }),
   );
-}
-
-function updateSearchJoinReceipt(
-  store: SearchLikeStore,
-  key: string,
-  original: SearchJoinReceipt,
-  checked: boolean,
-) {
-  if (!original.sameScope() || (!checked && !original.checked)) return;
-  store.set(searchJoinReceiptsAtom, (receipts) => {
-    if (receipts.get(key) !== original) return receipts;
-    const next = new Map(receipts);
-    if (checked) next.set(key, { ...original, checked: true });
-    else next.delete(key);
-    return next;
-  });
-  stopSearchLikeTrackingIfIdle(store);
 }
 
 // An ACK from a page that has since unmounted is not a current follow status.
@@ -1265,7 +1246,6 @@ export function SearchPage() {
   ) => {
     const key = searchLikeKey(store, community.ap_id);
     if (
-      receipt.checked ||
       checkingJoinStatus().has(key) ||
       store.get(searchJoinReceiptsAtom).get(key) !== receipt ||
       !receipt.sameScope() ||
@@ -1291,49 +1271,21 @@ export function SearchPage() {
       };
       if (!sameReadScope() || store.get(instancesLoadingAtom)) return;
       const original = await fetchCommunity(receipt.name);
-      let refreshToken: symbol | null = null;
       await settleSearchLikeWhenReady(store, sameReadScope, () => {
         if (!mounted || store.get(searchJoinReceiptsAtom).get(key) !== receipt)
           return;
-        if (
-          original.ap_id !== community.ap_id ||
-          typeof original.is_member !== "boolean" ||
-          (original.join_status !== null &&
-            original.join_status !== "pending") ||
-          (original.is_member && original.join_status !== null)
-        )
-          throw new Error("Unrecognized community membership status");
-        discoverReadGen++;
-        setCommunities((previous) =>
-          previous.map((item) => (item === community ? original : item)),
-        );
-        if (original.is_member) {
-          refreshToken = Symbol();
-          store.set(searchJoinScopeReadAtom, refreshToken);
-        } else if (original.join_status === null) {
-          updateSearchJoinReceipt(store, key, receipt, true);
-        }
+        if (original.ap_id !== community.ap_id)
+          throw new Error("Unexpected original community");
+        // This public GET can also succeed anonymously or for a different
+        // viewer, so its membership fields cannot resolve this actor's outcome.
         pushToast(
           setToasts,
           language() === "ja"
-            ? original.is_member
-              ? `現在は参加済みと表示されています。 (${label(community)} / ${receipt.name})`
-              : original.join_status === "pending"
-                ? `現在は参加申請中と表示されています。 (${label(community)} / ${receipt.name})`
-                : `現在は未参加・申請なしと表示されています。再試行は自動送信されません。 (${label(community)} / ${receipt.name})`
-            : original.is_member
-              ? `The current status is joined. (${label(community)} / ${receipt.name})`
-              : original.join_status === "pending"
-                ? `The current status is a pending request. (${label(community)} / ${receipt.name})`
-                : `The current status is not joined or pending. No retry was sent. (${label(community)} / ${receipt.name})`,
+            ? `元の情報を取得しましたが、このアカウントの参加状態は確認できません。ログイン状態と元のコミュニティを確認してください。 (${label(community)} / ${receipt.name})`
+            : `Original details were read, but this account's membership cannot be verified. Check your login and the original community. (${label(community)} / ${receipt.name})`,
           { kind: "info", timeout: 0 },
         );
       });
-      if (refreshToken !== null)
-        await refreshCurrentJoinScopes(refreshToken, sameReadScope, {
-          label: label(community),
-          name: receipt.name,
-        });
     } catch {
       await settleSearchLikeWhenReady(store, sameReadScope, () => {
         if (!mounted || store.get(searchJoinReceiptsAtom).get(key) !== receipt)
@@ -1392,8 +1344,8 @@ export function SearchPage() {
                 ? `参加は拒否されました。元のコミュニティを確認してください。 (${target.label} / ${target.name})`
                 : `The join was rejected. Check the original community. (${target.label} / ${target.name})`
               : language() === "ja"
-                ? `参加の結果を確認できません。再操作の前に元のコミュニティを確認してください。 (${target.label} / ${target.name})`
-                : `The join outcome is unconfirmed. Check the original community before trying again. (${target.label} / ${target.name})`,
+                ? `参加の結果を確認できません。この画面では再送できません。ログイン状態と元のコミュニティを確認してください。 (${target.label} / ${target.name})`
+                : `The join outcome is unconfirmed. Retry is unavailable here. Check your login and the original community. (${target.label} / ${target.name})`,
             { kind: "error", timeout: 0 },
           );
           return;
@@ -1693,6 +1645,13 @@ export function SearchPage() {
                           >
                             {(receipt) => (
                               <div class="flex flex-col items-end gap-1 shrink-0">
+                                <Show when={receipt().status === "unconfirmed"}>
+                                  <span class="text-xs text-neutral-400 text-right">
+                                    {language() === "ja"
+                                      ? "結果未確認・再送不可"
+                                      : "Unconfirmed; retry unavailable"}
+                                  </span>
+                                </Show>
                                 <Show
                                   when={community.join_status === "pending"}
                                 >
@@ -1703,7 +1662,6 @@ export function SearchPage() {
                                 <button
                                   type="button"
                                   disabled={
-                                    receipt().checked ||
                                     instancesLoading() ||
                                     checkingJoinStatus().has(
                                       searchLikeKey(store, community.ap_id),
@@ -1717,43 +1675,16 @@ export function SearchPage() {
                                   }
                                   class="px-4 py-1.5 border border-neutral-700 text-neutral-300 font-medium rounded-full text-sm shrink-0"
                                 >
-                                  {receipt().checked
+                                  {checkingJoinStatus().has(
+                                    searchLikeKey(store, community.ap_id),
+                                  )
                                     ? language() === "ja"
-                                      ? "確認済み"
-                                      : "Checked"
-                                    : checkingJoinStatus().has(
-                                          searchLikeKey(store, community.ap_id),
-                                        )
-                                      ? language() === "ja"
-                                        ? "確認中..."
-                                        : "Checking..."
-                                      : language() === "ja"
-                                        ? "状態を確認"
-                                        : "Check status"}
+                                      ? "取得中..."
+                                      : "Reading..."
+                                    : language() === "ja"
+                                      ? "元の情報を取得"
+                                      : "Read original details"}
                                 </button>
-                                <Show
-                                  when={
-                                    receipt().checked &&
-                                    community.join_status !== "pending"
-                                  }
-                                >
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      updateSearchJoinReceipt(
-                                        store,
-                                        searchLikeKey(store, community.ap_id),
-                                        receipt(),
-                                        false,
-                                      )
-                                    }
-                                    class="text-xs text-neutral-300 underline"
-                                  >
-                                    {language() === "ja"
-                                      ? "確認後に再試行を有効化"
-                                      : "Enable retry after checking"}
-                                  </button>
-                                </Show>
                               </div>
                             )}
                           </Show>

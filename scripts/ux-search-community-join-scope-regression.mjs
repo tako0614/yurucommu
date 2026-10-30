@@ -40,7 +40,7 @@ Bun.plugin({
       // Exercise the actual callback, not a separately implemented model.
       const refresh = matches[0].initializer.getText(parsed);
       return {
-        contents: `${source}\nexport { pendingSearchJoinsAtom, searchJoinReceiptsAtom, searchLikeSubscriptions, beginSearchLike, settleSearchLikeWhenReady, endSearchLike, rememberSearchJoinReceipt, updateSearchJoinReceipt, searchJoinScopeReadAtom };\nexport const __probeActualRefresh = (store, language, setToasts) => (${refresh});`,
+        contents: `${source}\nexport { pendingSearchJoinsAtom, searchJoinReceiptsAtom, searchLikeSubscriptions, beginSearchLike, settleSearchLikeWhenReady, endSearchLike, rememberSearchJoinReceipt, searchJoinScopeReadAtom };\nexport const __probeActualRefresh = (store, language, setToasts) => (${refresh});`,
         loader: "tsx",
       };
     });
@@ -127,35 +127,10 @@ check(
   "receipt keeps scope tracking live",
   registry.searchLikeSubscriptions.has(first),
 );
-registry.updateSearchJoinReceipt(first, original.key, receipt, true);
-const checked = first.get(registry.searchJoinReceiptsAtom).get(original.key);
 check(
-  "explicit original-status visit is retained",
-  checked?.checked && checked.name === "alpha",
+  "an unconfirmed receipt remains tied to the original target",
+  first.get(registry.searchJoinReceiptsAtom).get(original.key) === receipt,
 );
-registry.updateSearchJoinReceipt(first, original.key, receipt, false);
-check(
-  "an older receipt cannot clear a newer one",
-  first.get(registry.searchJoinReceiptsAtom).get(original.key) === checked,
-);
-registry.updateSearchJoinReceipt(first, original.key, checked, false);
-const deliberateRetry = registry.beginSearchLike(
-  first,
-  "group-a",
-  "join",
-  "alpha",
-);
-check(
-  "explicitly clearing checked receipt enables a later send",
-  deliberateRetry,
-);
-registry.rememberSearchJoinReceipt(
-  first,
-  deliberateRetry,
-  "alpha",
-  "unconfirmed",
-);
-registry.endSearchLike(first, deliberateRetry);
 first.set(auth.selectedInstanceIdAtom, "instance-b");
 first.set(auth.selectedInstanceIdAtom, "instance-a");
 check(
