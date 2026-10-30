@@ -270,6 +270,10 @@ export function PostDetailPage() {
   const [error, setError] = createSignal<string | null>(null);
   const clearError = () => setError(null);
   const [post, setPost] = createSignal<Post | null>(null);
+  const [replyTarget, setReplyTarget] = createSignal<{
+    requested: string;
+    canonical: string;
+  } | null>(null);
   const [replies, setReplies] = createSignal<Post[]>([]);
   const [repliesCursor, setRepliesCursor] = createSignal<string | null>(null);
   const [repliesHasMore, setRepliesHasMore] = createSignal(false);
@@ -331,8 +335,10 @@ export function PostDetailPage() {
     reloadKey();
     if (!postId) return;
 
+    const decodedPostId = decodeApIdParam(postId);
     const gen = ++postLoadGen;
     setPost(null);
+    if (untrack(replyTarget)?.requested !== decodedPostId) setReplyTarget(null);
     setReplies([]);
     // Pagination belongs to this post/load, not the previous generation.
     setRepliesCursor(null);
@@ -343,13 +349,17 @@ export function PostDetailPage() {
     setRepliesFailed(false);
     setLoading(true);
 
-    const decodedPostId = decodeApIdParam(postId);
     timelineBeforePostLoad = store
       .get(timelinePostsAtom)
       .find((item) => item.ap_id === decodedPostId);
     Promise.allSettled([fetchPost(decodedPostId), fetchReplies(decodedPostId)])
       .then(([postResult, repliesResult]) => {
-        if (gen !== postLoadGen) return;
+        if (
+          !mounted ||
+          gen !== postLoadGen ||
+          decodeApIdParam(params.postId) !== decodedPostId
+        )
+          return;
         if (postResult.status === "rejected") {
           const e = postResult.reason;
           console.error("Failed to load post:", e);
@@ -361,6 +371,10 @@ export function PostDetailPage() {
           }
           return;
         }
+        setReplyTarget({
+          requested: decodedPostId,
+          canonical: postResult.value.ap_id,
+        });
         setPost(postResult.value);
         if (repliesResult.status === "rejected") {
           console.error("Failed to load replies:", repliesResult.reason);
@@ -379,11 +393,14 @@ export function PostDetailPage() {
   // The Provider outlives this route. Keep each in-memory draft associated
   // with its original target without refetching when the user types.
   createEffect(() => {
-    const id = decodeApIdParam(params.postId);
+    const requested = decodeApIdParam(params.postId);
+    const target = replyTarget();
     const scope = replyDraftScope();
     // solid-jotai reconciles object values in place, so observe the changed
     // Map property rather than only the containing proxy.
     savedReplyDrafts()?.entries;
+    if (!target || target.requested !== requested) return;
+    const id = target.canonical;
     if (localOnlyReplyDraft?.id === id && localOnlyReplyDraft.scope === scope)
       return;
     const binding = replyDraftBinding(store);
@@ -1365,7 +1382,14 @@ export function PostDetailPage() {
                   value={replyContent()}
                   onInput={(e) => {
                     const id = post()?.ap_id;
-                    if (!id || id !== decodeApIdParam(params.postId)) return;
+                    const target = replyTarget();
+                    if (
+                      !id ||
+                      !target ||
+                      target.requested !== decodeApIdParam(params.postId) ||
+                      target.canonical !== id
+                    )
+                      return;
                     replyDraftRevision++;
                     const value = e.currentTarget.value;
                     const binding = replyDraftBinding(store);

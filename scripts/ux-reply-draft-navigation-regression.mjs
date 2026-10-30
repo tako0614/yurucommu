@@ -54,6 +54,7 @@ const result = {
 const check = (name, pass, details = {}) =>
   result.checks.push({ name, pass, ...details });
 let web, mock, context, profile, current, origin, replyPath;
+const pendingReleases = [];
 try {
   await mkdir(evidence, { recursive: true, mode: 0o700 });
   const dist = resolve(process.env.YURU_SYNTHETIC_DIST ?? "dist");
@@ -110,6 +111,8 @@ try {
   if (mock.exitCode !== null) throw new Error(`mock exited: ${mock.exitCode}`);
   const idA = `${origin}/ap/notes/post-1`;
   const idB = `${origin}/ap/notes/post-2`;
+  const shortId = "short-1";
+  const shortCanonicalId = `${origin}/ap/objects/${shortId}`;
   replyPath = `/api/posts/${encodeURIComponent(idA)}/replies`;
   const getPost = async (id, content) => {
     const response = await fetch(
@@ -135,6 +138,11 @@ try {
   const actor = (await actorResponse.json()).actor;
   postA.author = { ...postA.author, ap_id: actor.ap_id };
   postB.author = postA.author;
+  const shortPost = {
+    ...postA,
+    ap_id: shortCanonicalId,
+    content: "Short ID current",
+  };
   profile = await mkdtemp("/root/dev/tmp/yuru-reply-draft-profile-");
   context = await chromium.launchPersistentContext(profile, {
     executablePath: "/opt/google/chrome/chrome",
@@ -217,6 +225,24 @@ try {
     if (match) {
       result.postReads++;
       const id = decodeURIComponent(match[1]);
+      if (!match[2] && (id === shortId || id === shortCanonicalId)) {
+        if (current?.holdShort) {
+          const held = current.holdShort;
+          current.holdShort = null;
+          held.entered.resolve();
+          await held.release.promise;
+        }
+        return json(route, { post: shortPost });
+      }
+      if (match[2] && (id === shortId || id === shortCanonicalId))
+        return json(route, {
+          replies: [
+            { ...postB, content: "Open post B" },
+            { ...postA, content: "Open post A" },
+          ],
+          next_cursor: null,
+          has_more: false,
+        });
       if (!match[2] && (id === idA || id === idB))
         return json(route, { post: id === idA ? postA : postB });
       if (match[2] && id === idA && current?.replyErrorOnce) {
@@ -226,7 +252,13 @@ try {
       }
       if (match[2] && (id === idA || id === idB))
         return json(route, {
-          replies: id === idA ? [{ ...postB, content: "Open post B" }] : [],
+          replies:
+            id === idA
+              ? [
+                  { ...postB, content: "Open post B" },
+                  { ...shortPost, content: "Open short post" },
+                ]
+              : [],
           next_cursor: null,
           has_more: false,
         });
@@ -544,12 +576,146 @@ try {
       "desktop Back also restores the original draft",
       (await input().inputValue()) === "Desktop synthetic draft",
     );
+    const held = { entered: deferred(), release: deferred() };
+    pendingReleases.push(held.release);
+    current.holdShort = held;
+    await page.getByRole("link", { name: "Open short post" }).click();
+    await bounded(held.entered.promise, "short-post read intercepted");
+    await page.goBack();
+    await showA();
+    const heldResponse = page.waitForResponse(
+      (item) =>
+        item.request().method() === "GET" &&
+        decodeURIComponent(new URL(item.url()).pathname) ===
+          `/api/posts/${shortCanonicalId}`,
+      { timeout },
+    );
+    held.release.resolve();
+    await heldResponse;
+    await page.evaluate(
+      () =>
+        new Promise((done) =>
+          requestAnimationFrame(() => requestAnimationFrame(done)),
+        ),
+    );
+    check(
+      "an older post GET cannot replace the current draft",
+      (await input().inputValue()) === "Desktop synthetic draft" &&
+        (await page.getByText("Post A current", { exact: true }).isVisible()),
+    );
     await page.reload();
     await showA();
     check(
       "full reload starts a new in-memory draft scope",
       (await input().inputValue()) === "",
     );
+    await page.goto(`${origin}/post/${shortId}`);
+    await page
+      .getByText("Short ID current", { exact: true })
+      .waitFor({ timeout });
+    await input().fill("Synthetic short-ID reply");
+    await openB();
+    await page.goBack();
+    await page
+      .getByText("Short ID current", { exact: true })
+      .waitFor({ timeout });
+    const restoredShort = await input().inputValue();
+    await page.getByRole("link", { name: "Open post A" }).click();
+    await showA();
+    await page.getByRole("link", { name: "Open short post" }).click();
+    await page
+      .getByText("Short ID current", { exact: true })
+      .waitFor({ timeout });
+    check(
+      "canonical link restores the short-ID draft",
+      (await input().inputValue()) === "Synthetic short-ID reply",
+    );
+    await page.goBack();
+    await showA();
+    await page.goBack();
+    await page
+      .getByText("Short ID current", { exact: true })
+      .waitFor({ timeout });
+    check(
+      "Back to short ID keeps the same canonical draft",
+      (await input().inputValue()) === "Synthetic short-ID reply",
+    );
+    const shortButton = page
+      .getByRole("button", { name: /^(返信|Reply)$/ })
+      .last();
+    const shortEnabled = await shortButton.isEnabled();
+    const shortAttempt = {
+      count: 0,
+      entered: deferred(),
+      release: deferred(),
+      status: 200,
+    };
+    current.reply = shortAttempt;
+    if (shortEnabled) {
+      await shortButton.click();
+      await bounded(shortAttempt.entered.promise, "short-ID reply intercepted");
+    }
+    check(
+      "short-ID route can reply to the canonical post",
+      shortEnabled &&
+        restoredShort === "Synthetic short-ID reply" &&
+        shortAttempt.count === 1 &&
+        shortAttempt.payload?.in_reply_to === shortCanonicalId &&
+        shortAttempt.payload?.content === "Synthetic short-ID reply",
+      {
+        enabled: shortEnabled,
+        restored: restoredShort,
+        intercepted: shortAttempt.count,
+      },
+    );
+    if (shortEnabled) {
+      await page.getByRole("link", { name: "Open post A" }).click();
+      await showA();
+      await page.getByRole("link", { name: "Open short post" }).click();
+      await page
+        .getByText("Short ID current", { exact: true })
+        .waitFor({ timeout });
+      await input().fill("New draft after changing alias");
+      const aliasResponse = page.waitForResponse(
+        (item) =>
+          item.request().method() === "POST" &&
+          new URL(item.url()).pathname === "/api/posts",
+        { timeout },
+      );
+      shortAttempt.release.resolve();
+      await aliasResponse;
+      await page.evaluate(
+        () =>
+          new Promise((done) =>
+            requestAnimationFrame(() => requestAnimationFrame(done)),
+          ),
+      );
+      check(
+        "an alias change and later ACK keep the newer canonical draft",
+        (await input().inputValue()) === "New draft after changing alias" &&
+          shortAttempt.count === 1,
+      );
+    } else {
+      check(
+        "an alias change and later ACK keep the newer canonical draft",
+        false,
+      );
+    }
+    current.replyErrorOnce = true;
+    await page.goto(`${origin}/post/${encodeURIComponent(idA)}`);
+    await showA();
+    await input().fill("x".repeat(250_001));
+    await page.getByRole("button", { name: /再試行|Retry/ }).click();
+    await showA();
+    const localOnlyWarning = page.getByText(
+      /この下書きは画面を離れると保持されません|This draft will not be kept/,
+    );
+    check(
+      "same-target retry preserves local-only text and its warning",
+      (await input().inputValue()).length === 250_001 &&
+        (await localOnlyWarning.isVisible()),
+    );
+    await input().fill("");
     await input().fill("Synthetic text before sign-out");
     await page.locator('aside a[href="/"]').click();
     await page.waitForURL(origin + "/", { timeout });
@@ -578,6 +744,7 @@ try {
 } catch (error) {
   result.errors.push(String(error?.stack ?? error));
 } finally {
+  for (const release of pendingReleases) release.resolve();
   current?.reply?.release.resolve();
   if (context)
     try {
