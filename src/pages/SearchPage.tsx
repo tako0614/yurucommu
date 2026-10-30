@@ -1222,14 +1222,30 @@ export function SearchPage() {
     target: { label: string; name: string },
   ) => {
     if (!sameScope() || token !== store.get(searchJoinScopeReadAtom)) return;
+    let sameReadScope = sameScope;
     try {
+      const transport = getYurucommuApiTransport();
+      const path = "/api/communities";
+      const url = transport.resolveUrl(path);
+      sameReadScope = () => {
+        try {
+          return (
+            sameScope() &&
+            getYurucommuApiTransport() === transport &&
+            transport.resolveUrl(path) === url
+          );
+        } catch {
+          return false;
+        }
+      };
+      if (!sameReadScope()) return;
       const list = await fetchCommunities();
-      await settleSearchLikeWhenReady(store, sameScope, () => {
+      await settleSearchLikeWhenReady(store, sameReadScope, () => {
         if (token === store.get(searchJoinScopeReadAtom))
           store.set(scopeCommunitiesAtom, list);
       });
     } catch (error) {
-      await settleSearchLikeWhenReady(store, sameScope, () => {
+      await settleSearchLikeWhenReady(store, sameReadScope, () => {
         if (token !== store.get(searchJoinScopeReadAtom)) return;
         console.error("Failed to refresh scope communities:", error);
         pushToast(

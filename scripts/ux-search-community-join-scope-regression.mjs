@@ -1,5 +1,6 @@
 // Exercise the actual SearchPage registry with isolated synthetic stores only.
 import { createStore } from "jotai/vanilla";
+import ts from "typescript";
 
 globalThis.window = {
   history: { state: { _depth: 0 }, length: 1, replaceState() {} },
@@ -15,15 +16,40 @@ globalThis.navigator = { language: "en" };
 Bun.plugin({
   name: "search-community-join-registry-observer",
   setup(build) {
-    build.onLoad({ filter: /SearchPage\.tsx$/ }, async (args) => ({
-      contents: `${await Bun.file(args.path).text()}\nexport { pendingSearchJoinsAtom, searchJoinReceiptsAtom, searchLikeSubscriptions, beginSearchLike, settleSearchLikeWhenReady, endSearchLike, rememberSearchJoinReceipt, updateSearchJoinReceipt };`,
-      loader: "tsx",
-    }));
+    build.onLoad({ filter: /SearchPage\.tsx$/ }, async (args) => {
+      const source = await Bun.file(args.path).text();
+      const parsed = ts.createSourceFile(
+        args.path,
+        source,
+        ts.ScriptTarget.Latest,
+        true,
+        ts.ScriptKind.TSX,
+      );
+      const matches = [];
+      const visit = (node) => {
+        if (
+          ts.isVariableDeclaration(node) &&
+          node.name.getText(parsed) === "refreshCurrentJoinScopes"
+        )
+          matches.push(node);
+        ts.forEachChild(node, visit);
+      };
+      visit(parsed);
+      if (matches.length !== 1 || !ts.isArrowFunction(matches[0].initializer))
+        throw new Error("unexpected actual refresh callback shape");
+      // Exercise the actual callback, not a separately implemented model.
+      const refresh = matches[0].initializer.getText(parsed);
+      return {
+        contents: `${source}\nexport { pendingSearchJoinsAtom, searchJoinReceiptsAtom, searchLikeSubscriptions, beginSearchLike, settleSearchLikeWhenReady, endSearchLike, rememberSearchJoinReceipt, updateSearchJoinReceipt, searchJoinScopeReadAtom };\nexport const __probeActualRefresh = (store, language, setToasts) => (${refresh});`,
+        loader: "tsx",
+      };
+    });
   },
 });
 
 const registry = await import("../src/pages/SearchPage.tsx");
 const auth = await import("../src/atoms/auth.ts");
+const scope = await import("../src/atoms/scope.ts");
 const plugin = await import("../src/lib/plugin.ts");
 const checks = [];
 const check = (name, pass) => checks.push({ name, pass: Boolean(pass) });
@@ -34,10 +60,12 @@ const strategy = {
   },
 };
 let prefix = "http://one.local";
+let readOrigin = "http://read-one.local";
 const transport = {
   credentials: "include",
   getAuthHeaders: () => ({}),
-  resolveUrl: (path) => prefix + path,
+  resolveUrl: (path) =>
+    (path === "/api/communities" ? readOrigin : prefix) + path,
 };
 plugin.registerYurucommuFrontendPlugin({
   apiVersion: 1,
@@ -207,6 +235,106 @@ check(
   loading.get(registry.searchJoinReceiptsAtom).size === 0 &&
     !registry.searchLikeSubscriptions.has(loading),
 );
+
+// Use the SDK's actual GET and the component's extracted callback, replacing
+// only the network with a deferred synthetic response. POST destinations stay
+// fixed while the plugin's GET destination changes.
+const savedFetch = globalThis.fetch;
+const savedError = console.error;
+console.error = () => {};
+async function readScenario({ change, reject, loading: waitForSelection }) {
+  readOrigin = "http://read-one.local";
+  const store = make();
+  const attempt = registry.beginSearchLike(
+    store,
+    "group-read",
+    "join",
+    "read-name",
+  );
+  const token = Symbol();
+  store.set(registry.searchJoinScopeReadAtom, token);
+  const oldRows = [{ ap_id: "original-scope-sentinel" }];
+  store.set(scope.scopeCommunitiesAtom, oldRows);
+  let toastList = [];
+  let resolveRead;
+  let rejectRead;
+  let requestedUrl;
+  globalThis.fetch = (url, options) => {
+    requestedUrl = String(url);
+    if (options?.method && options.method !== "GET")
+      throw new Error("unexpected synthetic write");
+    return new Promise((resolve, reject) => {
+      resolveRead = resolve;
+      rejectRead = reject;
+    });
+  };
+  const callback = registry.__probeActualRefresh(
+    store,
+    () => "en",
+    (update) => {
+      toastList = typeof update === "function" ? update(toastList) : update;
+    },
+  );
+  const pendingRead = callback(token, attempt.sameScope, {
+    label: "Original",
+    name: "read-name",
+  });
+  for (let i = 0; i < 30 && !resolveRead; i++) await Promise.resolve();
+  if (!resolveRead) throw new Error("the actual SDK read was not issued");
+  if (waitForSelection) store.set(auth.instancesLoadingAtom, true);
+  if (change && !waitForSelection) readOrigin = "http://read-two.local";
+  if (reject) rejectRead(new Error("synthetic read failure"));
+  else
+    resolveRead(
+      new Response(JSON.stringify({ communities: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+  if (waitForSelection) {
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+    readOrigin = "http://read-two.local";
+    store.set(auth.instancesLoadingAtom, false);
+  }
+  await pendingRead;
+  const result = {
+    originalRequested: requestedUrl === "http://read-one.local/api/communities",
+    postScopeCurrent: attempt.sameScope(),
+    oldRowsPreserved: store.get(scope.scopeCommunitiesAtom) === oldRows,
+    toasts: toastList.length,
+  };
+  registry.endSearchLike(store, attempt);
+  return result;
+}
+try {
+  const changed = await readScenario({ change: true });
+  check("actual GET used the original read URL", changed.originalRequested);
+  check("GET-only change preserves the POST scope", changed.postScopeCurrent);
+  check(
+    "GET-only change cannot replace the original list",
+    changed.oldRowsPreserved,
+  );
+  const current = await readScenario({});
+  check("unchanged read still refreshes the list", !current.oldRowsPreserved);
+  const failed = await readScenario({ reject: true });
+  check(
+    "current read failure remains visible",
+    failed.oldRowsPreserved && failed.toasts === 1,
+  );
+  const staleFailed = await readScenario({ change: true, reject: true });
+  check(
+    "stale read failure cannot affect the new connection",
+    staleFailed.oldRowsPreserved && staleFailed.toasts === 0,
+  );
+  const delayed = await readScenario({ change: true, loading: true });
+  check(
+    "GET change during connection selection cannot publish the old list",
+    delayed.oldRowsPreserved,
+  );
+} finally {
+  globalThis.fetch = savedFetch;
+  console.error = savedError;
+}
 
 console.log(
   JSON.stringify(
