@@ -135,6 +135,10 @@ export function PostDetailPage() {
     const gen = ++postLoadGen;
     setPost(null);
     setReplies([]);
+    // Pagination belongs to this post/load, not the previous generation.
+    setRepliesCursor(null);
+    setRepliesHasMore(false);
+    setLoadingMoreReplies(false);
     setReplyContent("");
     setError(null);
     setLoadFailed(false);
