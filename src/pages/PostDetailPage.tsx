@@ -63,7 +63,7 @@ import {
 const MAX_REPLY_LENGTH = 5000;
 // Provider-scoped so leaving and reopening a post cannot duplicate an in-flight send.
 const pendingRepliesAtom = atom<ReadonlyMap<string, symbol>>(new Map());
-type InteractionKind = "like" | "repost";
+type InteractionKind = "like" | "repost" | "bookmark";
 type InteractionSettlement = {
   kind: InteractionKind;
   targetId: string;
@@ -254,13 +254,6 @@ export function PostDetailPage() {
     }
   };
 
-  // Guard against a double-tap firing two like/bookmark requests off the same
-  // stale state: handleLike reads targetPost.liked and only applies ±1 after the
-  // await, so a second tap would re-read liked=false and apply +1 again → a
-  // permanent local like_count drift. Keyed by ap_id (main post + each reply
-  // guard independently).
-  const bookmarkInFlight = new Set<string>();
-
   // A repost is an Announce to Public, so only a publicly-reachable post may be
   // boosted — mirrors the backend gate and TimelinePostItem's isRepostable.
   const isRepostable = (p: Post): boolean =>
@@ -317,11 +310,13 @@ export function PostDetailPage() {
   ): Post =>
     kind === "like"
       ? { ...old, liked: fresh.liked, like_count: fresh.like_count }
-      : {
-          ...old,
-          reposted: fresh.reposted,
-          announce_count: fresh.announce_count,
-        };
+      : kind === "repost"
+        ? {
+            ...old,
+            reposted: fresh.reposted,
+            announce_count: fresh.announce_count,
+          }
+        : { ...old, bookmarked: fresh.bookmarked };
   const reportInteractionRefreshFailure = () =>
     pushToast(
       setToasts,
@@ -332,7 +327,7 @@ export function PostDetailPage() {
     );
   const syncInteractionTimeline = (
     id: string,
-    kind: InteractionKind,
+    kind: Exclude<InteractionKind, "bookmark">,
     original: Post | undefined,
     patch: (post: Post) => Post,
     desired: boolean,
@@ -475,7 +470,13 @@ export function PostDetailPage() {
 
   const reportInteractionError = (
     target: Post,
-    action: "posts.like" | "posts.unlike" | "posts.repost" | "posts.undoRepost",
+    action:
+      | "posts.like"
+      | "posts.unlike"
+      | "posts.repost"
+      | "posts.undoRepost"
+      | "posts.bookmark"
+      | "posts.removeBookmark",
     failure: ReturnType<typeof classifyWriteFailure>,
   ) => {
     const username = target.author.username || target.author.preferred_username;
@@ -846,29 +847,59 @@ export function PostDetailPage() {
 
   const handleBookmark = async () => {
     const currentPost = post();
-    const actorApId = currentActor()?.ap_id;
+    const actorApId = store.get(actorAtom)?.ap_id;
     if (!currentPost || !actorApId) return;
-    if (bookmarkInFlight.has(currentPost.ap_id)) return;
-    bookmarkInFlight.add(currentPost.ap_id);
+    const bookmarked = !currentPost.bookmarked;
+    const sameScope = captureInteractionScope(
+      `/api/posts/${encodeURIComponent(currentPost.ap_id)}/bookmark`,
+    );
+    if (!sameScope) {
+      reportInteractionError(
+        currentPost,
+        bookmarked ? "posts.bookmark" : "posts.removeBookmark",
+        "rejected",
+      );
+      return;
+    }
+    const generation = postLoadGen;
+    const samePage = () =>
+      mounted &&
+      generation === postLoadGen &&
+      post()?.ap_id === currentPost.ap_id;
+    const attempt = beginInteraction("bookmark", currentPost.ap_id);
+    if (!attempt) return;
     try {
-      const bookmarked = !currentPost.bookmarked;
       if (bookmarked) await bookmarkPost(currentPost.ap_id);
       else await unbookmarkPost(currentPost.ap_id);
+      if (!sameScope()) return;
       if (
         !acknowledgeBookmark({ actorApId, apId: currentPost.ap_id, bookmarked })
       )
         return;
-      setPost((latest) =>
-        latest?.ap_id === currentPost.ap_id
-          ? { ...latest, bookmarked }
-          : latest,
-      );
+      if (samePage()) {
+        setPost((latest) =>
+          latest?.ap_id === currentPost.ap_id
+            ? { ...latest, bookmarked }
+            : latest,
+        );
+      } else {
+        await notifyInteraction({
+          kind: "bookmark",
+          targetId: currentPost.ap_id,
+          parentId: currentPost.ap_id,
+          sameScope,
+        });
+      }
     } catch (e) {
-      if (currentActor()?.ap_id !== actorApId) return;
+      if (!sameScope()) return;
       console.error("Failed to toggle bookmark:", e);
-      setError(t("common.error"));
+      reportInteractionError(
+        currentPost,
+        bookmarked ? "posts.bookmark" : "posts.removeBookmark",
+        classifyWriteFailure(e),
+      );
     } finally {
-      bookmarkInFlight.delete(currentPost.ap_id);
+      endInteraction(attempt);
     }
   };
 
@@ -1093,7 +1124,10 @@ export function PostDetailPage() {
                     : t("posts.bookmark")
                 }
                 aria-pressed={post()!.bookmarked}
-                class={`flex items-center gap-2 p-2 transition-colors ${
+                aria-disabled={pendingInteractions().has(
+                  interactionKey("bookmark", post()!.ap_id),
+                )}
+                class={`flex items-center gap-2 p-2 transition-colors aria-disabled:opacity-50 aria-disabled:cursor-wait ${
                   post()!.bookmarked
                     ? "text-accent"
                     : "text-neutral-500 hover:text-accent"
