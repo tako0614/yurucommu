@@ -1,4 +1,4 @@
-import { createEffect, createSignal, For, Show } from "solid-js";
+import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import { A, useNavigate, useParams } from "@solidjs/router";
 import { useRequiredActor } from "../hooks/useRequiredActor.ts";
 import { MediaAttachment, Post } from "../types/index.ts";
@@ -8,6 +8,7 @@ import {
   editPost,
   fetchPost,
   fetchReplies,
+  getYurucommuApiTransport,
   likePost,
   repostPost,
   unbookmarkPost,
@@ -19,8 +20,15 @@ import { EditPostModal } from "../components/timeline/EditPostModal.tsx";
 import { PostVisibilityIndicator } from "../components/timeline/PostVisibilityIndicator.tsx";
 import { useI18n } from "../lib/i18n.tsx";
 import { decodeApIdParam } from "../lib/routeApId.ts";
-import { useAtomValue, useSetAtom } from "solid-jotai";
-import { actorAtom } from "../atoms/auth.ts";
+import { useAtom, useAtomValue, useSetAtom, useStore } from "solid-jotai";
+import { atom } from "jotai/vanilla";
+import {
+  actorAtom,
+  authSessionEpochAtom,
+  hostedUserAtom,
+  logoutBusyAtom,
+  selectedInstanceIdAtom,
+} from "../atoms/auth.ts";
 import { pushToast, toastsAtom } from "../atoms/toast.ts";
 import {
   acknowledgeTimelineBookmarkAtom,
@@ -39,6 +47,9 @@ import {
 } from "../components/icons/SocialIcons.tsx";
 import { InlineErrorBanner } from "../components/InlineErrorBanner.tsx";
 import { InlineErrorRetry } from "../components/InlineErrorRetry.tsx";
+import { acknowledgesPost } from "../lib/post-acknowledgement.ts";
+import { classifyWriteFailure } from "../lib/write-outcome.ts";
+import { getAuthStrategy } from "../lib/plugin.ts";
 import {
   mediaAttachmentUrl,
   MediaLightbox,
@@ -50,6 +61,8 @@ import {
 // only powers the counter + a local submit gate so the user sees the limit
 // before the round-trip instead of an opaque error.
 const MAX_REPLY_LENGTH = 5000;
+// Provider-scoped so leaving and reopening a post cannot duplicate an in-flight send.
+const pendingRepliesAtom = atom<ReadonlyMap<string, symbol>>(new Map());
 
 const BackIcon = () => (
   <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -87,6 +100,7 @@ const EditIcon = () => (
 export function PostDetailPage() {
   const actor = useRequiredActor();
   const currentActor = useAtomValue(actorAtom);
+  const store = useStore();
   const acknowledgeBookmark = useSetAtom(acknowledgeTimelineBookmarkAtom);
   const params = useParams();
   const navigate = useNavigate();
@@ -103,7 +117,17 @@ export function PostDetailPage() {
   const [loadingMoreReplies, setLoadingMoreReplies] = createSignal(false);
   const [loading, setLoading] = createSignal(true);
   const [replyContent, setReplyContent] = createSignal("");
-  const [replying, setReplying] = createSignal(false);
+  // A pending send belongs to its target, even after navigating away and back.
+  const [pendingReplies, setPendingReplies] = useAtom(pendingRepliesAtom);
+  const replying = () => {
+    const id = post()?.ap_id;
+    return id ? pendingReplies().has(id) : false;
+  };
+  let replyDraftRevision = 0;
+  let mounted = true;
+  onCleanup(() => {
+    mounted = false;
+  });
   // Reply composer textarea — the action-bar reply button focuses it.
   let replyInputRef: HTMLTextAreaElement | undefined;
   // Pending delete target, staged so the shared ConfirmSheet can gate it.
@@ -127,6 +151,7 @@ export function PostDetailPage() {
   // Generation guard: a fast post→post navigation must not let a slow prior
   // load land its post/replies under the new post.
   let postLoadGen = 0;
+  let timelineBeforePostLoad: Post | undefined;
   createEffect(() => {
     const postId = params.postId;
     reloadKey();
@@ -139,6 +164,7 @@ export function PostDetailPage() {
     setRepliesCursor(null);
     setRepliesHasMore(false);
     setLoadingMoreReplies(false);
+    replyDraftRevision++;
     setReplyContent("");
     setError(null);
     setLoadFailed(false);
@@ -146,6 +172,9 @@ export function PostDetailPage() {
     setLoading(true);
 
     const decodedPostId = decodeApIdParam(postId);
+    timelineBeforePostLoad = store
+      .get(timelinePostsAtom)
+      .find((item) => item.ap_id === decodedPostId);
     Promise.allSettled([fetchPost(decodedPostId), fetchReplies(decodedPostId)])
       .then(([postResult, repliesResult]) => {
         if (gen !== postLoadGen) return;
@@ -332,40 +361,133 @@ export function PostDetailPage() {
   const replyOverLimit = () => replyContent().length > MAX_REPLY_LENGTH;
 
   const handleReply = async () => {
-    if (!replyContent().trim() || replying() || !post() || replyOverLimit())
+    const target = post();
+    const content = replyContent().trim();
+    const actorApId = store.get(actorAtom)?.ap_id;
+    if (
+      !content ||
+      !target ||
+      !actorApId ||
+      replyOverLimit() ||
+      store.get(pendingRepliesAtom).has(target.ap_id) ||
+      store.get(logoutBusyAtom)
+    )
       return;
-    setReplying(true);
+    const generation = postLoadGen;
+    const draftRevision = replyDraftRevision;
+    const olderTimelinePost = timelineBeforePostLoad;
+    const sessionEpoch = store.get(authSessionEpochAtom);
+    const instanceId = store.get(selectedInstanceIdAtom);
+    const hostedUserId = store.get(hostedUserAtom)?.id ?? null;
+    let strategy: ReturnType<typeof getAuthStrategy>;
+    let transport: ReturnType<typeof getYurucommuApiTransport>;
+    let postUrl: string;
+    try {
+      strategy = getAuthStrategy();
+      transport = getYurucommuApiTransport();
+      postUrl = transport.resolveUrl("/api/posts");
+    } catch (e) {
+      console.error("Failed to prepare reply:", e);
+      setError(t("feedback.postFailed"));
+      return;
+    }
+    const sameScope = () => {
+      try {
+        return (
+          !store.get(logoutBusyAtom) &&
+          store.get(actorAtom)?.ap_id === actorApId &&
+          store.get(authSessionEpochAtom) === sessionEpoch &&
+          store.get(selectedInstanceIdAtom) === instanceId &&
+          (store.get(hostedUserAtom)?.id ?? null) === hostedUserId &&
+          getAuthStrategy() === strategy &&
+          getYurucommuApiTransport() === transport &&
+          transport.resolveUrl("/api/posts") === postUrl
+        );
+      } catch {
+        return false;
+      }
+    };
+    const samePage = () =>
+      mounted &&
+      sameScope() &&
+      generation === postLoadGen &&
+      post()?.ap_id === target.ap_id;
+    const attempt = Symbol();
+    setPendingReplies((pending) => new Map(pending).set(target.ap_id, attempt));
+    setError(null);
     try {
       const newReply = await createPost({
-        content: replyContent().trim(),
-        in_reply_to: post()!.ap_id,
+        content,
+        in_reply_to: target.ap_id,
       });
-      setReplies((prev) => [...prev, newReply]);
-      setReplyContent("");
-      setPost((prev) =>
-        prev ? { ...prev, reply_count: prev.reply_count + 1 } : null,
-      );
-      // Keep the timeline's copy of this post in sync so navigating back doesn't
-      // show a stale reply count.
-      const parentApId = post()?.ap_id;
-      if (parentApId) {
-        setTimelinePosts((prev) =>
-          prev.map((p) =>
-            p.ap_id === parentApId
-              ? { ...p, reply_count: p.reply_count + 1 }
-              : p,
-          ),
+      if (!sameScope()) return;
+      if (!acknowledgesPost(newReply, actorApId, content)) {
+        throw new Error(
+          "Post response did not acknowledge the submitted reply",
         );
       }
-    } catch (e) {
-      console.error("Failed to reply:", e);
-      if (e instanceof ApiError && /too long/i.test(e.message)) {
-        setError(t("posts.tooLong").replace("{max}", String(MAX_REPLY_LENGTH)));
+      // A feed row retained from before the detail read is older. A replaced
+      // row may already include this reply, so preserve a changed count.
+      syncTimelinePost(target.ap_id, (p) => ({
+        ...p,
+        reply_count:
+          p === olderTimelinePost
+            ? target.reply_count + 1
+            : p.reply_count === target.reply_count
+              ? p.reply_count + 1
+              : p.reply_count,
+      }));
+      if (!samePage()) {
+        pushToast(setToasts, t("feedback.postCreated"), { kind: "success" });
+        return;
+      }
+      if (!replies().some((reply) => reply.ap_id === newReply.ap_id)) {
+        setReplies((prev) => [...prev, newReply]);
+        setPost((prev) =>
+          prev
+            ? {
+                ...prev,
+                reply_count:
+                  prev.reply_count === target.reply_count
+                    ? prev.reply_count + 1
+                    : prev.reply_count,
+              }
+            : null,
+        );
+      }
+      if (replyDraftRevision === draftRevision) {
+        setReplyContent("");
       } else {
-        setError(t("common.error"));
+        pushToast(setToasts, t("feedback.postDraftKept"), {
+          kind: "info",
+          timeout: 0,
+        });
+      }
+    } catch (e) {
+      if (!sameScope()) return;
+      console.error("Failed to reply:", e);
+      const failure = classifyWriteFailure(e);
+      const message =
+        failure === "unconfirmed"
+          ? t("feedback.postUnconfirmed")
+          : e instanceof ApiError && /too long/i.test(e.message)
+            ? t("posts.tooLong").replace("{max}", String(MAX_REPLY_LENGTH))
+            : t("feedback.postFailed");
+      if (samePage()) {
+        setError(message);
+      } else {
+        pushToast(setToasts, message, {
+          kind: "error",
+          ...(failure === "unconfirmed" ? { timeout: 0 } : {}),
+        });
       }
     } finally {
-      setReplying(false);
+      setPendingReplies((pending) => {
+        if (pending.get(target.ap_id) !== attempt) return pending;
+        const next = new Map(pending);
+        next.delete(target.ap_id);
+        return next;
+      });
     }
   };
 
@@ -704,7 +826,10 @@ export function PostDetailPage() {
                 <textarea
                   ref={replyInputRef}
                   value={replyContent()}
-                  onInput={(e) => setReplyContent(e.currentTarget.value)}
+                  onInput={(e) => {
+                    replyDraftRevision++;
+                    setReplyContent(e.currentTarget.value);
+                  }}
                   placeholder={t("posts.replyPlaceholder")}
                   class="w-full bg-transparent text-white placeholder-neutral-500 resize-none outline-none"
                   rows={2}
