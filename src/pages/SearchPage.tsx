@@ -263,6 +263,7 @@ export function SearchPage() {
     if (!trimmedQuery) return;
 
     const gen = ++searchGen;
+    setLoadingMore(false);
     setSearchingRemote(false);
     setSearching(true);
     setSearched(true);
@@ -398,7 +399,7 @@ export function SearchPage() {
         pushToast(setToasts, t("common.error"), { kind: "error" });
       }
     } finally {
-      setLoadingMore(false);
+      if (gen === searchGen) setLoadingMore(false);
     }
   };
 
@@ -434,7 +435,7 @@ export function SearchPage() {
         pushToast(setToasts, t("common.error"), { kind: "error" });
       }
     } finally {
-      setLoadingMore(false);
+      if (gen === searchGen) setLoadingMore(false);
     }
   };
 
@@ -447,6 +448,7 @@ export function SearchPage() {
     const trimmedQuery = query.trim();
     if (!trimmedQuery) return;
     const gen = ++searchGen;
+    setLoadingMore(false);
     setSearchingRemote(false);
     setSearching(true);
     setSearchError(null);
@@ -476,6 +478,7 @@ export function SearchPage() {
     const trimmedQuery = query.trim();
     if (!trimmedQuery) return;
     const gen = ++searchGen;
+    setLoadingMore(false);
     setSearchingRemote(false);
     setSearching(true);
     setSearchError(null);
