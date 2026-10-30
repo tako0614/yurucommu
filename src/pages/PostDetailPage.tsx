@@ -64,8 +64,9 @@ const MAX_REPLY_LENGTH = 5000;
 // Provider-scoped so leaving and reopening a post cannot duplicate an in-flight send.
 const pendingRepliesAtom = atom<ReadonlyMap<string, symbol>>(new Map());
 type InteractionKind = "like" | "repost" | "bookmark";
+type PendingInteractionKind = InteractionKind | "delete";
 type InteractionSettlement = {
-  kind: InteractionKind;
+  kind: PendingInteractionKind;
   targetId: string;
   parentId: string;
   sameScope: () => boolean;
@@ -159,6 +160,9 @@ export function PostDetailPage() {
   const [pendingDelete, setPendingDelete] = createSignal<{
     post: Post;
     isReply: boolean;
+    parentId: string;
+    generation: number;
+    sameScope: () => boolean;
   } | null>(null);
   const lightbox = useMediaLightbox();
 
@@ -183,6 +187,7 @@ export function PostDetailPage() {
     if (!postId) return;
 
     const gen = ++postLoadGen;
+    setPendingDelete(null);
     setPost(null);
     setReplies([]);
     // Pagination belongs to this post/load, not the previous generation.
@@ -356,7 +361,7 @@ export function PostDetailPage() {
 
   // Keep an unresolved action locked across an uncertain logout for the same
   // actor/instance. The original epoch is still checked before any update.
-  const interactionKey = (kind: InteractionKind, id: string) =>
+  const interactionKey = (kind: PendingInteractionKind, id: string) =>
     JSON.stringify([
       currentActor()?.ap_id ?? null,
       currentInstance(),
@@ -365,7 +370,7 @@ export function PostDetailPage() {
       id,
     ]);
   const interactionReadTokens = new Map<string, symbol>();
-  const beginInteraction = (kind: InteractionKind, id: string) => {
+  const beginInteraction = (kind: PendingInteractionKind, id: string) => {
     const key = interactionKey(kind, id);
     if (store.get(pendingInteractionsAtom).has(key)) return null;
     interactionReadTokens.delete(key);
@@ -390,6 +395,11 @@ export function PostDetailPage() {
     const routeId = decodeApIdParam(params.postId);
     if (routeId !== settlement.targetId && routeId !== settlement.parentId)
       return;
+    if (settlement.kind === "delete") {
+      retryLoad();
+      return;
+    }
+    const kind = settlement.kind;
     if (loading() || !post()) {
       retryLoad();
       return;
@@ -418,7 +428,7 @@ export function PostDetailPage() {
         )
           return;
         const patch = (old: Post): Post =>
-          replaceInteractionFields(old, fresh, settlement.kind);
+          replaceInteractionFields(old, fresh, kind);
         if (isMain) {
           setPost((old) =>
             old?.ap_id === settlement.targetId ? patch(old) : old,
@@ -476,7 +486,8 @@ export function PostDetailPage() {
       | "posts.repost"
       | "posts.undoRepost"
       | "posts.bookmark"
-      | "posts.removeBookmark",
+      | "posts.removeBookmark"
+      | "common.delete",
     failure: ReturnType<typeof classifyWriteFailure>,
   ) => {
     const username = target.author.username || target.author.preferred_username;
@@ -777,7 +788,28 @@ export function PostDetailPage() {
   };
 
   const handleDelete = (targetPost: Post, isReply: boolean = false) => {
-    setPendingDelete({ post: targetPost, isReply });
+    const parent = post();
+    if (
+      !parent ||
+      store
+        .get(pendingInteractionsAtom)
+        .has(interactionKey("delete", targetPost.ap_id))
+    )
+      return;
+    const sameScope = captureInteractionScope(
+      `/api/posts/${encodeURIComponent(targetPost.ap_id)}`,
+    );
+    if (!sameScope) {
+      reportInteractionError(targetPost, "common.delete", "rejected");
+      return;
+    }
+    setPendingDelete({
+      post: targetPost,
+      isReply,
+      parentId: parent.ap_id,
+      generation: postLoadGen,
+      sameScope,
+    });
   };
 
   // Edit your own post or reply. Mirrors the timeline edit path: PATCH the
@@ -816,9 +848,36 @@ export function PostDetailPage() {
     const pending = pendingDelete();
     if (!pending) return;
     setPendingDelete(null);
+    const samePage = () =>
+      mounted &&
+      postLoadGen === pending.generation &&
+      post()?.ap_id === pending.parentId;
+    if (!samePage() || !pending.sameScope()) return;
+    const attempt = beginInteraction("delete", pending.post.ap_id);
+    if (!attempt) return;
     try {
       await deleteTimelinePost(pending.post.ap_id);
+      if (!pending.sameScope()) return;
+      if (!samePage()) {
+        await notifyInteraction({
+          kind: "delete",
+          targetId: pending.post.ap_id,
+          parentId: pending.parentId,
+          sameScope: pending.sameScope,
+        });
+        if (pending.sameScope())
+          pushToast(
+            setToasts,
+            `${t("feedback.postDeleted")} (${pending.post.ap_id})`,
+            { kind: "success" },
+          );
+        return;
+      }
       if (pending.isReply) {
+        if (!replies().some((reply) => reply.ap_id === pending.post.ap_id)) {
+          retryLoad();
+          return;
+        }
         setReplies((prev) =>
           prev.filter((r) => r.ap_id !== pending.post.ap_id),
         );
@@ -840,8 +899,15 @@ export function PostDetailPage() {
         }
       }
     } catch (e) {
+      if (!pending.sameScope()) return;
       console.error("Failed to delete:", e);
-      pushToast(setToasts, t("feedback.deleteFailed"), { kind: "error" });
+      reportInteractionError(
+        pending.post,
+        "common.delete",
+        classifyWriteFailure(e),
+      );
+    } finally {
+      endInteraction(attempt);
     }
   };
 
@@ -980,7 +1046,10 @@ export function PostDetailPage() {
                   <button
                     onClick={() => handleDelete(post()!)}
                     aria-label={t("common.delete")}
-                    class="p-2 text-neutral-500 hover:text-red-500 hover:bg-red-500/10 rounded-full transition-colors"
+                    aria-disabled={pendingInteractions().has(
+                      interactionKey("delete", post()!.ap_id),
+                    )}
+                    class="p-2 text-neutral-500 hover:text-red-500 hover:bg-red-500/10 rounded-full transition-colors aria-disabled:opacity-50 aria-disabled:cursor-wait"
                   >
                     <TrashIcon />
                   </button>
@@ -1233,7 +1302,10 @@ export function PostDetailPage() {
                         <button
                           onClick={() => handleDelete(reply, true)}
                           aria-label={t("common.delete")}
-                          class="p-1 text-neutral-500 hover:text-red-500 hover:bg-red-500/10 rounded-full transition-colors"
+                          aria-disabled={pendingInteractions().has(
+                            interactionKey("delete", reply.ap_id),
+                          )}
+                          class="p-1 text-neutral-500 hover:text-red-500 hover:bg-red-500/10 rounded-full transition-colors aria-disabled:opacity-50 aria-disabled:cursor-wait"
                         >
                           <TrashIcon />
                         </button>
