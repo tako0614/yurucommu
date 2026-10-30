@@ -63,6 +63,18 @@ import {
 const MAX_REPLY_LENGTH = 5000;
 // Provider-scoped so leaving and reopening a post cannot duplicate an in-flight send.
 const pendingRepliesAtom = atom<ReadonlyMap<string, symbol>>(new Map());
+type InteractionKind = "like" | "repost";
+type InteractionSettlement = {
+  kind: InteractionKind;
+  targetId: string;
+  parentId: string;
+  sameScope: () => boolean;
+};
+// Local to a Provider: neither map supplies a durable permission or receipt.
+const pendingInteractionsAtom = atom<ReadonlyMap<string, symbol>>(new Map());
+const interactionObserversAtom = atom<
+  ReadonlySet<(settlement: InteractionSettlement) => void>
+>(new Set<(settlement: InteractionSettlement) => void>());
 
 const BackIcon = () => (
   <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -119,6 +131,9 @@ export function PostDetailPage() {
   const [replyContent, setReplyContent] = createSignal("");
   // A pending send belongs to its target, even after navigating away and back.
   const [pendingReplies, setPendingReplies] = useAtom(pendingRepliesAtom);
+  const [pendingInteractions, setPendingInteractions] = useAtom(
+    pendingInteractionsAtom,
+  );
   const replying = () => {
     const id = post()?.ap_id;
     return id ? pendingReplies().has(id) : false;
@@ -234,9 +249,7 @@ export function PostDetailPage() {
   // await, so a second tap would re-read liked=false and apply +1 again → a
   // permanent local like_count drift. Keyed by ap_id (main post + each reply
   // guard independently).
-  const likeInFlight = new Set<string>();
   const bookmarkInFlight = new Set<string>();
-  const repostInFlight = new Set<string>();
 
   // A repost is an Announce to Public, so only a publicly-reachable post may be
   // boosted — mirrors the backend gate and TimelinePostItem's isRepostable.
@@ -254,107 +267,362 @@ export function PostDetailPage() {
     );
   };
 
+  // The Provider store outlives this page. Read it again after an await so a
+  // response from an older session cannot update the new session's feed.
+  const captureInteractionScope = (path: string) => {
+    try {
+      const actorApId = store.get(actorAtom)?.ap_id;
+      if (!actorApId || store.get(logoutBusyAtom)) return null;
+      const epoch = store.get(authSessionEpochAtom);
+      const instanceId = store.get(selectedInstanceIdAtom);
+      const hostedUserId = store.get(hostedUserAtom)?.id ?? null;
+      const strategy = getAuthStrategy();
+      const transport = getYurucommuApiTransport();
+      const url = transport.resolveUrl(path);
+      return () => {
+        try {
+          return (
+            !store.get(logoutBusyAtom) &&
+            store.get(actorAtom)?.ap_id === actorApId &&
+            store.get(authSessionEpochAtom) === epoch &&
+            store.get(selectedInstanceIdAtom) === instanceId &&
+            (store.get(hostedUserAtom)?.id ?? null) === hostedUserId &&
+            getAuthStrategy() === strategy &&
+            getYurucommuApiTransport() === transport &&
+            transport.resolveUrl(path) === url
+          );
+        } catch {
+          return false;
+        }
+      };
+    } catch {
+      return null;
+    }
+  };
+
+  const replaceInteractionFields = (
+    old: Post,
+    fresh: Post,
+    kind: InteractionKind,
+  ): Post =>
+    kind === "like"
+      ? { ...old, liked: fresh.liked, like_count: fresh.like_count }
+      : {
+          ...old,
+          reposted: fresh.reposted,
+          announce_count: fresh.announce_count,
+        };
+  const reportInteractionRefreshFailure = () =>
+    pushToast(
+      setToasts,
+      language() === "ja"
+        ? "操作は受け付けられましたが、最新の投稿を取得できません。投稿を開き直して確認してください。"
+        : "The action was accepted, but the post could not be refreshed. Reopen the post to check it.",
+      { kind: "error", timeout: 0 },
+    );
+  const syncInteractionTimeline = (
+    id: string,
+    kind: InteractionKind,
+    original: Post | undefined,
+    patch: (post: Post) => Post,
+    desired: boolean,
+  ) => {
+    const current = store.get(timelinePostsAtom).find((p) => p.ap_id === id);
+    if (!current) return;
+    if (current === original) {
+      setTimelinePosts((old) => old.map((p) => (p === current ? patch(p) : p)));
+      return;
+    }
+    // A changed row may contain a newer optimistic action still in flight.
+    // Even a GET after this ACK could precede that newer action's commit.
+    const matches =
+      kind === "like"
+        ? current.liked === desired
+        : current.reposted === desired;
+    if (!matches)
+      pushToast(
+        setToasts,
+        language() === "ja"
+          ? `操作は受け付けられました。表示が更新されているため、最新状態は元の投稿を開き直して確認してください。 (${id})`
+          : `The action was accepted. This post changed; reopen the original post to check its latest state. (${id})`,
+        { kind: "info", timeout: 0 },
+      );
+  };
+
+  const interactionKey = (kind: InteractionKind, id: string) =>
+    JSON.stringify([
+      store.get(actorAtom)?.ap_id ?? null,
+      store.get(authSessionEpochAtom),
+      store.get(selectedInstanceIdAtom),
+      store.get(hostedUserAtom)?.id ?? null,
+      kind,
+      id,
+    ]);
+  const interactionReadTokens = new Map<string, symbol>();
+  const beginInteraction = (kind: InteractionKind, id: string) => {
+    const key = interactionKey(kind, id);
+    if (store.get(pendingInteractionsAtom).has(key)) return null;
+    interactionReadTokens.delete(key);
+    const token = Symbol();
+    setPendingInteractions((pending) => new Map(pending).set(key, token));
+    return { key, token };
+  };
+  const endInteraction = ({ key, token }: { key: string; token: symbol }) => {
+    setPendingInteractions((pending) => {
+      if (pending.get(key) !== token) return pending;
+      const next = new Map(pending);
+      next.delete(key);
+      return next;
+    });
+  };
+
+  // If the original page was replaced while a write was pending, ask the
+  // currently mounted view to read the original target after the ACK. This
+  // does not carry a response into another session or authorize a retry.
+  const observeInteraction = (settlement: InteractionSettlement) => {
+    if (!mounted || !settlement.sameScope()) return;
+    const routeId = decodeApIdParam(params.postId);
+    if (routeId !== settlement.targetId && routeId !== settlement.parentId)
+      return;
+    if (loading() || !post()) {
+      retryLoad();
+      return;
+    }
+    const isMain = post()?.ap_id === settlement.targetId;
+    const isReply =
+      post()?.ap_id === settlement.parentId &&
+      replies().some((reply) => reply.ap_id === settlement.targetId);
+    if (!isMain && !isReply) return;
+    const generation = postLoadGen;
+    const key = interactionKey(settlement.kind, settlement.targetId);
+    const token = Symbol();
+    interactionReadTokens.set(key, token);
+    void Promise.resolve()
+      .then(() =>
+        settlement.sameScope() ? fetchPost(settlement.targetId) : null,
+      )
+      .then((fresh) => {
+        if (
+          !fresh ||
+          !mounted ||
+          !settlement.sameScope() ||
+          postLoadGen !== generation ||
+          interactionReadTokens.get(key) !== token ||
+          fresh.ap_id !== settlement.targetId
+        )
+          return;
+        const patch = (old: Post): Post =>
+          replaceInteractionFields(old, fresh, settlement.kind);
+        if (isMain) {
+          setPost((old) =>
+            old?.ap_id === settlement.targetId ? patch(old) : old,
+          );
+        } else {
+          setReplies((old) =>
+            old.map((reply) =>
+              reply.ap_id === settlement.targetId ? patch(reply) : reply,
+            ),
+          );
+        }
+      })
+      .catch((error) => {
+        if (
+          !mounted ||
+          !settlement.sameScope() ||
+          postLoadGen !== generation ||
+          interactionReadTokens.get(key) !== token
+        )
+          return;
+        console.error("Failed to refresh confirmed interaction:", error);
+        reportInteractionRefreshFailure();
+      });
+  };
+  store.set(interactionObserversAtom, (old) =>
+    new Set(old).add(observeInteraction),
+  );
+  onCleanup(() => {
+    store.set(interactionObserversAtom, (old) => {
+      const next = new Set(old);
+      next.delete(observeInteraction);
+      return next;
+    });
+  });
+  const notifyInteraction = (settlement: InteractionSettlement) => {
+    for (const observe of store.get(interactionObserversAtom)) {
+      try {
+        observe(settlement);
+      } catch (error) {
+        console.error("Failed to notify interaction observer:", error);
+      }
+    }
+  };
+
+  const reportInteractionError = (
+    target: Post,
+    action: "posts.like" | "posts.unlike" | "posts.repost" | "posts.undoRepost",
+    failure: ReturnType<typeof classifyWriteFailure>,
+  ) => {
+    const username = target.author.username || target.author.preferred_username;
+    const context = username ? ` @${username}` : "";
+    const message =
+      failure === "unconfirmed"
+        ? language() === "ja"
+          ? "結果を確認できません。すでに反映されている可能性があります。再操作する前に元の投稿を確認してください。"
+          : "The result could not be confirmed. It may already have been applied. Check the original post before trying again."
+        : t("common.error");
+    pushToast(
+      setToasts,
+      `${t(action)}${context} (${target.ap_id}): ${message}`,
+      { kind: "error", ...(failure === "unconfirmed" ? { timeout: 0 } : {}) },
+    );
+  };
+
   const handleRepost = async () => {
     const currentPost = post();
     if (!currentPost) return;
-    if (repostInFlight.has(currentPost.ap_id)) return;
-    repostInFlight.add(currentPost.ap_id);
+    if (
+      store
+        .get(pendingInteractionsAtom)
+        .has(interactionKey("repost", currentPost.ap_id))
+    )
+      return;
+    const sameScope = captureInteractionScope(
+      `/api/posts/${encodeURIComponent(currentPost.ap_id)}/repost`,
+    );
+    if (!sameScope) {
+      reportInteractionError(
+        currentPost,
+        currentPost.reposted ? "posts.undoRepost" : "posts.repost",
+        "rejected",
+      );
+      return;
+    }
+    const generation = postLoadGen;
+    const samePage = () =>
+      mounted &&
+      generation === postLoadGen &&
+      post()?.ap_id === currentPost.ap_id;
+    const reposted = !currentPost.reposted;
+    const originalTimelinePost = store
+      .get(timelinePostsAtom)
+      .find((p) => p.ap_id === currentPost.ap_id);
+    const patch = (p: Post): Post =>
+      p.reposted === reposted
+        ? p
+        : {
+            ...p,
+            reposted,
+            announce_count: Math.max(0, p.announce_count + (reposted ? 1 : -1)),
+          };
+    const attempt = beginInteraction("repost", currentPost.ap_id);
+    if (!attempt) return;
     try {
-      if (currentPost.reposted) {
-        await unrepostPost(currentPost.ap_id);
-        setPost((prev) =>
-          prev
-            ? {
-                ...prev,
-                reposted: false,
-                announce_count: Math.max(0, prev.announce_count - 1),
-              }
-            : null,
-        );
-        syncTimelinePost(currentPost.ap_id, (p) => ({
-          ...p,
-          reposted: false,
-          announce_count: Math.max(0, p.announce_count - 1),
-        }));
-      } else {
-        await repostPost(currentPost.ap_id);
-        setPost((prev) =>
-          prev
-            ? {
-                ...prev,
-                reposted: true,
-                announce_count: prev.announce_count + 1,
-              }
-            : null,
-        );
-        syncTimelinePost(currentPost.ap_id, (p) => ({
-          ...p,
-          reposted: true,
-          announce_count: p.announce_count + 1,
-        }));
-      }
+      if (reposted) await repostPost(currentPost.ap_id);
+      else await unrepostPost(currentPost.ap_id);
+      if (!sameScope()) return;
+      if (samePage()) setPost((prev) => (prev ? patch(prev) : prev));
+      syncInteractionTimeline(
+        currentPost.ap_id,
+        "repost",
+        originalTimelinePost,
+        patch,
+        reposted,
+      );
+      if (!samePage())
+        notifyInteraction({
+          kind: "repost",
+          targetId: currentPost.ap_id,
+          parentId: currentPost.ap_id,
+          sameScope,
+        });
     } catch (e) {
+      if (!sameScope()) return;
       console.error("Failed to toggle repost:", e);
-      setError(t("common.error"));
+      reportInteractionError(
+        currentPost,
+        reposted ? "posts.repost" : "posts.undoRepost",
+        classifyWriteFailure(e),
+      );
     } finally {
-      repostInFlight.delete(currentPost.ap_id);
+      endInteraction(attempt);
     }
   };
 
   const handleLike = async (targetPost: Post, isReply: boolean = false) => {
-    if (likeInFlight.has(targetPost.ap_id)) return;
-    likeInFlight.add(targetPost.ap_id);
+    if (
+      store
+        .get(pendingInteractionsAtom)
+        .has(interactionKey("like", targetPost.ap_id))
+    )
+      return;
+    const sameScope = captureInteractionScope(
+      `/api/posts/${encodeURIComponent(targetPost.ap_id)}/like`,
+    );
+    if (!sameScope) {
+      reportInteractionError(
+        targetPost,
+        targetPost.liked ? "posts.unlike" : "posts.like",
+        "rejected",
+      );
+      return;
+    }
+    const generation = postLoadGen;
+    const parentId = post()?.ap_id;
+    const samePage = () =>
+      mounted && generation === postLoadGen && post()?.ap_id === parentId;
+    const liked = !targetPost.liked;
+    const originalTimelinePost = store
+      .get(timelinePostsAtom)
+      .find((p) => p.ap_id === targetPost.ap_id);
+    const patch = (p: Post): Post =>
+      p.liked === liked
+        ? p
+        : {
+            ...p,
+            liked,
+            like_count: Math.max(0, p.like_count + (liked ? 1 : -1)),
+          };
+    const attempt = beginInteraction("like", targetPost.ap_id);
+    if (!attempt) return;
     try {
-      if (targetPost.liked) {
-        await unlikePost(targetPost.ap_id);
+      if (liked) await likePost(targetPost.ap_id);
+      else await unlikePost(targetPost.ap_id);
+      if (!sameScope()) return;
+      if (samePage()) {
         if (isReply) {
           setReplies((prev) =>
-            prev.map((r) =>
-              r.ap_id === targetPost.ap_id
-                ? { ...r, liked: false, like_count: r.like_count - 1 }
-                : r,
-            ),
+            prev.map((r) => (r.ap_id === targetPost.ap_id ? patch(r) : r)),
           );
         } else {
           setPost((prev) =>
-            prev
-              ? { ...prev, liked: false, like_count: prev.like_count - 1 }
-              : null,
+            prev?.ap_id === targetPost.ap_id ? patch(prev) : prev,
           );
         }
-        syncTimelinePost(targetPost.ap_id, (p) => ({
-          ...p,
-          liked: false,
-          like_count: Math.max(0, p.like_count - 1),
-        }));
-      } else {
-        await likePost(targetPost.ap_id);
-        if (isReply) {
-          setReplies((prev) =>
-            prev.map((r) =>
-              r.ap_id === targetPost.ap_id
-                ? { ...r, liked: true, like_count: r.like_count + 1 }
-                : r,
-            ),
-          );
-        } else {
-          setPost((prev) =>
-            prev
-              ? { ...prev, liked: true, like_count: prev.like_count + 1 }
-              : null,
-          );
-        }
-        syncTimelinePost(targetPost.ap_id, (p) => ({
-          ...p,
-          liked: true,
-          like_count: p.like_count + 1,
-        }));
       }
+      syncInteractionTimeline(
+        targetPost.ap_id,
+        "like",
+        originalTimelinePost,
+        patch,
+        liked,
+      );
+      if (!samePage() && parentId)
+        notifyInteraction({
+          kind: "like",
+          targetId: targetPost.ap_id,
+          parentId,
+          sameScope,
+        });
     } catch (e) {
+      if (!sameScope()) return;
       console.error("Failed to toggle like:", e);
-      setError(t("common.error"));
+      reportInteractionError(
+        targetPost,
+        liked ? "posts.like" : "posts.unlike",
+        classifyWriteFailure(e),
+      );
     } finally {
-      likeInFlight.delete(targetPost.ap_id);
+      endInteraction(attempt);
     }
   };
 
@@ -774,7 +1042,10 @@ export function PostDetailPage() {
                     post()!.reposted ? t("posts.undoRepost") : t("posts.repost")
                   }
                   aria-pressed={post()!.reposted}
-                  class={`flex items-center gap-2 p-2 transition-colors ${
+                  aria-disabled={pendingInteractions().has(
+                    interactionKey("repost", post()!.ap_id),
+                  )}
+                  class={`flex items-center gap-2 p-2 transition-colors aria-disabled:opacity-50 aria-disabled:cursor-wait ${
                     post()!.reposted
                       ? "text-green-500"
                       : "text-neutral-500 hover:text-green-500"
@@ -787,7 +1058,10 @@ export function PostDetailPage() {
                 onClick={() => handleLike(post()!)}
                 aria-label={post()!.liked ? t("posts.unlike") : t("posts.like")}
                 aria-pressed={post()!.liked}
-                class={`flex items-center gap-2 p-2 transition-colors ${
+                aria-disabled={pendingInteractions().has(
+                  interactionKey("like", post()!.ap_id),
+                )}
+                class={`flex items-center gap-2 p-2 transition-colors aria-disabled:opacity-50 aria-disabled:cursor-wait ${
                   post()!.liked
                     ? "text-pink-500"
                     : "text-neutral-500 hover:text-pink-500"
@@ -948,7 +1222,10 @@ export function PostDetailPage() {
                         reply.liked ? t("posts.unlike") : t("posts.like")
                       }
                       aria-pressed={reply.liked}
-                      class={`flex items-center gap-2 transition-colors ${
+                      aria-disabled={pendingInteractions().has(
+                        interactionKey("like", reply.ap_id),
+                      )}
+                      class={`flex items-center gap-2 transition-colors aria-disabled:opacity-50 aria-disabled:cursor-wait ${
                         reply.liked
                           ? "text-pink-500"
                           : "text-neutral-500 hover:text-pink-500"
