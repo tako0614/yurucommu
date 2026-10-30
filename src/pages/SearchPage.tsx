@@ -9,7 +9,8 @@ import {
   untrack,
 } from "solid-js";
 import { A, useSearchParams } from "@solidjs/router";
-import { useAtomValue, useSetAtom } from "solid-jotai";
+import { useAtomValue, useSetAtom, useStore } from "solid-jotai";
+import { atom } from "jotai/vanilla";
 import { useRequiredActor } from "../hooks/useRequiredActor.ts";
 import { Actor, Post } from "../types/index.ts";
 import {
@@ -18,6 +19,7 @@ import {
   fetchFollowing,
   fetchTrendingHashtags,
   follow,
+  getYurucommuApiTransport,
   joinCommunity,
   likePost,
   searchActors,
@@ -28,6 +30,16 @@ import {
 } from "../lib/api.ts";
 import { refreshScopesAtom, scopeCommunitiesAtom } from "../atoms/scope.ts";
 import { pushToast, toastsAtom } from "../atoms/toast.ts";
+import {
+  actorAtom,
+  authSessionEpochAtom,
+  hostedUserAtom,
+  instancesLoadingAtom,
+  logoutBusyAtom,
+  selectedInstanceIdAtom,
+} from "../atoms/auth.ts";
+import { classifyWriteFailure } from "../lib/write-outcome.ts";
+import { getAuthStrategy } from "../lib/plugin.ts";
 import { handleTablistKeydown } from "../lib/tablistNav.ts";
 import { useI18n } from "../lib/i18n.tsx";
 import { formatRelativeTime } from "../lib/datetime.ts";
@@ -62,6 +74,149 @@ type SearchTab = "users" | "posts" | "communities";
 const SEARCH_PAGE_SIZE = 20;
 const USER_SORTS = ["relevance", "followers", "recent"] as const;
 const POST_SORTS = ["recent", "popular"] as const;
+
+// These locks only prevent a duplicate local send while the original request
+// is pending. They are scoped to the Provider and do not represent a receipt.
+type SearchLikeStore = ReturnType<typeof useStore>;
+const pendingSearchLikesAtom = atom<ReadonlyMap<string, symbol>>(new Map());
+const searchLikeActorIdAtom = atom((get) => get(actorAtom)?.ap_id ?? null);
+const searchLikeHostedUserIdAtom = atom(
+  (get) => get(hostedUserAtom)?.id ?? null,
+);
+const searchLikeScopeAtom = atom((get) => {
+  get(searchLikeActorIdAtom);
+  get(searchLikeHostedUserIdAtom);
+  get(selectedInstanceIdAtom);
+  get(authSessionEpochAtom);
+  return Symbol();
+});
+const searchLikeSubscriptions = new WeakMap<SearchLikeStore, () => void>();
+
+function trackSearchLikeScope(store: SearchLikeStore) {
+  if (searchLikeSubscriptions.has(store)) return;
+  // Keep the derived scope live through route unmounts, including A → B → A.
+  searchLikeSubscriptions.set(
+    store,
+    store.sub(searchLikeScopeAtom, () => {}),
+  );
+}
+
+function stopSearchLikeTrackingIfIdle(store: SearchLikeStore) {
+  if (store.get(pendingSearchLikesAtom).size) return;
+  const stop = searchLikeSubscriptions.get(store);
+  searchLikeSubscriptions.delete(store);
+  stop?.();
+}
+
+function searchLikeKey(store: SearchLikeStore, id: string) {
+  return JSON.stringify([
+    store.get(searchLikeActorIdAtom),
+    store.get(selectedInstanceIdAtom),
+    store.get(searchLikeHostedUserIdAtom),
+    id,
+  ]);
+}
+
+function beginSearchLike(store: SearchLikeStore, id: string) {
+  if (
+    !store.get(searchLikeActorIdAtom) ||
+    store.get(logoutBusyAtom) ||
+    store.get(instancesLoadingAtom)
+  )
+    return null;
+  const key = searchLikeKey(store, id);
+  if (store.get(pendingSearchLikesAtom).has(key)) return null;
+  trackSearchLikeScope(store);
+  try {
+    const scope = store.get(searchLikeScopeAtom);
+    const strategy = getAuthStrategy();
+    const transport = getYurucommuApiTransport();
+    const path = `/api/posts/${encodeURIComponent(id)}/like`;
+    const url = transport.resolveUrl(path);
+    const sameScope = () => {
+      try {
+        return (
+          !store.get(logoutBusyAtom) &&
+          store.get(searchLikeScopeAtom) === scope &&
+          getAuthStrategy() === strategy &&
+          getYurucommuApiTransport() === transport &&
+          transport.resolveUrl(path) === url
+        );
+      } catch {
+        return false;
+      }
+    };
+    const token = Symbol();
+    store.set(pendingSearchLikesAtom, (pending) =>
+      new Map(pending).set(key, token),
+    );
+    return { key, token, sameScope };
+  } catch {
+    stopSearchLikeTrackingIfIdle(store);
+    return null;
+  }
+}
+
+// A response can arrive during a connection check. Keep its original lock and
+// outcome until the check finishes, or discard it if its identity scope changes.
+function settleSearchLikeWhenReady(
+  store: SearchLikeStore,
+  sameScope: () => boolean,
+  deliver: () => void,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const stops: (() => void)[] = [];
+    let finished = false;
+    const finish = () => {
+      if (finished) return false;
+      finished = true;
+      for (const stop of stops) stop();
+      return true;
+    };
+    const inspect = () => {
+      if (finished) return;
+      if (!sameScope()) {
+        if (finish()) resolve();
+        return;
+      }
+      if (store.get(instancesLoadingAtom)) return;
+      if (!finish()) return;
+      try {
+        deliver();
+        resolve();
+      } catch (error) {
+        reject(error);
+      }
+    };
+    try {
+      if (store.get(instancesLoadingAtom)) {
+        const subscribe = (stop: () => void) => {
+          if (finished) stop();
+          else stops.push(stop);
+        };
+        subscribe(store.sub(instancesLoadingAtom, inspect));
+        subscribe(store.sub(searchLikeScopeAtom, inspect));
+        subscribe(store.sub(logoutBusyAtom, inspect));
+      }
+      inspect();
+    } catch (error) {
+      if (finish()) reject(error);
+    }
+  });
+}
+
+function endSearchLike(
+  store: SearchLikeStore,
+  attempt: { key: string; token: symbol },
+) {
+  store.set(pendingSearchLikesAtom, (pending) => {
+    if (pending.get(attempt.key) !== attempt.token) return pending;
+    const next = new Map(pending);
+    next.delete(attempt.key);
+    return next;
+  });
+  stopSearchLikeTrackingIfIdle(store);
+}
 
 const CloseIcon = () => (
   <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -105,6 +260,12 @@ function getSearchTab(
 
 export function SearchPage() {
   const actor = useRequiredActor();
+  const store = useStore();
+  const currentActor = useAtomValue(actorAtom);
+  const currentInstance = useAtomValue(selectedInstanceIdAtom);
+  const currentHostedUser = useAtomValue(hostedUserAtom);
+  const instancesLoading = useAtomValue(instancesLoadingAtom);
+  const pendingLikes = useAtomValue(pendingSearchLikesAtom);
   const { t, language } = useI18n();
   const setToasts = useSetAtom(toastsAtom);
   const refreshScopes = useSetAtom(refreshScopesAtom);
@@ -124,7 +285,13 @@ export function SearchPage() {
   const [followPending, setFollowPending] = createSignal<Set<string>>(
     new Set(),
   );
-  const [likeInFlight, setLikeInFlight] = createSignal<Set<string>>(new Set());
+  const isLikePending = (id: string) => {
+    // Subscribe to identity changes as well as to the Provider's pending map.
+    currentActor();
+    currentInstance();
+    currentHostedUser();
+    return pendingLikes().has(searchLikeKey(store, id));
+  };
   const clearError = () => setError(null);
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -636,39 +803,73 @@ export function SearchPage() {
   };
 
   const handleLike = async (post: Post) => {
-    // In-flight guard: without it a double-tap fires two like calls (the second
-    // still reads liked=false because state updates after the await) → +2 drift.
-    if (likeInFlight().has(post.ap_id)) return;
-    setLikeInFlight((s) => new Set(s).add(post.ap_id));
-
+    const attempt =
+      store.get(actorAtom)?.ap_id === actor.ap_id
+        ? beginSearchLike(store, post.ap_id)
+        : null;
+    if (!attempt) {
+      if (!isLikePending(post.ap_id))
+        pushToast(
+          setToasts,
+          language() === "ja"
+            ? `現在の利用者を確認できないため操作を開始できません。 (${post.ap_id})`
+            : `The current user could not be verified, so the action was not started. (${post.ap_id})`,
+          { kind: "error" },
+        );
+      return;
+    }
+    const gen = searchGen;
     const wasLiked = post.liked;
-    const applyDelta = (liked: boolean, delta: number) =>
-      setSearchPostsResult((prev) =>
-        prev.map((p) =>
-          p.ap_id === post.ap_id
-            ? { ...p, liked, like_count: Math.max(0, p.like_count + delta) }
-            : p,
-        ),
-      );
-
-    // Optimistic toggle, rolled back on failure (matches the canonical
-    // optimisticToggle used elsewhere).
-    applyDelta(!wasLiked, wasLiked ? -1 : 1);
     try {
-      if (wasLiked) await unlikePost(post.ap_id);
-      else await likePost(post.ap_id);
-    } catch (e) {
-      console.error("Failed to toggle like:", e);
-      // Toast, not the top-of-page banner: the like button lives deep in the
-      // results list, so a banner failure is off-screen when scrolled.
-      pushToast(setToasts, t("common.error"), { kind: "error" });
-      applyDelta(wasLiked, wasLiked ? 1 : -1);
-    } finally {
-      setLikeInFlight((s) => {
-        const next = new Set(s);
-        next.delete(post.ap_id);
-        return next;
+      let failure: { error: unknown } | null = null;
+      try {
+        if (wasLiked) await unlikePost(post.ap_id);
+        else await likePost(post.ap_id);
+      } catch (error) {
+        console.error("Failed to toggle like:", error);
+        failure = { error };
+      }
+      await settleSearchLikeWhenReady(store, attempt.sameScope, () => {
+        if (failure) {
+          const rejected = classifyWriteFailure(failure.error) === "rejected";
+          pushToast(
+            setToasts,
+            rejected
+              ? language() === "ja"
+                ? `操作は拒否されました。元の投稿を確認してください。 (${post.ap_id})`
+                : `The action was rejected. Check the original post. (${post.ap_id})`
+              : language() === "ja"
+                ? `操作の結果を確認できません。再操作の前に元の投稿を確認してください。 (${post.ap_id})`
+                : `The action outcome is unconfirmed. Check the original post before trying again. (${post.ap_id})`,
+            { kind: "error", timeout: 0 },
+          );
+        } else if (gen === searchGen && searchPostsResult().includes(post)) {
+          setSearchPostsResult((previous) =>
+            previous.map((row) =>
+              row === post
+                ? {
+                    ...row,
+                    liked: !wasLiked,
+                    like_count: Math.max(
+                      0,
+                      row.like_count + (wasLiked ? -1 : 1),
+                    ),
+                  }
+                : row,
+            ),
+          );
+        } else {
+          pushToast(
+            setToasts,
+            language() === "ja"
+              ? `操作は受け付けられました。元の投稿を開き直して最新状態を確認してください。 (${post.ap_id})`
+              : `The action was accepted. Reopen the original post to check its latest state. (${post.ap_id})`,
+            { kind: "info", timeout: 0 },
+          );
+        }
       });
+    } finally {
+      endSearchLike(store, attempt);
     }
   };
 
@@ -1333,6 +1534,12 @@ export function SearchPage() {
                           <div class="flex items-center gap-6 mt-3">
                             <button
                               onClick={() => handleLike(post)}
+                              disabled={
+                                isLikePending(post.ap_id) || instancesLoading()
+                              }
+                              aria-busy={
+                                isLikePending(post.ap_id) || instancesLoading()
+                              }
                               aria-label={
                                 post.liked ? t("posts.unlike") : t("posts.like")
                               }
@@ -1344,6 +1551,22 @@ export function SearchPage() {
                               }`}
                             >
                               <HeartIcon filled={post.liked || false} />
+                              <Show
+                                when={
+                                  isLikePending(post.ap_id) ||
+                                  instancesLoading()
+                                }
+                              >
+                                <span class="text-xs">
+                                  {isLikePending(post.ap_id)
+                                    ? language() === "ja"
+                                      ? "処理中"
+                                      : "Updating…"
+                                    : language() === "ja"
+                                      ? "接続先を確認中"
+                                      : "Checking connection…"}
+                                </span>
+                              </Show>
                               <Show
                                 when={
                                   post.author.ap_id === actor.ap_id &&
