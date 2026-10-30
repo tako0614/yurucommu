@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 
+import { parseTerraformModuleFacts } from "./takosumi-install-identity.ts";
 import { TAKOFORM_PROVIDER_PIN } from "./takoform-provider-pin.ts";
 
 const rootUrl = new URL("../", import.meta.url);
@@ -563,6 +564,63 @@ describe("repository-owned Takosumi install UX", () => {
     expect(manifestText).not.toContain("YURUCOMMU_RUNTIME_LANE");
   });
 
+  // Takosumi's compileRepositoryInstallUx (core/domains/capsules/
+  // repository_install_ux_compiler.ts) rejects a module whose declared inputs
+  // disagree with its variable defaults with
+  // repository_install_ux_variable_default_mismatch. Mirror that rule for every
+  // module the manifest offers so the repository cannot publish a module the
+  // installer refuses.
+  test("every input agrees with its module variable's default the way Takosumi compiles it", async () => {
+    const mismatches: string[] = [];
+    for (const [path, module] of Object.entries(manifest.install.modules)) {
+      const directory = path === "." ? rootUrl : new URL(`${path}/`, rootUrl);
+      const source = (
+        await Promise.all(
+          ["main.tf", "outputs.tf"].map((file) =>
+            readFile(new URL(file, directory), "utf8").catch(() => ""),
+          ),
+        )
+      ).join("\n");
+      const variables = new Map(
+        parseTerraformModuleFacts(path, source).variables.map((variable) => [
+          variable.name,
+          variable.hasDefault,
+        ]),
+      );
+      for (const input of module.inputs) {
+        const hasDefault = variables.get(input.name);
+        if (hasDefault === undefined) {
+          mismatches.push(`${path}.${input.name}: no such variable`);
+        } else if (input.source.kind === "module_default" && !hasDefault) {
+          mismatches.push(
+            `${path}.${input.name}: module_default without default`,
+          );
+        } else if (
+          input.source.kind === "user" &&
+          input.required === true &&
+          hasDefault
+        ) {
+          mismatches.push(`${path}.${input.name}: required but has a default`);
+        } else if (
+          input.source.kind === "user" &&
+          input.required === false &&
+          !hasDefault
+        ) {
+          mismatches.push(`${path}.${input.name}: optional but has no default`);
+        }
+      }
+    }
+    expect(mismatches).toEqual([]);
+    // The rule above is exactly what failed before: a required app_url whose
+    // variable still declared default = "".
+    expect(
+      parseTerraformModuleFacts(
+        "deploy/cloudflare",
+        directModuleSource,
+      ).variables.find((variable) => variable.name === "app_url"),
+    ).toEqual({ name: "app_url", hasDefault: false });
+  });
+
   test("direct Cloudflare install builds from source and asks only what Takosumi cannot supply", () => {
     const moduleVariables = new Set(
       Array.from(
@@ -613,15 +671,17 @@ describe("repository-owned Takosumi install UX", () => {
         directModule.inputs.find((input) => input.name === name)?.source,
       ).toEqual({ kind: "module_default" });
     }
-    // Takosumi cannot deliver an owner subject by variable, so the owner race
-    // is an explicit, visible acknowledgement rather than a hidden default.
-    expect(
-      directModule.inputs.find(
-        (input) => input.name === "allow_unpinned_owner_claim",
-      ),
-    ).toMatchObject({ source: { kind: "user" }, type: "boolean" });
+    // No owner-race opt-in on the form. Without a pin, Core grants the first
+    // owner only to the signed Takosumi `app_role = owner` claim Accounts
+    // issues to the installing principal; an unpinned claim would hand a
+    // guessable workers.dev instance to whichever account signs in first.
+    expect(inputNames).not.toContain("allow_unpinned_owner_claim");
+    expect(inputNames).not.toContain("oidc_owner_sub");
     expect(directModuleSource).toMatch(
       /variable "allow_unpinned_owner_claim" \{[^}]*default\s+= false/,
+    );
+    expect(directModuleSource).not.toContain(
+      "var.allow_unpinned_owner_claim\n      error_message",
     );
     // No unsealed secrets on the form: no password, no gateway token, and no
     // key or salt (the module generates those, see below).
@@ -659,7 +719,10 @@ describe("repository-owned Takosumi install UX", () => {
       'worker_bundle_path = "${path.module}/.generated/yurucommu-worker.js"',
     );
     expect(directModuleSource).not.toContain("${path.module}/../");
-    expect(directModuleSource).toContain('source  = "cloudflare/cloudflare"');
+    expect(directModuleSource).toMatch(/source\s+=\s+"cloudflare\/cloudflare"/);
+    // The exact release Takosumi's runner mirror carries, as the root module.
+    expect(directModuleSource).toContain('version = "= 5.19.1"');
+    expect(rootModuleSource).toContain('version = "= 5.19.1"');
     expect(directModuleSource).not.toContain("tako0614/takoform");
     expect(directModuleSource).not.toMatch(/resource "takoform_/);
     // The raw Cloudflare lane, with the schema applied by the Worker itself.

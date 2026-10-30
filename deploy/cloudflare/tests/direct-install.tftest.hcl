@@ -9,6 +9,7 @@ variables {
   cloudflare_account_id        = "00000000000000000000000000000000"
   cloudflare_workers_subdomain = "example-sub"
   project_name                 = "yc-test"
+  app_url                      = "https://yc-test.example-sub.workers.dev"
   auth_password_hash           = "test-only-bootstrap-credential"
 }
 
@@ -17,7 +18,7 @@ run "workers_dev_install_with_password" {
 
   assert {
     condition     = output.launch_url == "https://yc-test.example-sub.workers.dev"
-    error_message = "An empty app_url must derive the workers.dev URL from the Worker name and the connection's subdomain."
+    error_message = "launch_url must be the reviewed app_url."
   }
 
   assert {
@@ -90,7 +91,7 @@ run "workers_dev_install_with_password" {
   }
 
   assert {
-    condition     = length(cloudflare_workers_script_subdomain.worker) == 1 && length(cloudflare_workers_custom_domain.app) == 0
+    condition     = cloudflare_workers_script_subdomain.worker.enabled == true && length(cloudflare_workers_custom_domain.app) == 0
     error_message = "A workers.dev install must enable workers.dev and attach no custom domain."
   }
 
@@ -113,44 +114,56 @@ run "no_sign_in_method_is_refused" {
   expect_failures = [cloudflare_workers_script.worker]
 }
 
-run "oidc_only_without_owner_pin_or_acknowledgement_is_refused" {
-  command = plan
-  variables {
-    auth_password_hash           = ""
-    takosumi_accounts_issuer_url = "https://accounts.example.test"
-    takosumi_accounts_client_id  = "client-test"
-  }
-  expect_failures = [cloudflare_workers_script.worker]
-}
-
-run "oidc_only_with_acknowledgement" {
+# Takosumi's install path: OIDC only, no pin, no acknowledgement. Core grants
+# the first owner only to a sign-in whose signed Takosumi claim carries
+# app_role = owner, so the module neither requires nor injects a race opt-in.
+run "oidc_only_without_pin_relies_on_the_signed_owner_grant" {
   command = plan
   variables {
     auth_password_hash             = ""
-    app_url                        = "https://yc-test.example-sub.workers.dev"
     takosumi_accounts_url          = "https://accounts.example.test"
     takosumi_accounts_issuer_url   = "https://accounts.example.test"
     takosumi_accounts_client_id    = "client-test"
     takosumi_accounts_redirect_uri = "https://yc-test.example-sub.workers.dev/api/auth/callback/takos"
-    allow_unpinned_owner_claim     = true
   }
 
   assert {
     condition = {
       for binding in cloudflare_workers_script.worker.bindings :
       binding.name => binding.text
-      if contains(["TAKOSUMI_ACCOUNTS_ISSUER_URL", "TAKOSUMI_ACCOUNTS_CLIENT_ID", "ALLOW_UNPINNED_OWNER_CLAIM"], binding.name)
+      if contains(["TAKOSUMI_ACCOUNTS_ISSUER_URL", "TAKOSUMI_ACCOUNTS_CLIENT_ID"], binding.name)
       } == {
       TAKOSUMI_ACCOUNTS_ISSUER_URL = "https://accounts.example.test"
       TAKOSUMI_ACCOUNTS_CLIENT_ID  = "client-test"
-      ALLOW_UNPINNED_OWNER_CLAIM   = "true"
     }
-    error_message = "OIDC delivery and the explicit owner acknowledgement must reach the Worker."
+    error_message = "OIDC delivery must reach the Worker."
   }
 
   assert {
-    condition     = !contains([for binding in cloudflare_workers_script.worker.bindings : binding.name], "AUTH_PASSWORD_HASH")
-    error_message = "An OIDC-only install must not bind an empty password."
+    condition = length([
+      for binding in cloudflare_workers_script.worker.bindings : binding
+      if contains(["ALLOW_UNPINNED_OWNER_CLAIM", "OIDC_OWNER_SUB", "AUTH_PASSWORD_HASH"], binding.name)
+    ]) == 0
+    error_message = "An OIDC-only Takosumi install must not open the owner race, pin a guessed subject, or bind an empty password."
+  }
+}
+
+# The plain-OpenTofu escape hatch for an issuer without app grants.
+run "explicit_unpinned_opt_in_reaches_the_worker_only_when_set" {
+  command = plan
+  variables {
+    auth_password_hash           = ""
+    takosumi_accounts_issuer_url = "https://accounts.example.test"
+    takosumi_accounts_client_id  = "client-test"
+    allow_unpinned_owner_claim   = true
+  }
+
+  assert {
+    condition = [
+      for binding in cloudflare_workers_script.worker.bindings : binding.text
+      if binding.name == "ALLOW_UNPINNED_OWNER_CLAIM"
+    ] == ["true"]
+    error_message = "An explicit plain-OpenTofu opt-in must reach the Worker."
   }
 }
 
@@ -199,12 +212,12 @@ run "app_url_must_be_a_bare_origin" {
   expect_failures = [var.app_url]
 }
 
-run "url_needs_app_url_or_subdomain" {
+run "empty_app_url_is_refused" {
   command = plan
   variables {
-    cloudflare_workers_subdomain = ""
+    app_url = ""
   }
-  expect_failures = [cloudflare_workers_script.worker]
+  expect_failures = [var.app_url]
 }
 
 run "custom_domain_needs_a_zone" {
@@ -230,6 +243,11 @@ run "custom_domain_is_attached" {
   assert {
     condition     = output.launch_url == "https://social.example.com"
     error_message = "launch_url must be the custom origin."
+  }
+
+  assert {
+    condition     = cloudflare_workers_script_subdomain.worker.enabled == false
+    error_message = "A custom-domain instance must not also answer on workers.dev."
   }
 }
 

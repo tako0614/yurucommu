@@ -301,6 +301,27 @@ describe("applyBundledD1Migrations", () => {
     expect(ledger(db).length).toBe(bundled.length + 1);
   });
 
+  test("a ledger that cannot be created or read is a migration failure", async () => {
+    const failing: D1MigrationDatabase = {
+      prepare: () => ({
+        bind() {
+          return this;
+        },
+        run: async () => {
+          throw new Error("D1_ERROR: storage unavailable");
+        },
+        all: async () => ({ results: [] }),
+      }),
+      batch: async () => [],
+    };
+    const error = await applyBundledD1Migrations(failing, bundled).catch(
+      (caught: unknown) => caught,
+    );
+    expect(error).toBeInstanceOf(BundledMigrationError);
+    expect((error as BundledMigrationError).migration).toBeNull();
+    expect((error as Error).cause).toBeInstanceOf(Error);
+  });
+
   test("uses the core runner's ledger DDL", () => {
     expect(MIGRATION_LEDGER_DDL).toContain(
       "CREATE TABLE IF NOT EXISTS yurucommu_migrations",
@@ -353,6 +374,23 @@ describe("createBundledSchemaGate", () => {
     const prepares = calls.prepare;
     await gate.ensure(adapter);
     expect(calls.prepare).toBe(prepares);
+  });
+
+  test("a configuration error is never cached as a retryable failure", async () => {
+    const events: Record<string, unknown>[] = [];
+    const gate = createBundledSchemaGate([], {
+      now: () => 1_000,
+      log: (event) => events.push(event),
+    });
+    const { adapter } = sqliteD1(freshDatabase());
+    await expect(gate.ensure(adapter)).rejects.toBeInstanceOf(
+      BundledSchemaConfigError,
+    );
+    await expect(gate.ensure(adapter)).rejects.toBeInstanceOf(
+      BundledSchemaConfigError,
+    );
+    // Evaluated (and logged) again on the second call, not served from cache.
+    expect(events.length).toBe(2);
   });
 
   test("a failure is retried only after the retry window", async () => {
@@ -524,21 +562,74 @@ describe("generated entry", () => {
           ctx,
         ),
       ).rejects.toBeInstanceOf(BundledMigrationError);
-      const settled: string[] = [];
-      await expect(
-        worker.queue(
+      // The batch is handed back with a growing delay, never acknowledged and
+      // never thrown into an immediate retry that would exhaust max_retries.
+      for (const [attempts, delaySeconds] of [
+        [1, 60],
+        [2, 240],
+        [3, 960],
+        [9, 3600],
+      ] as const) {
+        const settled: unknown[] = [];
+        await worker.queue(
           {
             queue: "configured-delivery",
-            messages: [],
+            messages: [
+              {
+                id: `m${attempts}`,
+                timestamp: new Date(0),
+                body: {},
+                attempts,
+                ack: () => settled.push("ack"),
+                retry: () => settled.push("retry"),
+              },
+            ],
             ackAll: () => settled.push("ackAll"),
-            retryAll: () => settled.push("retryAll"),
+            retryAll: (options?: { delaySeconds?: number }) =>
+              settled.push(["retryAll", options?.delaySeconds]),
           },
           env(adapter, { [APPLY_BUNDLED_MIGRATIONS_VAR]: "true" }),
           ctx,
-        ),
-      ).rejects.toBeInstanceOf(BundledMigrationError);
-      // Thrown, not acknowledged: the platform redelivers the batch.
-      expect(settled).toEqual([]);
+        );
+        expect(settled).toEqual([["retryAll", delaySeconds]]);
+      }
+    } finally {
+      console.error = originalError;
+    }
+  });
+
+  test("an unreadable ledger is a 503, not an uncaught 500", async () => {
+    const { default: worker } = await loadEntry(bundled, "unreadable");
+    const unreachable = {
+      prepare: () => ({
+        bind() {
+          return this;
+        },
+        run: async () => {
+          throw new Error("D1_ERROR: storage unavailable");
+        },
+        all: async () => {
+          throw new Error("D1_ERROR: storage unavailable");
+        },
+      }),
+      batch: async () => {
+        throw new Error("D1_ERROR: storage unavailable");
+      },
+      exec: async () => {
+        throw new Error("D1_ERROR: storage unavailable");
+      },
+    };
+    const originalError = console.error;
+    console.error = () => undefined;
+    try {
+      const response = await worker.fetch(
+        new Request("https://yurucommu.example.test/healthz"),
+        env(unreachable, { [APPLY_BUNDLED_MIGRATIONS_VAR]: "true" }),
+        ctx,
+      );
+      expect(response.status).toBe(503);
+      expect(response.headers.get("retry-after")).toBe("5");
+      expect(await response.text()).not.toContain("storage unavailable");
     } finally {
       console.error = originalError;
     }

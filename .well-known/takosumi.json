@@ -330,22 +330,6 @@
             "placeholder": "https://yurucommu.example.workers.dev"
           },
           {
-            "name": "allow_unpinned_owner_claim",
-            "source": {
-              "kind": "user"
-            },
-            "type": "boolean",
-            "required": false,
-            "label": {
-              "ja": "最初にサインインした人を所有者にする",
-              "en": "Make the first person to sign in the owner"
-            },
-            "helper": {
-              "ja": "Cloudflareへ直接入れる場合、Takosumiは所有者をまだ指定できません。有効にすると最初にサインインした人が所有者になるので、導入後すぐに自分でサインインしてください。無効のままではPlanが止まります。",
-              "en": "Takosumi cannot name the owner of a direct Cloudflare install yet. When enabled, the first person to sign in becomes the owner, so sign in yourself right after installing. Plan stops while this is off."
-            }
-          },
-          {
             "name": "cloudflare_zone_id",
             "source": {
               "kind": "user"

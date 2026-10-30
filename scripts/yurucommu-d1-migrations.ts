@@ -35,6 +35,14 @@
  * ledger lacks, in file-name order, and never rewrites or removes a ledger row.
  * Ledger rows this build does not know (a newer release already migrated the
  * database) are left alone.
+ *
+ * Limit for future migrations: one file is one D1 batch, and D1 stops a query
+ * after 30 seconds. Every current file is DDL plus small backfills and applies
+ * in a couple of seconds on a fresh database, but a future table rebuild or
+ * backfill over a large production table can exceed that. Such a batch rolls
+ * back as a whole and the Worker keeps answering 503, so a large rebuild must
+ * be split into files that each finish well inside the limit (or shipped with
+ * an operator-run path), never written as one long file.
  */
 
 /** One schema file, already split into single statements at build time. */
@@ -185,8 +193,19 @@ export async function applyBundledD1Migrations(
   migrations: readonly BundledD1Migration[],
 ): Promise<BundledSchemaResult> {
   assertBundledMigrations(migrations);
-  await db.prepare(MIGRATION_LEDGER_DDL).run();
-  const ledger = await readLedger(db);
+  let ledger: Set<string>;
+  try {
+    await db.prepare(MIGRATION_LEDGER_DDL).run();
+    ledger = await readLedger(db);
+  } catch (error) {
+    // A database that cannot even show its ledger is as unavailable as one
+    // that failed a file: answer 503 and retry, not an uncaught 500.
+    throw new BundledMigrationError(
+      "the schema ledger could not be read",
+      null,
+      error,
+    );
+  }
   const applied: string[] = [];
   const appliedConcurrently: string[] = [];
   let alreadyApplied = 0;
@@ -273,7 +292,11 @@ export function createBundledSchemaGate(
           }
         })
         .catch((error: unknown) => {
-          failure = { at: now(), error };
+          // Only a database failure is worth backing off from. A configuration
+          // error is rethrown on every call and cached nowhere.
+          if (error instanceof BundledMigrationError) {
+            failure = { at: now(), error };
+          }
           log({
             level: "error",
             event: "yurucommu.schema.failed",

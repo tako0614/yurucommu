@@ -24,7 +24,8 @@ Cloudflare アカウントへ直接置く OpenTofu module です。公式の
 
 Worker は `YURUCOMMU_RUNTIME_LANE=cloudflare`（生の D1・KV・R2・Queue binding）
 で動きます。互換日付と flag は公式の [`wrangler.jsonc`](../../wrangler.jsonc) と
-同じです。Durable Object は使いません。
+同じです。Durable Object は使いません。Provider は Takosumi の runner の provider
+mirror とルートの `main.tf` と同じ `cloudflare/cloudflare` `5.19.1` に固定しています。
 
 ## データベースのスキーマ
 
@@ -42,14 +43,22 @@ Worker は `YURUCOMMU_RUNTIME_LANE=cloudflare`（生の D1・KV・R2・Queue bin
 - 1ファイルを D1 の `batch` 1回（1トランザクション）で適用し、台帳の行をその
   先頭に置きます。複数の isolate が同時に始めても、後から来た batch は台帳の
   一意制約で何もせずに巻き戻るので、各ファイルは一度だけ適用されます。
-- 失敗したファイルはスキーマも台帳も残さず巻き戻ります。Worker は
-  `503 schema_unavailable` を返し、Queue と Cron の処理も再試行に回します。
-  原因は Workers Logs（`yurucommu.schema.failed`）に出ます。
+- 失敗したファイルはスキーマも台帳も残さず巻き戻ります。台帳を読めない場合も
+  同じ扱いです。Worker は `503 schema_unavailable`（`Retry-After: 5`）を返します。
+  Queue の batch は確認せず、60秒・4分・16分・以後1時間と間隔を空けて
+  `retryAll` で戻すので、`max_retries` を数秒で使い切って DLQ へ落ちることは
+  ありません。ただし長く直らなければ最終的に DLQ を経て捨てられます。Cron は
+  例外にして次回へ回します。原因は Workers Logs（`yurucommu.schema.failed`）に出ます。
 - 前進のみです。台帳にない既知のファイルをファイル名順に適用し、台帳の行を
   書き換えたり消したりしません。
 - 既定では無効です。この変数を設定しない Worker（ルートの `main.tf`、
   `wrangler.jsonc`、Takoform Host、yurucommu.com の本番）は、これまでどおり
   運用者や Host がスキーマを管理します。portable lane で有効にすると起動を拒否します。
+- 今後の移行の制約: 1ファイルは D1 の1クエリ（`batch`）で、D1 は1クエリを
+  30秒で打ち切ります。現在のファイルは DDL と小さな補正だけで、空の D1 なら
+  数秒で終わります。大きなテーブルの作り直しや一括更新を1ファイルで書くと
+  本番データでは30秒を超え、丸ごと巻き戻って 503 が続きます。その種の移行は
+  30秒に十分収まるファイルへ分けるか、運用者が流す経路と一緒に出してください。
 
 既存データのある環境で新しいスキーマを含む版へ更新すると、新しい Worker の
 最初のリクエストがそのファイルを適用します。適用中、新しい版のリクエストは完了を
@@ -64,17 +73,33 @@ Takosumi の Cloudflare 接続は、確認済みの `cloudflare_account_id` と
 `cloudflare_workers_subdomain` を同名の変数へ渡します。インストール画面で
 尋ねるのは次だけです。
 
-- `app_url`（必須）: `https://<サービス名>.<workers.dev サブドメイン>.workers.dev`。
-  Takosumi はこの origin に `/api/auth/callback/takos` を足した URL で
-  Takosumi Accounts の OIDC client を登録し、発行者・client ID・redirect URI を
-  変数で渡します。workers.dev の URL は Worker 名と接続のサブドメインに一致する
-  必要があります。独自ドメインの場合は `cloudflare_zone_id` も指定し、
-  Workers Custom Domain として割り当てます。
-- `allow_unpinned_owner_claim`: Takosumi は直接インストールの所有者を変数で渡せない
-  ため、OIDC だけでサインインする構成では、最初にサインインした人が所有者になる
-  ことを明示的に受け入れる必要があります。導入後すぐに自分でサインインし、
-  必要なら後で `oidc_owner_sub` を固定してください。
+- `app_url`（必須、module に既定値はありません）:
+  `https://<サービス名>.<workers.dev サブドメイン>.workers.dev`。Takosumi はこの
+  origin に `/api/auth/callback/takos` を足した URL で Takosumi Accounts の OIDC
+  client を登録し、発行者・client ID・redirect URI を変数で渡します。workers.dev の
+  URL は Worker 名と接続のサブドメインに一致する必要があります。
+- `cloudflare_zone_id`（任意）: 独自ドメインを使う場合だけ指定します。
+  そのホスト名を Workers Custom Domain として割り当て、workers.dev では
+  応答しないようにします（origin を1つに保つため）。Cloudflare の API 文書が
+  挙げる権限は `Workers Scripts Write` だけですが、Cloudflare はそのゾーンに
+  DNS レコードと証明書を作るので、トークンはそのゾーンにもアクセスできる必要が
+  あります（少なくとも Zone Read。実際の独自ドメイン割り当ては未検証です）。
 - `notification_push_gateway_url`（任意）: ネイティブアプリ用の Push gateway。
+
+### 所有者
+
+Takosumi 経由では所有者の入力はありません。所有者の subject の固定も、
+「最初にサインインした人を所有者にする」設定もしません。Core（4.2.1 以降）は、
+固定がない場合、Takosumi Accounts が署名した `takosumi` claim に
+`app_role = "owner"` があるサインインにだけ最初の所有者を与えます。Takosumi Accounts は
+この client の導入者にその権限を付けます。それ以外の人が先にサインインしても
+所有者にはなれず、拒否されます。導入者の ID token にこの client 向けの
+`app_role = "owner"` が載ることは、staging での実インストールでまだ確認していません。
+
+`allow_unpinned_owner_claim` は、app 権限を出さない発行者を手動の OpenTofu で使う
+場合のための変数で、既定は `false` です。有効にすると、発行者が認証できる誰もが、
+推測できる workers.dev の URL へ導入者より先にサインインして所有者になれます。
+Takosumi のインストールでは使いません。
 
 `ENCRYPTION_KEY` と `YURUCOMMU_SESSION_HASH_SALT` は、空なら module が
 `random_bytes` で一度だけ作り、OpenTofu の state に保持します（`secret_text`
@@ -90,12 +115,13 @@ bun install --frozen-lockfile
 bun run build:worker
 bun scripts/prepare-cloudflare-source.ts
 cd deploy/cloudflare
-export CLOUDFLARE_API_TOKEN=...   # Workers・D1・KV・R2・Queues を編集できるトークン
+export CLOUDFLARE_API_TOKEN=...   # Workers Scripts・D1・Workers KV・R2・Queues の編集と、アカウントと workers.dev サブドメインの読み取り
 tofu init
 tofu apply \
   -var cloudflare_account_id=<account id> \
   -var cloudflare_workers_subdomain=<workers.dev subdomain> \
   -var project_name=<name> \
+  -var app_url=https://<name>.<workers.dev subdomain>.workers.dev \
   -var auth_password_hash=<PBKDF2 salt:hash または初回用トークン>
 ```
 

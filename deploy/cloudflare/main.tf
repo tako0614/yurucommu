@@ -17,8 +17,10 @@ terraform {
 
   required_providers {
     cloudflare = {
-      source  = "cloudflare/cloudflare"
-      version = "= 5.28.1"
+      source = "cloudflare/cloudflare"
+      # The exact release in Takosumi's runner provider mirror
+      # (takosumi runner/mirror-providers.tf) and the root module.
+      version = "= 5.19.1"
     }
     random = {
       source  = "hashicorp/random"
@@ -43,7 +45,7 @@ variable "cloudflare_account_id" {
 }
 
 variable "cloudflare_workers_subdomain" {
-  description = "The account's workers.dev subdomain. A Takosumi Cloudflare connection supplies it; it derives launch_url when app_url is empty and checks a workers.dev app_url."
+  description = "The account's workers.dev subdomain. A Takosumi Cloudflare connection supplies it; when set, a workers.dev app_url must be exactly this Worker's URL."
   type        = string
   default     = ""
 
@@ -80,13 +82,12 @@ variable "worker_name" {
 }
 
 variable "app_url" {
-  description = "Canonical public origin, e.g. https://<worker>.<subdomain>.workers.dev or https://social.example.com. A non-workers.dev host is attached as a Workers Custom Domain in cloudflare_zone_id. Empty derives the workers.dev URL from cloudflare_workers_subdomain."
+  description = "Canonical public origin: https://<worker_name>.<workers.dev subdomain>.workers.dev, or a custom hostname such as https://social.example.com, which is attached as a Workers Custom Domain in cloudflare_zone_id. Required: Takosumi registers the OIDC redirect against it, and the Worker mints actor ids from it."
   type        = string
-  default     = ""
 
   validation {
-    condition     = var.app_url == "" || can(regex("^https://[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$", var.app_url))
-    error_message = "app_url must be empty or a lowercase https origin with no port, path, query, or trailing slash."
+    condition     = can(regex("^https://[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$", var.app_url))
+    error_message = "app_url must be a lowercase https origin with no port, path, query, or trailing slash."
   }
 }
 
@@ -99,12 +100,6 @@ variable "cloudflare_zone_id" {
     condition     = var.cloudflare_zone_id == "" || can(regex("^[a-f0-9]{32}$", var.cloudflare_zone_id))
     error_message = "cloudflare_zone_id must be empty or a 32-character lowercase hex zone id."
   }
-}
-
-variable "enable_workers_dev_subdomain" {
-  description = "Serve the Worker on its workers.dev URL. Required when app_url is a workers.dev URL."
-  type        = bool
-  default     = true
 }
 
 # ---------------------------------------------------------------------------
@@ -196,8 +191,13 @@ variable "oidc_allowed_subs" {
   default     = ""
 }
 
+# Not offered through Takosumi. Without a pin, Core grants the first owner only
+# to a sign-in whose signed Takosumi Accounts claim carries app_role = owner,
+# which Accounts issues to the installing principal of this client. Turning
+# this on instead lets ANY subject the issuer authenticates take the owner slot
+# of a guessable workers.dev URL before the installer does, permanently.
 variable "allow_unpinned_owner_claim" {
-  description = "With OIDC and no oidc_owner_sub, let the first sign-in take the owner slot. Sign in, then pin oidc_owner_sub and clear this."
+  description = "Plain-OpenTofu escape hatch for an issuer without Takosumi app grants: with OIDC and no oidc_owner_sub, let the first sign-in take the owner slot. Never needed for a Takosumi install."
   type        = bool
   default     = false
 }
@@ -249,10 +249,13 @@ locals {
   worker_name        = var.worker_name != "" ? var.worker_name : var.project_name
 
   workers_dev_url = var.cloudflare_workers_subdomain != "" ? "https://${local.worker_name}.${var.cloudflare_workers_subdomain}.workers.dev" : ""
-  launch_url      = var.app_url != "" ? var.app_url : local.workers_dev_url
-  app_host        = var.app_url != "" ? trimprefix(var.app_url, "https://") : ""
-  app_on_workers  = var.app_url == "" || endswith(local.app_host, ".workers.dev")
-  custom_domain   = local.app_on_workers ? "" : local.app_host
+  launch_url      = var.app_url
+  app_host        = trimprefix(var.app_url, "https://")
+  # One origin per instance: actor ids, the OIDC redirect, and cookies all
+  # follow APP_URL, so a custom-domain instance does not also answer on
+  # workers.dev.
+  app_on_workers = endswith(local.app_host, ".workers.dev")
+  custom_domain  = local.app_on_workers ? "" : local.app_host
 
   d1_database_name    = "${var.project_name}-db"
   kv_namespace_title  = "${var.project_name}-kv"
@@ -430,29 +433,11 @@ resource "cloudflare_workers_script" "worker" {
       error_message = "Yurucommu needs a sign-in method: auth_password_hash, or a complete Takosumi Accounts OIDC issuer and client id."
     }
 
-    # With OIDC as the only sign-in, whoever finishes the flow first owns the
-    # instance for good. The pairwise subject is unknown before that login, so
-    # either pin it or acknowledge the race explicitly.
-    precondition {
-      condition     = !local.has_oidc || var.auth_password_hash != "" || var.oidc_owner_sub != "" || var.allow_unpinned_owner_claim
-      error_message = "An OIDC-only install must set oidc_owner_sub, or set allow_unpinned_owner_claim = true to accept that the first sign-in takes the owner slot."
-    }
-
-    precondition {
-      condition     = local.launch_url != ""
-      error_message = "Set app_url, or cloudflare_workers_subdomain so the workers.dev URL can be derived."
-    }
-
     # The Worker mints actor ids and the OIDC redirect from APP_URL; a URL that
     # does not reach this Worker would federate and redirect to the wrong host.
     precondition {
-      condition     = !local.app_on_workers || var.app_url == "" || var.cloudflare_workers_subdomain == "" || var.app_url == local.workers_dev_url
+      condition     = !local.app_on_workers || var.cloudflare_workers_subdomain == "" || var.app_url == local.workers_dev_url
       error_message = "A workers.dev app_url must be exactly https://<worker_name>.<cloudflare_workers_subdomain>.workers.dev."
-    }
-
-    precondition {
-      condition     = !local.app_on_workers || var.enable_workers_dev_subdomain
-      error_message = "A workers.dev app_url needs enable_workers_dev_subdomain = true."
     }
 
     precondition {
@@ -514,11 +499,12 @@ resource "cloudflare_workers_cron_trigger" "retention" {
   ]
 }
 
+# Managed in both cases so a custom-domain instance explicitly does NOT answer
+# on workers.dev.
 resource "cloudflare_workers_script_subdomain" "worker" {
-  count            = var.enable_workers_dev_subdomain ? 1 : 0
   account_id       = var.cloudflare_account_id
   script_name      = cloudflare_workers_script.worker.script_name
-  enabled          = true
+  enabled          = local.app_on_workers
   previews_enabled = false
 }
 

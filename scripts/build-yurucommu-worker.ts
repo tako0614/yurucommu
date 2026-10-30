@@ -248,6 +248,15 @@ async function ensureBundledSchema(env: WorkerBindings): Promise<void> {
   await bundledSchema.ensure(env.DB as unknown as D1MigrationDatabase);
 }
 
+// 60 s, 4 min, 16 min, then hourly, by the batch's highest delivery attempt.
+function schemaRetryDelaySeconds(batch: IQueueBatch<DeliveryMessage>): number {
+  const attempts = Math.max(
+    1,
+    ...batch.messages.map((message) => message.attempts || 1),
+  );
+  return Math.min(3600, 60 * 4 ** (attempts - 1));
+}
+
 function schemaUnavailableResponse(): Response {
   // The cause is in the Worker log; SQL errors are not client information.
   return new Response(
@@ -420,9 +429,17 @@ export default {
     // then a \`PublicOriginError\` — the batch is retried once traffic has
     // established one, rather than delivered under \`undefined/ap/users/...\`.
     const bindings = wrapYurucommuWorkerBindings(env);
-    // A batch never runs against a schema older than this code; a failed or
-    // in-progress migration throws, so the platform retries the batch.
-    await ensureBundledSchema(env);
+    // A batch never runs against a schema older than this code. While the
+    // schema cannot be brought up to date, hand the whole batch back with a
+    // growing delay instead of throwing: an immediate retry would spend every
+    // message's max_retries in seconds and dead-letter (then drop) it.
+    try {
+      await ensureBundledSchema(env);
+    } catch (error) {
+      if (!(error instanceof BundledMigrationError)) throw error;
+      queueBatch.retryAll({ delaySeconds: schemaRetryDelaySeconds(queueBatch) });
+      return;
+    }
     const runtimeEnv = withDeliveryConsumerIdentity(
       queueBatch,
       await withRequiredBackgroundPublicOrigin(bindings as Env),
