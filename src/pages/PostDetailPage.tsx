@@ -1,4 +1,11 @@
-import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
+import {
+  createEffect,
+  createSignal,
+  For,
+  onCleanup,
+  Show,
+  untrack,
+} from "solid-js";
 import { A, useNavigate, useParams } from "@solidjs/router";
 import { useRequiredActor } from "../hooks/useRequiredActor.ts";
 import { MediaAttachment, Post } from "../types/index.ts";
@@ -64,6 +71,139 @@ import {
 const MAX_REPLY_LENGTH = 5000;
 // Provider-scoped so leaving and reopening a post cannot duplicate an in-flight send.
 const pendingRepliesAtom = atom<ReadonlyMap<string, symbol>>(new Map());
+
+type ReplyDraft = { text: string; revision: object };
+type ReplyDraftBinding = {
+  scope: symbol;
+  strategy: ReturnType<typeof getAuthStrategy>;
+  transport: ReturnType<typeof getYurucommuApiTransport>;
+  postUrl: string;
+};
+type ReplyDraftState = ReplyDraftBinding & {
+  entries: ReadonlyMap<string, ReplyDraft>;
+};
+type ReplyDraftStore = ReturnType<typeof useStore>;
+
+// A new Actor object for the same ID is an ordinary auth refresh. Subscribing
+// to these scalar identities while drafts or sends exist also observes an
+// A → B → A switch while the detail page itself is unmounted.
+const replyActorIdAtom = atom((get) => get(actorAtom)?.ap_id ?? null);
+const replyHostedUserIdAtom = atom((get) => get(hostedUserAtom)?.id ?? null);
+const replyDraftScopeAtom = atom((get) => {
+  get(replyActorIdAtom);
+  get(replyHostedUserIdAtom);
+  get(authSessionEpochAtom);
+  get(selectedInstanceIdAtom);
+  return Symbol();
+});
+const replyDraftStateAtom = atom<ReplyDraftState | null>(null);
+const replyDraftSubscriptions = new WeakMap<ReplyDraftStore, () => void>();
+const MAX_REPLY_DRAFTS = 32;
+const MAX_REPLY_DRAFT_CHARACTERS = 250_000;
+
+function stopReplyDraftTrackingIfIdle(store: ReplyDraftStore) {
+  if (
+    store.get(replyDraftStateAtom)?.entries.size ||
+    store.get(pendingRepliesAtom).size
+  )
+    return;
+  const stop = replyDraftSubscriptions.get(store);
+  replyDraftSubscriptions.delete(store);
+  stop?.();
+}
+
+function trackReplyDraftScope(store: ReplyDraftStore) {
+  if (replyDraftSubscriptions.has(store)) return;
+  const stop = store.sub(replyDraftScopeAtom, () => {
+    const saved = store.get(replyDraftStateAtom);
+    if (saved && saved.scope !== store.get(replyDraftScopeAtom)) {
+      store.set(replyDraftStateAtom, null);
+    }
+    stopReplyDraftTrackingIfIdle(store);
+  });
+  replyDraftSubscriptions.set(store, stop);
+}
+
+function replyDraftBinding(store: ReplyDraftStore): ReplyDraftBinding | null {
+  try {
+    if (!store.get(replyActorIdAtom) || store.get(logoutBusyAtom)) return null;
+    const strategy = getAuthStrategy();
+    const transport = getYurucommuApiTransport();
+    return {
+      scope: store.get(replyDraftScopeAtom),
+      strategy,
+      transport,
+      postUrl: transport.resolveUrl("/api/posts"),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function sameReplyDraftBinding(
+  state: ReplyDraftBinding | null,
+  binding: ReplyDraftBinding | null,
+) {
+  return (
+    state !== null &&
+    binding !== null &&
+    state.scope === binding.scope &&
+    state.strategy === binding.strategy &&
+    state.transport === binding.transport &&
+    state.postUrl === binding.postUrl
+  );
+}
+
+function currentReplyDraftState(store: ReplyDraftStore) {
+  const saved = store.get(replyDraftStateAtom);
+  if (!saved || sameReplyDraftBinding(saved, replyDraftBinding(store)))
+    return saved;
+  store.set(replyDraftStateAtom, null);
+  stopReplyDraftTrackingIfIdle(store);
+  return null;
+}
+
+// False means the current textarea remains usable, but cannot be retained
+// across navigation; the caller must make that limitation visible.
+function saveReplyDraft(store: ReplyDraftStore, id: string, text: string) {
+  trackReplyDraftScope(store);
+  const binding = replyDraftBinding(store);
+  if (!binding) {
+    store.set(replyDraftStateAtom, null);
+    stopReplyDraftTrackingIfIdle(store);
+    return false;
+  }
+  const prior = currentReplyDraftState(store);
+  const entries = new Map(prior?.entries ?? []);
+  entries.delete(id);
+  const total = [...entries.values()].reduce(
+    (sum, entry) => sum + entry.text.length,
+    text.length,
+  );
+  const retained =
+    !text ||
+    (entries.size < MAX_REPLY_DRAFTS && total <= MAX_REPLY_DRAFT_CHARACTERS);
+  if (text && retained) entries.set(id, { text, revision: {} });
+  if (entries.size) trackReplyDraftScope(store);
+  store.set(replyDraftStateAtom, entries.size ? { ...binding, entries } : null);
+  stopReplyDraftTrackingIfIdle(store);
+  return retained;
+}
+
+function clearAcknowledgedReplyDraft(
+  store: ReplyDraftStore,
+  id: string,
+  expected: ReplyDraft | undefined,
+) {
+  const current = currentReplyDraftState(store);
+  if (!expected || current?.entries.get(id) !== expected) return false;
+  const entries = new Map(current.entries);
+  entries.delete(id);
+  store.set(replyDraftStateAtom, entries.size ? { ...current, entries } : null);
+  stopReplyDraftTrackingIfIdle(store);
+  return true;
+}
+
 type InteractionKind = "like" | "repost" | "bookmark";
 type InteractionSettlement = {
   kind: InteractionKind;
@@ -130,12 +270,23 @@ export function PostDetailPage() {
   const [error, setError] = createSignal<string | null>(null);
   const clearError = () => setError(null);
   const [post, setPost] = createSignal<Post | null>(null);
+  const [replyTarget, setReplyTarget] = createSignal<{
+    requested: string;
+    canonical: string;
+  } | null>(null);
   const [replies, setReplies] = createSignal<Post[]>([]);
   const [repliesCursor, setRepliesCursor] = createSignal<string | null>(null);
   const [repliesHasMore, setRepliesHasMore] = createSignal(false);
   const [loadingMoreReplies, setLoadingMoreReplies] = createSignal(false);
   const [loading, setLoading] = createSignal(true);
   const [replyContent, setReplyContent] = createSignal("");
+  const [replyDraftNotRetained, setReplyDraftNotRetained] = createSignal(false);
+  const replyDraftScope = useAtomValue(replyDraftScopeAtom);
+  const savedReplyDrafts = useAtomValue(replyDraftStateAtom);
+  let localOnlyReplyDraft: { id: string; scope: symbol } | null = null;
+  let displayedReplyId = "";
+  let displayedReplyBinding: ReplyDraftBinding | null = null;
+  let replyBindingError: string | null = null;
   // A pending send belongs to its target, even after navigating away and back.
   const [pendingReplies, setPendingReplies] = useAtom(pendingRepliesAtom);
   const [pendingInteractions, setPendingInteractions] = useAtom(
@@ -184,27 +335,31 @@ export function PostDetailPage() {
     reloadKey();
     if (!postId) return;
 
+    const decodedPostId = decodeApIdParam(postId);
     const gen = ++postLoadGen;
     setPost(null);
+    if (untrack(replyTarget)?.requested !== decodedPostId) setReplyTarget(null);
     setReplies([]);
     // Pagination belongs to this post/load, not the previous generation.
     setRepliesCursor(null);
     setRepliesHasMore(false);
     setLoadingMoreReplies(false);
-    replyDraftRevision++;
-    setReplyContent("");
     setError(null);
     setLoadFailed(false);
     setRepliesFailed(false);
     setLoading(true);
 
-    const decodedPostId = decodeApIdParam(postId);
     timelineBeforePostLoad = store
       .get(timelinePostsAtom)
       .find((item) => item.ap_id === decodedPostId);
     Promise.allSettled([fetchPost(decodedPostId), fetchReplies(decodedPostId)])
       .then(([postResult, repliesResult]) => {
-        if (gen !== postLoadGen) return;
+        if (
+          !mounted ||
+          gen !== postLoadGen ||
+          decodeApIdParam(params.postId) !== decodedPostId
+        )
+          return;
         if (postResult.status === "rejected") {
           const e = postResult.reason;
           console.error("Failed to load post:", e);
@@ -216,6 +371,10 @@ export function PostDetailPage() {
           }
           return;
         }
+        setReplyTarget({
+          requested: decodedPostId,
+          canonical: postResult.value.ap_id,
+        });
         setPost(postResult.value);
         if (repliesResult.status === "rejected") {
           console.error("Failed to load replies:", repliesResult.reason);
@@ -229,6 +388,37 @@ export function PostDetailPage() {
       .finally(() => {
         if (gen === postLoadGen) setLoading(false);
       });
+  });
+
+  // The Provider outlives this route. Keep each in-memory draft associated
+  // with its original target without refetching when the user types.
+  createEffect(() => {
+    const requested = decodeApIdParam(params.postId);
+    const target = replyTarget();
+    const scope = replyDraftScope();
+    // solid-jotai reconciles object values in place, so observe the changed
+    // Map property rather than only the containing proxy.
+    savedReplyDrafts()?.entries;
+    if (!target || target.requested !== requested) return;
+    const id = target.canonical;
+    if (localOnlyReplyDraft?.id === id && localOnlyReplyDraft.scope === scope)
+      return;
+    const binding = replyDraftBinding(store);
+    if (
+      displayedReplyId === id &&
+      displayedReplyBinding?.scope === scope &&
+      !sameReplyDraftBinding(displayedReplyBinding, binding) &&
+      untrack(replyContent)
+    ) {
+      localOnlyReplyDraft = { id, scope };
+      setReplyDraftNotRetained(true);
+      return;
+    }
+    localOnlyReplyDraft = null;
+    displayedReplyId = id;
+    displayedReplyBinding = binding;
+    setReplyDraftNotRetained(false);
+    setReplyContent(currentReplyDraftState(store)?.entries.get(id)?.text ?? "");
   });
 
   // Append the next page of replies. Guarded against a post→post navigation
@@ -660,8 +850,23 @@ export function PostDetailPage() {
       store.get(logoutBusyAtom)
     )
       return;
+    if (
+      !sameReplyDraftBinding(displayedReplyBinding, replyDraftBinding(store))
+    ) {
+      setReplyDraftNotRetained(true);
+      replyBindingError =
+        language() === "ja"
+          ? "接続が変わったため、この下書きは送信できません。必要ならコピーし、内容を消してから書き直してください。"
+          : "The connection changed. Copy this draft if needed, then clear it before writing again.";
+      setError(replyBindingError);
+      return;
+    }
     const generation = postLoadGen;
     const draftRevision = replyDraftRevision;
+    const draftScope = store.get(replyDraftScopeAtom);
+    const submittedDraft = currentReplyDraftState(store)?.entries.get(
+      target.ap_id,
+    );
     const olderTimelinePost = timelineBeforePostLoad;
     const sessionEpoch = store.get(authSessionEpochAtom);
     const instanceId = store.get(selectedInstanceIdAtom);
@@ -684,6 +889,7 @@ export function PostDetailPage() {
           !store.get(logoutBusyAtom) &&
           store.get(actorAtom)?.ap_id === actorApId &&
           store.get(authSessionEpochAtom) === sessionEpoch &&
+          store.get(replyDraftScopeAtom) === draftScope &&
           store.get(selectedInstanceIdAtom) === instanceId &&
           (store.get(hostedUserAtom)?.id ?? null) === hostedUserId &&
           getAuthStrategy() === strategy &&
@@ -701,6 +907,7 @@ export function PostDetailPage() {
       post()?.ap_id === target.ap_id;
     const attempt = Symbol();
     setPendingReplies((pending) => new Map(pending).set(target.ap_id, attempt));
+    trackReplyDraftScope(store);
     setError(null);
     try {
       const newReply = await createPost({
@@ -713,6 +920,11 @@ export function PostDetailPage() {
           "Post response did not acknowledge the submitted reply",
         );
       }
+      const clearedDraft = clearAcknowledgedReplyDraft(
+        store,
+        target.ap_id,
+        submittedDraft,
+      );
       // A feed row retained from before the detail read is older. A replaced
       // row may already include this reply, so preserve a changed count.
       syncTimelinePost(target.ap_id, (p) => ({
@@ -742,7 +954,12 @@ export function PostDetailPage() {
             : null,
         );
       }
-      if (replyDraftRevision === draftRevision) {
+      if (
+        clearedDraft ||
+        (!submittedDraft && replyDraftRevision === draftRevision)
+      ) {
+        localOnlyReplyDraft = null;
+        setReplyDraftNotRetained(false);
         setReplyContent("");
       } else {
         pushToast(setToasts, t("feedback.postDraftKept"), {
@@ -775,6 +992,7 @@ export function PostDetailPage() {
         next.delete(target.ap_id);
         return next;
       });
+      stopReplyDraftTrackingIfIdle(store);
     }
   };
 
@@ -1163,13 +1381,55 @@ export function PostDetailPage() {
                   ref={replyInputRef}
                   value={replyContent()}
                   onInput={(e) => {
+                    const id = post()?.ap_id;
+                    const target = replyTarget();
+                    if (
+                      !id ||
+                      !target ||
+                      target.requested !== decodeApIdParam(params.postId) ||
+                      target.canonical !== id
+                    )
+                      return;
                     replyDraftRevision++;
-                    setReplyContent(e.currentTarget.value);
+                    const value = e.currentTarget.value;
+                    const binding = replyDraftBinding(store);
+                    localOnlyReplyDraft = {
+                      id,
+                      scope: store.get(replyDraftScopeAtom),
+                    };
+                    if (
+                      value &&
+                      !sameReplyDraftBinding(displayedReplyBinding, binding)
+                    ) {
+                      setReplyDraftNotRetained(true);
+                      setReplyContent(value);
+                      return;
+                    }
+                    if (!value) {
+                      displayedReplyBinding = binding;
+                      if (
+                        replyBindingError &&
+                        untrack(error) === replyBindingError
+                      )
+                        setError(null);
+                      replyBindingError = null;
+                    }
+                    const retained = saveReplyDraft(store, id, value);
+                    if (retained) localOnlyReplyDraft = null;
+                    setReplyDraftNotRetained(!retained);
+                    setReplyContent(value);
                   }}
                   placeholder={t("posts.replyPlaceholder")}
                   class="w-full bg-transparent text-white placeholder-neutral-500 resize-none outline-none"
                   rows={2}
                 />
+                <Show when={replyDraftNotRetained()}>
+                  <p role="status" class="text-sm text-amber-400">
+                    {language() === "ja"
+                      ? "この下書きは画面を離れると保持されません。必要なら内容をコピーしてください。"
+                      : "This draft will not be kept when you leave this page. Copy it if needed."}
+                  </p>
+                </Show>
                 <div class="flex items-center justify-end gap-3">
                   <Show when={replyContent().length > 0}>
                     <span
