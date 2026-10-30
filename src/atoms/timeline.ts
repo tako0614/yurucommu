@@ -59,6 +59,7 @@ import {
   actorAtom,
   authSessionEpochAtom,
   hostedUserAtom,
+  instancesLoadingAtom,
   selectedInstanceIdAtom,
   logoutBusyAtom,
 } from "./auth.ts";
@@ -66,13 +67,18 @@ import { pushToast, toastWriter } from "./toast.ts";
 import { toggleBookmark } from "./posts.ts";
 import { scopeQueryAtom } from "./scope.ts";
 import {
+  type BookmarkMutation,
   type BookmarkRead,
   acknowledgeBookmarkReadAtom,
+  beginBookmarkMutation,
   beginBookmarkRead,
+  bindBookmarkReadMutation,
   finishBookmarkRead,
   hasBookmarkAcknowledgement,
+  isBookmarkMutationCurrent,
   ownsBookmarkRead,
   reconcileBookmarkRead,
+  settleBookmarkMutation,
 } from "./bookmark-reads.ts";
 // Mirrors the backend MAX_POST_CONTENT_LENGTH (posts/transformers.ts), used to
 // surface a specific message when the server rejects an over-length post.
@@ -288,30 +294,64 @@ export const deleteTimelinePostAtom = atom(
   },
 );
 
-// All bookmark entrypoints record only a successful ACK for the observed
-// actor. This updates both Home caches and fences every earlier active read.
-export const acknowledgeTimelineBookmarkAtom = atom(
+export const beginTimelineBookmarkMutationAtom = atom(
   null,
   (
     get,
     set,
     change: { actorApId: string; apId: string; bookmarked: boolean },
-  ): boolean => {
-    if (!set(acknowledgeBookmarkReadAtom, change)) return false;
-    for (const feed of [
-      timelinePostsAtom,
-      followingPostsAtom,
-      pendingNewPostsAtom,
-    ]) {
-      set(feed, (prev) =>
-        prev.map((post) =>
-          post.ap_id === change.apId
-            ? { ...post, bookmarked: change.bookmarked }
-            : post,
-        ),
-      );
+  ): BookmarkMutation | null => beginBookmarkMutation(get, set, change),
+);
+
+export const settleTimelineBookmarkMutationAtom = atom(
+  null,
+  (
+    get,
+    set,
+    input: { mutation: BookmarkMutation; success: boolean },
+  ): { current: boolean; applied: boolean } => {
+    const result = settleBookmarkMutation(
+      get,
+      set,
+      input.mutation,
+      input.success,
+    );
+    if (result.markRead) set(acknowledgeBookmarkReadAtom, result.markRead);
+    if (result.publish) {
+      const change = result.publish;
+      for (const feed of [
+        timelinePostsAtom,
+        followingPostsAtom,
+        pendingNewPostsAtom,
+      ]) {
+        set(feed, (prev) =>
+          prev.map((post) =>
+            post.ap_id === change.apId
+              ? { ...post, bookmarked: change.bookmarked }
+              : post,
+          ),
+        );
+      }
     }
-    return true;
+    return {
+      current: result.current,
+      applied: result.publish?.ticket === input.mutation.ticket,
+    };
+  },
+);
+
+// Legacy direct ACKs are independent successful operations at their call time.
+export const acknowledgeTimelineBookmarkAtom = atom(
+  null,
+  (
+    _get,
+    set,
+    change: { actorApId: string; apId: string; bookmarked: boolean },
+  ): boolean => {
+    const mutation = set(beginTimelineBookmarkMutationAtom, change);
+    if (!mutation) return false;
+    return set(settleTimelineBookmarkMutationAtom, { mutation, success: true })
+      .current;
   },
 );
 
@@ -319,13 +359,23 @@ export const unbookmarkTimelinePostAtom = atom(
   null,
   async (get, set, apId: string): Promise<boolean> => {
     const actorApId = get(actorAtom)?.ap_id;
-    if (!actorApId) return false;
-    await unbookmarkPost(apId);
-    return set(acknowledgeTimelineBookmarkAtom, {
+    if (!actorApId || get(logoutBusyAtom)) return false;
+    const mutation = set(beginTimelineBookmarkMutationAtom, {
       actorApId,
       apId,
       bookmarked: false,
     });
+    if (!mutation) return false;
+    try {
+      await unbookmarkPost(apId);
+      return set(settleTimelineBookmarkMutationAtom, {
+        mutation,
+        success: true,
+      }).current;
+    } catch (error) {
+      set(settleTimelineBookmarkMutationAtom, { mutation, success: false });
+      throw error;
+    }
   },
 );
 
@@ -336,26 +386,41 @@ export const toggleTimelineBookmarkAtom = atom(
   null,
   async (get, set, post: Post) => {
     const actorApId = get(actorAtom)?.ap_id;
-    if (!actorApId) return;
+    // toggleBookmark would send even when its optimistic callback declines, so
+    // gate before invoking it while the selected instance is being observed.
+    if (!actorApId || get(logoutBusyAtom) || get(instancesLoadingAtom)) return;
     const interaction = beginBookmarkRead(get, set);
+    let mutation: BookmarkMutation | null = null;
+    let settled = false;
     try {
       await toggleBookmark(
         post,
         (update) => {
-          if (get(actorAtom)?.ap_id !== actorApId) return;
+          // toggleBookmark can decline a duplicate before this callback. Start
+          // a ticket only once it actually applies the optimistic update.
+          if (!mutation) {
+            mutation = set(beginTimelineBookmarkMutationAtom, {
+              actorApId,
+              apId: post.ap_id,
+              bookmarked: !post.bookmarked,
+            });
+            if (mutation)
+              bindBookmarkReadMutation(get, set, interaction, mutation);
+          }
+          if (!mutation || !isBookmarkMutationCurrent(get, mutation)) return;
           set(timelinePostsAtom, update);
           set(followingPostsAtom, update);
         },
-        (bookmarked) => {
-          set(acknowledgeTimelineBookmarkAtom, {
-            actorApId,
-            apId: post.ap_id,
-            bookmarked,
-          });
+        () => {
+          if (!mutation) return;
+          settled = true;
+          set(settleTimelineBookmarkMutationAtom, { mutation, success: true });
         },
         () => !hasBookmarkAcknowledgement(get, interaction, post.ap_id),
       );
     } finally {
+      if (mutation && !settled)
+        set(settleTimelineBookmarkMutationAtom, { mutation, success: false });
       finishBookmarkRead(get, set, interaction);
     }
   },
@@ -687,7 +752,7 @@ export const loadTimelineAtom = atom(null, async (get, set) => {
       limit: 20,
       community,
     });
-    if (!ownsHead()) return;
+    if (!ownsHead() || !ownsBookmarkRead(get, bookmarkRead)) return;
     set(
       timelinePostsAtom,
       reconcileHeadAcknowledgements(
@@ -716,7 +781,7 @@ export const loadTimelineAtom = atom(null, async (get, set) => {
       }, null),
     );
   } catch (e) {
-    if (!ownsHead()) return;
+    if (!ownsHead() || !ownsBookmarkRead(get, bookmarkRead)) return;
     console.error("Failed to load timeline:", e);
     set(timelineLoadErrorAtom, get(tAtom)("common.loadFailed"));
   } finally {
@@ -851,6 +916,7 @@ export const loadFollowingTimelineAtom = atom(null, async (get, set) => {
     if (
       gen !== get(followingRequestsAtom).generation ||
       actorApId !== get(actorAtom)?.ap_id ||
+      !ownsBookmarkRead(get, bookmarkRead) ||
       get(followingHeadWindowAtom)?.ticket !== ticket
     )
       return;
@@ -874,7 +940,8 @@ export const loadFollowingTimelineAtom = atom(null, async (get, set) => {
   } catch (e) {
     if (
       gen !== get(followingRequestsAtom).generation ||
-      actorApId !== get(actorAtom)?.ap_id
+      actorApId !== get(actorAtom)?.ap_id ||
+      !ownsBookmarkRead(get, bookmarkRead)
     )
       return;
     console.error("Failed to load following timeline:", e);

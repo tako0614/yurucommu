@@ -31,8 +31,9 @@ import {
 } from "../atoms/auth.ts";
 import { pushToast, toastsAtom } from "../atoms/toast.ts";
 import {
-  acknowledgeTimelineBookmarkAtom,
+  beginTimelineBookmarkMutationAtom,
   deleteTimelinePostAtom,
+  settleTimelineBookmarkMutationAtom,
   timelinePostsAtom,
 } from "../atoms/timeline.ts";
 import { ConfirmSheet } from "../components/ConfirmSheet.tsx";
@@ -118,7 +119,8 @@ export function PostDetailPage() {
   const currentInstance = useAtomValue(selectedInstanceIdAtom);
   const currentHostedUser = useAtomValue(hostedUserAtom);
   const store = useStore();
-  const acknowledgeBookmark = useSetAtom(acknowledgeTimelineBookmarkAtom);
+  const beginBookmarkMutation = useSetAtom(beginTimelineBookmarkMutationAtom);
+  const settleBookmarkMutation = useSetAtom(settleTimelineBookmarkMutationAtom);
   const params = useParams();
   const navigate = useNavigate();
   const { t, language } = useI18n();
@@ -868,14 +870,23 @@ export function PostDetailPage() {
       post()?.ap_id === currentPost.ap_id;
     const attempt = beginInteraction("bookmark", currentPost.ap_id);
     if (!attempt) return;
+    const mutation = beginBookmarkMutation({
+      actorApId,
+      apId: currentPost.ap_id,
+      bookmarked,
+    });
+    if (!mutation) {
+      endInteraction(attempt);
+      return;
+    }
+    let settled = false;
     try {
       if (bookmarked) await bookmarkPost(currentPost.ap_id);
       else await unbookmarkPost(currentPost.ap_id);
       if (!sameScope()) return;
-      if (
-        !acknowledgeBookmark({ actorApId, apId: currentPost.ap_id, bookmarked })
-      )
-        return;
+      const result = settleBookmarkMutation({ mutation, success: true });
+      settled = true;
+      if (!result.current || !result.applied) return;
       if (samePage()) {
         setPost((latest) =>
           latest?.ap_id === currentPost.ap_id
@@ -899,6 +910,7 @@ export function PostDetailPage() {
         classifyWriteFailure(e),
       );
     } finally {
+      if (!settled) settleBookmarkMutation({ mutation, success: false });
       endInteraction(attempt);
     }
   };
