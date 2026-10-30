@@ -143,6 +143,7 @@ mock.module(new URL("../lib/api.ts", targetUrl).pathname, () => ({
   },
   follow: forbiddenEffect, joinCommunity: forbiddenEffect,
   likePost: forbiddenEffect, unlikePost: forbiddenEffect,
+  getYurucommuApiTransport: forbiddenEffect,
 }));
 mock.module(new URL("../hooks/useRequiredActor.ts", targetUrl).pathname, () => ({
   useRequiredActor: () => ({ ap_id: "actor:synthetic-test" }),
@@ -153,7 +154,12 @@ mock.module(new URL("../lib/i18n.tsx", targetUrl).pathname, () => ({
 mock.module(new URL("../atoms/scope.ts", targetUrl).pathname, () => ({
   refreshScopesAtom: {}, scopeCommunitiesAtom: {},
 }));
+mock.module(new URL("../atoms/auth.ts", targetUrl).pathname, () => ({
+  actorAtom: {}, authSessionEpochAtom: {}, hostedUserAtom: {},
+  instancesLoadingAtom: {}, logoutBusyAtom: {}, selectedInstanceIdAtom: {},
+}));
 mock.module("solid-jotai", () => ({
+  useStore: () => ({ get: forbiddenEffect, set: forbiddenEffect, sub: forbiddenEffect }),
   useAtomValue: () => () => [],
   useSetAtom: () => {
     const owner = fixture;
