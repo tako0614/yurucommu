@@ -802,3 +802,232 @@ for (const lane of ["unified", "following"] as const) {
     });
   }
 }
+
+for (const lane of ["unified", "following"] as const) {
+  for (const original of [false, true]) {
+    for (const outcome of ["success", "failure"] as const) {
+      test(`${lane} pending optimism survives an older read (${original}, ${outcome})`, async () => {
+        const h = await fixture();
+        const work: Promise<unknown>[] = [];
+        const target = post(
+          `pending-${lane}-${original}-${outcome}`,
+          10,
+          original,
+        );
+        const other = post("unrelated", 9, true);
+        const load =
+          lane === "unified"
+            ? h.timeline.loadTimelineAtom
+            : h.timeline.loadFollowingTimelineAtom;
+        const posts =
+          lane === "unified"
+            ? h.timeline.timelinePostsAtom
+            : h.timeline.followingPostsAtom;
+        try {
+          h.store.set(h.timeline.timelinePostsAtom, [target, other]);
+          h.store.set(h.timeline.followingPostsAtom, [target, other]);
+          const read = h.store.set(load);
+          work.push(read);
+          const oldRead = await h.waitFor(1);
+          const toggle = h.store.set(
+            h.timeline.toggleTimelineBookmarkAtom,
+            target,
+          );
+          work.push(toggle);
+          const sent = await h.waitFor(2);
+          expect(sent.method).toBe(original ? "DELETE" : "POST");
+          expect(h.store.get(posts)[0]?.bookmarked).toBe(!original);
+
+          oldRead.pending.resolve(
+            page([target, { ...other, bookmarked: false }]),
+          );
+          await read;
+          expect(h.store.get(posts)[0]?.bookmarked).toBe(!original);
+          expect(h.store.get(posts)[1]?.bookmarked).toBe(false);
+          expect(h.activeMutations()).toBe(1);
+
+          if (outcome === "success") {
+            sent.pending.resolve(
+              new Response(JSON.stringify({ success: true })),
+            );
+            await toggle;
+            expect(h.store.get(posts)[0]?.bookmarked).toBe(!original);
+          } else {
+            sent.pending.reject(new Error("synthetic bookmark refusal"));
+            await expect(toggle).rejects.toThrow("synthetic bookmark refusal");
+            expect(h.store.get(posts)[0]?.bookmarked).toBe(original);
+          }
+          expect(h.activeCount()).toBe(0);
+          expect(h.activeMutations()).toBe(0);
+
+          // Once the interaction settles, a later GET remains authoritative.
+          const subsequent = h.store.set(load);
+          work.push(subsequent);
+          const nextRead = await h.waitFor(3);
+          const serverValue = outcome === "success" ? original : !original;
+          nextRead.pending.resolve(
+            page([{ ...target, bookmarked: serverValue }]),
+          );
+          await subsequent;
+          expect(h.store.get(posts)[0]?.bookmarked).toBe(serverValue);
+          expect(h.activeCount()).toBe(0);
+        } finally {
+          await h.cleanup(work);
+        }
+      });
+    }
+  }
+}
+
+test("pending optimism survives a read started after the toggle", async () => {
+  const h = await fixture();
+  const work: Promise<unknown>[] = [];
+  const target = post("pending-before-read", 10, false);
+  try {
+    h.store.set(h.timeline.timelinePostsAtom, [target]);
+    const toggle = h.store.set(h.timeline.toggleTimelineBookmarkAtom, target);
+    work.push(toggle);
+    const sent = await h.waitFor(1);
+    const read = h.store.set(h.timeline.loadTimelineAtom);
+    work.push(read);
+    const get = await h.waitFor(2);
+    get.pending.resolve(page([target]));
+    await read;
+    expect(h.store.get(h.timeline.timelinePostsAtom)[0]?.bookmarked).toBe(true);
+    sent.pending.resolve(new Response(JSON.stringify({ success: true })));
+    await toggle;
+    expect(h.store.get(h.timeline.timelinePostsAtom)[0]?.bookmarked).toBe(true);
+    expect(h.activeCount()).toBe(0);
+    expect(h.activeMutations()).toBe(0);
+  } finally {
+    await h.cleanup(work);
+  }
+});
+
+for (const changed of ["instance", "actor"] as const) {
+  test(`pending optimism does not affect a read after ${changed} changes`, async () => {
+    const h = await fixture();
+    const work: Promise<unknown>[] = [];
+    const target = post(`pending-other-${changed}`, 10, false);
+    try {
+      h.store.set(h.auth.selectedInstanceIdAtom, "instance-a");
+      h.store.set(h.timeline.timelinePostsAtom, [target]);
+      const toggle = h.store.set(h.timeline.toggleTimelineBookmarkAtom, target);
+      work.push(toggle);
+      const sent = await h.waitFor(1);
+      if (changed === "instance")
+        h.store.set(h.auth.selectedInstanceIdAtom, "instance-b");
+      else
+        h.store.set(h.auth.actorAtom, {
+          ...actor(),
+          ap_id: `${origin}/ap/users/another`,
+        });
+      h.store.set(h.timeline.timelinePostsAtom, [target]);
+      const read = h.store.set(h.timeline.loadTimelineAtom);
+      work.push(read);
+      const get = await h.waitFor(2);
+      get.pending.resolve(page([{ ...target, bookmarked: true }]));
+      await read;
+      expect(h.store.get(h.timeline.timelinePostsAtom)[0]?.bookmarked).toBe(
+        true,
+      );
+      sent.pending.resolve(new Response(JSON.stringify({ success: true })));
+      await toggle;
+      expect(h.store.get(h.timeline.timelinePostsAtom)[0]?.bookmarked).toBe(
+        true,
+      );
+      expect(h.activeCount()).toBe(0);
+      expect(h.activeMutations()).toBe(0);
+    } finally {
+      await h.cleanup(work);
+    }
+  });
+}
+
+test("pending optimism does not return after an instance A-B-A switch", async () => {
+  const h = await fixture();
+  const work: Promise<unknown>[] = [];
+  const target = post("pending-aba", 10, false);
+  try {
+    h.store.set(h.auth.selectedInstanceIdAtom, "instance-a");
+    h.store.set(h.timeline.timelinePostsAtom, [target]);
+    const toggle = h.store.set(h.timeline.toggleTimelineBookmarkAtom, target);
+    work.push(toggle);
+    const sent = await h.waitFor(1);
+    h.store.set(h.auth.selectedInstanceIdAtom, "instance-b");
+    h.store.set(h.timeline.timelinePostsAtom, [target]);
+    const middle = h.store.set(h.timeline.loadTimelineAtom);
+    work.push(middle);
+    const middleGet = await h.waitFor(2);
+    middleGet.pending.resolve(page([target]));
+    await middle;
+    h.store.set(h.auth.selectedInstanceIdAtom, "instance-a");
+    const read = h.store.set(h.timeline.loadTimelineAtom);
+    work.push(read);
+    const get = await h.waitFor(3);
+    get.pending.resolve(page([{ ...target, bookmarked: true }]));
+    await read;
+    expect(h.store.get(h.timeline.timelinePostsAtom)[0]?.bookmarked).toBe(true);
+    sent.pending.resolve(new Response(JSON.stringify({ success: true })));
+    await toggle;
+    expect(h.store.get(h.timeline.timelinePostsAtom)[0]?.bookmarked).toBe(true);
+    expect(h.activeCount()).toBe(0);
+    expect(h.activeMutations()).toBe(0);
+  } finally {
+    await h.cleanup(work);
+  }
+});
+
+test("a pending non-optimistic unbookmark does not mask a feed read", async () => {
+  const h = await fixture();
+  const work: Promise<unknown>[] = [];
+  const target = post("pending-non-optimistic", 10, true);
+  try {
+    h.store.set(h.timeline.timelinePostsAtom, [target]);
+    const unsave = h.store.set(
+      h.timeline.unbookmarkTimelinePostAtom,
+      target.ap_id,
+    );
+    work.push(unsave);
+    const sent = await h.waitFor(1);
+    const read = h.store.set(h.timeline.loadTimelineAtom);
+    work.push(read);
+    const get = await h.waitFor(2);
+    get.pending.resolve(page([{ ...target, bookmarked: false }]));
+    await read;
+    expect(h.store.get(h.timeline.timelinePostsAtom)[0]?.bookmarked).toBe(
+      false,
+    );
+    sent.pending.resolve(new Response(JSON.stringify({ success: true })));
+    expect(await unsave).toBe(true);
+    expect(h.activeCount()).toBe(0);
+    expect(h.activeMutations()).toBe(0);
+  } finally {
+    await h.cleanup(work);
+  }
+});
+
+test("pending optimism does not invent a saved-list change", async () => {
+  const h = await fixture();
+  const work: Promise<unknown>[] = [];
+  const target = post("saved-list-pending", 10, true);
+  const saved = h.bookmarks.createBookmarksState();
+  try {
+    h.store.set(h.timeline.timelinePostsAtom, [target]);
+    const read = h.store.set(saved.load);
+    work.push(read);
+    const get = await h.waitFor(1);
+    const toggle = h.store.set(h.timeline.toggleTimelineBookmarkAtom, target);
+    work.push(toggle);
+    const sent = await h.waitFor(2);
+    get.pending.resolve(page([target]));
+    await read;
+    expect(h.store.get(saved.posts)).toEqual([target]);
+    sent.pending.resolve(new Response(JSON.stringify({ success: true })));
+    await toggle;
+    expect(h.activeCount()).toBe(0);
+    expect(h.activeMutations()).toBe(0);
+  } finally {
+    await h.cleanup(work);
+  }
+});
