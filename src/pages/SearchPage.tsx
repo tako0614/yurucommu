@@ -20,7 +20,6 @@ import {
   fetchTrendingHashtags,
   follow,
   getYurucommuApiTransport,
-  joinCommunity,
   likePost,
   searchActors,
   searchHashtag,
@@ -28,7 +27,9 @@ import {
   searchRemote,
   unlikePost,
 } from "../lib/api.ts";
-import { refreshScopesAtom, scopeCommunitiesAtom } from "../atoms/scope.ts";
+import { scopeCommunitiesAtom } from "../atoms/scope.ts";
+import { fetchCommunity } from "../lib/api/communities.ts";
+import { apiPost, ApiError } from "../lib/api/fetch.ts";
 import { pushToast, toastsAtom } from "../atoms/toast.ts";
 import {
   actorAtom,
@@ -80,12 +81,31 @@ const POST_SORTS = ["recent", "popular"] as const;
 type SearchLikeStore = ReturnType<typeof useStore>;
 const pendingSearchLikesAtom = atom<ReadonlyMap<string, symbol>>(new Map());
 const pendingSearchFollowsAtom = atom<ReadonlyMap<string, symbol>>(new Map());
+const pendingSearchJoinsAtom = atom<ReadonlyMap<string, symbol>>(new Map());
+const searchJoinScopeReadAtom = atom<symbol | null>(null);
+type SearchJoinTarget = { id: string; name: string; label: string };
+type SearchJoinOriginal = SearchJoinTarget & {
+  token: symbol;
+  scope: symbol;
+  sameScope: () => boolean;
+};
+const pendingSearchJoinOriginalsAtom = atom<
+  ReadonlyMap<string, SearchJoinOriginal>
+>(new Map());
 type SearchFollowReceiptState = {
   scope: symbol;
   sameScope: () => boolean;
   targets: ReadonlySet<string>;
 };
 const searchFollowReceiptsAtom = atom<SearchFollowReceiptState | null>(null);
+type SearchJoinReceipt = SearchJoinTarget & {
+  scope: symbol;
+  sameScope: () => boolean;
+  status: "joined" | "pending" | "unconfirmed";
+};
+const searchJoinReceiptsAtom = atom<ReadonlyMap<string, SearchJoinReceipt>>(
+  new Map(),
+);
 const searchLikeActorIdAtom = atom((get) => get(actorAtom)?.ap_id ?? null);
 const searchLikeHostedUserIdAtom = atom(
   (get) => get(hostedUserAtom)?.id ?? null,
@@ -108,6 +128,21 @@ function trackSearchLikeScope(store: SearchLikeStore) {
       const receipts = store.get(searchFollowReceiptsAtom);
       if (receipts && receipts.scope !== store.get(searchLikeScopeAtom))
         store.set(searchFollowReceiptsAtom, null);
+      const currentScope = store.get(searchLikeScopeAtom);
+      const originals = store.get(pendingSearchJoinOriginalsAtom);
+      const currentOriginals = new Map(
+        [...originals].filter(
+          ([, original]) => original.scope === currentScope,
+        ),
+      );
+      if (currentOriginals.size !== originals.size)
+        store.set(pendingSearchJoinOriginalsAtom, currentOriginals);
+      const joins = store.get(searchJoinReceiptsAtom);
+      const currentJoins = new Map(
+        [...joins].filter(([, receipt]) => receipt.scope === currentScope),
+      );
+      if (currentJoins.size !== joins.size)
+        store.set(searchJoinReceiptsAtom, currentJoins);
       stopSearchLikeTrackingIfIdle(store);
     }),
   );
@@ -117,7 +152,10 @@ function stopSearchLikeTrackingIfIdle(store: SearchLikeStore) {
   if (
     store.get(pendingSearchLikesAtom).size ||
     store.get(pendingSearchFollowsAtom).size ||
-    store.get(searchFollowReceiptsAtom)?.targets.size
+    store.get(pendingSearchJoinsAtom).size ||
+    store.get(pendingSearchJoinOriginalsAtom).size ||
+    store.get(searchFollowReceiptsAtom)?.targets.size ||
+    store.get(searchJoinReceiptsAtom).size
   )
     return;
   const stop = searchLikeSubscriptions.get(store);
@@ -137,18 +175,45 @@ function searchLikeKey(store: SearchLikeStore, id: string) {
 function beginSearchLike(
   store: SearchLikeStore,
   id: string,
-  kind: "like" | "follow" = "like",
+  kind: "like" | "follow" | "join" = "like",
+  joinName?: string,
+  joinLabel?: string,
 ) {
   if (
     !store.get(searchLikeActorIdAtom) ||
     store.get(logoutBusyAtom) ||
-    store.get(instancesLoadingAtom)
+    store.get(instancesLoadingAtom) ||
+    (kind === "join" && !joinName)
   )
     return null;
   const key = searchLikeKey(store, id);
   const pendingAtom =
-    kind === "like" ? pendingSearchLikesAtom : pendingSearchFollowsAtom;
+    kind === "like"
+      ? pendingSearchLikesAtom
+      : kind === "follow"
+        ? pendingSearchFollowsAtom
+        : pendingSearchJoinsAtom;
   if (store.get(pendingAtom).has(key)) return null;
+  const previousJoinReceipt =
+    kind === "join" ? store.get(searchJoinReceiptsAtom).get(key) : undefined;
+  if (
+    previousJoinReceipt?.sameScope() &&
+    previousJoinReceipt.status !== "joined"
+  )
+    return null;
+  if (
+    kind === "join" &&
+    ([...store.get(pendingSearchJoinOriginalsAtom).values()].some(
+      (original) => original.name === joinName && original.sameScope(),
+    ) ||
+      [...store.get(searchJoinReceiptsAtom).values()].some(
+        (receipt) =>
+          receipt.name === joinName &&
+          receipt.status !== "joined" &&
+          receipt.sameScope(),
+      ))
+  )
+    return null;
   trackSearchLikeScope(store);
   try {
     const scope = store.get(searchLikeScopeAtom);
@@ -157,7 +222,9 @@ function beginSearchLike(
     const path =
       kind === "like"
         ? `/api/posts/${encodeURIComponent(id)}/like`
-        : "/api/follow";
+        : kind === "follow"
+          ? "/api/follow"
+          : `/api/communities/${encodeURIComponent(joinName!)}/join`;
     const url = transport.resolveUrl(path);
     const sameScope = () => {
       try {
@@ -174,7 +241,32 @@ function beginSearchLike(
     };
     const token = Symbol();
     store.set(pendingAtom, (pending) => new Map(pending).set(key, token));
-    return { key, token, sameScope, kind, scope };
+    const joinTarget =
+      kind === "join" && joinName
+        ? { id, name: joinName, label: joinLabel ?? joinName }
+        : null;
+    if (joinTarget)
+      store.set(pendingSearchJoinOriginalsAtom, (originals) =>
+        new Map(originals).set(key, {
+          ...joinTarget,
+          token,
+          scope,
+          sameScope,
+        }),
+      );
+    // A joined acknowledgement is terminal. A deliberate new join may
+    // replace that history only after the new in-flight lock exists.
+    if (
+      previousJoinReceipt?.sameScope() &&
+      previousJoinReceipt.status === "joined"
+    )
+      store.set(searchJoinReceiptsAtom, (receipts) => {
+        if (receipts.get(key) !== previousJoinReceipt) return receipts;
+        const next = new Map(receipts);
+        next.delete(key);
+        return next;
+      });
+    return { key, token, sameScope, kind, scope, joinTarget };
   } catch {
     stopSearchLikeTrackingIfIdle(store);
     return null;
@@ -231,19 +323,80 @@ function settleSearchLikeWhenReady(
 
 function endSearchLike(
   store: SearchLikeStore,
-  attempt: { key: string; token: symbol; kind?: "like" | "follow" },
+  attempt: { key: string; token: symbol; kind?: "like" | "follow" | "join" },
 ) {
   const pendingAtom =
     attempt.kind === "follow"
       ? pendingSearchFollowsAtom
-      : pendingSearchLikesAtom;
+      : attempt.kind === "join"
+        ? pendingSearchJoinsAtom
+        : pendingSearchLikesAtom;
   store.set(pendingAtom, (pending) => {
     if (pending.get(attempt.key) !== attempt.token) return pending;
     const next = new Map(pending);
     next.delete(attempt.key);
     return next;
   });
+  if (attempt.kind === "join")
+    store.set(pendingSearchJoinOriginalsAtom, (originals) => {
+      if (originals.get(attempt.key)?.token !== attempt.token) return originals;
+      const next = new Map(originals);
+      next.delete(attempt.key);
+      return next;
+    });
   stopSearchLikeTrackingIfIdle(store);
+}
+
+// Use the existing API transport and endpoint, but do not turn an unknown 2xx
+// body into a joined acknowledgement. The existing development server also
+// returns the supported status without a `success` field.
+async function requestSearchCommunityJoin(name: string) {
+  const response = await apiPost(
+    `/api/communities/${encodeURIComponent(name)}/join`,
+  );
+  const value: unknown = await response.json().catch(() => null);
+  const body =
+    value !== null && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null;
+  if (response.status === 403 && body?.status === "invite_required")
+    return "invite_required" as const;
+  if (!response.ok)
+    throw new ApiError(
+      response.status,
+      typeof body?.error === "string" ? body.error : "Failed to join community",
+    );
+  if (
+    body &&
+    (body.success === undefined || body.success === true) &&
+    (body.status === "joined" ||
+      body.status === "pending" ||
+      body.status === "invite_required")
+  )
+    return body.status;
+  throw new Error("Unrecognized community join acknowledgement");
+}
+
+function rememberSearchJoinReceipt(
+  store: SearchLikeStore,
+  attempt: {
+    key: string;
+    scope: symbol;
+    sameScope: () => boolean;
+    joinTarget: SearchJoinTarget | null;
+  },
+  name: string,
+  status: SearchJoinReceipt["status"],
+) {
+  if (!attempt.sameScope() || attempt.joinTarget?.name !== name) return;
+  store.set(searchJoinReceiptsAtom, (receipts) =>
+    new Map(receipts).set(attempt.key, {
+      ...attempt.joinTarget!,
+      scope: attempt.scope,
+      sameScope: attempt.sameScope,
+      status,
+    }),
+  );
 }
 
 // An ACK from a page that has since unmounted is not a current follow status.
@@ -312,10 +465,13 @@ export function SearchPage() {
   const instancesLoading = useAtomValue(instancesLoadingAtom);
   const pendingLikes = useAtomValue(pendingSearchLikesAtom);
   const pendingFollows = useAtomValue(pendingSearchFollowsAtom);
+  const pendingJoins = useAtomValue(pendingSearchJoinsAtom);
+  const pendingJoinOriginals = useAtomValue(pendingSearchJoinOriginalsAtom);
   const followReceipts = useAtomValue(searchFollowReceiptsAtom);
+  const joinReceipts = useAtomValue(searchJoinReceiptsAtom);
+  const searchScope = useAtomValue(searchLikeScopeAtom);
   const { t, language } = useI18n();
   const setToasts = useSetAtom(toastsAtom);
-  const refreshScopes = useSetAtom(refreshScopesAtom);
   // The owner's joined communities (single source of truth for membership).
   // Changes here (a join elsewhere in the app) mean the discover list is stale,
   // so it drives a re-fetch.
@@ -333,6 +489,35 @@ export function SearchPage() {
   const needsFollowConfirmation = (id: string) => {
     const receipts = followReceipts();
     return !!receipts?.sameScope() && receipts.targets.has(id);
+  };
+  const isJoinPending = (id: string) => {
+    currentActor();
+    currentInstance();
+    currentHostedUser();
+    return pendingJoins().has(searchLikeKey(store, id));
+  };
+  const joinReceipt = (id: string) => {
+    currentActor();
+    currentInstance();
+    currentHostedUser();
+    const receipt = joinReceipts().get(searchLikeKey(store, id));
+    return receipt?.sameScope() ? receipt : null;
+  };
+  const hasOtherJoinWithName = (id: string, name: string) => {
+    searchScope();
+    return (
+      [...pendingJoinOriginals().values()].some(
+        (original) =>
+          original.id !== id && original.name === name && original.sameScope(),
+      ) ||
+      [...joinReceipts().values()].some(
+        (receipt) =>
+          receipt.id !== id &&
+          receipt.name === name &&
+          receipt.status !== "joined" &&
+          receipt.sameScope(),
+      )
+    );
   };
   // Follow requests awaiting remote approval are not accepted follows. Keep
   // their local display state by actor id across searches in this page.
@@ -380,15 +565,49 @@ export function SearchPage() {
   const [communitiesError, setCommunitiesError] = createSignal<string | null>(
     null,
   );
+  const [checkingJoinStatus, setCheckingJoinStatus] = createSignal<
+    ReadonlySet<string>
+  >(new Set());
   const [filteredCommunities, setFilteredCommunities] = createSignal<
     CommunityDetail[]
   >([]);
-  // Communities the owner has not entered yet — the discovery surface. Pending
-  // (approval-policy) requests stay visible so the state is legible.
+  // A public list response does not identify its viewer. Keep an in-flight or
+  // unresolved original visible even if that response says it is a member.
   const discoverCommunities = createMemo(() =>
-    communities().filter((c) => !c.is_member),
+    communities().filter((community) => {
+      const receipt = joinReceipt(community.ap_id);
+      if (receipt?.status === "joined")
+        return !community.is_member && !isJoinPending(community.ap_id);
+      return (
+        !community.is_member || isJoinPending(community.ap_id) || !!receipt
+      );
+    }),
   );
-  const [joiningApId, setJoiningApId] = createSignal<string | null>(null);
+  const missingJoinOriginals = createMemo(() => {
+    searchScope();
+    const present = new Set(communities().map((community) => community.ap_id));
+    const missing = new Map<
+      string,
+      SearchJoinTarget & { status: "in-flight" | "pending" | "unconfirmed" }
+    >();
+    for (const [key, original] of pendingJoinOriginals()) {
+      if (!present.has(original.id) && original.sameScope())
+        missing.set(key, { ...original, status: "in-flight" });
+    }
+    for (const [key, receipt] of joinReceipts()) {
+      if (!receipt.sameScope()) continue;
+      if (receipt.status === "joined") missing.delete(key);
+      else if (!present.has(receipt.id))
+        missing.set(key, { ...receipt, status: receipt.status });
+    }
+    return [...missing.values()];
+  });
+  let mounted = true;
+  let discoverReadGen = 0;
+  onCleanup(() => {
+    mounted = false;
+    discoverReadGen++;
+  });
 
   const [following, setFollowing] = createSignal<Actor[]>([]);
   let followAckVersion = 0;
@@ -403,16 +622,77 @@ export function SearchPage() {
   // so it can be re-run when the list goes stale (window refocus, membership
   // change) rather than only once on mount.
   const refreshDiscoverCommunities = () => {
+    const gen = ++discoverReadGen;
+    let scope: symbol;
+    let strategy: ReturnType<typeof getAuthStrategy>;
+    let transport: ReturnType<typeof getYurucommuApiTransport>;
+    let url: string;
+    try {
+      if (
+        !store.get(searchLikeActorIdAtom) ||
+        store.get(logoutBusyAtom) ||
+        store.get(instancesLoadingAtom)
+      )
+        return;
+      scope = store.get(searchLikeScopeAtom);
+      strategy = getAuthStrategy();
+      transport = getYurucommuApiTransport();
+      url = transport.resolveUrl("/api/communities");
+    } catch {
+      if (mounted && gen === discoverReadGen)
+        setCommunitiesError(t("common.loadFailed"));
+      return;
+    }
+    const current = () => {
+      try {
+        return (
+          mounted &&
+          gen === discoverReadGen &&
+          !store.get(logoutBusyAtom) &&
+          !store.get(instancesLoadingAtom) &&
+          store.get(searchLikeScopeAtom) === scope &&
+          getAuthStrategy() === strategy &&
+          getYurucommuApiTransport() === transport &&
+          transport.resolveUrl("/api/communities") === url
+        );
+      } catch {
+        return false;
+      }
+    };
     fetchCommunities()
       .then((list) => {
+        if (!current()) return;
         setCommunities(list);
         setCommunitiesError(null);
       })
       .catch((e) => {
+        if (!current()) return;
         console.error("Failed to fetch communities", e);
         setCommunitiesError(t("common.loadFailed"));
       });
   };
+
+  let previousDiscoveryScope: symbol | undefined;
+  let previousDiscoveryLoading = false;
+  createEffect(() => {
+    const nextScope = searchScope();
+    const loading = instancesLoading();
+    if (previousDiscoveryScope === undefined) {
+      previousDiscoveryScope = nextScope;
+      previousDiscoveryLoading = loading;
+      return;
+    }
+    const changed = nextScope !== previousDiscoveryScope;
+    const wasLoading = previousDiscoveryLoading;
+    previousDiscoveryScope = nextScope;
+    previousDiscoveryLoading = loading;
+    if (changed || loading) discoverReadGen++;
+    if (changed) {
+      setCommunities([]);
+      setCommunitiesError(null);
+    }
+    if (!loading && (changed || wasLoading)) refreshDiscoverCommunities();
+  });
 
   // Trending fetch failure is surfaced with a retry — a swallowed error made
   // an outage indistinguishable from "nothing is trending".
@@ -1030,64 +1310,236 @@ export function SearchPage() {
   const label = (community: CommunityDetail) =>
     community.display_name || community.name;
 
-  // One-tap join from the discovery surface. An open community drops the owner
-  // straight into it as the active scope (new ScopeBar pill); an approval/invite
-  // community surfaces a toast and reflects the pending/invite state in the list.
+  const refreshCurrentJoinScopes = async (
+    token: symbol,
+    sameScope: () => boolean,
+    target: { label: string; name: string },
+  ) => {
+    if (!sameScope() || token !== store.get(searchJoinScopeReadAtom)) return;
+    let sameReadScope = sameScope;
+    try {
+      const transport = getYurucommuApiTransport();
+      const path = "/api/communities";
+      const url = transport.resolveUrl(path);
+      sameReadScope = () => {
+        try {
+          return (
+            sameScope() &&
+            getYurucommuApiTransport() === transport &&
+            transport.resolveUrl(path) === url
+          );
+        } catch {
+          return false;
+        }
+      };
+      if (!sameReadScope()) return;
+      const list = await fetchCommunities();
+      await settleSearchLikeWhenReady(store, sameReadScope, () => {
+        if (token === store.get(searchJoinScopeReadAtom))
+          store.set(scopeCommunitiesAtom, list);
+      });
+    } catch (error) {
+      await settleSearchLikeWhenReady(store, sameReadScope, () => {
+        if (token !== store.get(searchJoinScopeReadAtom)) return;
+        console.error("Failed to refresh scope communities:", error);
+        pushToast(
+          setToasts,
+          language() === "ja"
+            ? `参加後の一覧を更新できません。元のコミュニティを確認してください。 (${target.label} / ${target.name})`
+            : `The community list could not be refreshed after joining. Check the original community. (${target.label} / ${target.name})`,
+          { kind: "error", timeout: 0 },
+        );
+      });
+    }
+  };
+
+  const checkOriginalJoinStatus = async (receipt: SearchJoinReceipt) => {
+    const key = searchLikeKey(store, receipt.id);
+    if (
+      checkingJoinStatus().has(key) ||
+      store.get(searchJoinReceiptsAtom).get(key) !== receipt ||
+      !receipt.sameScope() ||
+      store.get(instancesLoadingAtom)
+    )
+      return;
+    setCheckingJoinStatus((prev) => new Set(prev).add(key));
+    let sameReadScope = receipt.sameScope;
+    try {
+      const transport = getYurucommuApiTransport();
+      const path = `/api/communities/${encodeURIComponent(receipt.id)}`;
+      const url = transport.resolveUrl(path);
+      sameReadScope = () => {
+        try {
+          return (
+            receipt.sameScope() &&
+            getYurucommuApiTransport() === transport &&
+            transport.resolveUrl(path) === url
+          );
+        } catch {
+          return false;
+        }
+      };
+      if (!sameReadScope() || store.get(instancesLoadingAtom)) return;
+      const original = await fetchCommunity(receipt.id);
+      await settleSearchLikeWhenReady(store, sameReadScope, () => {
+        if (!mounted || store.get(searchJoinReceiptsAtom).get(key) !== receipt)
+          return;
+        if (original.ap_id !== receipt.id)
+          throw new Error("Unexpected original community");
+        // This public GET can also succeed anonymously or for a different
+        // viewer, so its membership fields cannot resolve this actor's outcome.
+        pushToast(
+          setToasts,
+          language() === "ja"
+            ? `元の情報を取得しましたが、このアカウントの参加状態は確認できません。ログイン状態と元のコミュニティを確認してください。 (${receipt.label} / ${receipt.name})`
+            : `Original details were read, but this account's membership cannot be verified. Check your login and the original community. (${receipt.label} / ${receipt.name})`,
+          { kind: "info", timeout: 0 },
+        );
+      });
+    } catch {
+      await settleSearchLikeWhenReady(store, sameReadScope, () => {
+        if (!mounted || store.get(searchJoinReceiptsAtom).get(key) !== receipt)
+          return;
+        pushToast(
+          setToasts,
+          language() === "ja"
+            ? `元のコミュニティの状態を取得できません。再試行は有効になりません。 (${receipt.label} / ${receipt.name})`
+            : `The original community status could not be read. Retry remains disabled. (${receipt.label} / ${receipt.name})`,
+          { kind: "error", timeout: 0 },
+        );
+      });
+    } finally {
+      if (mounted)
+        setCheckingJoinStatus((previous) => {
+          const next = new Set(previous);
+          next.delete(key);
+          return next;
+        });
+    }
+  };
+
+  const originalJoinReadAria = (receipt: SearchJoinReceipt) =>
+    language() === "ja"
+      ? `元の情報を取得: ${receipt.label} (${receipt.id})`
+      : `Read original details: ${receipt.label} (${receipt.id})`;
+  const originalJoinReadBusy = (receipt: SearchJoinReceipt) =>
+    checkingJoinStatus().has(searchLikeKey(store, receipt.id));
+  const originalJoinReadText = (receipt: SearchJoinReceipt) =>
+    originalJoinReadBusy(receipt)
+      ? language() === "ja"
+        ? "取得中..."
+        : "Reading..."
+      : language() === "ja"
+        ? "元の情報を取得"
+        : "Read original details";
+
+  // Keep the original community and session through navigation. A local receipt
+  // is only a reminder to check that target, not a durable membership record.
   const handleJoin = async (community: CommunityDetail, e: MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (joiningApId()) return;
-    setJoiningApId(community.ap_id);
+    const target = {
+      id: community.ap_id,
+      name: community.name,
+      label: label(community),
+    };
+    const attempt = beginSearchLike(
+      store,
+      target.id,
+      "join",
+      target.name,
+      target.label,
+    );
+    if (!attempt) return;
     try {
-      const result = await joinCommunity(community.name);
-      if (result.status === "joined") {
+      if (!attempt.sameScope() || store.get(instancesLoadingAtom)) return;
+      const outcome = await requestSearchCommunityJoin(target.name).then(
+        (status) => ({ status }) as const,
+        (error: unknown) => ({ error }) as const,
+      );
+      let refreshJoinedScopes: symbol | null = null;
+      await settleSearchLikeWhenReady(store, attempt.sameScope, () => {
+        if ("error" in outcome) {
+          const rejected = classifyWriteFailure(outcome.error) === "rejected";
+          if (!rejected)
+            rememberSearchJoinReceipt(
+              store,
+              attempt,
+              target.name,
+              "unconfirmed",
+            );
+          pushToast(
+            setToasts,
+            rejected
+              ? language() === "ja"
+                ? `参加は拒否されました。元のコミュニティを確認してください。 (${target.label} / ${target.name})`
+                : `The join was rejected. Check the original community. (${target.label} / ${target.name})`
+              : language() === "ja"
+                ? `参加の結果を確認できません。この画面では再送できません。ログイン状態と元のコミュニティを確認してください。 (${target.label} / ${target.name})`
+                : `The join outcome is unconfirmed. Retry is unavailable here. Check your login and the original community. (${target.label} / ${target.name})`,
+            { kind: "error", timeout: 0 },
+          );
+          return;
+        }
+        if (outcome.status === "invite_required") {
+          pushToast(
+            setToasts,
+            t("discover.inviteOnly").replace("{name}", target.label),
+            { kind: "info" },
+          );
+          return;
+        }
+        rememberSearchJoinReceipt(store, attempt, target.name, outcome.status);
+        // An earlier read must not replace the acknowledgement. Only update
+        // the exact row which initiated it, not a newer object for the same id.
+        discoverReadGen++;
+        if (outcome.status === "joined") {
+          refreshJoinedScopes = Symbol();
+          store.set(searchJoinScopeReadAtom, refreshJoinedScopes);
+        }
+        if (!mounted || !communities().includes(community)) {
+          pushToast(
+            setToasts,
+            language() === "ja"
+              ? `参加操作は受け付けられました。元のコミュニティで現在の状態を確認してください。 (${target.label} / ${target.name})`
+              : `The join request was accepted. Check the original community for its current state. (${target.label} / ${target.name})`,
+            { kind: "info", timeout: 0 },
+          );
+          return;
+        }
         setCommunities((prev) =>
-          prev.map((c) =>
-            c.ap_id === community.ap_id
-              ? {
-                  ...c,
-                  is_member: true,
-                  member_role: "member",
-                  join_status: null,
-                  member_count: c.member_count + 1,
-                }
-              : c,
+          prev.map((item) =>
+            item !== community
+              ? item
+              : outcome.status === "joined"
+                ? {
+                    ...item,
+                    is_member: true,
+                    member_role: "member",
+                    join_status: null,
+                    member_count: item.member_count + 1,
+                  }
+                : { ...item, join_status: "pending" },
           ),
         );
-        // Surface the joined community as a selectable filter pill — but do NOT
-        // narrow home to it. Joining is a membership action, not a deliberate
-        // view choice; home stays the unified reach until the user explicitly
-        // picks this community in the switcher.
-        await refreshScopes();
         pushToast(
           setToasts,
-          t("discover.joined").replace("{name}", label(community)),
-          { kind: "success" },
+          t(
+            outcome.status === "joined"
+              ? "discover.joined"
+              : "discover.requested",
+          ).replace("{name}", target.label),
+          { kind: outcome.status === "joined" ? "success" : "info" },
         );
-      } else if (result.status === "pending") {
-        setCommunities((prev) =>
-          prev.map((c) =>
-            c.ap_id === community.ap_id ? { ...c, join_status: "pending" } : c,
-          ),
+      });
+      if (refreshJoinedScopes !== null)
+        await refreshCurrentJoinScopes(
+          refreshJoinedScopes,
+          attempt.sameScope,
+          target,
         );
-        pushToast(
-          setToasts,
-          t("discover.requested").replace("{name}", label(community)),
-          { kind: "info" },
-        );
-      } else {
-        // invite_required
-        pushToast(
-          setToasts,
-          t("discover.inviteOnly").replace("{name}", label(community)),
-          { kind: "info" },
-        );
-      }
-    } catch (err) {
-      console.error("Failed to join community:", err);
-      pushToast(setToasts, t("discover.joinFailed"), { kind: "error" });
     } finally {
-      setJoiningApId(null);
+      endSearchLike(store, attempt);
     }
   };
 
@@ -1226,6 +1678,57 @@ export function SearchPage() {
                       {t("discover.subtitle")}
                     </p>
                   </div>
+                  <For each={missingJoinOriginals()}>
+                    {(original) => (
+                      <div
+                        role="status"
+                        class="mx-4 my-2 rounded-lg border border-neutral-700 p-3 text-sm text-neutral-300"
+                      >
+                        <p>
+                          {language() === "ja"
+                            ? "一覧に表示されていない元の参加操作"
+                            : "Original join not shown in the list"}
+                        </p>
+                        <p class="break-all font-medium text-white">
+                          {original.label} ({original.name})
+                        </p>
+                        <p class="break-all text-xs text-neutral-400">
+                          {original.id}
+                        </p>
+                        <p>
+                          {original.status === "in-flight"
+                            ? language() === "ja"
+                              ? "参加処理中・再送不可"
+                              : "Join in progress; retry unavailable"
+                            : original.status === "pending"
+                              ? language() === "ja"
+                                ? "申請を受け付けました。現在の状態は未確認です。"
+                                : "Request accepted; current status unverified."
+                              : language() === "ja"
+                                ? "結果未確認・再送不可"
+                                : "Unconfirmed; retry unavailable"}
+                        </p>
+                        <Show when={joinReceipt(original.id)}>
+                          {(receipt) => (
+                            <button
+                              type="button"
+                              aria-label={originalJoinReadAria(receipt())}
+                              disabled={
+                                instancesLoading() ||
+                                originalJoinReadBusy(receipt())
+                              }
+                              onClick={() =>
+                                void checkOriginalJoinStatus(receipt())
+                              }
+                              class="w-fit shrink-0 rounded-full border border-neutral-700 px-4 py-1.5 text-sm font-medium text-neutral-300"
+                            >
+                              {originalJoinReadText(receipt())}
+                            </button>
+                          )}
+                        </Show>
+                      </div>
+                    )}
+                  </For>
                   <Show
                     when={discoverCommunities().length > 0}
                     fallback={
@@ -1240,11 +1743,13 @@ export function SearchPage() {
                             />
                           }
                         >
-                          <EmptyState
-                            icon={<SearchEmptyIcon />}
-                            title={t("discover.empty")}
-                            hint={t("discover.emptyHint")}
-                          />
+                          <Show when={missingJoinOriginals().length === 0}>
+                            <EmptyState
+                              icon={<SearchEmptyIcon />}
+                              title={t("discover.empty")}
+                              hint={t("discover.emptyHint")}
+                            />
+                          </Show>
                         </Show>
                       </div>
                     }
@@ -1297,22 +1802,101 @@ export function SearchPage() {
                             </div>
                           </A>
                           <Show
-                            when={community.join_status === "pending"}
+                            when={
+                              !hasOtherJoinWithName(
+                                community.ap_id,
+                                community.name,
+                              )
+                            }
                             fallback={
-                              <button
-                                onClick={(e) => handleJoin(community, e)}
-                                disabled={joiningApId() !== null}
-                                class="px-4 py-1.5 bg-[var(--accent)] text-white font-medium rounded-full hover:brightness-110 transition-colors text-sm shrink-0 disabled:opacity-50"
-                              >
-                                {joiningApId() === community.ap_id
-                                  ? t("discover.joining")
-                                  : t("discover.join")}
-                              </button>
+                              <span class="max-w-40 text-right text-xs text-neutral-400">
+                                {language() === "ja"
+                                  ? "同名の元の参加操作が残っているため再送できません。"
+                                  : "An earlier join with this name prevents a resend."}
+                              </span>
                             }
                           >
-                            <span class="px-4 py-1.5 border border-neutral-700 text-neutral-400 font-medium rounded-full text-sm shrink-0">
-                              {t("groups.pending")}
-                            </span>
+                            <Show
+                              when={joinReceipt(community.ap_id)}
+                              fallback={
+                                <Show
+                                  when={community.join_status === "pending"}
+                                  fallback={
+                                    <button
+                                      onClick={(e) => handleJoin(community, e)}
+                                      disabled={
+                                        instancesLoading() ||
+                                        isJoinPending(community.ap_id)
+                                      }
+                                      class="px-4 py-1.5 bg-[var(--accent)] text-white font-medium rounded-full hover:brightness-110 transition-colors text-sm shrink-0 disabled:opacity-50"
+                                    >
+                                      {isJoinPending(community.ap_id)
+                                        ? t("discover.joining")
+                                        : t("discover.join")}
+                                    </button>
+                                  }
+                                >
+                                  <span class="px-4 py-1.5 border border-neutral-700 text-neutral-400 font-medium rounded-full text-sm shrink-0">
+                                    {t("groups.pending")}
+                                  </span>
+                                </Show>
+                              }
+                            >
+                              {(receipt) => (
+                                <div class="flex flex-col items-end gap-1 shrink-0">
+                                  <Show
+                                    when={receipt().status === "unconfirmed"}
+                                  >
+                                    <span class="text-xs text-neutral-400 text-right">
+                                      {language() === "ja"
+                                        ? "結果未確認・再送不可"
+                                        : "Unconfirmed; retry unavailable"}
+                                    </span>
+                                  </Show>
+                                  <Show when={receipt().status === "pending"}>
+                                    <span class="max-w-40 text-xs text-neutral-400 text-right">
+                                      {language() === "ja"
+                                        ? "申請を受け付けました。現在の状態は未確認です。"
+                                        : "Request accepted; current status unverified."}
+                                    </span>
+                                  </Show>
+                                  <Show when={receipt().status === "joined"}>
+                                    <span class="max-w-40 text-xs text-neutral-400 text-right">
+                                      {language() === "ja"
+                                        ? "前回の参加は受け付けました。現在の状態は未確認です。"
+                                        : "Previous join was accepted; current status unverified."}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      disabled={
+                                        instancesLoading() ||
+                                        isJoinPending(community.ap_id)
+                                      }
+                                      onClick={(e) => handleJoin(community, e)}
+                                      class="rounded-full bg-[var(--accent)] px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+                                    >
+                                      {language() === "ja"
+                                        ? "もう一度参加"
+                                        : "Join again"}
+                                    </button>
+                                  </Show>
+                                  <button
+                                    type="button"
+                                    aria-label={originalJoinReadAria(receipt())}
+                                    disabled={
+                                      instancesLoading() ||
+                                      originalJoinReadBusy(receipt())
+                                    }
+                                    onClick={() =>
+                                      void checkOriginalJoinStatus(receipt())
+                                    }
+                                    class="w-fit shrink-0 rounded-full border border-neutral-700 px-4 py-1.5 text-sm font-medium text-neutral-300"
+                                  >
+                                    {originalJoinReadText(receipt())}
+                                  </button>
+                                </div>
+                              )}
+                            </Show>
                           </Show>
                         </div>
                       )}
