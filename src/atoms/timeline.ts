@@ -550,6 +550,7 @@ export const applyNewPostsAtom = atom(null, (get, set) => {
 export const actorStoriesAtom = atom<ActorStories[]>([]);
 export const storiesLoadingAtom = atom(true);
 export const storiesErrorAtom = atom<string | null>(null);
+const storiesLoadGenerationAtom = atom(0);
 export const showStoryViewerAtom = atom(false);
 export const storyViewerActorIndexAtom = atom(0);
 export const showStoryComposerAtom = atom(false);
@@ -714,8 +715,6 @@ function reconcileHeadAcknowledgements(
   }
   return merged.slice(0, MAX_TIMELINE_POSTS);
 }
-let storiesLoadGen = 0;
-
 export const loadTimelineAtom = atom(null, async (get, set) => {
   retireFeedBookmarkReads(get, set, unifiedBookmarkReadsAtom);
   const gen = get(timelineRequestsAtom).generation + 1;
@@ -1032,7 +1031,8 @@ export const loadMoreFollowingTimelineAtom = atom(null, async (get, set) => {
 });
 
 export const loadStoriesAtom = atom(null, async (get, set) => {
-  const gen = ++storiesLoadGen;
+  const gen = get(storiesLoadGenerationAtom) + 1;
+  set(storiesLoadGenerationAtom, gen);
   set(storiesErrorAtom, null);
   try {
     // Filter the StoryBar by the inhabited scope: personal observes self +
@@ -1040,14 +1040,14 @@ export const loadStoriesAtom = atom(null, async (get, set) => {
     // backend returns only that community's members' stories (member-gated).
     const scope = get(scopeQueryAtom);
     const data = await fetchStories(scope?.community);
-    if (gen !== storiesLoadGen) return; // superseded by a newer scope load
+    if (gen !== get(storiesLoadGenerationAtom)) return; // superseded by a newer scope load
     set(actorStoriesAtom, data);
   } catch (e) {
-    if (gen !== storiesLoadGen) return;
+    if (gen !== get(storiesLoadGenerationAtom)) return;
     console.error("Failed to load stories:", e);
     set(storiesErrorAtom, get(tAtom)("story.loadFailed"));
   } finally {
-    if (gen === storiesLoadGen) set(storiesLoadingAtom, false);
+    if (gen === get(storiesLoadGenerationAtom)) set(storiesLoadingAtom, false);
   }
 });
 
