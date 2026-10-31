@@ -264,19 +264,37 @@ export function reconcileBookmarkRead(
   current: Post[],
 ): Post[] | null {
   if (!ownsBookmarkRead(get, read)) return null;
-  const confirmed = get(windowsAtom).get(read.ticket)!.confirmed;
-  if (confirmed.size === 0) return server;
+  const windows = get(windowsAtom);
+  const confirmed = windows.get(read.ticket)!.confirmed;
+  const pendingOptimistic = new Set<string>();
+  const groups = get(mutationsAtom).groups;
+  for (const window of windows.values()) {
+    const mutation = window.mutation;
+    if (!mutation || !isBookmarkMutationCurrent(get, mutation)) continue;
+    const group = groups.get(mutation.key);
+    if (
+      group?.entries.some(
+        (entry) =>
+          entry.mutation.ticket === mutation.ticket &&
+          entry.status === "pending",
+      )
+    )
+      pendingOptimistic.add(mutation.apId);
+  }
+  if (confirmed.size === 0 && pendingOptimistic.size === 0) return server;
   // Preserve a later displayed interaction on this object, including boosts,
-  // but change only the bookmark field of the earlier server snapshot.
+  // but change only the bookmark field of the earlier server snapshot. An
+  // unacknowledged optimistic toggle is overlaid only where it is visible;
+  // it is never treated as a successful write or added to a saved list.
   const visible = new Map(current.map((post) => [post.ap_id, post.bookmarked]));
-  return server.map((post) =>
-    confirmed.has(post.ap_id)
-      ? {
-          ...post,
-          bookmarked: visible.get(post.ap_id) ?? confirmed.get(post.ap_id)!,
-        }
-      : post,
-  );
+  return server.map((post) => {
+    const displayed = visible.get(post.ap_id);
+    if (confirmed.has(post.ap_id))
+      return { ...post, bookmarked: displayed ?? confirmed.get(post.ap_id)! };
+    if (pendingOptimistic.has(post.ap_id) && displayed !== undefined)
+      return { ...post, bookmarked: displayed };
+    return post;
+  });
 }
 
 export const acknowledgeBookmarkReadAtom = atom(
