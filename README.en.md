@@ -63,15 +63,20 @@ YURUCOMMU_DEV_PROXY_TARGET=http://localhost:8787 bun run dev
 
 ## Choose where to run it
 
-| Goal                    | Use                                            | Data location                                |
-| ----------------------- | ---------------------------------------------- | -------------------------------------------- |
-| Try the UI              | `bun run dev:mock`                             | Memory; cleared on exit                      |
-| Run on Takoserver       | [`deploy/takoform`](deploy/takoform/README.md) | Independent Resources provided by Takoserver |
-| Self-host on Cloudflare | Root `main.tf` or `wrangler.jsonc`             | D1, R2, Workers KV, and Queues               |
+| Goal                                           | Use                                                | Data location                                |
+| ---------------------------------------------- | -------------------------------------------------- | -------------------------------------------- |
+| Try the UI                                     | `bun run dev:mock`                                 | Memory; cleared on exit                      |
+| Run on Takoserver                              | [`deploy/takoform`](deploy/takoform/README.md)     | Independent Resources provided by Takoserver |
+| Install straight onto Cloudflare from Takosumi | [`deploy/cloudflare`](deploy/cloudflare/README.md) | Your D1, R2, Workers KV, and Queues          |
+| Self-host on Cloudflare                        | Root `main.tf` or `wrangler.jsonc`                 | D1, R2, Workers KV, and Queues               |
 
 Yurucommu owns the logical resource roles and connection names. The
-`deploy/takoform` module and root `main.tf` map that same contract to a
-Takoform host and direct Cloudflare respectively. Takosumi runs either as an
+`deploy/takoform` module maps that same contract to a Takoform host;
+`deploy/cloudflare` and the root `main.tf` map it to direct Cloudflare.
+`deploy/cloudflare` is the module Takosumi installs through a Cloudflare
+connection, and its Worker applies the schema to its own D1 database. The root
+`main.tf` publishes a released artifact for manual self-hosting and leaves the
+schema to the operator. Takosumi runs either as an
 ordinary OpenTofu module; product code does not know which adapter was chosen.
 
 ### Install on Takosumi
@@ -84,9 +89,10 @@ https://app.takosumi.com/install?git=https%3A%2F%2Fgithub.com%2Ftako0614%2Fyuruc
 ```
 
 Takosumi scans the OpenTofu tree at one Git revision and derives the real root
-modules and each module's Provider requirements. This repository has two
-candidates, the root and `deploy/takoform`, so the install screen asks which
-one to run. There is no separate source-options document. Adjust the ref,
+modules and each module's Provider requirements. This repository has three
+candidates, the root, `deploy/cloudflare`, and `deploy/takoform`, so the install
+screen asks which one to run. Choose `deploy/cloudflare` to install with a
+Cloudflare connection ([details](deploy/cloudflare/README.md)). There is no separate source-options document. Adjust the ref,
 module path, or service name only when needed.
 
 The install destination this repository declares is `deploy/takoform`, named by
@@ -113,8 +119,9 @@ the public URL, migrations, and runtime authorization.
 Takosumi's Cloudflare profile uses Takosumi Accounts OIDC. The initial install
 screen does not accept an initial password or an authenticated push-gateway
 token because that path has no sealed input transport. A gateway that needs no
-token can still use its URL and public key. Token-authenticated gateways remain
-a manual self-hosting concern until sealed install inputs exist.
+token can still use its URL. Token-authenticated gateways remain a manual
+self-hosting concern until sealed install inputs exist. Browser Web Push needs
+neither.
 
 1. Pass the Git URL.
 2. Let Takosumi sync the source tree and manifest and show what it will create.
@@ -240,25 +247,33 @@ In-app notifications work without additional infrastructure. Browser Web Push
 while the app is closed is optional. Yurucommu does not request browser
 permission until a person enables it in Settings.
 
+Browser Web Push needs no extra configuration. The Yurucommu Worker sends
+standard Web Push (RFC 8291, RFC 8292) itself. Its VAPID key is derived from
+`ENCRYPTION_KEY`, and browsers receive the public key as
+`web_push_instance_public_key` from `GET /api/notifications/pushers/config`.
+No push gateway and no hand-entered public key are involved. Changing
+`ENCRYPTION_KEY` changes the VAPID key, and enabled subscriptions are recreated
+with the new key.
+
 Push payloads do not contain post or direct-message content. A notification
 opens Yurucommu's notification view, which retrieves the content from the
 authenticated API.
 
-The Cloudflare OpenTofu path accepts three Web Push inputs:
+A push gateway is used only to reach native app devices, and for browser
+subscriptions that an earlier version registered through a gateway and that
+have not moved yet. The Cloudflare OpenTofu path configures it with:
 
-| Input                                   | Purpose                                                  |
-| --------------------------------------- | -------------------------------------------------------- |
-| `notification_push_gateway_url`         | HTTPS notification endpoint                              |
-| `notification_push_gateway_token`       | Optional Secret when the gateway requires authentication |
-| `notification_push_web_push_public_key` | Public VAPID key sent to browsers                        |
+| Input                             | Purpose                                                  |
+| --------------------------------- | -------------------------------------------------------- |
+| `notification_push_gateway_url`   | HTTPS notify endpoint of the push gateway                |
+| `notification_push_gateway_token` | Optional Secret when the gateway requires authentication |
 
-Configure the URL and public key together. Keep the matching private key at the
-gateway; never store it in the Yurucommu database, browser, or OpenTofu
-outputs.
+The former `notification_push_web_push_public_key` input is gone (core 4.2.0
+and later ignore a hand-entered key).
 
 `deploy/takoform` does not put push secrets in state. A managed host that
-offers Web Push must inject the URL and public key at runtime, together with a
-token only when its gateway requires one.
+offers a push gateway must inject its URL at runtime, together with a token
+only when the gateway requires one.
 
 ## Operations and troubleshooting
 
@@ -330,10 +345,12 @@ resource ID.
 
 ### Browser push does not arrive
 
-Check browser permission first, then confirm that the gateway URL and public
-VAPID key were configured together. If the gateway requires authentication,
-also verify that the Worker received its token as a Secret. Web Push requires
-HTTPS.
+Check browser permission first. The server side is enabled when
+`web_push_instance_public_key` from `GET /api/notifications/pushers/config` is
+not empty; when it is empty, the Worker did not receive `ENCRYPTION_KEY`. Web
+Push requires HTTPS. For native app notifications, also confirm the gateway URL
+and, when the gateway requires authentication, that the Worker received its
+token as a Secret.
 
 ### Delivery to another server is stalled
 
@@ -432,6 +449,7 @@ documentation.
 - [`scripts/dev-mock-server.ts`](scripts/dev-mock-server.ts) — local mock API
 - [`scripts/build-yurucommu-worker.ts`](scripts/build-yurucommu-worker.ts) — Worker build
 - [`deploy/takoform/`](deploy/takoform/) — definition for Takosumi and other managed hosts
+- [`deploy/cloudflare/`](deploy/cloudflare/) — direct Cloudflare install through a Takosumi Cloudflare connection
 - [`main.tf`](main.tf) — OpenTofu module for Cloudflare self-hosting
 - [`site/`](site/) — static `yurucommu.com` site, help, and protocol documents
 - [`site/DEPLOY.md`](site/DEPLOY.md) — website publication guide

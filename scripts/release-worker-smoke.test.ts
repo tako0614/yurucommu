@@ -1,13 +1,14 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough, Transform, type Readable } from "node:stream";
 import { build, stop } from "esbuild";
 
-import { createEntrySource } from "./build-yurucommu-worker.ts";
+import { contentTypeFor, createEntrySource } from "./build-yurucommu-worker.ts";
 import { createManagedNativeRuntime } from "./native-runtime-stdio.mjs";
 import { runSupervisedCommand } from "./native-smoke-supervisor.mjs";
 
@@ -23,6 +24,17 @@ async function buildGeneratedFixture(transform = (source: string) => source) {
       contentType: "text/html; charset=utf-8",
       body: btoa('<title>Yurucommu</title><div id="root"></div>'),
     },
+    // The real manifest and one of its icons, so the artifact smoke's
+    // web-app-manifest phase sees what the build embeds from public/.
+    ...Object.fromEntries(
+      ["manifest.webmanifest", "icons/yurucommu-192.png"].map((path) => [
+        path,
+        {
+          contentType: contentTypeFor(path),
+          body: readFileSync(join(repo, "public", path)).toString("base64"),
+        },
+      ]),
+    ),
   });
   try {
     await build({
@@ -844,6 +856,7 @@ describe("release Worker smoke", () => {
         "readyz",
         "discovery",
         "embedded-ui",
+        "web-app-manifest",
         "queue-fanout",
         "queue-dlq",
         "scheduled-retention",
@@ -1183,6 +1196,17 @@ describe("release Worker smoke", () => {
       (source: string) =>
         source.replace("await runRetention(runtimeEnv);", "void runtimeEnv;"),
       "scheduled retention did not preserve",
+    ],
+    [
+      "artifact that does not embed the web app manifest",
+      (source: string) => {
+        expect(source).toContain('"manifest.webmanifest": {');
+        return source.replace(
+          '"manifest.webmanifest": {',
+          '"not-the-manifest.webmanifest": {',
+        );
+      },
+      "embedded web app manifest was not served",
     ],
   ] as const) {
     test(`rejects ${name}`, async () => {

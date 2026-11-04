@@ -97,8 +97,15 @@ describe("generated worker entry", () => {
   // disagree with it.
   test("delegates the request path to the core's middleware and the queue path to its background helper", () => {
     expect(entrySource).toContain("withRequiredBackgroundPublicOrigin");
-    expect(entrySource).toContain(
-      "await withRequiredBackgroundPublicOrigin(\n        wrapYurucommuWorkerBindings(env) as Env,\n      )",
+    const queueHandler = entrySource.slice(
+      entrySource.indexOf("  async queue("),
+      entrySource.indexOf("  async scheduled("),
+    );
+    expect(queueHandler).toContain(
+      "const bindings = wrapYurucommuWorkerBindings(env);",
+    );
+    expect(queueHandler).toContain(
+      "await withRequiredBackgroundPublicOrigin(bindings as Env)",
     );
     expect(entrySource).not.toContain("establishRequestPublicOrigin");
     const fetchHandler = entrySource
@@ -111,9 +118,11 @@ describe("generated worker entry", () => {
       .join("\n");
     expect(fetchHandler).toContain("wrapYurucommuWorkerBindings(env)");
     expect(fetchHandler).not.toContain("APP_URL");
-    // One await, and it is the app itself. Anything else here would be a second
-    // origin rule running after the core's middleware had already decided.
-    expect(fetchHandler.match(/await /g)).toHaveLength(1);
+    // Two awaits: the opt-in bundled-schema gate, which reads no origin, and
+    // the app itself. Anything else here would be a second origin rule running
+    // after the core's middleware had already decided.
+    expect(fetchHandler.match(/await /g)).toHaveLength(2);
+    expect(fetchHandler).toContain("await schemaReady;");
     expect(fetchHandler).toContain("await backendApp.fetch(");
   });
 
@@ -1225,5 +1234,121 @@ describe("public origin per lane", () => {
     expect(kv.read(CANONICAL_ORIGIN_KV_KEY)).toBe(
       "https://pinned.example.test",
     );
+  });
+});
+
+// The embedded asset table is looked up with the request path. As a plain
+// object literal it inherited Object.prototype, so a path such as /constructor
+// or /__proto__ resolved to a prototype member instead of to nothing, and
+// decoding that member's missing body threw: an HTTP 500 for anyone who typed
+// one. Only the table's own entries are assets.
+describe("embedded asset lookup", () => {
+  const entryFile = new URL(
+    "../dist/yurucommu-entry.asset-own-key-test.ts",
+    import.meta.url,
+  );
+  const origin = "https://yurucommu.example.test";
+  const shell = '<title>Yurucommu</title><div id="root"></div>';
+  let worker: {
+    fetch(request: Request, env: unknown, ctx: unknown): Promise<Response>;
+  };
+
+  afterAll(async () => {
+    await rm(entryFile, { force: true });
+    resetObservedPublicOrigin();
+  });
+
+  async function loadWorker() {
+    if (worker) return worker;
+    await mkdir(new URL("../dist/", import.meta.url), { recursive: true });
+    await writeFile(
+      entryFile,
+      createEntrySource({
+        "index.html": {
+          contentType: "text/html; charset=utf-8",
+          body: btoa(shell),
+        },
+        "icons/app.svg": {
+          contentType: "image/svg+xml",
+          body: btoa("<svg/>"),
+        },
+      }),
+    );
+    worker = (
+      (await import(pathToFileURL(entryFile.pathname).href)) as {
+        default: typeof worker;
+      }
+    ).default;
+    return worker;
+  }
+
+  const env = () => ({
+    DB: {
+      prepare: () => ({
+        bind: () => ({}),
+        first: async () => null,
+        all: async () => ({ results: [], success: true }),
+        run: async () => ({ success: true }),
+      }),
+      batch: async () => [],
+      exec: async () => ({ count: 0, duration: 0 }),
+    },
+    KV: {
+      get: async () => null,
+      getWithMetadata: async () => null,
+      put: async () => undefined,
+      delete: async () => undefined,
+      list: async () => ({ keys: [], list_complete: true, listComplete: true }),
+    },
+    APP_URL: origin,
+    YURUCOMMU_SESSION_HASH_SALT: "synthetic-test-session-salt",
+    DELIVERY_QUEUE_NAME: "configured-delivery",
+    DELIVERY_DLQ_NAME: "configured-delivery-dlq",
+  });
+
+  test("an Object.prototype member name is not an asset", async () => {
+    const { fetch } = await loadWorker();
+    for (const name of [
+      "constructor",
+      "toString",
+      "valueOf",
+      "hasOwnProperty",
+      "isPrototypeOf",
+      "__proto__",
+      "__defineGetter__",
+    ]) {
+      for (const accept of ["*/*", "text/html"]) {
+        const response = await fetch(
+          new Request(`${origin}/${name}`, { headers: { accept } }),
+          env(),
+          {},
+        );
+        // Extensionless and not an asset: the SPA shell, like any client route.
+        expect(response.status, `/${name} (${accept})`).toBe(200);
+        expect(response.headers.get("content-type")).toBe(
+          "text/html; charset=utf-8",
+        );
+        expect(await response.text()).toBe(shell);
+      }
+      // With an extension it is a missing file, not the shell.
+      const withExtension = await fetch(
+        new Request(`${origin}/${name}.js`),
+        env(),
+        {},
+      );
+      expect(withExtension.status, `/${name}.js`).toBe(404);
+    }
+  });
+
+  test("the table's own entries are still served", async () => {
+    const { fetch } = await loadWorker();
+    const response = await fetch(
+      new Request(`${origin}/icons/app.svg`),
+      env(),
+      {},
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("image/svg+xml");
+    expect(await response.text()).toBe("<svg/>");
   });
 });

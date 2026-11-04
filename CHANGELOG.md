@@ -1,5 +1,29 @@
 # Changelog
 
+## Unreleased
+
+- Add `deploy/cloudflare`, a module Takosumi installs straight onto a
+  Cloudflare account through a Cloudflare connection, with the official
+  `cloudflare/cloudflare` provider and no Takoform Host. Its Worker applies the
+  locked schema bundle to its own D1 database before serving, one atomic batch
+  per file in the shared `yurucommu_migrations` ledger, opted in by
+  `YURUCOMMU_APPLY_BUNDLED_MIGRATIONS=true`. Every other deployment keeps
+  managing its schema as before. Migrations are unchanged.
+
+- Use Core/API 4.2.1. A fresh managed install creates its first owner
+  again: since 2026-10-29 Takosumi Accounts adds `app_role` to the signed
+  `takosumi` ID-token claim, which Core 4.2.0 and earlier refused, so the first
+  sign-in was rejected. Existing instances were unaffected. Migrations are
+  unchanged.
+
+- Use Core/API 4.2.0. The instance sends standard Web Push itself with a VAPID
+  key derived from `ENCRYPTION_KEY`, so browser notifications need no push
+  gateway or hand-entered key. The service worker shows Declarative Web Push
+  and opens only same-origin pages. The ignored
+  `notification_push_web_push_public_key` input and the `VITE_*` build-time
+  push fallback are removed; the gateway URL remains for native app pushers.
+  Migrations are unchanged (35 files, byte-identical to Core 4.1.15).
+
 ## 2.4.1 - 2026-10-11
 
 - Use Core/API 4.1.14, which fixes the authenticated user-recommendations SQL

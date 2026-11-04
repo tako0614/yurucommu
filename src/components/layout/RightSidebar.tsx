@@ -158,7 +158,9 @@ export function RightSidebar() {
 
   // A followed card goes away; if its button had focus, focus moves to the
   // follow button of the card now in its place (or the last one), or, after
-  // the last card, to the connect panel that replaces the list.
+  // the last card, to the connect panel that replaces the list. Where that
+  // panel is not shown (search, the empty home's own panel), focus goes to the
+  // main landmark, as when a dialog's opener is gone.
   let listRef: HTMLDivElement | undefined;
   const handleFollowed = (apId: string, hadFocus: boolean) => {
     const at = users().findIndex((u) => u.ap_id === apId);
@@ -170,9 +172,14 @@ export function RightSidebar() {
       const buttons = listRef?.isConnected
         ? listRef.querySelectorAll<HTMLElement>("[data-rec-follow]")
         : [];
+      const main = document.querySelector<HTMLElement>("main, [role='main']");
+      if (main && !main.hasAttribute("tabindex")) {
+        main.setAttribute("tabindex", "-1");
+      }
       const next =
         buttons[Math.min(at, buttons.length - 1)] ??
-        document.querySelector<HTMLElement>("[data-sidebar-connect]");
+        document.querySelector<HTMLElement>("[data-sidebar-connect]") ??
+        main;
       next?.focus();
     });
   };

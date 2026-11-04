@@ -36,6 +36,7 @@ import {
   fetchMutedUsers,
   getBrowserNotificationPushState,
   refreshBrowserNotificationPush,
+  type BrowserNotificationPushConfig,
   type BrowserNotificationPushState,
   unblockUser,
   unmuteUser,
@@ -43,7 +44,6 @@ import {
 import {
   clearYurucommuBrowserPushBeforeSignOut,
   resolveYurucommuBrowserPushConfig,
-  yurucommuBrowserPushConfig,
 } from "../lib/browser-push.ts";
 
 export function SettingsPage() {
@@ -80,7 +80,7 @@ export function SettingsPage() {
   // and prevent a double-submit.
   const [deletingAccount, setDeletingAccount] = createSignal(false);
   const [pushConfig, setPushConfig] =
-    createSignal<ReturnType<typeof yurucommuBrowserPushConfig>>(null);
+    createSignal<BrowserNotificationPushConfig | null>(null);
   const [pushState, setPushState] =
     createSignal<BrowserNotificationPushState>("unconfigured");
   const [pushBusy, setPushBusy] = createSignal(false);
