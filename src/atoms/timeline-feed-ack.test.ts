@@ -953,7 +953,10 @@ for (const kind of ["unified", "following", "poll"] as const) {
         ...actor(),
         ap_id: `${origin}/ap/users/persona`,
       });
+      // The previous actor's pagination cursor is retired with its feed.
+      expect(h.store.get(f.cursor)).toBeNull();
       h.store.set(f.posts, [next]);
+      h.store.set(f.cursor, "actor-cursor");
       h.heads[0]!.resolve(
         page(
           [
