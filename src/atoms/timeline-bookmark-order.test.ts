@@ -225,9 +225,16 @@ test("old mutation stays retired after an instance A to B to A cycle", async () 
     const olderRequest = await h.waitFor(1);
     h.store.set(h.auth.selectedInstanceIdAtom, "instance-b");
     h.store.set(h.auth.selectedInstanceIdAtom, "instance-a");
+    expect(h.store.get(h.timeline.timelinePostsAtom)).toEqual([]);
+    const reloaded = h.store.set(h.timeline.loadTimelineAtom);
+    work.push(reloaded);
+    const newRead = await h.waitFor(2);
+    expect(newRead.method).toBe("GET");
+    newRead.pending.resolve(page([target]));
+    await reloaded;
     const newer = h.store.set(h.timeline.toggleTimelineBookmarkAtom, target);
     work.push(newer);
-    const newerRequest = await h.waitFor(2);
+    const newerRequest = await h.waitFor(3);
     newerRequest.pending.resolve(
       new Response(JSON.stringify({ success: true })),
     );
@@ -475,9 +482,16 @@ test("bookmark actions do not dispatch while instance loading is reported", asyn
     release.resolve();
     await selection;
     expect(h.store.get(h.auth.selectedInstanceIdAtom)).toBe("instance-b");
+    expect(h.store.get(h.timeline.timelinePostsAtom)).toEqual([]);
+    const newFeed = h.store.set(h.timeline.loadTimelineAtom);
+    work.push(newFeed);
+    const read = await h.waitFor(1);
+    expect(read.method).toBe("GET");
+    read.pending.resolve(page([target]));
+    await newFeed;
     const after = h.store.set(h.timeline.toggleTimelineBookmarkAtom, target);
     work.push(after);
-    const request = await h.waitFor(1);
+    const request = await h.waitFor(2);
     request.pending.resolve(new Response(JSON.stringify({ success: true })));
     await after;
     expect(h.store.get(h.timeline.timelinePostsAtom)[0]?.bookmarked).toBe(true);

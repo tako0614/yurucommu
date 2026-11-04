@@ -58,6 +58,8 @@ import { acknowledgesPost } from "../lib/post-acknowledgement.ts";
 import {
   actorAtom,
   authSessionEpochAtom,
+  observedActorIdentityVersionAtom,
+  observedHostedIdentityVersionAtom,
   hostedUserAtom,
   instancesLoadingAtom,
   selectedInstanceIdAtom,
@@ -99,6 +101,48 @@ export type CreatePostOptions = {
   community_ap_id?: string;
 };
 
+// Keep cached feed display state with its observed actor, hosted user, and
+// selected instance. Attempt epochs separately fence in-flight requests.
+const feedIdentityAtom = atom((get) =>
+  JSON.stringify([
+    get(actorAtom)?.ap_id ?? null,
+    get(observedActorIdentityVersionAtom),
+    get(selectedInstanceIdAtom),
+    get(hostedUserAtom)?.id ?? null,
+    get(observedHostedIdentityVersionAtom),
+  ]),
+);
+const feedInstanceMarkerAtom = atom((get) => {
+  get(selectedInstanceIdAtom);
+  return {};
+});
+const feedIdentityMarkerAtom = atom((get) => {
+  get(feedIdentityAtom);
+  get(feedInstanceMarkerAtom);
+  return {};
+});
+function scopedFeedAtom<T>(initial: T) {
+  const value = atom<{ marker: object; value: T } | null>(null);
+  return atom(
+    (get) => {
+      const prior = get(value);
+      return prior?.marker === get(feedIdentityMarkerAtom)
+        ? prior.value
+        : initial;
+    },
+    (get, set, update: SetStateAction<T>) => {
+      const marker = get(feedIdentityMarkerAtom);
+      const prior = get(value);
+      const current = prior?.marker === marker ? prior.value : initial;
+      const next =
+        typeof update === "function"
+          ? (update as (prev: T) => T)(current)
+          : update;
+      set(value, { marker, value: next });
+    },
+  );
+}
+
 // --- Post state ---
 // A successful DELETE establishes a fact about a globally unique canonical AP
 // object, including its boost entries. Retain only IDs in this Jotai store for
@@ -107,7 +151,7 @@ export type CreatePostOptions = {
 // A page reload creates a fresh store and relies on the server's durable state.
 const deletedTimelinePostIdsAtom = atom<ReadonlySet<string>>(new Set<string>());
 function createFeedPostsAtom() {
-  const rows = atom<Post[]>([]);
+  const rows = scopedFeedAtom<Post[]>([]);
   return atom(
     (get) => get(rows),
     (get, set, update: SetStateAction<Post[]>) => {
@@ -126,24 +170,24 @@ function createFeedPostsAtom() {
 // composer ACKs and page-level updater functions. Filter at commit time, while
 // keeping the server's original cursor/hasMore and unrelated rows.
 export const timelinePostsAtom = createFeedPostsAtom();
-export const timelineLoadingAtom = atom(true);
-export const timelineLoadingMoreAtom = atom(false);
-export const timelineHasMoreAtom = atom(true);
+export const timelineLoadingAtom = scopedFeedAtom(true);
+export const timelineLoadingMoreAtom = scopedFeedAtom(false);
+export const timelineHasMoreAtom = scopedFeedAtom(true);
 // Server-issued composite cursor (`published apId`) for the next older page.
 // loadMore echoes this back as `before`; a post's ap_id must NOT be used (it
 // decodes as a legacy published-only cursor that matches every row → the feed
 // re-serves page 1 forever). Reset on every full reload.
-export const timelineCursorAtom = atom<string | null>(null);
+export const timelineCursorAtom = scopedFeedAtom<string | null>(null);
 // Timestamp of the last successful full timeline load. A home re-mount (e.g.
 // back from a post detail) skips the head refetch while the in-memory feed is
 // still fresh, so loaded pages and the reading position survive the round trip
 // instead of resetting to page 1.
-export const timelineLoadedAtAtom = atom<number | null>(null);
+export const timelineLoadedAtAtom = scopedFeedAtom<number | null>(null);
 // Scroll offset of the home feed's scroll container, captured on unmount and
 // restored on the next mount when the fresh in-memory feed is reused.
-export const timelineScrollTopAtom = atom(0);
+export const timelineScrollTopAtom = scopedFeedAtom(0);
 // Primary-load failure (shown inline with a Retry button).
-export const timelineLoadErrorAtom = atom<string | null>(null);
+export const timelineLoadErrorAtom = scopedFeedAtom<string | null>(null);
 
 // --- Home feed tab ---
 //
@@ -161,16 +205,16 @@ export const homeFeedTabAtom = atom<HomeFeedTab>("all");
 // pages or reading position, and the unified feed's 60s freshness-reuse
 // semantics stay untouched.
 export const followingPostsAtom = createFeedPostsAtom();
-export const followingLoadingAtom = atom(true);
-export const followingLoadingMoreAtom = atom(false);
-export const followingHasMoreAtom = atom(true);
+export const followingLoadingAtom = scopedFeedAtom(true);
+export const followingLoadingMoreAtom = scopedFeedAtom(false);
+export const followingHasMoreAtom = scopedFeedAtom(true);
 // Server-issued composite cursor — same semantics as timelineCursorAtom.
-export const followingCursorAtom = atom<string | null>(null);
+export const followingCursorAtom = scopedFeedAtom<string | null>(null);
 // Freshness timestamp — same reuse semantics as timelineLoadedAtAtom.
-export const followingLoadedAtAtom = atom<number | null>(null);
+export const followingLoadedAtAtom = scopedFeedAtom<number | null>(null);
 // Reading position of the following tab, captured on tab switch / unmount.
-export const followingScrollTopAtom = atom(0);
-export const followingLoadErrorAtom = atom<string | null>(null);
+export const followingScrollTopAtom = scopedFeedAtom(0);
+export const followingLoadErrorAtom = scopedFeedAtom<string | null>(null);
 
 // --- Post composition ---
 //
@@ -437,7 +481,7 @@ export const toggleTimelineBookmarkAtom = atom(
 // — identical to `published` for every entry the current server emits.
 const postKey = (p: Post): string =>
   `${(p as PostWithRepost).repost_published ?? p.published} ${p.ap_id}`;
-export const newestSeenKeyAtom = atom<string | null>(null);
+export const newestSeenKeyAtom = scopedFeedAtom<string | null>(null);
 // Advance the watermark to the newest of its current value and the given post.
 const bumpNewestSeen = (
   get: (a: typeof newestSeenKeyAtom) => string | null,
@@ -547,12 +591,12 @@ export const applyNewPostsAtom = atom(null, (get, set) => {
 });
 
 // --- Story state ---
-export const actorStoriesAtom = atom<ActorStories[]>([]);
-export const storiesLoadingAtom = atom(true);
-export const storiesErrorAtom = atom<string | null>(null);
+export const actorStoriesAtom = scopedFeedAtom<ActorStories[]>([]);
+export const storiesLoadingAtom = scopedFeedAtom(true);
+export const storiesErrorAtom = scopedFeedAtom<string | null>(null);
 const storiesLoadGenerationAtom = atom(0);
-export const showStoryViewerAtom = atom(false);
-export const storyViewerActorIndexAtom = atom(0);
+export const showStoryViewerAtom = scopedFeedAtom(false);
+export const storyViewerActorIndexAtom = scopedFeedAtom(0);
 export const showStoryComposerAtom = atom(false);
 
 // --- Account state ---
@@ -715,7 +759,10 @@ function reconcileHeadAcknowledgements(
   }
   return merged.slice(0, MAX_TIMELINE_POSTS);
 }
+
 export const loadTimelineAtom = atom(null, async (get, set) => {
+  const requestIdentityMarker = get(feedIdentityMarkerAtom);
+  const requestAuthEpoch = get(authSessionEpochAtom);
   retireFeedBookmarkReads(get, set, unifiedBookmarkReadsAtom);
   const gen = get(timelineRequestsAtom).generation + 1;
   const community = get(scopeQueryAtom)?.community;
@@ -787,12 +834,19 @@ export const loadTimelineAtom = atom(null, async (get, set) => {
     finishFeedBookmarkRead(get, set, unifiedBookmarkReadsAtom, bookmarkRead);
     if (get(timelineHeadWindowAtom)?.ticket === ticket)
       set(timelineHeadWindowAtom, null);
-    if (gen === get(timelineRequestsAtom).generation)
+    if (
+      gen === get(timelineRequestsAtom).generation &&
+      requestIdentityMarker === get(feedIdentityMarkerAtom)
+    ) {
+      if (requestAuthEpoch !== get(authSessionEpochAtom) || get(logoutBusyAtom))
+        set(timelineLoadErrorAtom, get(tAtom)("common.loadFailed"));
       set(timelineLoadingAtom, false);
+    }
   }
 });
 
 export const loadMoreTimelineAtom = atom(null, async (get, set) => {
+  const requestIdentityMarker = get(feedIdentityMarkerAtom);
   const loadingMore = get(timelineLoadingMoreAtom);
   const hasMore = get(timelineHasMoreAtom);
   const cursor = get(timelineCursorAtom);
@@ -881,7 +935,8 @@ export const loadMoreTimelineAtom = atom(null, async (get, set) => {
     finishFeedBookmarkRead(get, set, unifiedBookmarkReadsAtom, bookmarkRead);
     if (ownsPager()) {
       set(timelineRequestsAtom, { generation: gen, pager: null });
-      set(timelineLoadingMoreAtom, false);
+      if (requestIdentityMarker === get(feedIdentityMarkerAtom))
+        set(timelineLoadingMoreAtom, false);
     }
   }
 });
@@ -890,6 +945,8 @@ export const loadMoreTimelineAtom = atom(null, async (get, set) => {
 // Full (re)load of the following-only feed. Mirrors loadTimelineAtom minus the
 // pieces that are unified-home-only (scope filter, staged new-posts buffer).
 export const loadFollowingTimelineAtom = atom(null, async (get, set) => {
+  const requestIdentityMarker = get(feedIdentityMarkerAtom);
+  const requestAuthEpoch = get(authSessionEpochAtom);
   retireFeedBookmarkReads(get, set, followingBookmarkReadsAtom);
   const gen = get(followingRequestsAtom).generation + 1;
   const actorApId = get(actorAtom)?.ap_id;
@@ -949,14 +1006,21 @@ export const loadFollowingTimelineAtom = atom(null, async (get, set) => {
     finishFeedBookmarkRead(get, set, followingBookmarkReadsAtom, bookmarkRead);
     if (get(followingHeadWindowAtom)?.ticket === ticket)
       set(followingHeadWindowAtom, null);
-    if (gen === get(followingRequestsAtom).generation)
+    if (
+      gen === get(followingRequestsAtom).generation &&
+      requestIdentityMarker === get(feedIdentityMarkerAtom)
+    ) {
+      if (requestAuthEpoch !== get(authSessionEpochAtom) || get(logoutBusyAtom))
+        set(followingLoadErrorAtom, get(tAtom)("common.loadFailed"));
       set(followingLoadingAtom, false);
+    }
   }
 });
 
 // Older-page append for the following feed. Same cursor semantics and
 // in-memory cap as loadMoreTimelineAtom.
 export const loadMoreFollowingTimelineAtom = atom(null, async (get, set) => {
+  const requestIdentityMarker = get(feedIdentityMarkerAtom);
   const loadingMore = get(followingLoadingMoreAtom);
   const hasMore = get(followingHasMoreAtom);
   const cursor = get(followingCursorAtom);
@@ -1025,12 +1089,19 @@ export const loadMoreFollowingTimelineAtom = atom(null, async (get, set) => {
     finishFeedBookmarkRead(get, set, followingBookmarkReadsAtom, bookmarkRead);
     if (ownsPager()) {
       set(followingRequestsAtom, { generation: gen, pager: null });
-      set(followingLoadingMoreAtom, false);
+      if (requestIdentityMarker === get(feedIdentityMarkerAtom))
+        set(followingLoadingMoreAtom, false);
     }
   }
 });
 
 export const loadStoriesAtom = atom(null, async (get, set) => {
+  const marker = get(feedIdentityMarkerAtom);
+  const epoch = get(authSessionEpochAtom);
+  const current = () =>
+    marker === get(feedIdentityMarkerAtom) &&
+    epoch === get(authSessionEpochAtom) &&
+    !get(logoutBusyAtom);
   const gen = get(storiesLoadGenerationAtom) + 1;
   set(storiesLoadGenerationAtom, gen);
   set(storiesErrorAtom, null);
@@ -1040,14 +1111,20 @@ export const loadStoriesAtom = atom(null, async (get, set) => {
     // backend returns only that community's members' stories (member-gated).
     const scope = get(scopeQueryAtom);
     const data = await fetchStories(scope?.community);
-    if (gen !== get(storiesLoadGenerationAtom)) return; // superseded by a newer scope load
+    if (gen !== get(storiesLoadGenerationAtom) || !current()) return;
     set(actorStoriesAtom, data);
   } catch (e) {
-    if (gen !== get(storiesLoadGenerationAtom)) return;
+    if (gen !== get(storiesLoadGenerationAtom) || !current()) return;
     console.error("Failed to load stories:", e);
     set(storiesErrorAtom, get(tAtom)("story.loadFailed"));
   } finally {
-    if (gen === get(storiesLoadGenerationAtom)) set(storiesLoadingAtom, false);
+    if (
+      gen === get(storiesLoadGenerationAtom) &&
+      marker === get(feedIdentityMarkerAtom)
+    ) {
+      if (!current()) set(storiesErrorAtom, get(tAtom)("story.loadFailed"));
+      set(storiesLoadingAtom, false);
+    }
   }
 });
 
