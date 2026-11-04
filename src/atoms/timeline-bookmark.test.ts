@@ -90,6 +90,18 @@ async function fixture() {
         method:
           init?.method ?? (input instanceof Request ? input.method : "GET"),
       });
+      if (
+        requests.at(-1)!.method === "GET" &&
+        ["/api/timeline", "/api/timeline/following"].includes(url.pathname)
+      ) {
+        return Promise.resolve(
+          Response.json({
+            posts: [post("target")],
+            next_cursor: null,
+            has_more: false,
+          }),
+        );
+      }
       return pending.promise;
     },
   });
@@ -216,14 +228,31 @@ for (const nextActor of [null, actor("persona")]) {
         h.target.ap_id,
       );
       h.store.set(h.auth.actorAtom, nextActor);
-      const before = h.store.get(h.atoms.timelinePostsAtom);
+      const feeds = [
+        h.atoms.timelinePostsAtom,
+        h.atoms.followingPostsAtom,
+        h.atoms.pendingNewPostsAtom,
+      ];
+      for (const feed of feeds) expect(h.store.get(feed)).toEqual([]);
+      if (nextActor) {
+        await h.store.set(h.atoms.loadTimelineAtom);
+        await h.store.set(h.atoms.loadFollowingTimelineAtom);
+        expect(h.store.get(h.atoms.timelinePostsAtom)[0]!.bookmarked).toBe(
+          true,
+        );
+        expect(h.store.get(h.atoms.followingPostsAtom)[0]!.bookmarked).toBe(
+          true,
+        );
+      }
+      const before = feeds.map((feed) => h.store.get(feed));
       h.pending.resolve(new Response(JSON.stringify({ success: true })));
       expect(await result).toBe(false);
-      expect(h.store.get(h.atoms.timelinePostsAtom)).toBe(before);
-      expect(h.store.get(h.atoms.followingPostsAtom)[0]!.bookmarked).toBe(true);
-      expect(h.store.get(h.atoms.pendingNewPostsAtom)[0]!.bookmarked).toBe(
-        true,
-      );
+      for (const [index, feed] of feeds.entries())
+        expect(h.store.get(feed)).toBe(before[index]);
+      expect(h.store.get(h.atoms.pendingNewPostsAtom)).toEqual([]);
+      expect(
+        h.requests.filter((request) => request.method === "DELETE"),
+      ).toHaveLength(1);
     } finally {
       h.cleanup();
     }

@@ -2,6 +2,8 @@ import { atom, type Getter, type Setter } from "jotai/vanilla";
 import {
   actorAtom,
   authSessionEpochAtom,
+  observedActorIdentityVersionAtom,
+  observedHostedIdentityVersionAtom,
   hostedUserAtom,
   instancesLoadingAtom,
   logoutBusyAtom,
@@ -19,6 +21,8 @@ const selectedInstanceMarkerAtom = atom((get) => {
 
 export type BookmarkRead = {
   actorApId?: string;
+  actorIdentityVersion: number;
+  hostedIdentityVersion: number;
   epoch: number;
   instanceId: string | null;
   hostedUserId: string | null;
@@ -40,6 +44,8 @@ export type BookmarkMutation = Readonly<{
   sequence: number;
   key: string;
   actorApId: string;
+  actorIdentityVersion: number;
+  hostedIdentityVersion: number;
   epoch: number;
   instanceId: string | null;
   hostedUserId: string | null;
@@ -76,6 +82,8 @@ export function isBookmarkMutationCurrent(
   return (
     !get(logoutBusyAtom) &&
     get(actorAtom)?.ap_id === mutation.actorApId &&
+    get(observedActorIdentityVersionAtom) === mutation.actorIdentityVersion &&
+    get(observedHostedIdentityVersionAtom) === mutation.hostedIdentityVersion &&
     get(authSessionEpochAtom) === mutation.epoch &&
     get(selectedInstanceIdAtom) === mutation.instanceId &&
     get(selectedInstanceMarkerAtom) === mutation.instanceMarker &&
@@ -95,6 +103,8 @@ export function beginBookmarkMutation(
   )
     return null;
   const epoch = get(authSessionEpochAtom);
+  const actorIdentityVersion = get(observedActorIdentityVersionAtom);
+  const hostedIdentityVersion = get(observedHostedIdentityVersionAtom);
   const instanceId = get(selectedInstanceIdAtom);
   const hostedUserId = get(hostedUserAtom)?.id ?? null;
   const instanceMarker = get(selectedInstanceMarkerAtom);
@@ -102,6 +112,8 @@ export function beginBookmarkMutation(
   const sequence = state.sequence + 1;
   const key = JSON.stringify([
     change.actorApId,
+    actorIdentityVersion,
+    hostedIdentityVersion,
     epoch,
     instanceId,
     hostedUserId,
@@ -112,6 +124,8 @@ export function beginBookmarkMutation(
     ticket: {},
     sequence,
     key,
+    actorIdentityVersion,
+    hostedIdentityVersion,
     epoch,
     instanceId,
     hostedUserId,
@@ -144,6 +158,8 @@ export function bindBookmarkReadMutation(
   if (
     !window ||
     window.actorApId !== mutation.actorApId ||
+    window.actorIdentityVersion !== mutation.actorIdentityVersion ||
+    window.hostedIdentityVersion !== mutation.hostedIdentityVersion ||
     window.epoch !== mutation.epoch ||
     window.instanceId !== mutation.instanceId ||
     window.instanceMarker !== mutation.instanceMarker ||
@@ -217,6 +233,8 @@ export const activeBookmarkReadCountAtom = atom((get) => get(windowsAtom).size);
 export function beginBookmarkRead(get: Getter, set: Setter): BookmarkRead {
   const read = {
     actorApId: get(actorAtom)?.ap_id,
+    actorIdentityVersion: get(observedActorIdentityVersionAtom),
+    hostedIdentityVersion: get(observedHostedIdentityVersionAtom),
     epoch: get(authSessionEpochAtom),
     instanceId: get(selectedInstanceIdAtom),
     hostedUserId: get(hostedUserAtom)?.id ?? null,
@@ -238,6 +256,8 @@ export function ownsBookmarkRead(get: Getter, read: BookmarkRead): boolean {
     !get(logoutBusyAtom) &&
     get(windowsAtom).has(read.ticket) &&
     get(actorAtom)?.ap_id === read.actorApId &&
+    get(observedActorIdentityVersionAtom) === read.actorIdentityVersion &&
+    get(observedHostedIdentityVersionAtom) === read.hostedIdentityVersion &&
     get(authSessionEpochAtom) === read.epoch &&
     get(selectedInstanceIdAtom) === read.instanceId &&
     get(selectedInstanceMarkerAtom) === read.instanceMarker &&
@@ -307,6 +327,8 @@ export const acknowledgeBookmarkReadAtom = atom(
       apId: string;
       bookmarked: boolean;
       sequence?: number;
+      actorIdentityVersion?: number;
+      hostedIdentityVersion?: number;
       epoch?: number;
       instanceId?: string | null;
       hostedUserId?: string | null;
@@ -317,6 +339,12 @@ export const acknowledgeBookmarkReadAtom = atom(
       return false;
     const currentMarker = get(selectedInstanceMarkerAtom);
     if (
+      (change.actorIdentityVersion !== undefined &&
+        change.actorIdentityVersion !==
+          get(observedActorIdentityVersionAtom)) ||
+      (change.hostedIdentityVersion !== undefined &&
+        change.hostedIdentityVersion !==
+          get(observedHostedIdentityVersionAtom)) ||
       (change.epoch !== undefined &&
         change.epoch !== get(authSessionEpochAtom)) ||
       (change.instanceId !== undefined &&
@@ -332,6 +360,12 @@ export const acknowledgeBookmarkReadAtom = atom(
     for (const [ticket, window] of next) {
       if (
         window.actorApId !== change.actorApId ||
+        window.actorIdentityVersion !==
+          (change.actorIdentityVersion ??
+            get(observedActorIdentityVersionAtom)) ||
+        window.hostedIdentityVersion !==
+          (change.hostedIdentityVersion ??
+            get(observedHostedIdentityVersionAtom)) ||
         window.epoch !== (change.epoch ?? get(authSessionEpochAtom)) ||
         window.instanceId !==
           (change.instanceId ?? get(selectedInstanceIdAtom)) ||
