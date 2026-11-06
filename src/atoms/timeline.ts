@@ -6,21 +6,9 @@ import {
   type SetStateAction,
 } from "jotai/vanilla";
 import {
-  clearStoredPostDraftAtom,
-  postDraftWriteFailedAtom,
+  createScopedPostDraftAtoms,
   type PostDraft,
-  postContentAtom,
-  postSummaryAtom,
-  postVisibilityAtom,
-  readPostDraftFromStorage,
-  refreshPostDraftAtom,
-  saveRetainedPostDraftAtom,
   type PostVisibility,
-} from "./post-draft.ts";
-export {
-  postContentAtom,
-  postSummaryAtom,
-  postVisibilityAtom,
 } from "./post-draft.ts";
 export type { PostVisibility } from "./post-draft.ts";
 import {
@@ -227,17 +215,91 @@ export const followingLoadErrorAtom = scopedFeedAtom<string | null>(null);
 // persisted alongside the text so restoring a draft can never silently widen a
 // followers-only post back to public. Staged media is NOT part of the draft
 // (blob URLs / File handles are not serializable); text is.
-export const postingAtom = atom(false);
-export const postSubmitErrorAtom = atom<string | null>(null);
-export const postDraftNoticeAtom = atom<string | null>(null);
-const postDraftRecoveryRequestedAtom = atom(false);
+const postDraft = createScopedPostDraftAtoms((get) => {
+  const scope = captureMediaScope(get);
+  if (!scope) return null;
+  try {
+    const url = new URL(scope.postUrl, globalThis.location?.href);
+    if (!["http:", "https:"].includes(url.protocol)) return null;
+    return {
+      origin: url.origin,
+      actorApId: scope.actorApId,
+      instanceId: scope.instanceId,
+      hostedUserId: scope.hostedUserId,
+    };
+  } catch {
+    return null;
+  }
+});
+export const postContentAtom = postDraft.contentAtom;
+export const postSummaryAtom = postDraft.summaryAtom;
+export const postVisibilityAtom = postDraft.visibilityAtom;
+export const postDraftWriteFailedAtom = postDraft.writeFailedAtom;
+export const legacyPostDraftAvailableAtom = postDraft.legacyAvailableAtom;
+export const exportLegacyPostDraftAtom = postDraft.exportLegacyAtom;
+const compositionMarkerAtom = atom((get) => {
+  get(feedIdentityMarkerAtom);
+  get(authSessionEpochAtom);
+  get(postDraft.namespaceAtom);
+  return {};
+});
+type CompositionState = {
+  pending: object | null;
+  error: string | null;
+  notice: string | null;
+  recoveryRequested: boolean;
+  acknowledged: PostDraft | null;
+};
+const initialComposition: CompositionState = {
+  pending: null,
+  error: null,
+  notice: null,
+  recoveryRequested: false,
+  acknowledged: null,
+};
+// Cache atom configurations, not draft values. A's pending attempt/recovery
+// must survive A→B→A without appearing in B or being reset by an old finally.
+const compositionConfigurations = new Map<
+  string,
+  PrimitiveAtom<CompositionState>
+>();
+function currentComposition(get: Getter) {
+  const namespace = get(postDraft.namespaceAtom);
+  if (!namespace) return null;
+  let state = compositionConfigurations.get(namespace);
+  if (!state) {
+    state = atom({ ...initialComposition });
+    compositionConfigurations.set(namespace, state);
+  }
+  return state;
+}
+function compositionField<K extends keyof CompositionState>(key: K) {
+  return atom(
+    (get) => {
+      const state = currentComposition(get);
+      return state ? get(state)[key] : initialComposition[key];
+    },
+    (get, set, value: CompositionState[K]) => {
+      const state = currentComposition(get);
+      if (state) set(state, (previous) => ({ ...previous, [key]: value }));
+    },
+  );
+}
+const pendingPostAtom = compositionField("pending");
+export const postingAtom = atom(
+  (get) => get(pendingPostAtom) !== null,
+  (_get, set, value: boolean) => set(pendingPostAtom, value ? {} : null),
+);
+export const postSubmitErrorAtom = compositionField("error");
+export const postDraftNoticeAtom = compositionField("notice");
+const postDraftRecoveryRequestedAtom = compositionField("recoveryRequested");
 export const postDraftRecoveryNeededAtom = atom(
   (get) => get(postDraftRecoveryRequestedAtom) || get(postDraftWriteFailedAtom),
   (_get, set, needed: boolean) => set(postDraftRecoveryRequestedAtom, needed),
 );
-const acknowledgedDraftAtom = atom<PostDraft | null>(null);
+const acknowledgedDraftAtom = compositionField("acknowledged");
 export const recoverPostDraftAtom = atom(null, (get, set) => {
-  const stored = readPostDraftFromStorage();
+  const stored = postDraft.read(get);
   const acknowledged = get(acknowledgedDraftAtom);
   const matches = (draft: PostDraft | null) =>
     draft !== null &&
@@ -248,11 +310,11 @@ export const recoverPostDraftAtom = atom(null, (get, set) => {
     matches(stored) ||
     (matches(acknowledged) && !get(postDraftWriteFailedAtom))
   ) {
-    if (set(refreshPostDraftAtom)) set(postDraftRecoveryNeededAtom, false);
+    if (set(postDraft.refreshAtom)) set(postDraftRecoveryNeededAtom, false);
   }
 });
 export const saveRecoveryPostDraftAtom = atom(null, (_get, set) => {
-  if (set(saveRetainedPostDraftAtom)) set(postDraftRecoveryNeededAtom, false);
+  if (set(postDraft.saveAtom)) set(postDraftRecoveryNeededAtom, false);
 });
 export const uploadedMediaAtom = atom<UploadedMedia[]>([]);
 function captureMediaScope(get: Getter): MediaUploadScope | null {
@@ -1135,7 +1197,17 @@ export const createPostAtom = atom(
     const submittingActorApId = get(actorAtom)?.ap_id;
     const media = get(uploadedMediaAtom);
     const scope = captureMediaScope(get);
-    const current = () => !scope || ownsMediaScope(get, scope);
+    const draft = postDraft.capture(get);
+    const composition = currentComposition(get);
+    const marker = get(compositionMarkerAtom);
+    const current = () =>
+      scope !== null &&
+      ownsMediaScope(get, scope) &&
+      marker === get(compositionMarkerAtom);
+    if (!draft || !composition || !current()) {
+      set(postSubmitErrorAtom, get(tAtom)("compose.draftScopeChanged"));
+      return false;
+    }
     if (
       (!content.trim() && media.length === 0) ||
       get(postingAtom) ||
@@ -1159,10 +1231,19 @@ export const createPostAtom = atom(
       return false;
     }
 
-    set(postingAtom, true);
-    set(postSubmitErrorAtom, null);
-    set(postDraftNoticeAtom, null);
-    set(acknowledgedDraftAtom, null);
+    const attempt = {};
+    set(composition, (previous) => ({
+      ...previous,
+      pending: attempt,
+      error: null,
+      notice: null,
+      acknowledged: null,
+    }));
+    const updateAttempt = (change: Partial<CompositionState>) => {
+      const previous = get(composition);
+      if (previous.pending === attempt)
+        set(composition, { ...previous, ...change });
+    };
     try {
       const summary = options.summary?.trim();
       const newPost = await createPost({
@@ -1185,8 +1266,30 @@ export const createPostAtom = atom(
               }))
             : undefined,
       });
-      if (!current()) return false;
-      if (!acknowledgesPost(newPost, submittingActorApId, content.trim())) {
+      const acknowledged = acknowledgesPost(
+        newPost,
+        submittingActorApId,
+        content.trim(),
+      );
+      if (!current()) {
+        updateAttempt({
+          recoveryRequested: true,
+          acknowledged: acknowledged
+            ? {
+                content,
+                summary: options.summary ?? "",
+                visibility: options.visibility ?? "public",
+              }
+            : null,
+          notice: get(tAtom)(
+            acknowledged
+              ? "feedback.postDraftKept"
+              : "feedback.postUnconfirmed",
+          ),
+        });
+        return false;
+      }
+      if (!acknowledged) {
         throw new Error("Post response did not acknowledge the submitted Note");
       }
       if (newPost) {
@@ -1238,7 +1341,7 @@ export const createPostAtom = atom(
         // A storage event may still be queued when this ACK arrives. Check the
         // actual saved values too, not just this tab's observed atoms. This is
         // a synchronous reread, not cross-tab atomic compare-and-swap.
-        const stored = readPostDraftFromStorage();
+        const stored = draft.read();
         const memoryMatchesSubmission =
           get(postContentAtom) === content &&
           get(postSummaryAtom) === (options.summary ?? "") &&
@@ -1252,15 +1355,17 @@ export const createPostAtom = atom(
           storageMatchesSubmission &&
           get(uploadedMediaAtom) === media;
         const canClearSubmittedDraft =
-          mayClearSubmittedDraft && set(clearStoredPostDraftAtom);
+          mayClearSubmittedDraft && set(draft.clearAtom);
         if (canClearSubmittedDraft) {
           media.forEach((m) => m.preview && URL.revokeObjectURL(m.preview));
           set(uploadedMediaAtom, []);
         } else {
-          set(acknowledgedDraftAtom, {
-            content,
-            summary: options.summary ?? "",
-            visibility: options.visibility ?? "public",
+          updateAttempt({
+            acknowledged: {
+              content,
+              summary: options.summary ?? "",
+              visibility: options.visibility ?? "public",
+            },
           });
           const memoryMatchesStorage =
             get(postContentAtom) === stored?.content &&
@@ -1270,10 +1375,10 @@ export const createPostAtom = atom(
             stored &&
             !get(postDraftWriteFailedAtom) &&
             (memoryMatchesSubmission || memoryMatchesStorage)
-              ? set(refreshPostDraftAtom)
+              ? set(draft.refreshAtom)
               : null;
-          set(postDraftRecoveryNeededAtom, !refreshed);
-          set(postDraftNoticeAtom, get(tAtom)("feedback.postDraftKept"));
+          updateAttempt({ recoveryRequested: !refreshed });
+          updateAttempt({ notice: get(tAtom)("feedback.postDraftKept") });
         }
         pushToast(toastWriter(set), get(tAtom)("feedback.postCreated"), {
           kind: "success",
@@ -1284,7 +1389,14 @@ export const createPostAtom = atom(
       // persist the post. Keep the draft and describe the outcome honestly.
       throw new Error("Post response did not acknowledge the created post");
     } catch (e) {
-      if (!current()) return false;
+      if (!current()) {
+        if (classifyWriteFailure(e) === "unconfirmed")
+          updateAttempt({
+            recoveryRequested: true,
+            notice: get(tAtom)("feedback.postUnconfirmed"),
+          });
+        return false;
+      }
       console.error("Failed to create post:", e);
       // Map a server-side length rejection to a specific message so an
       // over-length post is explained rather than a generic failure. A summary
@@ -1332,10 +1444,10 @@ export const createPostAtom = atom(
       pushToast(toastWriter(set), message, {
         kind: "error",
       });
-      set(postSubmitErrorAtom, message);
+      updateAttempt({ error: message });
       return false;
     } finally {
-      set(postingAtom, false);
+      updateAttempt({ pending: null });
     }
   },
 );
@@ -1534,7 +1646,7 @@ export const closePostModalAtom = atom(null, (get, set) => {
     get(uploadSelectionsPendingAtom) > 0
   )
     return;
-  if (!set(clearStoredPostDraftAtom)) {
+  if (!set(postDraft.clearAtom)) {
     set(postDraftRecoveryNeededAtom, true);
     set(postDraftNoticeAtom, get(tAtom)("compose.draftSaveFailed"));
     return;
