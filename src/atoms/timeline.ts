@@ -1431,7 +1431,6 @@ export const createPostAtom = atom(
         message = get(tAtom)("compose.mediaExpired");
       } else if (classifyWriteFailure(e) === "unconfirmed") {
         message = get(tAtom)("feedback.postUnconfirmed");
-        updateAttempt({ recoveryRequested: true, notice: message });
       } else if (isSummaryRejection) {
         message = get(tAtom)("compose.cwTooLong");
       } else if (isLengthRejection) {

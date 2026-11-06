@@ -678,3 +678,37 @@ test("a retired unconfirmed request keeps A blocked until explicit recovery", as
     },
   );
 });
+
+test("a current unconfirmed post keeps its draft and allows explicit close and discard", async () => {
+  await withCreatePostHarness(
+    async ({
+      storage,
+      modules: { timeline, auth },
+      store,
+      requestBodies,
+      setResponder,
+    }) => {
+      const submitted: Draft = {
+        content: "current lost acknowledgement",
+        summary: "retain until explicit discard",
+        visibility: "followers",
+      };
+      stageDraft(store, timeline, auth, submitted, []);
+      const originalBytes = Object.fromEntries(storage.values);
+      setResponder(
+        async () => new Response("Lost acknowledgement", { status: 500 }),
+      );
+      expect(await store.set(timeline.createPostAtom, submitted)).toBe(false);
+      expect(requestBodies).toHaveLength(1);
+      expect(store.get(timeline.postContentAtom)).toBe(submitted.content);
+      expect(store.get(timeline.postSubmitErrorAtom)).not.toBeNull();
+      expect(store.get(timeline.postingAtom)).toBe(false);
+      expect(store.get(timeline.postDraftRecoveryNeededAtom)).toBe(false);
+      expect(Object.fromEntries(storage.values)).toEqual(originalBytes);
+      store.set(timeline.closePostModalAtom);
+      expect(store.get(timeline.showPostModalAtom)).toBe(false);
+      expect(store.get(timeline.postContentAtom)).toBe("");
+      expect(requestBodies).toHaveLength(1);
+    },
+  );
+});
