@@ -10,6 +10,7 @@ import {
   type PostDraft,
   type PostVisibility,
 } from "./post-draft.ts";
+import { createPostOutcomeAtoms } from "./post-outcome.ts";
 export type { PostVisibility } from "./post-draft.ts";
 import {
   feedItemKey,
@@ -261,17 +262,26 @@ const initialComposition: CompositionState = {
 // must survive A→B→A without appearing in B or being reset by an old finally.
 const compositionConfigurations = new Map<
   string,
-  PrimitiveAtom<CompositionState>
+  {
+    state: PrimitiveAtom<CompositionState>;
+    outcome: ReturnType<typeof createPostOutcomeAtoms>;
+  }
 >();
-function currentComposition(get: Getter) {
+function currentCompositionConfiguration(get: Getter) {
   const namespace = get(postDraft.namespaceAtom);
   if (!namespace) return null;
   let state = compositionConfigurations.get(namespace);
   if (!state) {
-    state = atom({ ...initialComposition });
+    state = {
+      state: atom({ ...initialComposition }),
+      outcome: createPostOutcomeAtoms(namespace),
+    };
     compositionConfigurations.set(namespace, state);
   }
   return state;
+}
+function currentComposition(get: Getter) {
+  return currentCompositionConfiguration(get)?.state ?? null;
 }
 function compositionField<K extends keyof CompositionState>(key: K) {
   return atom(
@@ -290,8 +300,41 @@ export const postingAtom = atom(
   (get) => get(pendingPostAtom) !== null,
   (_get, set, value: boolean) => set(pendingPostAtom, value ? {} : null),
 );
-export const postSubmitErrorAtom = compositionField("error");
-export const postDraftNoticeAtom = compositionField("notice");
+const postSubmitMemoryErrorAtom = compositionField("error");
+const postDraftMemoryNoticeAtom = compositionField("notice");
+export const postSubmitErrorAtom = atom(
+  (get) => {
+    const error = get(postSubmitMemoryErrorAtom);
+    if (error || get(pendingPostAtom) || get(postDraftMemoryNoticeAtom))
+      return error;
+    const journal = currentCompositionConfiguration(get)?.outcome;
+    if (!journal) return null;
+    const outcome = get(journal.valueAtom);
+    if (outcome.kind === "unreadable")
+      return get(tAtom)("compose.draftSaveFailed");
+    return outcome.kind === "invalid" ||
+      (outcome.kind === "record" && outcome.caution === "pending")
+      ? get(tAtom)("feedback.postUnconfirmed")
+      : null;
+  },
+  (_get, set, value: string | null) => set(postSubmitMemoryErrorAtom, value),
+);
+export const postDraftNoticeAtom = atom(
+  (get) => {
+    const notice = get(postDraftMemoryNoticeAtom);
+    if (notice || get(pendingPostAtom)) return notice;
+    const journal = currentCompositionConfiguration(get)?.outcome;
+    const outcome = journal ? get(journal.valueAtom) : null;
+    if (outcome?.kind !== "record") return null;
+    if (outcome.caution === "confirmed")
+      return get(tAtom)("feedback.postDraftKept");
+    const error = get(postSubmitMemoryErrorAtom);
+    const unconfirmed = get(tAtom)("feedback.postUnconfirmed");
+    // A newer request's definite rejection does not settle the earlier post.
+    return error && error !== unconfirmed ? unconfirmed : null;
+  },
+  (_get, set, value: string | null) => set(postDraftMemoryNoticeAtom, value),
+);
 const postDraftRecoveryRequestedAtom = compositionField("recoveryRequested");
 export const postDraftRecoveryNeededAtom = atom(
   (get) => get(postDraftRecoveryRequestedAtom) || get(postDraftWriteFailedAtom),
@@ -1198,13 +1241,15 @@ export const createPostAtom = atom(
     const media = get(uploadedMediaAtom);
     const scope = captureMediaScope(get);
     const draft = postDraft.capture(get);
-    const composition = currentComposition(get);
+    const configuration = currentCompositionConfiguration(get);
+    const composition = configuration?.state;
+    const outcome = configuration?.outcome;
     const marker = get(compositionMarkerAtom);
     const current = () =>
       scope !== null &&
       ownsMediaScope(get, scope) &&
       marker === get(compositionMarkerAtom);
-    if (!draft || !composition || !current()) {
+    if (!draft || !composition || !outcome || !current()) {
       set(postSubmitErrorAtom, get(tAtom)("compose.draftScopeChanged"));
       return false;
     }
@@ -1228,6 +1273,12 @@ export const createPostAtom = atom(
     }
     if (media.some((item) => mediaNeedsReupload(item))) {
       set(postSubmitErrorAtom, get(tAtom)("compose.mediaExpired"));
+      return false;
+    }
+
+    const durableAttempt = set(outcome.beginAtom);
+    if (!durableAttempt) {
+      set(postSubmitErrorAtom, get(tAtom)("compose.draftSaveFailed"));
       return false;
     }
 
@@ -1271,6 +1322,8 @@ export const createPostAtom = atom(
         submittingActorApId,
         content.trim(),
       );
+      if (acknowledged)
+        set(outcome.finishAtom, { id: durableAttempt, confirmed: true });
       if (!current()) {
         updateAttempt({
           recoveryRequested: true,
@@ -1357,6 +1410,7 @@ export const createPostAtom = atom(
         const canClearSubmittedDraft =
           mayClearSubmittedDraft && set(draft.clearAtom);
         if (canClearSubmittedDraft) {
+          set(outcome.finishAtom, { id: durableAttempt, confirmed: false });
           media.forEach((m) => m.preview && URL.revokeObjectURL(m.preview));
           set(uploadedMediaAtom, []);
         } else {
@@ -1389,6 +1443,8 @@ export const createPostAtom = atom(
       // persist the post. Keep the draft and describe the outcome honestly.
       throw new Error("Post response did not acknowledge the created post");
     } catch (e) {
+      if (classifyWriteFailure(e) === "rejected")
+        set(outcome.finishAtom, { id: durableAttempt, confirmed: false });
       if (!current()) {
         if (classifyWriteFailure(e) === "unconfirmed")
           updateAttempt({
@@ -1649,6 +1705,11 @@ export const closePostModalAtom = atom(null, (get, set) => {
   if (!set(postDraft.clearAtom)) {
     set(postDraftRecoveryNeededAtom, true);
     set(postDraftNoticeAtom, get(tAtom)("compose.draftSaveFailed"));
+    return;
+  }
+  const outcome = currentCompositionConfiguration(get)?.outcome;
+  if (outcome && !set(outcome.discardAtom)) {
+    set(postSubmitErrorAtom, get(tAtom)("compose.draftSaveFailed"));
     return;
   }
   set(showPostModalAtom, false);

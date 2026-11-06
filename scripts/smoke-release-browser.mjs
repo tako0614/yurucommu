@@ -15,6 +15,7 @@ import { qualifySearchFollowing } from "./release-browser-follow.mjs";
 import { qualifyBrowserDM } from "./release-browser-dm.mjs";
 import { qualifyBrowserNotifications } from "./release-browser-notifications.mjs";
 import { qualifyBrowserPostOutcome } from "./release-browser-post-outcome.mjs";
+import { qualifyBrowserPostReload } from "./release-browser-post-reload.mjs";
 import { qualifyBrowserDraftStorage } from "./release-browser-draft-storage.mjs";
 import { qualifyBrowserPostSnapshot } from "./release-browser-post-snapshot.mjs";
 import { qualifyBrowserStorySubmit } from "./release-browser-story-submit.mjs";
@@ -774,6 +775,13 @@ async function runBrowserSmoke(artifactPath, artifactDigest, browser) {
       actorApId,
       checks,
     });
+    const postReloadMetadata = await qualifyBrowserPostReload({
+      page,
+      db,
+      origin,
+      actorApId,
+      checks,
+    });
     const followMetadata = await qualifySearchFollowing({
       page,
       db,
@@ -1028,6 +1036,7 @@ async function runBrowserSmoke(artifactPath, artifactDigest, browser) {
       checks,
       feed: feedMetadata,
       postOutcome: postOutcomeMetadata,
+      postReload: postReloadMetadata,
       follow: followMetadata,
       dm: dmMetadata,
       postSnapshot: postSnapshotMetadata,

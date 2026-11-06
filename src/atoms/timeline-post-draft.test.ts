@@ -22,6 +22,7 @@ class TestStorage implements Storage {
   writeAttempts = 0;
   failOnWriteAttempt: number | null = null;
   denyReads = false;
+  denyOutcomeWrites = false;
 
   get length(): number {
     return this.values.size;
@@ -45,11 +46,22 @@ class TestStorage implements Storage {
   }
 
   setItem(key: string, value: string): void {
-    this.writeAttempts += 1;
-    if (this.writeAttempts === this.failOnWriteAttempt) {
+    if (key.endsWith(".outcome") && this.denyOutcomeWrites)
+      throw new Error("outcome write denied");
+    // Existing oracles target draft-field writes and partial three-field clears.
+    // The separate metadata journal has its own failure/ownership regressions.
+    const draftWrite = !key.endsWith(".outcome");
+    if (draftWrite) this.writeAttempts += 1;
+    if (draftWrite && this.writeAttempts === this.failOnWriteAttempt) {
       throw new Error("storage write denied");
     }
     this.values.set(key, value);
+  }
+
+  draftBytes(): Record<string, string> {
+    return Object.fromEntries(
+      [...this.values].filter(([key]) => !key.endsWith(".outcome")),
+    );
   }
 }
 
@@ -225,6 +237,164 @@ function stageDraft(
   store.set(timeline.uploadedMediaAtom, media);
   store.set(timeline.showPostModalAtom, true);
 }
+
+test("a fresh store retains the warning after a post response is lost", async () => {
+  await withCreatePostHarness(async ({ modules, store, setResponder }) => {
+    const { timeline, auth } = modules;
+    const draft: Draft = {
+      content: "uncertain across reload",
+      summary: "CW",
+      visibility: "followers",
+    };
+    stageDraft(store, timeline, auth, draft, []);
+    setResponder(async () => {
+      throw new TypeError("response lost");
+    });
+    expect(await store.set(timeline.createPostAtom, draft)).toBe(false);
+    const reloaded = createStore();
+    reloaded.set(auth.actorAtom, actor());
+    const unmount = [
+      timeline.postContentAtom,
+      timeline.postSummaryAtom,
+      timeline.postVisibilityAtom,
+      timeline.postSubmitErrorAtom,
+    ].map((a) => reloaded.sub(a, () => {}));
+    try {
+      const { tAtom } = await import("./i18n.ts");
+      expect(reloaded.get(timeline.postContentAtom)).toBe(draft.content);
+      expect(reloaded.get(timeline.postSummaryAtom)).toBe(draft.summary);
+      expect(reloaded.get(timeline.postVisibilityAtom)).toBe(draft.visibility);
+      expect(reloaded.get(timeline.postSubmitErrorAtom)).toBe(
+        reloaded.get(tAtom)("feedback.postUnconfirmed"),
+      );
+      reloaded.set(timeline.showPostModalAtom, true);
+      reloaded.set(timeline.closePostModalAtom);
+      expect(reloaded.get(timeline.postSubmitErrorAtom)).toBeNull();
+      expect(reloaded.get(timeline.postContentAtom)).toBe("");
+    } finally {
+      unmount.forEach((stop) => stop());
+    }
+  });
+});
+
+test("reload during dispatch retains caution without reviving an active request", async () => {
+  await withCreatePostHarness(
+    async ({ modules, store, setResponder, requestBodies }) => {
+      const { timeline, auth } = modules;
+      const draft: Draft = {
+        content: "pending across reload",
+        summary: "",
+        visibility: "public",
+      };
+      stageDraft(store, timeline, auth, draft, []);
+      const response = deferred<Response>();
+      setResponder(() => response.promise);
+      const attempt = store.set(timeline.createPostAtom, draft);
+      try {
+        expect(requestBodies).toHaveLength(1);
+        const reloaded = createStore();
+        reloaded.set(auth.actorAtom, actor());
+        const { tAtom } = await import("./i18n.ts");
+        expect(reloaded.get(timeline.postingAtom)).toBe(false);
+        expect(reloaded.get(timeline.postSubmitErrorAtom)).toBe(
+          reloaded.get(tAtom)("feedback.postUnconfirmed"),
+        );
+        expect(requestBodies).toHaveLength(1);
+      } finally {
+        response.resolve(new Response("unavailable", { status: 503 }));
+        await attempt;
+      }
+    },
+  );
+});
+
+test("an unavailable outcome journal refuses POST without losing the draft", async () => {
+  await withCreatePostHarness(
+    async ({
+      modules: { timeline, auth },
+      storage,
+      store,
+      requestBodies,
+      setResponder,
+    }) => {
+      const draft: Draft = {
+        content: "keep when journal fails",
+        summary: "private CW",
+        visibility: "followers",
+      };
+      stageDraft(store, timeline, auth, draft, []);
+      const original = storage.draftBytes();
+      storage.denyOutcomeWrites = true;
+      setResponder(async () =>
+        postResponse("must-not-send", actor().ap_id, draft.content),
+      );
+      expect(await store.set(timeline.createPostAtom, draft)).toBe(false);
+      expect(requestBodies).toHaveLength(0);
+      expect(storage.draftBytes()).toEqual(original);
+      expect(store.get(timeline.postSubmitErrorAtom)).not.toBeNull();
+      storage.denyOutcomeWrites = false;
+      expect(await store.set(timeline.createPostAtom, draft)).toBe(true);
+      expect(requestBodies).toHaveLength(1);
+      expect(storage.values.has(`${namespace}.outcome`)).toBe(false);
+    },
+  );
+});
+
+test("a definite HTTP refusal clears only its intent and reload retains the draft", async () => {
+  await withCreatePostHarness(
+    async ({ modules: { timeline, auth }, storage, store, setResponder }) => {
+      const draft: Draft = {
+        content: "refused draft",
+        summary: "",
+        visibility: "public",
+      };
+      stageDraft(store, timeline, auth, draft, []);
+      setResponder(
+        async () =>
+          new Response(JSON.stringify({ error: "refused" }), { status: 403 }),
+      );
+      expect(await store.set(timeline.createPostAtom, draft)).toBe(false);
+      expect(storage.values.has(`${namespace}.outcome`)).toBe(false);
+      const fresh = createStore();
+      fresh.set(auth.actorAtom, actor());
+      const unmount = fresh.sub(timeline.postContentAtom, () => {});
+      try {
+        expect(fresh.get(timeline.postSubmitErrorAtom)).toBeNull();
+        expect(fresh.get(timeline.postContentAtom)).toBe(draft.content);
+      } finally {
+        unmount();
+      }
+    },
+  );
+});
+
+test("a restored uncertain warning belongs only to its original owner", async () => {
+  await withCreatePostHarness(
+    async ({ modules: { timeline, auth }, store, setResponder }) => {
+      const draft: Draft = {
+        content: "owner A uncertain",
+        summary: "",
+        visibility: "public",
+      };
+      stageDraft(store, timeline, auth, draft, []);
+      setResponder(async () => {
+        throw new TypeError("lost response");
+      });
+      await store.set(timeline.createPostAtom, draft);
+      const fresh = createStore();
+      fresh.set(auth.actorAtom, {
+        ...actor(),
+        ap_id: "https://example.test/ap/users/bob",
+      });
+      expect(fresh.get(timeline.postSubmitErrorAtom)).toBeNull();
+      fresh.set(auth.actorAtom, actor());
+      const { tAtom } = await import("./i18n.ts");
+      expect(fresh.get(timeline.postSubmitErrorAtom)).toBe(
+        fresh.get(tAtom)("feedback.postUnconfirmed"),
+      );
+    },
+  );
+});
 
 const sampleMedia: UploadedMedia[] = [
   {
@@ -431,9 +601,7 @@ test("partial ACK cleanup keeps draft and media for explicit save recovery", asy
       expect(storage.writeAttempts).toBe(writesBeforeExplicitSave + 1);
       expect(store.get(timeline.postDraftRecoveryNeededAtom)).toBe(false);
       expect(store.get(timeline.postDraftWriteFailedAtom)).toBe(false);
-      expect(Object.fromEntries(storage.values)).toEqual(
-        jsonForDraft(submitted),
-      );
+      expect(storage.draftBytes()).toEqual(jsonForDraft(submitted));
       expect(store.get(timeline.uploadedMediaAtom)).toEqual(sampleMedia);
     },
   );
@@ -462,15 +630,15 @@ test("closing an acknowledged composer does not overwrite a newer draft", async 
       store.set(timeline.postContentAtom, newer.content);
       store.set(timeline.postSummaryAtom, newer.summary);
       store.set(timeline.postVisibilityAtom, newer.visibility);
-      const rawBeforeClose = Object.fromEntries(storage.values);
+      const rawBeforeClose = storage.draftBytes();
       const writesBeforeClose = storage.writeAttempts;
 
       store.set(timeline.closeSubmittedPostModalAtom);
 
       expect(store.get(timeline.showPostModalAtom)).toBe(false);
       expect(storage.writeAttempts).toBe(writesBeforeClose);
-      expect(Object.fromEntries(storage.values)).toEqual(rawBeforeClose);
-      expect(Object.fromEntries(storage.values)).toEqual(jsonForDraft(newer));
+      expect(storage.draftBytes()).toEqual(rawBeforeClose);
+      expect(storage.draftBytes()).toEqual(jsonForDraft(newer));
     },
   );
 });
@@ -501,7 +669,7 @@ test("a retired A ACK cannot clear B storage or release B's in-flight post", asy
         return ackB.promise;
       });
       stageDraft(store, timeline, auth, a, []);
-      const aBytes = Object.fromEntries(storage.values);
+      const aBytes = storage.draftBytes();
       const sendingA = store.set(timeline.createPostAtom, a);
       await arrivedA.promise;
       expect(store.get(timeline.postingAtom)).toBe(true);
@@ -517,9 +685,12 @@ test("a retired A ACK cannot clear B storage or release B's in-flight post", asy
       store.set(timeline.postContentAtom, b.content);
       store.set(timeline.postSummaryAtom, b.summary);
       store.set(timeline.postVisibilityAtom, b.visibility);
-      const beforeAck = Object.fromEntries(storage.values);
+      const beforeAck = storage.draftBytes();
       const sendingB = store.set(timeline.createPostAtom, b);
       await arrivedB.promise;
+      const bOutcomeKey = `${postDraftNamespace({ origin: "https://example.test", actorApId: bob.ap_id, instanceId: null, hostedUserId: null })}.outcome`;
+      const bOutcomeBytes = storage.values.get(bOutcomeKey);
+      expect(bOutcomeBytes).toBeDefined();
       ackA.resolve(postResponse("retired-a", actor().ap_id, a.content));
       expect(await sendingA).toBe(false);
       expect(store.get(timeline.postingAtom)).toBe(true);
@@ -528,7 +699,8 @@ test("a retired A ACK cannot clear B storage or release B's in-flight post", asy
       expect(store.get(timeline.postVisibilityAtom)).toBe(b.visibility);
       expect(store.get(timeline.postSubmitErrorAtom)).toBeNull();
       expect(store.get(timeline.postDraftRecoveryNeededAtom)).toBe(false);
-      expect(Object.fromEntries(storage.values)).toEqual(beforeAck);
+      expect(storage.draftBytes()).toEqual(beforeAck);
+      expect(storage.values.get(bOutcomeKey)).toBe(bOutcomeBytes);
       ackB.resolve(postResponse("current-b", bob.ap_id, b.content));
       expect(await sendingB).toBe(true);
       expect(store.get(timeline.postingAtom)).toBe(false);
@@ -560,7 +732,7 @@ test("A to B to A retires the first A ACK even when all draft bytes match", asyn
         return ack.promise;
       });
       stageDraft(store, timeline, auth, submitted, []);
-      const originalBytes = Object.fromEntries(storage.values);
+      const originalBytes = storage.draftBytes();
       const sending = store.set(timeline.createPostAtom, submitted);
       await arrived.promise;
       store.set(auth.actorAtom, {
@@ -582,7 +754,7 @@ test("A to B to A retires the first A ACK even when all draft bytes match", asyn
       expect(store.get(timeline.postContentAtom)).toBe(submitted.content);
       expect(store.get(timeline.postSummaryAtom)).toBe(submitted.summary);
       expect(store.get(timeline.postVisibilityAtom)).toBe(submitted.visibility);
-      expect(Object.fromEntries(storage.values)).toEqual(originalBytes);
+      expect(storage.draftBytes()).toEqual(originalBytes);
     },
   );
 });
@@ -602,7 +774,7 @@ test("returning to A preserves its acknowledged-but-unrecovered draft guard", as
         visibility: "followers",
       };
       stageDraft(store, timeline, auth, submitted, []);
-      const originalBytes = Object.fromEntries(storage.values);
+      const originalBytes = storage.draftBytes();
       setResponder(async () => {
         storage.denyReads = true;
         return postResponse(
@@ -623,12 +795,12 @@ test("returning to A preserves its acknowledged-but-unrecovered draft guard", as
       expect(store.get(timeline.postDraftRecoveryNeededAtom)).toBe(true);
       expect(await store.set(timeline.createPostAtom, submitted)).toBe(false);
       expect(requestBodies).toHaveLength(1);
-      expect(Object.fromEntries(storage.values)).toEqual(originalBytes);
+      expect(storage.draftBytes()).toEqual(originalBytes);
       storage.denyReads = false;
       store.set(timeline.recoverPostDraftAtom);
       expect(store.get(timeline.postDraftRecoveryNeededAtom)).toBe(false);
       expect(store.get(timeline.postContentAtom)).toBe(submitted.content);
-      expect(Object.fromEntries(storage.values)).toEqual(originalBytes);
+      expect(storage.draftBytes()).toEqual(originalBytes);
     },
   );
 });
@@ -650,7 +822,7 @@ test("a retired unconfirmed request keeps A blocked until explicit recovery", as
       const response = deferred<Response>();
       const arrived = deferred<void>();
       stageDraft(store, timeline, auth, submitted, []);
-      const originalBytes = Object.fromEntries(storage.values);
+      const originalBytes = storage.draftBytes();
       setResponder(async () => {
         arrived.resolve();
         return response.promise;
@@ -672,7 +844,7 @@ test("a retired unconfirmed request keeps A blocked until explicit recovery", as
       expect(store.get(timeline.postDraftRecoveryNeededAtom)).toBe(true);
       expect(await store.set(timeline.createPostAtom, submitted)).toBe(false);
       expect(requestBodies).toHaveLength(1);
-      expect(Object.fromEntries(storage.values)).toEqual(originalBytes);
+      expect(storage.draftBytes()).toEqual(originalBytes);
       store.set(timeline.recoverPostDraftAtom);
       expect(store.get(timeline.postDraftRecoveryNeededAtom)).toBe(false);
     },
@@ -694,7 +866,7 @@ test("a current unconfirmed post keeps its draft and allows explicit close and d
         visibility: "followers",
       };
       stageDraft(store, timeline, auth, submitted, []);
-      const originalBytes = Object.fromEntries(storage.values);
+      const originalBytes = storage.draftBytes();
       setResponder(
         async () => new Response("Lost acknowledgement", { status: 500 }),
       );
@@ -704,11 +876,104 @@ test("a current unconfirmed post keeps its draft and allows explicit close and d
       expect(store.get(timeline.postSubmitErrorAtom)).not.toBeNull();
       expect(store.get(timeline.postingAtom)).toBe(false);
       expect(store.get(timeline.postDraftRecoveryNeededAtom)).toBe(false);
-      expect(Object.fromEntries(storage.values)).toEqual(originalBytes);
+      expect(storage.draftBytes()).toEqual(originalBytes);
       store.set(timeline.closePostModalAtom);
       expect(store.get(timeline.showPostModalAtom)).toBe(false);
       expect(store.get(timeline.postContentAtom)).toBe("");
       expect(requestBodies).toHaveLength(1);
+    },
+  );
+});
+
+test("a rejected manual retry retains the earlier uncertain result across reload", async () => {
+  await withCreatePostHarness(
+    async ({
+      modules: { timeline, auth },
+      store,
+      setResponder,
+      requestBodies,
+    }) => {
+      const draft: Draft = {
+        content: "first outcome still uncertain",
+        summary: "CW",
+        visibility: "followers",
+      };
+      stageDraft(store, timeline, auth, draft, []);
+      setResponder(async () => {
+        throw new TypeError("first response lost");
+      });
+      expect(await store.set(timeline.createPostAtom, draft)).toBe(false);
+      setResponder(
+        async () =>
+          new Response(JSON.stringify({ error: "retry refused" }), {
+            status: 403,
+          }),
+      );
+      expect(await store.set(timeline.createPostAtom, draft)).toBe(false);
+      expect(requestBodies).toHaveLength(2);
+      const { tAtom } = await import("./i18n.ts");
+      expect(store.get(timeline.postDraftNoticeAtom)).toBe(
+        store.get(tAtom)("feedback.postUnconfirmed"),
+      );
+      const fresh = createStore();
+      fresh.set(auth.actorAtom, actor());
+      const unmount = fresh.sub(timeline.postContentAtom, () => {});
+      try {
+        expect(fresh.get(timeline.postContentAtom)).toBe(draft.content);
+        expect(fresh.get(timeline.postSubmitErrorAtom)).toBe(
+          fresh.get(tAtom)("feedback.postUnconfirmed"),
+        );
+      } finally {
+        unmount();
+      }
+    },
+  );
+});
+
+test("a rejected next post cannot erase the earlier confirmed retained-draft notice", async () => {
+  await withCreatePostHarness(
+    async ({
+      modules: { timeline, auth },
+      store,
+      setResponder,
+      requestBodies,
+    }) => {
+      const draft: Draft = {
+        content: "first acknowledged post",
+        summary: "",
+        visibility: "public",
+      };
+      stageDraft(store, timeline, auth, draft, []);
+      const ack = deferred<Response>();
+      setResponder(() => ack.promise);
+      const first = store.set(timeline.createPostAtom, draft);
+      const newer = { ...draft, content: "newer draft after first submission" };
+      store.set(timeline.postContentAtom, newer.content);
+      ack.resolve(
+        postResponse("first-confirmed", actor().ap_id, draft.content),
+      );
+      expect(await first).toBe(false);
+      setResponder(
+        async () =>
+          new Response(JSON.stringify({ error: "next post refused" }), {
+            status: 403,
+          }),
+      );
+      expect(await store.set(timeline.createPostAtom, newer)).toBe(false);
+      expect(requestBodies).toHaveLength(2);
+      const fresh = createStore();
+      fresh.set(auth.actorAtom, actor());
+      const unmount = fresh.sub(timeline.postContentAtom, () => {});
+      try {
+        const { tAtom } = await import("./i18n.ts");
+        expect(fresh.get(timeline.postContentAtom)).toBe(newer.content);
+        expect(fresh.get(timeline.postSubmitErrorAtom)).toBeNull();
+        expect(fresh.get(timeline.postDraftNoticeAtom)).toBe(
+          fresh.get(tAtom)("feedback.postDraftKept"),
+        );
+      } finally {
+        unmount();
+      }
     },
   );
 });
