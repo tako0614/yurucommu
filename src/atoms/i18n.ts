@@ -497,6 +497,13 @@ const translations = {
     "feedback.postDraftKept":
       "投稿は送信済みです。下書きが変わったか、保存状態を確認できないため残しています。続ける前に送信済みの投稿を確認してください。",
     "compose.reloadDraft": "下書きを再読込",
+    "compose.draftScopeChanged":
+      "接続先が変わりました。下書きは元の保存先に残しています。画面を再読み込みしてから続けてください。",
+    "compose.legacyDraftNotice":
+      "このブラウザーに旧形式の下書きが残っています。本人を特定できないため、この投稿には読み込みません。ファイルへ書き出して確認できます。",
+    "compose.exportLegacyDraft": "旧形式の下書きを書き出す",
+    "compose.legacyDraftExportFailed":
+      "下書きを書き出せませんでした。保存された原文は変更していません。",
     "compose.draftSaveFailed":
       "下書きの保存状態を確認できないため、破棄せずに残しています。本文と注釈をコピーできます。",
     "compose.retainedContent": "保持している本文（コピーできます）",
@@ -1307,6 +1314,13 @@ const translations = {
     "feedback.postDraftKept":
       "Your post was sent. The draft changed or its saved state could not be checked, so it has been kept. Check the sent post before continuing.",
     "compose.reloadDraft": "Reload draft",
+    "compose.draftScopeChanged":
+      "The connection changed. Your draft remains in its original storage. Reload the page before continuing.",
+    "compose.legacyDraftNotice":
+      "An older unassigned draft remains in this browser. It is not loaded into this post because its account is unknown. Export it to a file to review it.",
+    "compose.exportLegacyDraft": "Export unassigned draft",
+    "compose.legacyDraftExportFailed":
+      "The draft could not be exported. Its saved bytes were not changed.",
     "compose.draftSaveFailed":
       "The saved draft could not be checked, so it has been kept instead of discarded. You can copy its text and content warning.",
     "compose.retainedContent": "Retained text (you can copy it)",

@@ -1,4 +1,4 @@
-import { createEffect, Show } from "solid-js";
+import { createEffect, createSignal, Show } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import { useAtom, useAtomValue, useSetAtom } from "solid-jotai";
 import {
@@ -7,7 +7,6 @@ import {
   hostedUserAtom,
   selectedInstanceIdAtom,
 } from "../../atoms/auth.ts";
-import { postDraftWriteFailedAtom } from "../../atoms/post-draft.ts";
 import { tAtom } from "../../atoms/i18n.ts";
 import { createScopeOpenAtom } from "../../atoms/shell.ts";
 import { PERSONAL_SCOPE } from "../../atoms/scope.ts";
@@ -18,6 +17,9 @@ import {
   saveRecoveryPostDraftAtom,
   hideRetainedPostModalAtom,
   postDraftNoticeAtom,
+  postDraftWriteFailedAtom,
+  legacyPostDraftAvailableAtom,
+  exportLegacyPostDraftAtom,
   postDraftRecoveryNeededAtom,
   createPostAtom,
   discardForeignMediaAtom,
@@ -65,6 +67,9 @@ export function GlobalPostComposer() {
   const draftRecoveryNeeded = useAtomValue(postDraftRecoveryNeededAtom);
   const explicitDraftNotice = useAtomValue(postDraftNoticeAtom);
   const draftWriteFailed = useAtomValue(postDraftWriteFailedAtom);
+  const legacyDraftAvailable = useAtomValue(legacyPostDraftAvailableAtom);
+  const exportLegacyDraft = useSetAtom(exportLegacyPostDraftAtom);
+  const [legacyExportFailed, setLegacyExportFailed] = createSignal(false);
   const draftNotice = () =>
     explicitDraftNotice() ??
     (draftWriteFailed() ? t()("compose.draftSaveFailed") : null);
@@ -105,7 +110,34 @@ export function GlobalPostComposer() {
     hostedUser();
     instanceId();
     doDiscardForeignMedia();
+    setLegacyExportFailed(false);
   });
+
+  const handleExportLegacyDraft = () => {
+    setLegacyExportFailed(false);
+    try {
+      const backup = exportLegacyDraft();
+      if (!backup) throw new Error("No readable unassigned draft");
+      const url = URL.createObjectURL(
+        new Blob([backup], { type: "application/json" }),
+      );
+      try {
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "yurucommu-unassigned-draft.json";
+        document.body.appendChild(link);
+        try {
+          link.click();
+        } finally {
+          link.remove();
+        }
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    } catch {
+      setLegacyExportFailed(true);
+    }
+  };
 
   const handleFileSelect = async (
     e: InputEvent & { currentTarget: HTMLInputElement },
@@ -171,6 +203,13 @@ export function GlobalPostComposer() {
             onSubmitSuccess={doCloseSubmittedPostModal}
             draftNotice={draftNotice()}
             draftRecoveryNeeded={draftRecoveryNeeded()}
+            legacyDraftAvailable={legacyDraftAvailable()}
+            legacyExportError={
+              legacyExportFailed()
+                ? t()("compose.legacyDraftExportFailed")
+                : null
+            }
+            onExportLegacyDraft={handleExportLegacyDraft}
             onRecoverDraft={doRecoverPostDraft}
             onSaveRecoveryDraft={doSaveRecoveryDraft}
             onKeepDraftAndClose={doHideRetainedPostModal}

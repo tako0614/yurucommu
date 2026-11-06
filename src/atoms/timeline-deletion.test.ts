@@ -112,6 +112,14 @@ async function withFetch<T>(
   run: () => Promise<T>,
 ): Promise<T> {
   const original = globalThis.fetch;
+  const originalLocation = Object.getOwnPropertyDescriptor(
+    globalThis,
+    "location",
+  );
+  Object.defineProperty(globalThis, "location", {
+    configurable: true,
+    value: new URL(origin),
+  });
   const { clearYurucommuFrontendPlugin } = await import("../lib/plugin.ts");
   clearYurucommuFrontendPlugin();
   globalThis.fetch = mock as typeof fetch;
@@ -119,6 +127,9 @@ async function withFetch<T>(
     return await run();
   } finally {
     globalThis.fetch = original;
+    if (originalLocation)
+      Object.defineProperty(globalThis, "location", originalLocation);
+    else Reflect.deleteProperty(globalThis, "location");
     clearYurucommuFrontendPlugin();
   }
 }

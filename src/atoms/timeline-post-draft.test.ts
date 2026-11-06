@@ -1,13 +1,19 @@
 import { expect, test } from "bun:test";
 import { createStore } from "jotai/vanilla";
-import { postDraftWriteFailedAtom } from "./post-draft.ts";
+import { postDraftNamespace } from "./post-draft.ts";
 import type { Actor, Post } from "../types/index.ts";
 import type { UploadedMedia } from "../components/timeline/types.ts";
 
+const namespace = postDraftNamespace({
+  origin: "https://example.test",
+  actorApId: "https://example.test/ap/users/alice",
+  instanceId: null,
+  hostedUserId: null,
+});
 const DRAFT_KEYS = {
-  content: "compose.draft.content",
-  summary: "compose.draft.summary",
-  visibility: "compose.draft.visibility",
+  content: `${namespace}.content`,
+  summary: `${namespace}.summary`,
+  visibility: `${namespace}.visibility`,
 } as const;
 const json = (value: unknown): string => JSON.stringify(value) as string;
 
@@ -135,7 +141,7 @@ async function withCreatePostHarness(
     ) => void;
   }) => Promise<void>,
 ): Promise<void> {
-  const keys = ["localStorage", "navigator", "fetch"] as const;
+  const keys = ["localStorage", "navigator", "fetch", "location"] as const;
   const descriptors = new Map(
     keys.map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]),
   );
@@ -157,6 +163,10 @@ async function withCreatePostHarness(
       enumerable: descriptors.get("navigator")?.enumerable ?? true,
       writable: true,
       value: { language: "en-US" },
+    });
+    Object.defineProperty(globalThis, "location", {
+      configurable: true,
+      value: new URL("https://example.test/"),
     });
     Object.defineProperty(globalThis, "fetch", {
       configurable: true,
@@ -398,7 +408,7 @@ test("partial ACK cleanup keeps draft and media for explicit save recovery", asy
 
       expect(await submission).toBe(false);
       expect(store.get(timeline.postDraftRecoveryNeededAtom)).toBe(true);
-      expect(store.get(postDraftWriteFailedAtom)).toBe(true);
+      expect(store.get(timeline.postDraftWriteFailedAtom)).toBe(true);
       expect(store.get(timeline.postSubmitErrorAtom)).toBeNull();
       expect(store.get(timeline.postContentAtom)).toBe(submitted.content);
       expect(store.get(timeline.postSummaryAtom)).toBe(submitted.summary);
@@ -420,7 +430,7 @@ test("partial ACK cleanup keeps draft and media for explicit save recovery", asy
       store.set(timeline.saveRecoveryPostDraftAtom);
       expect(storage.writeAttempts).toBe(writesBeforeExplicitSave + 1);
       expect(store.get(timeline.postDraftRecoveryNeededAtom)).toBe(false);
-      expect(store.get(postDraftWriteFailedAtom)).toBe(false);
+      expect(store.get(timeline.postDraftWriteFailedAtom)).toBe(false);
       expect(Object.fromEntries(storage.values)).toEqual(
         jsonForDraft(submitted),
       );
@@ -461,6 +471,210 @@ test("closing an acknowledged composer does not overwrite a newer draft", async 
       expect(storage.writeAttempts).toBe(writesBeforeClose);
       expect(Object.fromEntries(storage.values)).toEqual(rawBeforeClose);
       expect(Object.fromEntries(storage.values)).toEqual(jsonForDraft(newer));
+    },
+  );
+});
+
+test("a retired A ACK cannot clear B storage or release B's in-flight post", async () => {
+  await withCreatePostHarness(
+    async ({ storage, modules: { timeline, auth }, store, setResponder }) => {
+      const a: Draft = {
+        content: "A submitted draft",
+        summary: "A warning",
+        visibility: "followers",
+      };
+      const b: Draft = {
+        content: "B submitted draft",
+        summary: "B warning",
+        visibility: "direct",
+      };
+      const ackA = deferred<Response>();
+      const ackB = deferred<Response>();
+      const arrivedA = deferred<void>();
+      const arrivedB = deferred<void>();
+      setResponder(async (body) => {
+        if (body.content === a.content) {
+          arrivedA.resolve();
+          return ackA.promise;
+        }
+        arrivedB.resolve();
+        return ackB.promise;
+      });
+      stageDraft(store, timeline, auth, a, []);
+      const aBytes = Object.fromEntries(storage.values);
+      const sendingA = store.set(timeline.createPostAtom, a);
+      await arrivedA.promise;
+      expect(store.get(timeline.postingAtom)).toBe(true);
+      const bob = {
+        ...actor(),
+        ap_id: "https://example.test/ap/users/bob",
+        username: "bob@example.test",
+      };
+      store.set(auth.actorAtom, bob);
+      expect(store.get(timeline.postContentAtom)).toBe("");
+      expect(store.get(timeline.postingAtom)).toBe(false);
+      expect(store.get(timeline.postDraftRecoveryNeededAtom)).toBe(false);
+      store.set(timeline.postContentAtom, b.content);
+      store.set(timeline.postSummaryAtom, b.summary);
+      store.set(timeline.postVisibilityAtom, b.visibility);
+      const beforeAck = Object.fromEntries(storage.values);
+      const sendingB = store.set(timeline.createPostAtom, b);
+      await arrivedB.promise;
+      ackA.resolve(postResponse("retired-a", actor().ap_id, a.content));
+      expect(await sendingA).toBe(false);
+      expect(store.get(timeline.postingAtom)).toBe(true);
+      expect(store.get(timeline.postContentAtom)).toBe(b.content);
+      expect(store.get(timeline.postSummaryAtom)).toBe(b.summary);
+      expect(store.get(timeline.postVisibilityAtom)).toBe(b.visibility);
+      expect(store.get(timeline.postSubmitErrorAtom)).toBeNull();
+      expect(store.get(timeline.postDraftRecoveryNeededAtom)).toBe(false);
+      expect(Object.fromEntries(storage.values)).toEqual(beforeAck);
+      ackB.resolve(postResponse("current-b", bob.ap_id, b.content));
+      expect(await sendingB).toBe(true);
+      expect(store.get(timeline.postingAtom)).toBe(false);
+      expect(store.get(timeline.postContentAtom)).toBe("");
+      for (const [key, value] of Object.entries(aBytes))
+        expect(storage.values.get(key)).toBe(value);
+    },
+  );
+});
+
+test("A to B to A retires the first A ACK even when all draft bytes match", async () => {
+  await withCreatePostHarness(
+    async ({
+      storage,
+      modules: { timeline, auth },
+      store,
+      requestBodies,
+      setResponder,
+    }) => {
+      const submitted: Draft = {
+        content: "A before identity round trip",
+        summary: "original warning",
+        visibility: "followers",
+      };
+      const ack = deferred<Response>();
+      const arrived = deferred<void>();
+      setResponder(async () => {
+        arrived.resolve();
+        return ack.promise;
+      });
+      stageDraft(store, timeline, auth, submitted, []);
+      const originalBytes = Object.fromEntries(storage.values);
+      const sending = store.set(timeline.createPostAtom, submitted);
+      await arrived.promise;
+      store.set(auth.actorAtom, {
+        ...actor(),
+        ap_id: "https://example.test/ap/users/bob",
+      });
+      store.set(auth.actorAtom, actor());
+      expect(store.get(timeline.postingAtom)).toBe(true);
+      expect(await store.set(timeline.createPostAtom, submitted)).toBe(false);
+      expect(requestBodies).toHaveLength(1);
+      ack.resolve(
+        postResponse("before-round-trip", actor().ap_id, submitted.content),
+      );
+      expect(await sending).toBe(false);
+      expect(store.get(timeline.postingAtom)).toBe(false);
+      expect(store.get(timeline.postDraftRecoveryNeededAtom)).toBe(true);
+      expect(await store.set(timeline.createPostAtom, submitted)).toBe(false);
+      expect(requestBodies).toHaveLength(1);
+      expect(store.get(timeline.postContentAtom)).toBe(submitted.content);
+      expect(store.get(timeline.postSummaryAtom)).toBe(submitted.summary);
+      expect(store.get(timeline.postVisibilityAtom)).toBe(submitted.visibility);
+      expect(Object.fromEntries(storage.values)).toEqual(originalBytes);
+    },
+  );
+});
+
+test("returning to A preserves its acknowledged-but-unrecovered draft guard", async () => {
+  await withCreatePostHarness(
+    async ({
+      storage,
+      modules: { timeline, auth },
+      store,
+      requestBodies,
+      setResponder,
+    }) => {
+      const submitted: Draft = {
+        content: "A ACK requires review",
+        summary: "A saved warning",
+        visibility: "followers",
+      };
+      stageDraft(store, timeline, auth, submitted, []);
+      const originalBytes = Object.fromEntries(storage.values);
+      setResponder(async () => {
+        storage.denyReads = true;
+        return postResponse(
+          "a-needs-recovery",
+          actor().ap_id,
+          submitted.content,
+        );
+      });
+      expect(await store.set(timeline.createPostAtom, submitted)).toBe(false);
+      expect(store.get(timeline.postDraftRecoveryNeededAtom)).toBe(true);
+      expect(store.get(timeline.postDraftWriteFailedAtom)).toBe(false);
+      store.set(auth.actorAtom, {
+        ...actor(),
+        ap_id: "https://example.test/ap/users/bob",
+      });
+      expect(store.get(timeline.postDraftRecoveryNeededAtom)).toBe(false);
+      store.set(auth.actorAtom, actor());
+      expect(store.get(timeline.postDraftRecoveryNeededAtom)).toBe(true);
+      expect(await store.set(timeline.createPostAtom, submitted)).toBe(false);
+      expect(requestBodies).toHaveLength(1);
+      expect(Object.fromEntries(storage.values)).toEqual(originalBytes);
+      storage.denyReads = false;
+      store.set(timeline.recoverPostDraftAtom);
+      expect(store.get(timeline.postDraftRecoveryNeededAtom)).toBe(false);
+      expect(store.get(timeline.postContentAtom)).toBe(submitted.content);
+      expect(Object.fromEntries(storage.values)).toEqual(originalBytes);
+    },
+  );
+});
+
+test("a retired unconfirmed request keeps A blocked until explicit recovery", async () => {
+  await withCreatePostHarness(
+    async ({
+      storage,
+      modules: { timeline, auth },
+      store,
+      requestBodies,
+      setResponder,
+    }) => {
+      const submitted: Draft = {
+        content: "A unknown transport outcome",
+        summary: "private warning",
+        visibility: "followers",
+      };
+      const response = deferred<Response>();
+      const arrived = deferred<void>();
+      stageDraft(store, timeline, auth, submitted, []);
+      const originalBytes = Object.fromEntries(storage.values);
+      setResponder(async () => {
+        arrived.resolve();
+        return response.promise;
+      });
+      const sending = store.set(timeline.createPostAtom, submitted);
+      await arrived.promise;
+      store.set(auth.actorAtom, {
+        ...actor(),
+        ap_id: "https://example.test/ap/users/bob",
+      });
+      response.resolve(
+        new Response("Unknown upstream outcome", { status: 500 }),
+      );
+      expect(await sending).toBe(false);
+      expect(store.get(timeline.postingAtom)).toBe(false);
+      expect(store.get(timeline.postDraftRecoveryNeededAtom)).toBe(false);
+      store.set(auth.actorAtom, actor());
+      expect(store.get(timeline.postingAtom)).toBe(false);
+      expect(store.get(timeline.postDraftRecoveryNeededAtom)).toBe(true);
+      expect(await store.set(timeline.createPostAtom, submitted)).toBe(false);
+      expect(requestBodies).toHaveLength(1);
+      expect(Object.fromEntries(storage.values)).toEqual(originalBytes);
+      store.set(timeline.recoverPostDraftAtom);
+      expect(store.get(timeline.postDraftRecoveryNeededAtom)).toBe(false);
     },
   );
 });
