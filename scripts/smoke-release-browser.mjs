@@ -15,6 +15,7 @@ import { qualifySearchFollowing } from "./release-browser-follow.mjs";
 import { qualifyBrowserDM } from "./release-browser-dm.mjs";
 import { qualifyBrowserNotifications } from "./release-browser-notifications.mjs";
 import { qualifyBrowserPostOutcome } from "./release-browser-post-outcome.mjs";
+import { qualifyBrowserDeleteTarget } from "./release-browser-delete-target.mjs";
 import {
   prepareBrowserAuthCapacity,
   qualifyBrowserPostReload,
@@ -1040,6 +1041,23 @@ async function runBrowserSmoke(artifactPath, artifactDigest, browser) {
       "Post reload returned an unexpected HTTP 5xx",
     );
 
+    await prepareBrowserAuthCapacity(page, origin);
+    const deleteTargetMetadata = await qualifyBrowserDeleteTarget({
+      page,
+      db,
+      origin,
+      actorApId,
+      checks,
+    });
+    requireEffect(
+      pageErrors.length === 0,
+      "Delete target settlement raised a page runtime error",
+    );
+    requireEffect(
+      serverErrors.length === 0,
+      "Delete target settlement returned an unexpected HTTP 5xx",
+    );
+
     result = {
       kind: "yurucommu.release-browser-smoke@v1",
       artifact: basename(artifactPath),
@@ -1055,6 +1073,7 @@ async function runBrowserSmoke(artifactPath, artifactDigest, browser) {
       feed: feedMetadata,
       postOutcome: postOutcomeMetadata,
       postReload: postReloadMetadata,
+      deleteTarget: deleteTargetMetadata,
       follow: followMetadata,
       dm: dmMetadata,
       postSnapshot: postSnapshotMetadata,
