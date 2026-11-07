@@ -65,7 +65,13 @@ function installDelayedDraftStorageEvents(page) {
       (event) => {
         if (
           !replaying &&
-          (event.key === null || event.key.startsWith(draftPrefix))
+          // Delay the three draft fields under test. Outcome metadata shares
+          // their namespace but has independent subscribers and event counts.
+          (event.key === null ||
+            (event.key.startsWith(draftPrefix) &&
+              [".content", ".summary", ".visibility"].some((suffix) =>
+                event.key.endsWith(suffix),
+              )))
         ) {
           queue.push({
             key: event.key,
