@@ -463,3 +463,30 @@ test("mount cannot replace faulted memory with older partially valid storage", (
   expect(store.set(atoms.refreshAtom)).toBeNull();
   unsubscribe();
 });
+
+test("namespaced storage events update only their own mounted draft", () => {
+  const storage = new MemoryStorage();
+  const events = new TrackingEvents();
+  const a = createPostDraftAtoms(() => storage, events, "scope-a");
+  const b = createPostDraftAtoms(() => storage, events, "scope-b");
+  const store = createStore();
+  const stopA = store.sub(a.contentAtom, () => {});
+  const stopB = store.sub(b.contentAtom, () => {});
+  try {
+    store.set(a.contentAtom, "A original");
+    store.set(b.contentAtom, "B original");
+    storage.values.set("scope-a.content", json("A latest"));
+    events.storageEvent({
+      key: "scope-a.content",
+      storageArea: storage as unknown as Storage,
+      newValue: json("stale event"),
+    });
+    expect(store.get(a.contentAtom)).toBe("A latest");
+    expect(store.get(b.contentAtom)).toBe("B original");
+    expect(storage.values.get("scope-b.content")).toBe(json("B original"));
+    expect(storage.values.has(CONTENT_KEY)).toBe(false);
+  } finally {
+    stopA();
+    stopB();
+  }
+});

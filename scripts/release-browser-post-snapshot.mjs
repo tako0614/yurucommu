@@ -2,6 +2,10 @@
 // media uploads and the final post acknowledgement are in flight. This uses a
 // real browser against the caller's disposable local Worker and native stores.
 import { createHash, randomUUID } from "node:crypto";
+import {
+  observeBrowserDraftKeys,
+  readBrowserDraftStorage,
+} from "./release-browser-draft-storage.mjs";
 
 const TIMEOUT_MS = 15_000;
 const PNG = Buffer.from(
@@ -608,6 +612,10 @@ export async function qualifyBrowserPostSnapshot({
     await ensureContentWarningVisible(dialog);
     await dialog.getByPlaceholder("内容に関する注釈（任意）").fill(summary);
     await dialog.locator("#post-visibility").selectOption("unlisted");
+    const draftKeys = await observeBrowserDraftKeys(page, {
+      origin: appOrigin,
+      actorApId,
+    });
 
     await chooseFiles(page, dialog, [
       { name: "first.png", mimeType: "image/png", buffer: PNG },
@@ -809,9 +817,7 @@ export async function qualifyBrowserPostSnapshot({
         (await reopened
           .getByPlaceholder("内容に関する注釈（任意）")
           .inputValue()) === "" &&
-        (await page.evaluate(() =>
-          JSON.parse(localStorage.getItem("compose.draft.summary") ?? "null"),
-        )) === "",
+        (await readBrowserDraftStorage(page, draftKeys)).summary === "",
       "successful-composer-did-not-clear-and-reopen-cleanly",
     );
     const nextDraft = `release-post-snapshot-discard-${randomUUID()}`;
@@ -956,17 +962,12 @@ export async function qualifyBrowserPostSnapshot({
           .inputValue()) === preservedSummary &&
         (await secondDialog.locator("#post-visibility").inputValue()) ===
           "unlisted" &&
-        (await secondaryPage.evaluate(() =>
-          JSON.parse(localStorage.getItem("compose.draft.content") ?? "null"),
-        )) === preservedContent &&
-        (await secondaryPage.evaluate(() =>
-          JSON.parse(localStorage.getItem("compose.draft.summary") ?? "null"),
-        )) === preservedSummary &&
-        (await secondaryPage.evaluate(() =>
-          JSON.parse(
-            localStorage.getItem("compose.draft.visibility") ?? "null",
-          ),
-        )) === "unlisted",
+        (await readBrowserDraftStorage(secondaryPage, draftKeys)).body ===
+          preservedContent &&
+        (await readBrowserDraftStorage(secondaryPage, draftKeys)).summary ===
+          preservedSummary &&
+        (await readBrowserDraftStorage(secondaryPage, draftKeys)).visibility ===
+          "unlisted",
       "second-tab-draft-was-not-observed-in-storage-before-ack",
     );
     const firstTabBody = concurrentDialog.getByPlaceholder("今なにしてる？");
@@ -992,12 +993,13 @@ export async function qualifyBrowserPostSnapshot({
           body === expected.body &&
           summary === expected.summary &&
           visibility === expected.visibility &&
-          stored("compose.draft.content") === expected.body &&
-          stored("compose.draft.summary") === expected.summary &&
-          stored("compose.draft.visibility") === expected.visibility
+          stored(expected.keys.body) === expected.body &&
+          stored(expected.keys.summary) === expected.summary &&
+          stored(expected.keys.visibility) === expected.visibility
         );
       },
       {
+        keys: draftKeys,
         body: preservedContent,
         summary: preservedSummary,
         visibility: "unlisted",
@@ -1075,15 +1077,13 @@ export async function qualifyBrowserPostSnapshot({
         .getByPlaceholder("内容に関する注釈（任意）")
         .inputValue(),
       visibility: await secondDialog.locator("#post-visibility").inputValue(),
-      storedBody: await secondaryPage.evaluate(() =>
-        JSON.parse(localStorage.getItem("compose.draft.content") ?? "null"),
-      ),
-      storedSummary: await secondaryPage.evaluate(() =>
-        JSON.parse(localStorage.getItem("compose.draft.summary") ?? "null"),
-      ),
-      storedVisibility: await secondaryPage.evaluate(() =>
-        JSON.parse(localStorage.getItem("compose.draft.visibility") ?? "null"),
-      ),
+      storedBody: (await readBrowserDraftStorage(secondaryPage, draftKeys))
+        .body,
+      storedSummary: (await readBrowserDraftStorage(secondaryPage, draftKeys))
+        .summary,
+      storedVisibility: (
+        await readBrowserDraftStorage(secondaryPage, draftKeys)
+      ).visibility,
     };
     assert(
       unsentNativeCounts.notes === 0 &&

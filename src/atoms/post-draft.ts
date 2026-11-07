@@ -1,4 +1,4 @@
-import { atom } from "jotai/vanilla";
+import { atom, type Getter, type WritableAtom } from "jotai/vanilla";
 
 export type PostVisibility = "public" | "unlisted" | "followers" | "direct";
 export type PostDraft = {
@@ -12,17 +12,29 @@ const emptyDraft: PostDraft = {
   summary: "",
   visibility: "public",
 };
-const keys = {
+const legacyKeys = {
   content: "compose.draft.content",
   summary: "compose.draft.summary",
   visibility: "compose.draft.visibility",
 };
 
-// Keep the existing three JSON keys. Missing keys mean defaults; malformed or
-// inaccessible storage cannot authorize acknowledgement-time draft clearing.
+function storageKeys(namespace?: string) {
+  return namespace
+    ? {
+        content: `${namespace}.content`,
+        summary: `${namespace}.summary`,
+        visibility: `${namespace}.visibility`,
+      }
+    : legacyKeys;
+}
+
+// Preserve the three-field JSON format within an explicitly selected namespace.
+// The omitted namespace is only the low-level legacy reader/test seam.
 export function readStoredPostDraft(
   storage: Pick<Storage, "getItem">,
+  namespace?: string,
 ): PostDraft | null {
+  const keys = storageKeys(namespace);
   try {
     const read = (field: keyof PostDraft): unknown => {
       const raw = storage.getItem(keys[field]);
@@ -57,7 +69,9 @@ export function createPostDraftAtoms(
   events: DraftEventSource | undefined = typeof window === "undefined"
     ? undefined
     : window,
+  namespace?: string,
 ) {
+  const keys = storageKeys(namespace);
   const state = atom({ draft: { ...emptyDraft }, writeFailed: false });
   const equal = (a: PostDraft, b: PostDraft) =>
     a.content === b.content &&
@@ -65,7 +79,7 @@ export function createPostDraftAtoms(
     a.visibility === b.visibility;
   const read = (): PostDraft | null => {
     try {
-      return readStoredPostDraft(getStorage());
+      return readStoredPostDraft(getStorage(), namespace);
     } catch {
       return null;
     }
@@ -210,12 +224,151 @@ export function createPostDraftAtoms(
   };
 }
 
-const draft = createPostDraftAtoms();
-export const postContentAtom = draft.contentAtom;
-export const postSummaryAtom = draft.summaryAtom;
-export const postVisibilityAtom = draft.visibilityAtom;
-export const refreshPostDraftAtom = draft.refreshAtom;
-export const clearStoredPostDraftAtom = draft.clearAtom;
-export const saveRetainedPostDraftAtom = draft.saveAtom;
-export const postDraftWriteFailedAtom = draft.writeFailedAtom;
-export const readPostDraftFromStorage = draft.read;
+export type PostDraftScope = Readonly<{
+  origin: string;
+  actorApId: string;
+  instanceId: string | null;
+  hostedUserId: string | null;
+}>;
+
+/** A persistent owner tuple, never an authentication or server-session claim. */
+export function postDraftNamespace(scope: PostDraftScope): string {
+  const origin = new URL(scope.origin);
+  if (!["https:", "http:"].includes(origin.protocol) || !scope.actorApId) {
+    throw new Error("A draft requires an observed actor and HTTP API origin");
+  }
+  return `compose.draft.v2.${encodeURIComponent(
+    JSON.stringify([
+      origin.origin,
+      scope.actorApId,
+      scope.instanceId,
+      scope.hostedUserId,
+    ]),
+  )}`;
+}
+
+export function createScopedPostDraftAtoms(
+  resolveScope: (get: Getter) => PostDraftScope | null,
+  getStorage: () => DraftStorage = () => globalThis.localStorage,
+  events: DraftEventSource | undefined = typeof window === "undefined"
+    ? undefined
+    : window,
+) {
+  // Only atom configurations are cached here. Draft values, dirty state and
+  // subscriptions stay in the caller's Jotai store, as in the base helper.
+  const configurations = new Map<
+    string,
+    ReturnType<typeof createPostDraftAtoms>
+  >();
+  const resolveNamespace = (get: Getter) => {
+    try {
+      const scope = resolveScope(get);
+      return scope ? postDraftNamespace(scope) : null;
+    } catch {
+      return null;
+    }
+  };
+  const namespaceAtom = atom(resolveNamespace);
+  const current = (get: Getter) => {
+    const namespace = get(namespaceAtom);
+    if (!namespace || namespace !== resolveNamespace(get)) return null;
+    let draft = configurations.get(namespace);
+    if (!draft) {
+      draft = createPostDraftAtoms(getStorage, events, namespace);
+      configurations.set(namespace, draft);
+    }
+    return draft;
+  };
+  type DraftAtoms = ReturnType<typeof createPostDraftAtoms>;
+  const field = <T>(
+    select: (draft: DraftAtoms) => WritableAtom<T, [T], void>,
+    fallback: T,
+  ) =>
+    atom(
+      (get) => {
+        const draft = current(get);
+        return draft ? get(select(draft)) : fallback;
+      },
+      (get, set, value: T) => {
+        const draft = current(get);
+        if (draft) set(select(draft), value);
+      },
+    );
+  const legacyRevisionAtom = atom(0);
+  legacyRevisionAtom.onMount = (setRevision) => {
+    const changed = (event: Event) => {
+      const change = event as StorageEvent;
+      try {
+        if (
+          change.storageArea === getStorage() &&
+          (change.key === null ||
+            Object.values(legacyKeys).includes(change.key))
+        )
+          setRevision((value) => value + 1);
+      } catch {
+        /* inaccessible bytes remain untouched */
+      }
+    };
+    events?.addEventListener("storage", changed);
+    return () => events?.removeEventListener("storage", changed);
+  };
+  const legacy = () => {
+    try {
+      const storage = getStorage();
+      const fields = Object.fromEntries(
+        Object.values(legacyKeys).map((key) => [key, storage.getItem(key)]),
+      );
+      const parsed = readStoredPostDraft(storage);
+      const present = parsed
+        ? parsed.content !== "" ||
+          parsed.summary !== "" ||
+          parsed.visibility !== "public"
+        : Object.values(fields).some((value) => value !== null);
+      return present ? fields : null;
+    } catch {
+      return null;
+    }
+  };
+  return {
+    namespaceAtom,
+    capture: current,
+    contentAtom: field((draft) => draft.contentAtom, ""),
+    summaryAtom: field((draft) => draft.summaryAtom, ""),
+    visibilityAtom: field(
+      (draft) => draft.visibilityAtom,
+      "public" as PostVisibility,
+    ),
+    writeFailedAtom: atom((get) => {
+      const draft = current(get);
+      return draft ? get(draft.writeFailedAtom) : true;
+    }),
+    refreshAtom: atom(null, (get, set) => {
+      const draft = current(get);
+      return draft ? set(draft.refreshAtom) : null;
+    }),
+    clearAtom: atom(null, (get, set) => {
+      const draft = current(get);
+      return draft ? set(draft.clearAtom) : false;
+    }),
+    saveAtom: atom(null, (get, set) => {
+      const draft = current(get);
+      return draft ? set(draft.saveAtom) : false;
+    }),
+    read: (get: Getter) => current(get)?.read() ?? null,
+    legacyAvailableAtom: atom((get) => {
+      get(legacyRevisionAtom);
+      return get(namespaceAtom) !== null && legacy() !== null;
+    }),
+    exportLegacyAtom: atom(null, (get) => {
+      if (get(namespaceAtom) === null) return null;
+      const fields = legacy();
+      return fields
+        ? JSON.stringify(
+            { format: "yurucommu-unassigned-draft-v1", fields },
+            null,
+            2,
+          )
+        : null;
+    }),
+  };
+}

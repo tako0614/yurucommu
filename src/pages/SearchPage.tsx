@@ -9,7 +9,8 @@ import {
   untrack,
 } from "solid-js";
 import { A, useSearchParams } from "@solidjs/router";
-import { useAtomValue, useSetAtom } from "solid-jotai";
+import { useAtomValue, useSetAtom, useStore } from "solid-jotai";
+import { atom } from "jotai/vanilla";
 import { useRequiredActor } from "../hooks/useRequiredActor.ts";
 import { Actor, Post } from "../types/index.ts";
 import {
@@ -18,7 +19,7 @@ import {
   fetchFollowing,
   fetchTrendingHashtags,
   follow,
-  joinCommunity,
+  getYurucommuApiTransport,
   likePost,
   searchActors,
   searchHashtag,
@@ -26,8 +27,20 @@ import {
   searchRemote,
   unlikePost,
 } from "../lib/api.ts";
-import { refreshScopesAtom, scopeCommunitiesAtom } from "../atoms/scope.ts";
+import { scopeCommunitiesAtom } from "../atoms/scope.ts";
+import { fetchCommunity } from "../lib/api/communities.ts";
+import { apiPost, ApiError } from "../lib/api/fetch.ts";
 import { pushToast, toastsAtom } from "../atoms/toast.ts";
+import {
+  actorAtom,
+  authSessionEpochAtom,
+  hostedUserAtom,
+  instancesLoadingAtom,
+  logoutBusyAtom,
+  selectedInstanceIdAtom,
+} from "../atoms/auth.ts";
+import { classifyWriteFailure } from "../lib/write-outcome.ts";
+import { getAuthStrategy } from "../lib/plugin.ts";
 import { handleTablistKeydown } from "../lib/tablistNav.ts";
 import { useI18n } from "../lib/i18n.tsx";
 import { formatRelativeTime } from "../lib/datetime.ts";
@@ -62,6 +75,346 @@ type SearchTab = "users" | "posts" | "communities";
 const SEARCH_PAGE_SIZE = 20;
 const USER_SORTS = ["relevance", "followers", "recent"] as const;
 const POST_SORTS = ["recent", "popular"] as const;
+
+// These locks only prevent a duplicate local send while the original request
+// is pending. They are scoped to the Provider and do not represent a receipt.
+type SearchLikeStore = ReturnType<typeof useStore>;
+const pendingSearchLikesAtom = atom<ReadonlyMap<string, symbol>>(new Map());
+const pendingSearchFollowsAtom = atom<ReadonlyMap<string, symbol>>(new Map());
+const pendingSearchJoinsAtom = atom<ReadonlyMap<string, symbol>>(new Map());
+const searchJoinScopeReadAtom = atom<symbol | null>(null);
+type SearchJoinTarget = { id: string; name: string; label: string };
+type SearchJoinOriginal = SearchJoinTarget & {
+  token: symbol;
+  scope: symbol;
+  sameScope: () => boolean;
+};
+const pendingSearchJoinOriginalsAtom = atom<
+  ReadonlyMap<string, SearchJoinOriginal>
+>(new Map());
+type SearchFollowReceiptState = {
+  scope: symbol;
+  sameScope: () => boolean;
+  targets: ReadonlySet<string>;
+};
+const searchFollowReceiptsAtom = atom<SearchFollowReceiptState | null>(null);
+type SearchJoinReceipt = SearchJoinTarget & {
+  scope: symbol;
+  sameScope: () => boolean;
+  status: "joined" | "pending" | "unconfirmed";
+};
+const searchJoinReceiptsAtom = atom<ReadonlyMap<string, SearchJoinReceipt>>(
+  new Map(),
+);
+const searchLikeActorIdAtom = atom((get) => get(actorAtom)?.ap_id ?? null);
+const searchLikeHostedUserIdAtom = atom(
+  (get) => get(hostedUserAtom)?.id ?? null,
+);
+const searchLikeScopeAtom = atom((get) => {
+  get(searchLikeActorIdAtom);
+  get(searchLikeHostedUserIdAtom);
+  get(selectedInstanceIdAtom);
+  get(authSessionEpochAtom);
+  return Symbol();
+});
+const searchLikeSubscriptions = new WeakMap<SearchLikeStore, () => void>();
+
+function trackSearchLikeScope(store: SearchLikeStore) {
+  if (searchLikeSubscriptions.has(store)) return;
+  // Keep the derived scope live through route unmounts, including A → B → A.
+  searchLikeSubscriptions.set(
+    store,
+    store.sub(searchLikeScopeAtom, () => {
+      const receipts = store.get(searchFollowReceiptsAtom);
+      if (receipts && receipts.scope !== store.get(searchLikeScopeAtom))
+        store.set(searchFollowReceiptsAtom, null);
+      const currentScope = store.get(searchLikeScopeAtom);
+      const originals = store.get(pendingSearchJoinOriginalsAtom);
+      const currentOriginals = new Map(
+        [...originals].filter(
+          ([, original]) => original.scope === currentScope,
+        ),
+      );
+      if (currentOriginals.size !== originals.size)
+        store.set(pendingSearchJoinOriginalsAtom, currentOriginals);
+      const joins = store.get(searchJoinReceiptsAtom);
+      const currentJoins = new Map(
+        [...joins].filter(([, receipt]) => receipt.scope === currentScope),
+      );
+      if (currentJoins.size !== joins.size)
+        store.set(searchJoinReceiptsAtom, currentJoins);
+      stopSearchLikeTrackingIfIdle(store);
+    }),
+  );
+}
+
+function stopSearchLikeTrackingIfIdle(store: SearchLikeStore) {
+  if (
+    store.get(pendingSearchLikesAtom).size ||
+    store.get(pendingSearchFollowsAtom).size ||
+    store.get(pendingSearchJoinsAtom).size ||
+    store.get(pendingSearchJoinOriginalsAtom).size ||
+    store.get(searchFollowReceiptsAtom)?.targets.size ||
+    store.get(searchJoinReceiptsAtom).size
+  )
+    return;
+  const stop = searchLikeSubscriptions.get(store);
+  searchLikeSubscriptions.delete(store);
+  stop?.();
+}
+
+function searchLikeKey(store: SearchLikeStore, id: string) {
+  return JSON.stringify([
+    store.get(searchLikeActorIdAtom),
+    store.get(selectedInstanceIdAtom),
+    store.get(searchLikeHostedUserIdAtom),
+    id,
+  ]);
+}
+
+function beginSearchLike(
+  store: SearchLikeStore,
+  id: string,
+  kind: "like" | "follow" | "join" = "like",
+  joinName?: string,
+  joinLabel?: string,
+) {
+  if (
+    !store.get(searchLikeActorIdAtom) ||
+    store.get(logoutBusyAtom) ||
+    store.get(instancesLoadingAtom) ||
+    (kind === "join" && !joinName)
+  )
+    return null;
+  const key = searchLikeKey(store, id);
+  const pendingAtom =
+    kind === "like"
+      ? pendingSearchLikesAtom
+      : kind === "follow"
+        ? pendingSearchFollowsAtom
+        : pendingSearchJoinsAtom;
+  if (store.get(pendingAtom).has(key)) return null;
+  const previousJoinReceipt =
+    kind === "join" ? store.get(searchJoinReceiptsAtom).get(key) : undefined;
+  if (
+    previousJoinReceipt?.sameScope() &&
+    previousJoinReceipt.status !== "joined"
+  )
+    return null;
+  if (
+    kind === "join" &&
+    ([...store.get(pendingSearchJoinOriginalsAtom).values()].some(
+      (original) => original.name === joinName && original.sameScope(),
+    ) ||
+      [...store.get(searchJoinReceiptsAtom).values()].some(
+        (receipt) =>
+          receipt.name === joinName &&
+          receipt.status !== "joined" &&
+          receipt.sameScope(),
+      ))
+  )
+    return null;
+  trackSearchLikeScope(store);
+  try {
+    const scope = store.get(searchLikeScopeAtom);
+    const strategy = getAuthStrategy();
+    const transport = getYurucommuApiTransport();
+    const path =
+      kind === "like"
+        ? `/api/posts/${encodeURIComponent(id)}/like`
+        : kind === "follow"
+          ? "/api/follow"
+          : `/api/communities/${encodeURIComponent(joinName!)}/join`;
+    const url = transport.resolveUrl(path);
+    const sameScope = () => {
+      try {
+        return (
+          !store.get(logoutBusyAtom) &&
+          store.get(searchLikeScopeAtom) === scope &&
+          getAuthStrategy() === strategy &&
+          getYurucommuApiTransport() === transport &&
+          transport.resolveUrl(path) === url
+        );
+      } catch {
+        return false;
+      }
+    };
+    const token = Symbol();
+    store.set(pendingAtom, (pending) => new Map(pending).set(key, token));
+    const joinTarget =
+      kind === "join" && joinName
+        ? { id, name: joinName, label: joinLabel ?? joinName }
+        : null;
+    if (joinTarget)
+      store.set(pendingSearchJoinOriginalsAtom, (originals) =>
+        new Map(originals).set(key, {
+          ...joinTarget,
+          token,
+          scope,
+          sameScope,
+        }),
+      );
+    // A joined acknowledgement is terminal. A deliberate new join may
+    // replace that history only after the new in-flight lock exists.
+    if (
+      previousJoinReceipt?.sameScope() &&
+      previousJoinReceipt.status === "joined"
+    )
+      store.set(searchJoinReceiptsAtom, (receipts) => {
+        if (receipts.get(key) !== previousJoinReceipt) return receipts;
+        const next = new Map(receipts);
+        next.delete(key);
+        return next;
+      });
+    return { key, token, sameScope, kind, scope, joinTarget };
+  } catch {
+    stopSearchLikeTrackingIfIdle(store);
+    return null;
+  }
+}
+
+// A response can arrive during a connection check. Keep its original lock and
+// outcome until the check finishes, or discard it if its identity scope changes.
+function settleSearchLikeWhenReady(
+  store: SearchLikeStore,
+  sameScope: () => boolean,
+  deliver: () => void,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const stops: (() => void)[] = [];
+    let finished = false;
+    const finish = () => {
+      if (finished) return false;
+      finished = true;
+      for (const stop of stops) stop();
+      return true;
+    };
+    const inspect = () => {
+      if (finished) return;
+      if (!sameScope()) {
+        if (finish()) resolve();
+        return;
+      }
+      if (store.get(instancesLoadingAtom)) return;
+      if (!finish()) return;
+      try {
+        deliver();
+        resolve();
+      } catch (error) {
+        reject(error);
+      }
+    };
+    try {
+      if (store.get(instancesLoadingAtom)) {
+        const subscribe = (stop: () => void) => {
+          if (finished) stop();
+          else stops.push(stop);
+        };
+        subscribe(store.sub(instancesLoadingAtom, inspect));
+        subscribe(store.sub(searchLikeScopeAtom, inspect));
+        subscribe(store.sub(logoutBusyAtom, inspect));
+      }
+      inspect();
+    } catch (error) {
+      if (finish()) reject(error);
+    }
+  });
+}
+
+function endSearchLike(
+  store: SearchLikeStore,
+  attempt: { key: string; token: symbol; kind?: "like" | "follow" | "join" },
+) {
+  const pendingAtom =
+    attempt.kind === "follow"
+      ? pendingSearchFollowsAtom
+      : attempt.kind === "join"
+        ? pendingSearchJoinsAtom
+        : pendingSearchLikesAtom;
+  store.set(pendingAtom, (pending) => {
+    if (pending.get(attempt.key) !== attempt.token) return pending;
+    const next = new Map(pending);
+    next.delete(attempt.key);
+    return next;
+  });
+  if (attempt.kind === "join")
+    store.set(pendingSearchJoinOriginalsAtom, (originals) => {
+      if (originals.get(attempt.key)?.token !== attempt.token) return originals;
+      const next = new Map(originals);
+      next.delete(attempt.key);
+      return next;
+    });
+  stopSearchLikeTrackingIfIdle(store);
+}
+
+// Use the existing API transport and endpoint, but do not turn an unknown 2xx
+// body into a joined acknowledgement. The existing development server also
+// returns the supported status without a `success` field.
+async function requestSearchCommunityJoin(name: string) {
+  const response = await apiPost(
+    `/api/communities/${encodeURIComponent(name)}/join`,
+  );
+  const value: unknown = await response.json().catch(() => null);
+  const body =
+    value !== null && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null;
+  if (response.status === 403 && body?.status === "invite_required")
+    return "invite_required" as const;
+  if (!response.ok)
+    throw new ApiError(
+      response.status,
+      typeof body?.error === "string" ? body.error : "Failed to join community",
+    );
+  if (
+    body &&
+    (body.success === undefined || body.success === true) &&
+    (body.status === "joined" ||
+      body.status === "pending" ||
+      body.status === "invite_required")
+  )
+    return body.status;
+  throw new Error("Unrecognized community join acknowledgement");
+}
+
+function rememberSearchJoinReceipt(
+  store: SearchLikeStore,
+  attempt: {
+    key: string;
+    scope: symbol;
+    sameScope: () => boolean;
+    joinTarget: SearchJoinTarget | null;
+  },
+  name: string,
+  status: SearchJoinReceipt["status"],
+) {
+  if (!attempt.sameScope() || attempt.joinTarget?.name !== name) return;
+  store.set(searchJoinReceiptsAtom, (receipts) =>
+    new Map(receipts).set(attempt.key, {
+      ...attempt.joinTarget!,
+      scope: attempt.scope,
+      sameScope: attempt.sameScope,
+      status,
+    }),
+  );
+}
+
+// An ACK from a page that has since unmounted is not a current follow status.
+// Retain only a same-session reminder to check the original target before retry.
+function rememberSearchFollowReceipt(
+  store: SearchLikeStore,
+  attempt: { scope: symbol; sameScope: () => boolean },
+  target: string,
+) {
+  const previous = store.get(searchFollowReceiptsAtom);
+  const targets = new Set(previous?.sameScope() ? previous.targets : []);
+  targets.add(target);
+  store.set(searchFollowReceiptsAtom, {
+    scope: attempt.scope,
+    sameScope: attempt.sameScope,
+    targets,
+  });
+}
 
 const CloseIcon = () => (
   <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -105,9 +458,20 @@ function getSearchTab(
 
 export function SearchPage() {
   const actor = useRequiredActor();
+  const store = useStore();
+  const currentActor = useAtomValue(actorAtom);
+  const currentInstance = useAtomValue(selectedInstanceIdAtom);
+  const currentHostedUser = useAtomValue(hostedUserAtom);
+  const instancesLoading = useAtomValue(instancesLoadingAtom);
+  const pendingLikes = useAtomValue(pendingSearchLikesAtom);
+  const pendingFollows = useAtomValue(pendingSearchFollowsAtom);
+  const pendingJoins = useAtomValue(pendingSearchJoinsAtom);
+  const pendingJoinOriginals = useAtomValue(pendingSearchJoinOriginalsAtom);
+  const followReceipts = useAtomValue(searchFollowReceiptsAtom);
+  const joinReceipts = useAtomValue(searchJoinReceiptsAtom);
+  const searchScope = useAtomValue(searchLikeScopeAtom);
   const { t, language } = useI18n();
   const setToasts = useSetAtom(toastsAtom);
-  const refreshScopes = useSetAtom(refreshScopesAtom);
   // The owner's joined communities (single source of truth for membership).
   // Changes here (a join elsewhere in the app) mean the discover list is stale,
   // so it drives a re-fetch.
@@ -116,15 +480,57 @@ export function SearchPage() {
   const [error, setError] = createSignal<string | null>(null);
   // ap_ids with an in-flight follow request — guards the follow button against a
   // double-tap firing duplicate follow() calls.
-  const [followInFlight, setFollowInFlight] = createSignal<Set<string>>(
-    new Set(),
-  );
+  const isFollowInFlight = (id: string) => {
+    currentActor();
+    currentInstance();
+    currentHostedUser();
+    return pendingFollows().has(searchLikeKey(store, id));
+  };
+  const needsFollowConfirmation = (id: string) => {
+    const receipts = followReceipts();
+    return !!receipts?.sameScope() && receipts.targets.has(id);
+  };
+  const isJoinPending = (id: string) => {
+    currentActor();
+    currentInstance();
+    currentHostedUser();
+    return pendingJoins().has(searchLikeKey(store, id));
+  };
+  const joinReceipt = (id: string) => {
+    currentActor();
+    currentInstance();
+    currentHostedUser();
+    const receipt = joinReceipts().get(searchLikeKey(store, id));
+    return receipt?.sameScope() ? receipt : null;
+  };
+  const hasOtherJoinWithName = (id: string, name: string) => {
+    searchScope();
+    return (
+      [...pendingJoinOriginals().values()].some(
+        (original) =>
+          original.id !== id && original.name === name && original.sameScope(),
+      ) ||
+      [...joinReceipts().values()].some(
+        (receipt) =>
+          receipt.id !== id &&
+          receipt.name === name &&
+          receipt.status !== "joined" &&
+          receipt.sameScope(),
+      )
+    );
+  };
   // Follow requests awaiting remote approval are not accepted follows. Keep
   // their local display state by actor id across searches in this page.
   const [followPending, setFollowPending] = createSignal<Set<string>>(
     new Set(),
   );
-  const [likeInFlight, setLikeInFlight] = createSignal<Set<string>>(new Set());
+  const isLikePending = (id: string) => {
+    // Subscribe to identity changes as well as to the Provider's pending map.
+    currentActor();
+    currentInstance();
+    currentHostedUser();
+    return pendingLikes().has(searchLikeKey(store, id));
+  };
   const clearError = () => setError(null);
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -159,17 +565,53 @@ export function SearchPage() {
   const [communitiesError, setCommunitiesError] = createSignal<string | null>(
     null,
   );
+  const [checkingJoinStatus, setCheckingJoinStatus] = createSignal<
+    ReadonlySet<string>
+  >(new Set());
   const [filteredCommunities, setFilteredCommunities] = createSignal<
     CommunityDetail[]
   >([]);
-  // Communities the owner has not entered yet — the discovery surface. Pending
-  // (approval-policy) requests stay visible so the state is legible.
+  // A public list response does not identify its viewer. Keep an in-flight or
+  // unresolved original visible even if that response says it is a member.
   const discoverCommunities = createMemo(() =>
-    communities().filter((c) => !c.is_member),
+    communities().filter((community) => {
+      const receipt = joinReceipt(community.ap_id);
+      if (receipt?.status === "joined")
+        return !community.is_member && !isJoinPending(community.ap_id);
+      return (
+        !community.is_member || isJoinPending(community.ap_id) || !!receipt
+      );
+    }),
   );
-  const [joiningApId, setJoiningApId] = createSignal<string | null>(null);
+  const missingJoinOriginals = createMemo(() => {
+    searchScope();
+    const present = new Set(communities().map((community) => community.ap_id));
+    const missing = new Map<
+      string,
+      SearchJoinTarget & { status: "in-flight" | "pending" | "unconfirmed" }
+    >();
+    for (const [key, original] of pendingJoinOriginals()) {
+      if (!present.has(original.id) && original.sameScope())
+        missing.set(key, { ...original, status: "in-flight" });
+    }
+    for (const [key, receipt] of joinReceipts()) {
+      if (!receipt.sameScope()) continue;
+      if (receipt.status === "joined") missing.delete(key);
+      else if (!present.has(receipt.id))
+        missing.set(key, { ...receipt, status: receipt.status });
+    }
+    return [...missing.values()];
+  });
+  let mounted = true;
+  let discoverReadGen = 0;
+  onCleanup(() => {
+    mounted = false;
+    discoverReadGen++;
+  });
 
   const [following, setFollowing] = createSignal<Actor[]>([]);
+  let followAckVersion = 0;
+  const followAcks = new Map<string, { version: number; actor: Actor }>();
 
   const [trendingHashtags, setTrendingHashtags] = createSignal<
     { tag: string; count: number }[]
@@ -180,16 +622,77 @@ export function SearchPage() {
   // so it can be re-run when the list goes stale (window refocus, membership
   // change) rather than only once on mount.
   const refreshDiscoverCommunities = () => {
+    const gen = ++discoverReadGen;
+    let scope: symbol;
+    let strategy: ReturnType<typeof getAuthStrategy>;
+    let transport: ReturnType<typeof getYurucommuApiTransport>;
+    let url: string;
+    try {
+      if (
+        !store.get(searchLikeActorIdAtom) ||
+        store.get(logoutBusyAtom) ||
+        store.get(instancesLoadingAtom)
+      )
+        return;
+      scope = store.get(searchLikeScopeAtom);
+      strategy = getAuthStrategy();
+      transport = getYurucommuApiTransport();
+      url = transport.resolveUrl("/api/communities");
+    } catch {
+      if (mounted && gen === discoverReadGen)
+        setCommunitiesError(t("common.loadFailed"));
+      return;
+    }
+    const current = () => {
+      try {
+        return (
+          mounted &&
+          gen === discoverReadGen &&
+          !store.get(logoutBusyAtom) &&
+          !store.get(instancesLoadingAtom) &&
+          store.get(searchLikeScopeAtom) === scope &&
+          getAuthStrategy() === strategy &&
+          getYurucommuApiTransport() === transport &&
+          transport.resolveUrl("/api/communities") === url
+        );
+      } catch {
+        return false;
+      }
+    };
     fetchCommunities()
       .then((list) => {
+        if (!current()) return;
         setCommunities(list);
         setCommunitiesError(null);
       })
       .catch((e) => {
+        if (!current()) return;
         console.error("Failed to fetch communities", e);
         setCommunitiesError(t("common.loadFailed"));
       });
   };
+
+  let previousDiscoveryScope: symbol | undefined;
+  let previousDiscoveryLoading = false;
+  createEffect(() => {
+    const nextScope = searchScope();
+    const loading = instancesLoading();
+    if (previousDiscoveryScope === undefined) {
+      previousDiscoveryScope = nextScope;
+      previousDiscoveryLoading = loading;
+      return;
+    }
+    const changed = nextScope !== previousDiscoveryScope;
+    const wasLoading = previousDiscoveryLoading;
+    previousDiscoveryScope = nextScope;
+    previousDiscoveryLoading = loading;
+    if (changed || loading) discoverReadGen++;
+    if (changed) {
+      setCommunities([]);
+      setCommunitiesError(null);
+    }
+    if (!loading && (changed || wasLoading)) refreshDiscoverCommunities();
+  });
 
   // Trending fetch failure is surfaced with a retry — a swallowed error made
   // an outage indistinguishable from "nothing is trending".
@@ -208,8 +711,17 @@ export function SearchPage() {
   onMount(() => {
     refreshTrendingHashtags();
     refreshDiscoverCommunities();
+    const readVersion = followAckVersion;
     fetchFollowing(actor.ap_id)
-      .then((data) => setFollowing(data.actors))
+      .then((data) => {
+        const ids = new Set(data.actors.map((item) => item.ap_id));
+        const newer = [...followAcks.values()]
+          .filter(
+            (ack) => ack.version > readVersion && !ids.has(ack.actor.ap_id),
+          )
+          .map((ack) => ack.actor);
+        setFollowing([...data.actors, ...newer]);
+      })
       .catch((e) => console.error("Failed to fetch following", e));
 
     // Re-fetch when the tab regains focus so a join/leave that happened on
@@ -263,6 +775,7 @@ export function SearchPage() {
     if (!trimmedQuery) return;
 
     const gen = ++searchGen;
+    setLoadingMore(false);
     setSearchingRemote(false);
     setSearching(true);
     setSearched(true);
@@ -398,7 +911,7 @@ export function SearchPage() {
         pushToast(setToasts, t("common.error"), { kind: "error" });
       }
     } finally {
-      setLoadingMore(false);
+      if (gen === searchGen) setLoadingMore(false);
     }
   };
 
@@ -434,7 +947,7 @@ export function SearchPage() {
         pushToast(setToasts, t("common.error"), { kind: "error" });
       }
     } finally {
-      setLoadingMore(false);
+      if (gen === searchGen) setLoadingMore(false);
     }
   };
 
@@ -447,6 +960,7 @@ export function SearchPage() {
     const trimmedQuery = query.trim();
     if (!trimmedQuery) return;
     const gen = ++searchGen;
+    setLoadingMore(false);
     setSearchingRemote(false);
     setSearching(true);
     setSearchError(null);
@@ -476,6 +990,7 @@ export function SearchPage() {
     const trimmedQuery = query.trim();
     if (!trimmedQuery) return;
     const gen = ++searchGen;
+    setLoadingMore(false);
     setSearchingRemote(false);
     setSearching(true);
     setSearchError(null);
@@ -633,39 +1148,73 @@ export function SearchPage() {
   };
 
   const handleLike = async (post: Post) => {
-    // In-flight guard: without it a double-tap fires two like calls (the second
-    // still reads liked=false because state updates after the await) → +2 drift.
-    if (likeInFlight().has(post.ap_id)) return;
-    setLikeInFlight((s) => new Set(s).add(post.ap_id));
-
+    const attempt =
+      store.get(actorAtom)?.ap_id === actor.ap_id
+        ? beginSearchLike(store, post.ap_id)
+        : null;
+    if (!attempt) {
+      if (!isLikePending(post.ap_id))
+        pushToast(
+          setToasts,
+          language() === "ja"
+            ? `現在の利用者を確認できないため操作を開始できません。 (${post.ap_id})`
+            : `The current user could not be verified, so the action was not started. (${post.ap_id})`,
+          { kind: "error" },
+        );
+      return;
+    }
+    const gen = searchGen;
     const wasLiked = post.liked;
-    const applyDelta = (liked: boolean, delta: number) =>
-      setSearchPostsResult((prev) =>
-        prev.map((p) =>
-          p.ap_id === post.ap_id
-            ? { ...p, liked, like_count: Math.max(0, p.like_count + delta) }
-            : p,
-        ),
-      );
-
-    // Optimistic toggle, rolled back on failure (matches the canonical
-    // optimisticToggle used elsewhere).
-    applyDelta(!wasLiked, wasLiked ? -1 : 1);
     try {
-      if (wasLiked) await unlikePost(post.ap_id);
-      else await likePost(post.ap_id);
-    } catch (e) {
-      console.error("Failed to toggle like:", e);
-      // Toast, not the top-of-page banner: the like button lives deep in the
-      // results list, so a banner failure is off-screen when scrolled.
-      pushToast(setToasts, t("common.error"), { kind: "error" });
-      applyDelta(wasLiked, wasLiked ? 1 : -1);
-    } finally {
-      setLikeInFlight((s) => {
-        const next = new Set(s);
-        next.delete(post.ap_id);
-        return next;
+      let failure: { error: unknown } | null = null;
+      try {
+        if (wasLiked) await unlikePost(post.ap_id);
+        else await likePost(post.ap_id);
+      } catch (error) {
+        console.error("Failed to toggle like:", error);
+        failure = { error };
+      }
+      await settleSearchLikeWhenReady(store, attempt.sameScope, () => {
+        if (failure) {
+          const rejected = classifyWriteFailure(failure.error) === "rejected";
+          pushToast(
+            setToasts,
+            rejected
+              ? language() === "ja"
+                ? `操作は拒否されました。元の投稿を確認してください。 (${post.ap_id})`
+                : `The action was rejected. Check the original post. (${post.ap_id})`
+              : language() === "ja"
+                ? `操作の結果を確認できません。再操作の前に元の投稿を確認してください。 (${post.ap_id})`
+                : `The action outcome is unconfirmed. Check the original post before trying again. (${post.ap_id})`,
+            { kind: "error", timeout: 0 },
+          );
+        } else if (gen === searchGen && searchPostsResult().includes(post)) {
+          setSearchPostsResult((previous) =>
+            previous.map((row) =>
+              row === post
+                ? {
+                    ...row,
+                    liked: !wasLiked,
+                    like_count: Math.max(
+                      0,
+                      row.like_count + (wasLiked ? -1 : 1),
+                    ),
+                  }
+                : row,
+            ),
+          );
+        } else {
+          pushToast(
+            setToasts,
+            language() === "ja"
+              ? `操作は受け付けられました。元の投稿を開き直して最新状態を確認してください。 (${post.ap_id})`
+              : `The action was accepted. Reopen the original post to check its latest state. (${post.ap_id})`,
+            { kind: "info", timeout: 0 },
+          );
+        }
       });
+    } finally {
+      endSearchLike(store, attempt);
     }
   };
 
@@ -673,43 +1222,84 @@ export function SearchPage() {
     e.preventDefault();
     e.stopPropagation();
     if (
-      followInFlight().has(targetActor.ap_id) ||
-      followPending().has(targetActor.ap_id)
+      isFollowInFlight(targetActor.ap_id) ||
+      followPending().has(targetActor.ap_id) ||
+      needsFollowConfirmation(targetActor.ap_id)
     ) {
       return;
     }
-    setFollowInFlight((s) => new Set(s).add(targetActor.ap_id));
+    const attempt =
+      store.get(actorAtom)?.ap_id === actor.ap_id
+        ? beginSearchLike(store, targetActor.ap_id, "follow")
+        : null;
+    if (!attempt) return;
+    const gen = searchGen;
     try {
-      const { status } = await follow(targetActor.ap_id);
-      // A private/remote account's follow may land as a pending request awaiting
-      // approval — don't misrepresent it as followed or drop it from results.
-      if (status === "pending") {
-        setFollowPending((prev) => new Set(prev).add(targetActor.ap_id));
-        pushToast(setToasts, t("profile.followRequested"), { kind: "success" });
-        return;
+      let outcome: { status: "accepted" | "pending" } | { error: unknown };
+      try {
+        const response = await follow(targetActor.ap_id);
+        outcome =
+          response &&
+          (response.status === "accepted" || response.status === "pending")
+            ? { status: response.status }
+            : { error: new Error("unrecognized follow response") };
+      } catch (error) {
+        console.error("Failed to follow:", error);
+        outcome = { error };
       }
-      setFollowPending((prev) => {
-        const next = new Set(prev);
-        next.delete(targetActor.ap_id);
-        return next;
+      await settleSearchLikeWhenReady(store, attempt.sameScope, () => {
+        if ("error" in outcome) {
+          const rejected = classifyWriteFailure(outcome.error) === "rejected";
+          if (!rejected)
+            rememberSearchFollowReceipt(store, attempt, targetActor.ap_id);
+          pushToast(
+            setToasts,
+            rejected
+              ? language() === "ja"
+                ? `フォローは拒否されました。元のプロフィールを確認してください。 (${targetActor.ap_id})`
+                : `The follow was rejected. Check the original profile. (${targetActor.ap_id})`
+              : language() === "ja"
+                ? `フォローの結果を確認できません。再操作の前に元のプロフィールを確認してください。 (${targetActor.ap_id})`
+                : `The follow outcome is unconfirmed. Check the original profile before trying again. (${targetActor.ap_id})`,
+            { kind: "error", timeout: 0 },
+          );
+          return;
+        }
+        rememberSearchFollowReceipt(store, attempt, targetActor.ap_id);
+        if (gen !== searchGen || !searchUsersResult().includes(targetActor)) {
+          pushToast(
+            setToasts,
+            language() === "ja"
+              ? `フォロー操作は受け付けられました。元のプロフィールで現在の状態を確認してください。 (${targetActor.ap_id})`
+              : `The follow request was accepted. Check the original profile for its current state. (${targetActor.ap_id})`,
+            { kind: "info", timeout: 0 },
+          );
+          return;
+        }
+        if (outcome.status === "pending") {
+          setFollowPending((prev) => new Set(prev).add(targetActor.ap_id));
+          pushToast(setToasts, t("profile.followRequested"), {
+            kind: "success",
+          });
+          return;
+        }
+        setFollowPending((prev) => {
+          const next = new Set(prev);
+          next.delete(targetActor.ap_id);
+          return next;
+        });
+        followAcks.set(targetActor.ap_id, {
+          version: ++followAckVersion,
+          actor: targetActor,
+        });
+        setFollowing((prev) =>
+          prev.some((item) => item.ap_id === targetActor.ap_id)
+            ? prev
+            : [...prev, targetActor],
+        );
       });
-      // Keep the row in the results — it flips to the "following" pill via
-      // isFollowing(). Removing it would make the person the user just searched
-      // for vanish, losing the path to their profile.
-      setFollowing((prev) =>
-        prev.some((actor) => actor.ap_id === targetActor.ap_id)
-          ? prev
-          : [...prev, targetActor],
-      );
-    } catch (e) {
-      console.error("Failed to follow:", e);
-      setError(t("common.error"));
     } finally {
-      setFollowInFlight((s) => {
-        const next = new Set(s);
-        next.delete(targetActor.ap_id);
-        return next;
-      });
+      endSearchLike(store, attempt);
     }
   };
 
@@ -720,64 +1310,236 @@ export function SearchPage() {
   const label = (community: CommunityDetail) =>
     community.display_name || community.name;
 
-  // One-tap join from the discovery surface. An open community drops the owner
-  // straight into it as the active scope (new ScopeBar pill); an approval/invite
-  // community surfaces a toast and reflects the pending/invite state in the list.
+  const refreshCurrentJoinScopes = async (
+    token: symbol,
+    sameScope: () => boolean,
+    target: { label: string; name: string },
+  ) => {
+    if (!sameScope() || token !== store.get(searchJoinScopeReadAtom)) return;
+    let sameReadScope = sameScope;
+    try {
+      const transport = getYurucommuApiTransport();
+      const path = "/api/communities";
+      const url = transport.resolveUrl(path);
+      sameReadScope = () => {
+        try {
+          return (
+            sameScope() &&
+            getYurucommuApiTransport() === transport &&
+            transport.resolveUrl(path) === url
+          );
+        } catch {
+          return false;
+        }
+      };
+      if (!sameReadScope()) return;
+      const list = await fetchCommunities();
+      await settleSearchLikeWhenReady(store, sameReadScope, () => {
+        if (token === store.get(searchJoinScopeReadAtom))
+          store.set(scopeCommunitiesAtom, list);
+      });
+    } catch (error) {
+      await settleSearchLikeWhenReady(store, sameReadScope, () => {
+        if (token !== store.get(searchJoinScopeReadAtom)) return;
+        console.error("Failed to refresh scope communities:", error);
+        pushToast(
+          setToasts,
+          language() === "ja"
+            ? `参加後の一覧を更新できません。元のコミュニティを確認してください。 (${target.label} / ${target.name})`
+            : `The community list could not be refreshed after joining. Check the original community. (${target.label} / ${target.name})`,
+          { kind: "error", timeout: 0 },
+        );
+      });
+    }
+  };
+
+  const checkOriginalJoinStatus = async (receipt: SearchJoinReceipt) => {
+    const key = searchLikeKey(store, receipt.id);
+    if (
+      checkingJoinStatus().has(key) ||
+      store.get(searchJoinReceiptsAtom).get(key) !== receipt ||
+      !receipt.sameScope() ||
+      store.get(instancesLoadingAtom)
+    )
+      return;
+    setCheckingJoinStatus((prev) => new Set(prev).add(key));
+    let sameReadScope = receipt.sameScope;
+    try {
+      const transport = getYurucommuApiTransport();
+      const path = `/api/communities/${encodeURIComponent(receipt.id)}`;
+      const url = transport.resolveUrl(path);
+      sameReadScope = () => {
+        try {
+          return (
+            receipt.sameScope() &&
+            getYurucommuApiTransport() === transport &&
+            transport.resolveUrl(path) === url
+          );
+        } catch {
+          return false;
+        }
+      };
+      if (!sameReadScope() || store.get(instancesLoadingAtom)) return;
+      const original = await fetchCommunity(receipt.id);
+      await settleSearchLikeWhenReady(store, sameReadScope, () => {
+        if (!mounted || store.get(searchJoinReceiptsAtom).get(key) !== receipt)
+          return;
+        if (original.ap_id !== receipt.id)
+          throw new Error("Unexpected original community");
+        // This public GET can also succeed anonymously or for a different
+        // viewer, so its membership fields cannot resolve this actor's outcome.
+        pushToast(
+          setToasts,
+          language() === "ja"
+            ? `元の情報を取得しましたが、このアカウントの参加状態は確認できません。ログイン状態と元のコミュニティを確認してください。 (${receipt.label} / ${receipt.name})`
+            : `Original details were read, but this account's membership cannot be verified. Check your login and the original community. (${receipt.label} / ${receipt.name})`,
+          { kind: "info", timeout: 0 },
+        );
+      });
+    } catch {
+      await settleSearchLikeWhenReady(store, sameReadScope, () => {
+        if (!mounted || store.get(searchJoinReceiptsAtom).get(key) !== receipt)
+          return;
+        pushToast(
+          setToasts,
+          language() === "ja"
+            ? `元のコミュニティの状態を取得できません。再試行は有効になりません。 (${receipt.label} / ${receipt.name})`
+            : `The original community status could not be read. Retry remains disabled. (${receipt.label} / ${receipt.name})`,
+          { kind: "error", timeout: 0 },
+        );
+      });
+    } finally {
+      if (mounted)
+        setCheckingJoinStatus((previous) => {
+          const next = new Set(previous);
+          next.delete(key);
+          return next;
+        });
+    }
+  };
+
+  const originalJoinReadAria = (receipt: SearchJoinReceipt) =>
+    language() === "ja"
+      ? `元の情報を取得: ${receipt.label} (${receipt.id})`
+      : `Read original details: ${receipt.label} (${receipt.id})`;
+  const originalJoinReadBusy = (receipt: SearchJoinReceipt) =>
+    checkingJoinStatus().has(searchLikeKey(store, receipt.id));
+  const originalJoinReadText = (receipt: SearchJoinReceipt) =>
+    originalJoinReadBusy(receipt)
+      ? language() === "ja"
+        ? "取得中..."
+        : "Reading..."
+      : language() === "ja"
+        ? "元の情報を取得"
+        : "Read original details";
+
+  // Keep the original community and session through navigation. A local receipt
+  // is only a reminder to check that target, not a durable membership record.
   const handleJoin = async (community: CommunityDetail, e: MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (joiningApId()) return;
-    setJoiningApId(community.ap_id);
+    const target = {
+      id: community.ap_id,
+      name: community.name,
+      label: label(community),
+    };
+    const attempt = beginSearchLike(
+      store,
+      target.id,
+      "join",
+      target.name,
+      target.label,
+    );
+    if (!attempt) return;
     try {
-      const result = await joinCommunity(community.name);
-      if (result.status === "joined") {
+      if (!attempt.sameScope() || store.get(instancesLoadingAtom)) return;
+      const outcome = await requestSearchCommunityJoin(target.name).then(
+        (status) => ({ status }) as const,
+        (error: unknown) => ({ error }) as const,
+      );
+      let refreshJoinedScopes: symbol | null = null;
+      await settleSearchLikeWhenReady(store, attempt.sameScope, () => {
+        if ("error" in outcome) {
+          const rejected = classifyWriteFailure(outcome.error) === "rejected";
+          if (!rejected)
+            rememberSearchJoinReceipt(
+              store,
+              attempt,
+              target.name,
+              "unconfirmed",
+            );
+          pushToast(
+            setToasts,
+            rejected
+              ? language() === "ja"
+                ? `参加は拒否されました。元のコミュニティを確認してください。 (${target.label} / ${target.name})`
+                : `The join was rejected. Check the original community. (${target.label} / ${target.name})`
+              : language() === "ja"
+                ? `参加の結果を確認できません。この画面では再送できません。ログイン状態と元のコミュニティを確認してください。 (${target.label} / ${target.name})`
+                : `The join outcome is unconfirmed. Retry is unavailable here. Check your login and the original community. (${target.label} / ${target.name})`,
+            { kind: "error", timeout: 0 },
+          );
+          return;
+        }
+        if (outcome.status === "invite_required") {
+          pushToast(
+            setToasts,
+            t("discover.inviteOnly").replace("{name}", target.label),
+            { kind: "info" },
+          );
+          return;
+        }
+        rememberSearchJoinReceipt(store, attempt, target.name, outcome.status);
+        // An earlier read must not replace the acknowledgement. Only update
+        // the exact row which initiated it, not a newer object for the same id.
+        discoverReadGen++;
+        if (outcome.status === "joined") {
+          refreshJoinedScopes = Symbol();
+          store.set(searchJoinScopeReadAtom, refreshJoinedScopes);
+        }
+        if (!mounted || !communities().includes(community)) {
+          pushToast(
+            setToasts,
+            language() === "ja"
+              ? `参加操作は受け付けられました。元のコミュニティで現在の状態を確認してください。 (${target.label} / ${target.name})`
+              : `The join request was accepted. Check the original community for its current state. (${target.label} / ${target.name})`,
+            { kind: "info", timeout: 0 },
+          );
+          return;
+        }
         setCommunities((prev) =>
-          prev.map((c) =>
-            c.ap_id === community.ap_id
-              ? {
-                  ...c,
-                  is_member: true,
-                  member_role: "member",
-                  join_status: null,
-                  member_count: c.member_count + 1,
-                }
-              : c,
+          prev.map((item) =>
+            item !== community
+              ? item
+              : outcome.status === "joined"
+                ? {
+                    ...item,
+                    is_member: true,
+                    member_role: "member",
+                    join_status: null,
+                    member_count: item.member_count + 1,
+                  }
+                : { ...item, join_status: "pending" },
           ),
         );
-        // Surface the joined community as a selectable filter pill — but do NOT
-        // narrow home to it. Joining is a membership action, not a deliberate
-        // view choice; home stays the unified reach until the user explicitly
-        // picks this community in the switcher.
-        await refreshScopes();
         pushToast(
           setToasts,
-          t("discover.joined").replace("{name}", label(community)),
-          { kind: "success" },
+          t(
+            outcome.status === "joined"
+              ? "discover.joined"
+              : "discover.requested",
+          ).replace("{name}", target.label),
+          { kind: outcome.status === "joined" ? "success" : "info" },
         );
-      } else if (result.status === "pending") {
-        setCommunities((prev) =>
-          prev.map((c) =>
-            c.ap_id === community.ap_id ? { ...c, join_status: "pending" } : c,
-          ),
+      });
+      if (refreshJoinedScopes !== null)
+        await refreshCurrentJoinScopes(
+          refreshJoinedScopes,
+          attempt.sameScope,
+          target,
         );
-        pushToast(
-          setToasts,
-          t("discover.requested").replace("{name}", label(community)),
-          { kind: "info" },
-        );
-      } else {
-        // invite_required
-        pushToast(
-          setToasts,
-          t("discover.inviteOnly").replace("{name}", label(community)),
-          { kind: "info" },
-        );
-      }
-    } catch (err) {
-      console.error("Failed to join community:", err);
-      pushToast(setToasts, t("discover.joinFailed"), { kind: "error" });
     } finally {
-      setJoiningApId(null);
+      endSearchLike(store, attempt);
     }
   };
 
@@ -916,6 +1678,57 @@ export function SearchPage() {
                       {t("discover.subtitle")}
                     </p>
                   </div>
+                  <For each={missingJoinOriginals()}>
+                    {(original) => (
+                      <div
+                        role="status"
+                        class="mx-4 my-2 rounded-lg border border-neutral-700 p-3 text-sm text-neutral-300"
+                      >
+                        <p>
+                          {language() === "ja"
+                            ? "一覧に表示されていない元の参加操作"
+                            : "Original join not shown in the list"}
+                        </p>
+                        <p class="break-all font-medium text-white">
+                          {original.label} ({original.name})
+                        </p>
+                        <p class="break-all text-xs text-neutral-400">
+                          {original.id}
+                        </p>
+                        <p>
+                          {original.status === "in-flight"
+                            ? language() === "ja"
+                              ? "参加処理中・再送不可"
+                              : "Join in progress; retry unavailable"
+                            : original.status === "pending"
+                              ? language() === "ja"
+                                ? "申請を受け付けました。現在の状態は未確認です。"
+                                : "Request accepted; current status unverified."
+                              : language() === "ja"
+                                ? "結果未確認・再送不可"
+                                : "Unconfirmed; retry unavailable"}
+                        </p>
+                        <Show when={joinReceipt(original.id)}>
+                          {(receipt) => (
+                            <button
+                              type="button"
+                              aria-label={originalJoinReadAria(receipt())}
+                              disabled={
+                                instancesLoading() ||
+                                originalJoinReadBusy(receipt())
+                              }
+                              onClick={() =>
+                                void checkOriginalJoinStatus(receipt())
+                              }
+                              class="w-fit shrink-0 rounded-full border border-neutral-700 px-4 py-1.5 text-sm font-medium text-neutral-300"
+                            >
+                              {originalJoinReadText(receipt())}
+                            </button>
+                          )}
+                        </Show>
+                      </div>
+                    )}
+                  </For>
                   <Show
                     when={discoverCommunities().length > 0}
                     fallback={
@@ -930,11 +1743,13 @@ export function SearchPage() {
                             />
                           }
                         >
-                          <EmptyState
-                            icon={<SearchEmptyIcon />}
-                            title={t("discover.empty")}
-                            hint={t("discover.emptyHint")}
-                          />
+                          <Show when={missingJoinOriginals().length === 0}>
+                            <EmptyState
+                              icon={<SearchEmptyIcon />}
+                              title={t("discover.empty")}
+                              hint={t("discover.emptyHint")}
+                            />
+                          </Show>
                         </Show>
                       </div>
                     }
@@ -987,22 +1802,101 @@ export function SearchPage() {
                             </div>
                           </A>
                           <Show
-                            when={community.join_status === "pending"}
+                            when={
+                              !hasOtherJoinWithName(
+                                community.ap_id,
+                                community.name,
+                              )
+                            }
                             fallback={
-                              <button
-                                onClick={(e) => handleJoin(community, e)}
-                                disabled={joiningApId() !== null}
-                                class="px-4 py-1.5 bg-[var(--accent)] text-white font-medium rounded-full hover:brightness-110 transition-colors text-sm shrink-0 disabled:opacity-50"
-                              >
-                                {joiningApId() === community.ap_id
-                                  ? t("discover.joining")
-                                  : t("discover.join")}
-                              </button>
+                              <span class="max-w-40 text-right text-xs text-neutral-400">
+                                {language() === "ja"
+                                  ? "同名の元の参加操作が残っているため再送できません。"
+                                  : "An earlier join with this name prevents a resend."}
+                              </span>
                             }
                           >
-                            <span class="px-4 py-1.5 border border-neutral-700 text-neutral-400 font-medium rounded-full text-sm shrink-0">
-                              {t("groups.pending")}
-                            </span>
+                            <Show
+                              when={joinReceipt(community.ap_id)}
+                              fallback={
+                                <Show
+                                  when={community.join_status === "pending"}
+                                  fallback={
+                                    <button
+                                      onClick={(e) => handleJoin(community, e)}
+                                      disabled={
+                                        instancesLoading() ||
+                                        isJoinPending(community.ap_id)
+                                      }
+                                      class="px-4 py-1.5 bg-[var(--accent)] text-white font-medium rounded-full hover:brightness-110 transition-colors text-sm shrink-0 disabled:opacity-50"
+                                    >
+                                      {isJoinPending(community.ap_id)
+                                        ? t("discover.joining")
+                                        : t("discover.join")}
+                                    </button>
+                                  }
+                                >
+                                  <span class="px-4 py-1.5 border border-neutral-700 text-neutral-400 font-medium rounded-full text-sm shrink-0">
+                                    {t("groups.pending")}
+                                  </span>
+                                </Show>
+                              }
+                            >
+                              {(receipt) => (
+                                <div class="flex flex-col items-end gap-1 shrink-0">
+                                  <Show
+                                    when={receipt().status === "unconfirmed"}
+                                  >
+                                    <span class="text-xs text-neutral-400 text-right">
+                                      {language() === "ja"
+                                        ? "結果未確認・再送不可"
+                                        : "Unconfirmed; retry unavailable"}
+                                    </span>
+                                  </Show>
+                                  <Show when={receipt().status === "pending"}>
+                                    <span class="max-w-40 text-xs text-neutral-400 text-right">
+                                      {language() === "ja"
+                                        ? "申請を受け付けました。現在の状態は未確認です。"
+                                        : "Request accepted; current status unverified."}
+                                    </span>
+                                  </Show>
+                                  <Show when={receipt().status === "joined"}>
+                                    <span class="max-w-40 text-xs text-neutral-400 text-right">
+                                      {language() === "ja"
+                                        ? "前回の参加は受け付けました。現在の状態は未確認です。"
+                                        : "Previous join was accepted; current status unverified."}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      disabled={
+                                        instancesLoading() ||
+                                        isJoinPending(community.ap_id)
+                                      }
+                                      onClick={(e) => handleJoin(community, e)}
+                                      class="rounded-full bg-[var(--accent)] px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+                                    >
+                                      {language() === "ja"
+                                        ? "もう一度参加"
+                                        : "Join again"}
+                                    </button>
+                                  </Show>
+                                  <button
+                                    type="button"
+                                    aria-label={originalJoinReadAria(receipt())}
+                                    disabled={
+                                      instancesLoading() ||
+                                      originalJoinReadBusy(receipt())
+                                    }
+                                    onClick={() =>
+                                      void checkOriginalJoinStatus(receipt())
+                                    }
+                                    class="w-fit shrink-0 rounded-full border border-neutral-700 px-4 py-1.5 text-sm font-medium text-neutral-300"
+                                  >
+                                    {originalJoinReadText(receipt())}
+                                  </button>
+                                </div>
+                              )}
+                            </Show>
                           </Show>
                         </div>
                       )}
@@ -1195,13 +2089,16 @@ export function SearchPage() {
                           when={
                             user.ap_id !== actor.ap_id &&
                             (!isFollowing(user.ap_id) ||
+                              isFollowPending(user.ap_id)) &&
+                            (!needsFollowConfirmation(user.ap_id) ||
                               isFollowPending(user.ap_id))
                           }
                         >
                           <button
                             onClick={(e) => handleFollow(user, e)}
                             disabled={
-                              followInFlight().has(user.ap_id) ||
+                              isFollowInFlight(user.ap_id) ||
+                              instancesLoading() ||
                               isFollowPending(user.ap_id)
                             }
                             class="px-4 py-1.5 bg-white text-black font-medium rounded-full hover:bg-neutral-200 transition-colors text-sm shrink-0 disabled:opacity-50"
@@ -1210,6 +2107,22 @@ export function SearchPage() {
                               ? t("profile.followRequested")
                               : t("profile.follow")}
                           </button>
+                        </Show>
+                        <Show
+                          when={
+                            needsFollowConfirmation(user.ap_id) &&
+                            !isFollowing(user.ap_id) &&
+                            !isFollowPending(user.ap_id)
+                          }
+                        >
+                          <A
+                            href={`/profile/${encodeURIComponent(user.ap_id)}`}
+                            class="px-4 py-1.5 border border-neutral-700 text-neutral-300 rounded-full text-sm shrink-0"
+                          >
+                            {language() === "ja"
+                              ? "状態を確認"
+                              : "Check status"}
+                          </A>
                         </Show>
                         <Show
                           when={
@@ -1330,6 +2243,12 @@ export function SearchPage() {
                           <div class="flex items-center gap-6 mt-3">
                             <button
                               onClick={() => handleLike(post)}
+                              disabled={
+                                isLikePending(post.ap_id) || instancesLoading()
+                              }
+                              aria-busy={
+                                isLikePending(post.ap_id) || instancesLoading()
+                              }
                               aria-label={
                                 post.liked ? t("posts.unlike") : t("posts.like")
                               }
@@ -1341,6 +2260,22 @@ export function SearchPage() {
                               }`}
                             >
                               <HeartIcon filled={post.liked || false} />
+                              <Show
+                                when={
+                                  isLikePending(post.ap_id) ||
+                                  instancesLoading()
+                                }
+                              >
+                                <span class="text-xs">
+                                  {isLikePending(post.ap_id)
+                                    ? language() === "ja"
+                                      ? "処理中"
+                                      : "Updating…"
+                                    : language() === "ja"
+                                      ? "接続先を確認中"
+                                      : "Checking connection…"}
+                                </span>
+                              </Show>
                               <Show
                                 when={
                                   post.author.ap_id === actor.ap_id &&

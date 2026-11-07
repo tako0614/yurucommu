@@ -15,6 +15,11 @@ import { qualifySearchFollowing } from "./release-browser-follow.mjs";
 import { qualifyBrowserDM } from "./release-browser-dm.mjs";
 import { qualifyBrowserNotifications } from "./release-browser-notifications.mjs";
 import { qualifyBrowserPostOutcome } from "./release-browser-post-outcome.mjs";
+import { qualifyBrowserDeleteTarget } from "./release-browser-delete-target.mjs";
+import {
+  prepareBrowserAuthCapacity,
+  qualifyBrowserPostReload,
+} from "./release-browser-post-reload.mjs";
 import { qualifyBrowserDraftStorage } from "./release-browser-draft-storage.mjs";
 import { qualifyBrowserPostSnapshot } from "./release-browser-post-snapshot.mjs";
 import { qualifyBrowserStorySubmit } from "./release-browser-story-submit.mjs";
@@ -774,6 +779,9 @@ async function runBrowserSmoke(artifactPath, artifactDigest, browser) {
       actorApId,
       checks,
     });
+    // This cohort creates/switches real personas and navigates repeatedly.
+    // Respect the shared public auth window instead of entering it depleted.
+    await prepareBrowserAuthCapacity(page, origin, 18);
     const followMetadata = await qualifySearchFollowing({
       page,
       db,
@@ -856,6 +864,8 @@ async function runBrowserSmoke(artifactPath, artifactDigest, browser) {
     );
     checks.push("browser-no-page-errors-or-http-5xx");
 
+    // The preceding navigation cohorts share this same public auth window.
+    await prepareBrowserAuthCapacity(page, origin);
     // Keep all prior checks in their existing order; append Story assertions
     // after the independent OIDC result is joined in main().
     const storySubmitChecks = [];
@@ -1014,6 +1024,40 @@ async function runBrowserSmoke(artifactPath, artifactDigest, browser) {
       "Feed ACK race returned an unexpected HTTP 5xx",
     );
 
+    // Append new cohorts after the existing ordered checks.
+    const postReloadMetadata = await qualifyBrowserPostReload({
+      page,
+      db,
+      origin,
+      actorApId,
+      checks,
+    });
+    requireEffect(
+      pageErrors.length === 0,
+      "Post reload raised a page runtime error",
+    );
+    requireEffect(
+      serverErrors.length === 0,
+      "Post reload returned an unexpected HTTP 5xx",
+    );
+
+    await prepareBrowserAuthCapacity(page, origin);
+    const deleteTargetMetadata = await qualifyBrowserDeleteTarget({
+      page,
+      db,
+      origin,
+      actorApId,
+      checks,
+    });
+    requireEffect(
+      pageErrors.length === 0,
+      "Delete target settlement raised a page runtime error",
+    );
+    requireEffect(
+      serverErrors.length === 0,
+      "Delete target settlement returned an unexpected HTTP 5xx",
+    );
+
     result = {
       kind: "yurucommu.release-browser-smoke@v1",
       artifact: basename(artifactPath),
@@ -1028,6 +1072,8 @@ async function runBrowserSmoke(artifactPath, artifactDigest, browser) {
       checks,
       feed: feedMetadata,
       postOutcome: postOutcomeMetadata,
+      postReload: postReloadMetadata,
+      deleteTarget: deleteTargetMetadata,
       follow: followMetadata,
       dm: dmMetadata,
       postSnapshot: postSnapshotMetadata,

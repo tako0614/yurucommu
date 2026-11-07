@@ -6,22 +6,11 @@ import {
   type SetStateAction,
 } from "jotai/vanilla";
 import {
-  clearStoredPostDraftAtom,
-  postDraftWriteFailedAtom,
+  createScopedPostDraftAtoms,
   type PostDraft,
-  postContentAtom,
-  postSummaryAtom,
-  postVisibilityAtom,
-  readPostDraftFromStorage,
-  refreshPostDraftAtom,
-  saveRetainedPostDraftAtom,
   type PostVisibility,
 } from "./post-draft.ts";
-export {
-  postContentAtom,
-  postSummaryAtom,
-  postVisibilityAtom,
-} from "./post-draft.ts";
+import { createPostOutcomeAtoms } from "./post-outcome.ts";
 export type { PostVisibility } from "./post-draft.ts";
 import {
   feedItemKey,
@@ -58,7 +47,10 @@ import { acknowledgesPost } from "../lib/post-acknowledgement.ts";
 import {
   actorAtom,
   authSessionEpochAtom,
+  observedActorIdentityVersionAtom,
+  observedHostedIdentityVersionAtom,
   hostedUserAtom,
+  instancesLoadingAtom,
   selectedInstanceIdAtom,
   logoutBusyAtom,
 } from "./auth.ts";
@@ -66,13 +58,18 @@ import { pushToast, toastWriter } from "./toast.ts";
 import { toggleBookmark } from "./posts.ts";
 import { scopeQueryAtom } from "./scope.ts";
 import {
+  type BookmarkMutation,
   type BookmarkRead,
   acknowledgeBookmarkReadAtom,
+  beginBookmarkMutation,
   beginBookmarkRead,
+  bindBookmarkReadMutation,
   finishBookmarkRead,
   hasBookmarkAcknowledgement,
+  isBookmarkMutationCurrent,
   ownsBookmarkRead,
   reconcileBookmarkRead,
+  settleBookmarkMutation,
 } from "./bookmark-reads.ts";
 // Mirrors the backend MAX_POST_CONTENT_LENGTH (posts/transformers.ts), used to
 // surface a specific message when the server rejects an over-length post.
@@ -93,6 +90,48 @@ export type CreatePostOptions = {
   community_ap_id?: string;
 };
 
+// Keep cached feed display state with its observed actor, hosted user, and
+// selected instance. Attempt epochs separately fence in-flight requests.
+const feedIdentityAtom = atom((get) =>
+  JSON.stringify([
+    get(actorAtom)?.ap_id ?? null,
+    get(observedActorIdentityVersionAtom),
+    get(selectedInstanceIdAtom),
+    get(hostedUserAtom)?.id ?? null,
+    get(observedHostedIdentityVersionAtom),
+  ]),
+);
+const feedInstanceMarkerAtom = atom((get) => {
+  get(selectedInstanceIdAtom);
+  return {};
+});
+const feedIdentityMarkerAtom = atom((get) => {
+  get(feedIdentityAtom);
+  get(feedInstanceMarkerAtom);
+  return {};
+});
+function scopedFeedAtom<T>(initial: T) {
+  const value = atom<{ marker: object; value: T } | null>(null);
+  return atom(
+    (get) => {
+      const prior = get(value);
+      return prior?.marker === get(feedIdentityMarkerAtom)
+        ? prior.value
+        : initial;
+    },
+    (get, set, update: SetStateAction<T>) => {
+      const marker = get(feedIdentityMarkerAtom);
+      const prior = get(value);
+      const current = prior?.marker === marker ? prior.value : initial;
+      const next =
+        typeof update === "function"
+          ? (update as (prev: T) => T)(current)
+          : update;
+      set(value, { marker, value: next });
+    },
+  );
+}
+
 // --- Post state ---
 // A successful DELETE establishes a fact about a globally unique canonical AP
 // object, including its boost entries. Retain only IDs in this Jotai store for
@@ -101,7 +140,7 @@ export type CreatePostOptions = {
 // A page reload creates a fresh store and relies on the server's durable state.
 const deletedTimelinePostIdsAtom = atom<ReadonlySet<string>>(new Set<string>());
 function createFeedPostsAtom() {
-  const rows = atom<Post[]>([]);
+  const rows = scopedFeedAtom<Post[]>([]);
   return atom(
     (get) => get(rows),
     (get, set, update: SetStateAction<Post[]>) => {
@@ -120,24 +159,24 @@ function createFeedPostsAtom() {
 // composer ACKs and page-level updater functions. Filter at commit time, while
 // keeping the server's original cursor/hasMore and unrelated rows.
 export const timelinePostsAtom = createFeedPostsAtom();
-export const timelineLoadingAtom = atom(true);
-export const timelineLoadingMoreAtom = atom(false);
-export const timelineHasMoreAtom = atom(true);
+export const timelineLoadingAtom = scopedFeedAtom(true);
+export const timelineLoadingMoreAtom = scopedFeedAtom(false);
+export const timelineHasMoreAtom = scopedFeedAtom(true);
 // Server-issued composite cursor (`published apId`) for the next older page.
 // loadMore echoes this back as `before`; a post's ap_id must NOT be used (it
 // decodes as a legacy published-only cursor that matches every row → the feed
 // re-serves page 1 forever). Reset on every full reload.
-export const timelineCursorAtom = atom<string | null>(null);
+export const timelineCursorAtom = scopedFeedAtom<string | null>(null);
 // Timestamp of the last successful full timeline load. A home re-mount (e.g.
 // back from a post detail) skips the head refetch while the in-memory feed is
 // still fresh, so loaded pages and the reading position survive the round trip
 // instead of resetting to page 1.
-export const timelineLoadedAtAtom = atom<number | null>(null);
+export const timelineLoadedAtAtom = scopedFeedAtom<number | null>(null);
 // Scroll offset of the home feed's scroll container, captured on unmount and
 // restored on the next mount when the fresh in-memory feed is reused.
-export const timelineScrollTopAtom = atom(0);
+export const timelineScrollTopAtom = scopedFeedAtom(0);
 // Primary-load failure (shown inline with a Retry button).
-export const timelineLoadErrorAtom = atom<string | null>(null);
+export const timelineLoadErrorAtom = scopedFeedAtom<string | null>(null);
 
 // --- Home feed tab ---
 //
@@ -155,16 +194,16 @@ export const homeFeedTabAtom = atom<HomeFeedTab>("all");
 // pages or reading position, and the unified feed's 60s freshness-reuse
 // semantics stay untouched.
 export const followingPostsAtom = createFeedPostsAtom();
-export const followingLoadingAtom = atom(true);
-export const followingLoadingMoreAtom = atom(false);
-export const followingHasMoreAtom = atom(true);
+export const followingLoadingAtom = scopedFeedAtom(true);
+export const followingLoadingMoreAtom = scopedFeedAtom(false);
+export const followingHasMoreAtom = scopedFeedAtom(true);
 // Server-issued composite cursor — same semantics as timelineCursorAtom.
-export const followingCursorAtom = atom<string | null>(null);
+export const followingCursorAtom = scopedFeedAtom<string | null>(null);
 // Freshness timestamp — same reuse semantics as timelineLoadedAtAtom.
-export const followingLoadedAtAtom = atom<number | null>(null);
+export const followingLoadedAtAtom = scopedFeedAtom<number | null>(null);
 // Reading position of the following tab, captured on tab switch / unmount.
-export const followingScrollTopAtom = atom(0);
-export const followingLoadErrorAtom = atom<string | null>(null);
+export const followingScrollTopAtom = scopedFeedAtom(0);
+export const followingLoadErrorAtom = scopedFeedAtom<string | null>(null);
 
 // --- Post composition ---
 //
@@ -177,17 +216,152 @@ export const followingLoadErrorAtom = atom<string | null>(null);
 // persisted alongside the text so restoring a draft can never silently widen a
 // followers-only post back to public. Staged media is NOT part of the draft
 // (blob URLs / File handles are not serializable); text is.
-export const postingAtom = atom(false);
-export const postSubmitErrorAtom = atom<string | null>(null);
-export const postDraftNoticeAtom = atom<string | null>(null);
-const postDraftRecoveryRequestedAtom = atom(false);
+const postDraft = createScopedPostDraftAtoms((get) => {
+  const scope = captureMediaScope(get);
+  if (!scope) return null;
+  try {
+    const url = new URL(scope.postUrl, globalThis.location?.href);
+    if (!["http:", "https:"].includes(url.protocol)) return null;
+    return {
+      origin: url.origin,
+      actorApId: scope.actorApId,
+      instanceId: scope.instanceId,
+      hostedUserId: scope.hostedUserId,
+    };
+  } catch {
+    return null;
+  }
+});
+export const postContentAtom = postDraft.contentAtom;
+export const postSummaryAtom = postDraft.summaryAtom;
+export const postVisibilityAtom = postDraft.visibilityAtom;
+export const postDraftWriteFailedAtom = postDraft.writeFailedAtom;
+export const legacyPostDraftAvailableAtom = postDraft.legacyAvailableAtom;
+export const exportLegacyPostDraftAtom = postDraft.exportLegacyAtom;
+const compositionMarkerAtom = atom((get) => {
+  get(feedIdentityMarkerAtom);
+  get(authSessionEpochAtom);
+  get(postDraft.namespaceAtom);
+  return {};
+});
+type CompositionState = {
+  pending: object | null;
+  error: string | null;
+  notice: string | null;
+  recoveryRequested: boolean;
+  acknowledged: PostDraft | null;
+};
+const initialComposition: CompositionState = {
+  pending: null,
+  error: null,
+  notice: null,
+  recoveryRequested: false,
+  acknowledged: null,
+};
+// Cache atom configurations, not draft values. A's pending attempt/recovery
+// must survive A→B→A without appearing in B or being reset by an old finally.
+const compositionConfigurations = new Map<
+  string,
+  {
+    state: PrimitiveAtom<CompositionState>;
+    outcome: ReturnType<typeof createPostOutcomeAtoms>;
+  }
+>();
+function currentCompositionConfiguration(get: Getter) {
+  const namespace = get(postDraft.namespaceAtom);
+  if (!namespace) return null;
+  let state = compositionConfigurations.get(namespace);
+  if (!state) {
+    state = {
+      state: atom({ ...initialComposition }),
+      outcome: createPostOutcomeAtoms(namespace),
+    };
+    compositionConfigurations.set(namespace, state);
+  }
+  return state;
+}
+function currentComposition(get: Getter) {
+  return currentCompositionConfiguration(get)?.state ?? null;
+}
+function compositionField<K extends keyof CompositionState>(key: K) {
+  return atom(
+    (get) => {
+      const state = currentComposition(get);
+      return state ? get(state)[key] : initialComposition[key];
+    },
+    (get, set, value: CompositionState[K]) => {
+      const state = currentComposition(get);
+      if (state) set(state, (previous) => ({ ...previous, [key]: value }));
+    },
+  );
+}
+const pendingPostAtom = compositionField("pending");
+export const postingAtom = atom(
+  (get) => get(pendingPostAtom) !== null,
+  (_get, set, value: boolean) => set(pendingPostAtom, value ? {} : null),
+);
+const postSubmitMemoryErrorAtom = compositionField("error");
+const postDraftMemoryNoticeAtom = compositionField("notice");
+export const postSubmitErrorAtom = atom(
+  (get) => {
+    const error = get(postSubmitMemoryErrorAtom);
+    if (error || get(pendingPostAtom)) return error;
+    const journal = currentCompositionConfiguration(get)?.outcome;
+    if (!journal) return null;
+    const outcome = get(journal.valueAtom);
+    const unconfirmed = get(tAtom)("feedback.postUnconfirmed");
+    if (outcome.kind === "unreadable")
+      return get(tAtom)("compose.draftSaveFailed");
+    if (outcome.kind === "invalid") return unconfirmed;
+    const notice = get(postDraftMemoryNoticeAtom);
+    if (notice)
+      return outcome.kind === "record" &&
+        outcome.caution === "pending" &&
+        notice !== unconfirmed
+        ? unconfirmed
+        : null;
+    return outcome.kind === "record" && outcome.caution === "pending"
+      ? unconfirmed
+      : null;
+  },
+  (_get, set, value: string | null) => set(postSubmitMemoryErrorAtom, value),
+);
+export const postDraftNoticeAtom = atom(
+  (get) => {
+    const notice = get(postDraftMemoryNoticeAtom);
+    if (get(pendingPostAtom)) return notice;
+    const journal = currentCompositionConfiguration(get)?.outcome;
+    const outcome = journal ? get(journal.valueAtom) : null;
+    const error = get(postSubmitMemoryErrorAtom);
+    const fault =
+      outcome?.kind === "unreadable"
+        ? get(tAtom)("compose.draftSaveFailed")
+        : outcome?.kind === "invalid"
+          ? get(tAtom)("feedback.postUnconfirmed")
+          : null;
+    if (fault) {
+      if (error && error !== fault)
+        return notice && notice !== fault ? `${notice}\n${fault}` : fault;
+      return notice === fault ? null : notice;
+    }
+    if (notice) return notice;
+    if (outcome?.kind !== "record") return null;
+    if (outcome.caution === "confirmed")
+      return get(tAtom)("feedback.postDraftKept");
+    const unconfirmed = get(tAtom)("feedback.postUnconfirmed");
+    // A newer request's definite rejection does not settle the earlier post.
+    return error && error !== unconfirmed ? unconfirmed : null;
+  },
+  (_get, set, value: string | null) => set(postDraftMemoryNoticeAtom, value),
+);
+const postDraftRecoveryRequestedAtom = compositionField("recoveryRequested");
 export const postDraftRecoveryNeededAtom = atom(
   (get) => get(postDraftRecoveryRequestedAtom) || get(postDraftWriteFailedAtom),
   (_get, set, needed: boolean) => set(postDraftRecoveryRequestedAtom, needed),
 );
-const acknowledgedDraftAtom = atom<PostDraft | null>(null);
+const acknowledgedDraftAtom = compositionField("acknowledged");
 export const recoverPostDraftAtom = atom(null, (get, set) => {
-  const stored = readPostDraftFromStorage();
+  const stored = postDraft.read(get);
   const acknowledged = get(acknowledgedDraftAtom);
   const matches = (draft: PostDraft | null) =>
     draft !== null &&
@@ -198,11 +372,11 @@ export const recoverPostDraftAtom = atom(null, (get, set) => {
     matches(stored) ||
     (matches(acknowledged) && !get(postDraftWriteFailedAtom))
   ) {
-    if (set(refreshPostDraftAtom)) set(postDraftRecoveryNeededAtom, false);
+    if (set(postDraft.refreshAtom)) set(postDraftRecoveryNeededAtom, false);
   }
 });
 export const saveRecoveryPostDraftAtom = atom(null, (_get, set) => {
-  if (set(saveRetainedPostDraftAtom)) set(postDraftRecoveryNeededAtom, false);
+  if (set(postDraft.saveAtom)) set(postDraftRecoveryNeededAtom, false);
 });
 export const uploadedMediaAtom = atom<UploadedMedia[]>([]);
 function captureMediaScope(get: Getter): MediaUploadScope | null {
@@ -288,30 +462,64 @@ export const deleteTimelinePostAtom = atom(
   },
 );
 
-// All bookmark entrypoints record only a successful ACK for the observed
-// actor. This updates both Home caches and fences every earlier active read.
-export const acknowledgeTimelineBookmarkAtom = atom(
+export const beginTimelineBookmarkMutationAtom = atom(
   null,
   (
     get,
     set,
     change: { actorApId: string; apId: string; bookmarked: boolean },
-  ): boolean => {
-    if (!set(acknowledgeBookmarkReadAtom, change)) return false;
-    for (const feed of [
-      timelinePostsAtom,
-      followingPostsAtom,
-      pendingNewPostsAtom,
-    ]) {
-      set(feed, (prev) =>
-        prev.map((post) =>
-          post.ap_id === change.apId
-            ? { ...post, bookmarked: change.bookmarked }
-            : post,
-        ),
-      );
+  ): BookmarkMutation | null => beginBookmarkMutation(get, set, change),
+);
+
+export const settleTimelineBookmarkMutationAtom = atom(
+  null,
+  (
+    get,
+    set,
+    input: { mutation: BookmarkMutation; success: boolean },
+  ): { current: boolean; applied: boolean } => {
+    const result = settleBookmarkMutation(
+      get,
+      set,
+      input.mutation,
+      input.success,
+    );
+    if (result.markRead) set(acknowledgeBookmarkReadAtom, result.markRead);
+    if (result.publish) {
+      const change = result.publish;
+      for (const feed of [
+        timelinePostsAtom,
+        followingPostsAtom,
+        pendingNewPostsAtom,
+      ]) {
+        set(feed, (prev) =>
+          prev.map((post) =>
+            post.ap_id === change.apId
+              ? { ...post, bookmarked: change.bookmarked }
+              : post,
+          ),
+        );
+      }
     }
-    return true;
+    return {
+      current: result.current,
+      applied: result.publish?.ticket === input.mutation.ticket,
+    };
+  },
+);
+
+// Legacy direct ACKs are independent successful operations at their call time.
+export const acknowledgeTimelineBookmarkAtom = atom(
+  null,
+  (
+    _get,
+    set,
+    change: { actorApId: string; apId: string; bookmarked: boolean },
+  ): boolean => {
+    const mutation = set(beginTimelineBookmarkMutationAtom, change);
+    if (!mutation) return false;
+    return set(settleTimelineBookmarkMutationAtom, { mutation, success: true })
+      .current;
   },
 );
 
@@ -319,13 +527,23 @@ export const unbookmarkTimelinePostAtom = atom(
   null,
   async (get, set, apId: string): Promise<boolean> => {
     const actorApId = get(actorAtom)?.ap_id;
-    if (!actorApId) return false;
-    await unbookmarkPost(apId);
-    return set(acknowledgeTimelineBookmarkAtom, {
+    if (!actorApId || get(logoutBusyAtom)) return false;
+    const mutation = set(beginTimelineBookmarkMutationAtom, {
       actorApId,
       apId,
       bookmarked: false,
     });
+    if (!mutation) return false;
+    try {
+      await unbookmarkPost(apId);
+      return set(settleTimelineBookmarkMutationAtom, {
+        mutation,
+        success: true,
+      }).current;
+    } catch (error) {
+      set(settleTimelineBookmarkMutationAtom, { mutation, success: false });
+      throw error;
+    }
   },
 );
 
@@ -336,26 +554,41 @@ export const toggleTimelineBookmarkAtom = atom(
   null,
   async (get, set, post: Post) => {
     const actorApId = get(actorAtom)?.ap_id;
-    if (!actorApId) return;
+    // toggleBookmark would send even when its optimistic callback declines, so
+    // gate before invoking it while the selected instance is being observed.
+    if (!actorApId || get(logoutBusyAtom) || get(instancesLoadingAtom)) return;
     const interaction = beginBookmarkRead(get, set);
+    let mutation: BookmarkMutation | null = null;
+    let settled = false;
     try {
       await toggleBookmark(
         post,
         (update) => {
-          if (get(actorAtom)?.ap_id !== actorApId) return;
+          // toggleBookmark can decline a duplicate before this callback. Start
+          // a ticket only once it actually applies the optimistic update.
+          if (!mutation) {
+            mutation = set(beginTimelineBookmarkMutationAtom, {
+              actorApId,
+              apId: post.ap_id,
+              bookmarked: !post.bookmarked,
+            });
+            if (mutation)
+              bindBookmarkReadMutation(get, set, interaction, mutation);
+          }
+          if (!mutation || !isBookmarkMutationCurrent(get, mutation)) return;
           set(timelinePostsAtom, update);
           set(followingPostsAtom, update);
         },
-        (bookmarked) => {
-          set(acknowledgeTimelineBookmarkAtom, {
-            actorApId,
-            apId: post.ap_id,
-            bookmarked,
-          });
+        () => {
+          if (!mutation) return;
+          settled = true;
+          set(settleTimelineBookmarkMutationAtom, { mutation, success: true });
         },
         () => !hasBookmarkAcknowledgement(get, interaction, post.ap_id),
       );
     } finally {
+      if (mutation && !settled)
+        set(settleTimelineBookmarkMutationAtom, { mutation, success: false });
       finishBookmarkRead(get, set, interaction);
     }
   },
@@ -372,7 +605,7 @@ export const toggleTimelineBookmarkAtom = atom(
 // — identical to `published` for every entry the current server emits.
 const postKey = (p: Post): string =>
   `${(p as PostWithRepost).repost_published ?? p.published} ${p.ap_id}`;
-export const newestSeenKeyAtom = atom<string | null>(null);
+export const newestSeenKeyAtom = scopedFeedAtom<string | null>(null);
 // Advance the watermark to the newest of its current value and the given post.
 const bumpNewestSeen = (
   get: (a: typeof newestSeenKeyAtom) => string | null,
@@ -482,11 +715,12 @@ export const applyNewPostsAtom = atom(null, (get, set) => {
 });
 
 // --- Story state ---
-export const actorStoriesAtom = atom<ActorStories[]>([]);
-export const storiesLoadingAtom = atom(true);
-export const storiesErrorAtom = atom<string | null>(null);
-export const showStoryViewerAtom = atom(false);
-export const storyViewerActorIndexAtom = atom(0);
+export const actorStoriesAtom = scopedFeedAtom<ActorStories[]>([]);
+export const storiesLoadingAtom = scopedFeedAtom(true);
+export const storiesErrorAtom = scopedFeedAtom<string | null>(null);
+const storiesLoadGenerationAtom = atom(0);
+export const showStoryViewerAtom = scopedFeedAtom(false);
+export const storyViewerActorIndexAtom = scopedFeedAtom(0);
 export const showStoryComposerAtom = atom(false);
 
 // --- Account state ---
@@ -649,9 +883,10 @@ function reconcileHeadAcknowledgements(
   }
   return merged.slice(0, MAX_TIMELINE_POSTS);
 }
-let storiesLoadGen = 0;
 
 export const loadTimelineAtom = atom(null, async (get, set) => {
+  const requestIdentityMarker = get(feedIdentityMarkerAtom);
+  const requestAuthEpoch = get(authSessionEpochAtom);
   retireFeedBookmarkReads(get, set, unifiedBookmarkReadsAtom);
   const gen = get(timelineRequestsAtom).generation + 1;
   const community = get(scopeQueryAtom)?.community;
@@ -687,7 +922,7 @@ export const loadTimelineAtom = atom(null, async (get, set) => {
       limit: 20,
       community,
     });
-    if (!ownsHead()) return;
+    if (!ownsHead() || !ownsBookmarkRead(get, bookmarkRead)) return;
     set(
       timelinePostsAtom,
       reconcileHeadAcknowledgements(
@@ -716,19 +951,26 @@ export const loadTimelineAtom = atom(null, async (get, set) => {
       }, null),
     );
   } catch (e) {
-    if (!ownsHead()) return;
+    if (!ownsHead() || !ownsBookmarkRead(get, bookmarkRead)) return;
     console.error("Failed to load timeline:", e);
     set(timelineLoadErrorAtom, get(tAtom)("common.loadFailed"));
   } finally {
     finishFeedBookmarkRead(get, set, unifiedBookmarkReadsAtom, bookmarkRead);
     if (get(timelineHeadWindowAtom)?.ticket === ticket)
       set(timelineHeadWindowAtom, null);
-    if (gen === get(timelineRequestsAtom).generation)
+    if (
+      gen === get(timelineRequestsAtom).generation &&
+      requestIdentityMarker === get(feedIdentityMarkerAtom)
+    ) {
+      if (requestAuthEpoch !== get(authSessionEpochAtom) || get(logoutBusyAtom))
+        set(timelineLoadErrorAtom, get(tAtom)("common.loadFailed"));
       set(timelineLoadingAtom, false);
+    }
   }
 });
 
 export const loadMoreTimelineAtom = atom(null, async (get, set) => {
+  const requestIdentityMarker = get(feedIdentityMarkerAtom);
   const loadingMore = get(timelineLoadingMoreAtom);
   const hasMore = get(timelineHasMoreAtom);
   const cursor = get(timelineCursorAtom);
@@ -817,7 +1059,8 @@ export const loadMoreTimelineAtom = atom(null, async (get, set) => {
     finishFeedBookmarkRead(get, set, unifiedBookmarkReadsAtom, bookmarkRead);
     if (ownsPager()) {
       set(timelineRequestsAtom, { generation: gen, pager: null });
-      set(timelineLoadingMoreAtom, false);
+      if (requestIdentityMarker === get(feedIdentityMarkerAtom))
+        set(timelineLoadingMoreAtom, false);
     }
   }
 });
@@ -826,6 +1069,8 @@ export const loadMoreTimelineAtom = atom(null, async (get, set) => {
 // Full (re)load of the following-only feed. Mirrors loadTimelineAtom minus the
 // pieces that are unified-home-only (scope filter, staged new-posts buffer).
 export const loadFollowingTimelineAtom = atom(null, async (get, set) => {
+  const requestIdentityMarker = get(feedIdentityMarkerAtom);
+  const requestAuthEpoch = get(authSessionEpochAtom);
   retireFeedBookmarkReads(get, set, followingBookmarkReadsAtom);
   const gen = get(followingRequestsAtom).generation + 1;
   const actorApId = get(actorAtom)?.ap_id;
@@ -851,6 +1096,7 @@ export const loadFollowingTimelineAtom = atom(null, async (get, set) => {
     if (
       gen !== get(followingRequestsAtom).generation ||
       actorApId !== get(actorAtom)?.ap_id ||
+      !ownsBookmarkRead(get, bookmarkRead) ||
       get(followingHeadWindowAtom)?.ticket !== ticket
     )
       return;
@@ -874,7 +1120,8 @@ export const loadFollowingTimelineAtom = atom(null, async (get, set) => {
   } catch (e) {
     if (
       gen !== get(followingRequestsAtom).generation ||
-      actorApId !== get(actorAtom)?.ap_id
+      actorApId !== get(actorAtom)?.ap_id ||
+      !ownsBookmarkRead(get, bookmarkRead)
     )
       return;
     console.error("Failed to load following timeline:", e);
@@ -883,14 +1130,21 @@ export const loadFollowingTimelineAtom = atom(null, async (get, set) => {
     finishFeedBookmarkRead(get, set, followingBookmarkReadsAtom, bookmarkRead);
     if (get(followingHeadWindowAtom)?.ticket === ticket)
       set(followingHeadWindowAtom, null);
-    if (gen === get(followingRequestsAtom).generation)
+    if (
+      gen === get(followingRequestsAtom).generation &&
+      requestIdentityMarker === get(feedIdentityMarkerAtom)
+    ) {
+      if (requestAuthEpoch !== get(authSessionEpochAtom) || get(logoutBusyAtom))
+        set(followingLoadErrorAtom, get(tAtom)("common.loadFailed"));
       set(followingLoadingAtom, false);
+    }
   }
 });
 
 // Older-page append for the following feed. Same cursor semantics and
 // in-memory cap as loadMoreTimelineAtom.
 export const loadMoreFollowingTimelineAtom = atom(null, async (get, set) => {
+  const requestIdentityMarker = get(feedIdentityMarkerAtom);
   const loadingMore = get(followingLoadingMoreAtom);
   const hasMore = get(followingHasMoreAtom);
   const cursor = get(followingCursorAtom);
@@ -959,13 +1213,21 @@ export const loadMoreFollowingTimelineAtom = atom(null, async (get, set) => {
     finishFeedBookmarkRead(get, set, followingBookmarkReadsAtom, bookmarkRead);
     if (ownsPager()) {
       set(followingRequestsAtom, { generation: gen, pager: null });
-      set(followingLoadingMoreAtom, false);
+      if (requestIdentityMarker === get(feedIdentityMarkerAtom))
+        set(followingLoadingMoreAtom, false);
     }
   }
 });
 
 export const loadStoriesAtom = atom(null, async (get, set) => {
-  const gen = ++storiesLoadGen;
+  const marker = get(feedIdentityMarkerAtom);
+  const epoch = get(authSessionEpochAtom);
+  const current = () =>
+    marker === get(feedIdentityMarkerAtom) &&
+    epoch === get(authSessionEpochAtom) &&
+    !get(logoutBusyAtom);
+  const gen = get(storiesLoadGenerationAtom) + 1;
+  set(storiesLoadGenerationAtom, gen);
   set(storiesErrorAtom, null);
   try {
     // Filter the StoryBar by the inhabited scope: personal observes self +
@@ -973,14 +1235,20 @@ export const loadStoriesAtom = atom(null, async (get, set) => {
     // backend returns only that community's members' stories (member-gated).
     const scope = get(scopeQueryAtom);
     const data = await fetchStories(scope?.community);
-    if (gen !== storiesLoadGen) return; // superseded by a newer scope load
+    if (gen !== get(storiesLoadGenerationAtom) || !current()) return;
     set(actorStoriesAtom, data);
   } catch (e) {
-    if (gen !== storiesLoadGen) return;
+    if (gen !== get(storiesLoadGenerationAtom) || !current()) return;
     console.error("Failed to load stories:", e);
     set(storiesErrorAtom, get(tAtom)("story.loadFailed"));
   } finally {
-    if (gen === storiesLoadGen) set(storiesLoadingAtom, false);
+    if (
+      gen === get(storiesLoadGenerationAtom) &&
+      marker === get(feedIdentityMarkerAtom)
+    ) {
+      if (!current()) set(storiesErrorAtom, get(tAtom)("story.loadFailed"));
+      set(storiesLoadingAtom, false);
+    }
   }
 });
 
@@ -991,7 +1259,19 @@ export const createPostAtom = atom(
     const submittingActorApId = get(actorAtom)?.ap_id;
     const media = get(uploadedMediaAtom);
     const scope = captureMediaScope(get);
-    const current = () => !scope || ownsMediaScope(get, scope);
+    const draft = postDraft.capture(get);
+    const configuration = currentCompositionConfiguration(get);
+    const composition = configuration?.state;
+    const outcome = configuration?.outcome;
+    const marker = get(compositionMarkerAtom);
+    const current = () =>
+      scope !== null &&
+      ownsMediaScope(get, scope) &&
+      marker === get(compositionMarkerAtom);
+    if (!draft || !composition || !outcome || !current()) {
+      set(postSubmitErrorAtom, get(tAtom)("compose.draftScopeChanged"));
+      return false;
+    }
     if (
       (!content.trim() && media.length === 0) ||
       get(postingAtom) ||
@@ -1015,10 +1295,25 @@ export const createPostAtom = atom(
       return false;
     }
 
-    set(postingAtom, true);
-    set(postSubmitErrorAtom, null);
-    set(postDraftNoticeAtom, null);
-    set(acknowledgedDraftAtom, null);
+    const durableAttempt = set(outcome.beginAtom);
+    if (!durableAttempt) {
+      set(postSubmitErrorAtom, get(tAtom)("compose.draftSaveFailed"));
+      return false;
+    }
+
+    const attempt = {};
+    set(composition, (previous) => ({
+      ...previous,
+      pending: attempt,
+      error: null,
+      notice: null,
+      acknowledged: null,
+    }));
+    const updateAttempt = (change: Partial<CompositionState>) => {
+      const previous = get(composition);
+      if (previous.pending === attempt)
+        set(composition, { ...previous, ...change });
+    };
     try {
       const summary = options.summary?.trim();
       const newPost = await createPost({
@@ -1041,8 +1336,32 @@ export const createPostAtom = atom(
               }))
             : undefined,
       });
-      if (!current()) return false;
-      if (!acknowledgesPost(newPost, submittingActorApId, content.trim())) {
+      const acknowledged = acknowledgesPost(
+        newPost,
+        submittingActorApId,
+        content.trim(),
+      );
+      if (acknowledged)
+        set(outcome.finishAtom, { id: durableAttempt, confirmed: true });
+      if (!current()) {
+        updateAttempt({
+          recoveryRequested: true,
+          acknowledged: acknowledged
+            ? {
+                content,
+                summary: options.summary ?? "",
+                visibility: options.visibility ?? "public",
+              }
+            : null,
+          notice: get(tAtom)(
+            acknowledged
+              ? "feedback.postDraftKept"
+              : "feedback.postUnconfirmed",
+          ),
+        });
+        return false;
+      }
+      if (!acknowledged) {
         throw new Error("Post response did not acknowledge the submitted Note");
       }
       if (newPost) {
@@ -1094,7 +1413,7 @@ export const createPostAtom = atom(
         // A storage event may still be queued when this ACK arrives. Check the
         // actual saved values too, not just this tab's observed atoms. This is
         // a synchronous reread, not cross-tab atomic compare-and-swap.
-        const stored = readPostDraftFromStorage();
+        const stored = draft.read();
         const memoryMatchesSubmission =
           get(postContentAtom) === content &&
           get(postSummaryAtom) === (options.summary ?? "") &&
@@ -1108,15 +1427,18 @@ export const createPostAtom = atom(
           storageMatchesSubmission &&
           get(uploadedMediaAtom) === media;
         const canClearSubmittedDraft =
-          mayClearSubmittedDraft && set(clearStoredPostDraftAtom);
+          mayClearSubmittedDraft && set(draft.clearAtom);
         if (canClearSubmittedDraft) {
+          set(outcome.finishAtom, { id: durableAttempt, confirmed: false });
           media.forEach((m) => m.preview && URL.revokeObjectURL(m.preview));
           set(uploadedMediaAtom, []);
         } else {
-          set(acknowledgedDraftAtom, {
-            content,
-            summary: options.summary ?? "",
-            visibility: options.visibility ?? "public",
+          updateAttempt({
+            acknowledged: {
+              content,
+              summary: options.summary ?? "",
+              visibility: options.visibility ?? "public",
+            },
           });
           const memoryMatchesStorage =
             get(postContentAtom) === stored?.content &&
@@ -1126,10 +1448,10 @@ export const createPostAtom = atom(
             stored &&
             !get(postDraftWriteFailedAtom) &&
             (memoryMatchesSubmission || memoryMatchesStorage)
-              ? set(refreshPostDraftAtom)
+              ? set(draft.refreshAtom)
               : null;
-          set(postDraftRecoveryNeededAtom, !refreshed);
-          set(postDraftNoticeAtom, get(tAtom)("feedback.postDraftKept"));
+          updateAttempt({ recoveryRequested: !refreshed });
+          updateAttempt({ notice: get(tAtom)("feedback.postDraftKept") });
         }
         pushToast(toastWriter(set), get(tAtom)("feedback.postCreated"), {
           kind: "success",
@@ -1140,7 +1462,16 @@ export const createPostAtom = atom(
       // persist the post. Keep the draft and describe the outcome honestly.
       throw new Error("Post response did not acknowledge the created post");
     } catch (e) {
-      if (!current()) return false;
+      if (classifyWriteFailure(e) === "rejected")
+        set(outcome.finishAtom, { id: durableAttempt, confirmed: false });
+      if (!current()) {
+        if (classifyWriteFailure(e) === "unconfirmed")
+          updateAttempt({
+            recoveryRequested: true,
+            notice: get(tAtom)("feedback.postUnconfirmed"),
+          });
+        return false;
+      }
       console.error("Failed to create post:", e);
       // Map a server-side length rejection to a specific message so an
       // over-length post is explained rather than a generic failure. A summary
@@ -1188,10 +1519,10 @@ export const createPostAtom = atom(
       pushToast(toastWriter(set), message, {
         kind: "error",
       });
-      set(postSubmitErrorAtom, message);
+      updateAttempt({ error: message });
       return false;
     } finally {
-      set(postingAtom, false);
+      updateAttempt({ pending: null });
     }
   },
 );
@@ -1390,9 +1721,14 @@ export const closePostModalAtom = atom(null, (get, set) => {
     get(uploadSelectionsPendingAtom) > 0
   )
     return;
-  if (!set(clearStoredPostDraftAtom)) {
+  if (!set(postDraft.clearAtom)) {
     set(postDraftRecoveryNeededAtom, true);
     set(postDraftNoticeAtom, get(tAtom)("compose.draftSaveFailed"));
+    return;
+  }
+  const outcome = currentCompositionConfiguration(get)?.outcome;
+  if (outcome && !set(outcome.discardAtom)) {
+    set(postSubmitErrorAtom, get(tAtom)("compose.draftSaveFailed"));
     return;
   }
   set(showPostModalAtom, false);

@@ -97,8 +97,15 @@ describe("generated worker entry", () => {
   // disagree with it.
   test("delegates the request path to the core's middleware and the queue path to its background helper", () => {
     expect(entrySource).toContain("withRequiredBackgroundPublicOrigin");
-    expect(entrySource).toContain(
-      "await withRequiredBackgroundPublicOrigin(\n        wrapYurucommuWorkerBindings(env) as Env,\n      )",
+    const queueHandler = entrySource.slice(
+      entrySource.indexOf("  async queue("),
+      entrySource.indexOf("  async scheduled("),
+    );
+    expect(queueHandler).toContain(
+      "const bindings = wrapYurucommuWorkerBindings(env);",
+    );
+    expect(queueHandler).toContain(
+      "await withRequiredBackgroundPublicOrigin(bindings as Env)",
     );
     expect(entrySource).not.toContain("establishRequestPublicOrigin");
     const fetchHandler = entrySource
@@ -111,9 +118,11 @@ describe("generated worker entry", () => {
       .join("\n");
     expect(fetchHandler).toContain("wrapYurucommuWorkerBindings(env)");
     expect(fetchHandler).not.toContain("APP_URL");
-    // One await, and it is the app itself. Anything else here would be a second
-    // origin rule running after the core's middleware had already decided.
-    expect(fetchHandler.match(/await /g)).toHaveLength(1);
+    // Two awaits: the opt-in bundled-schema gate, which reads no origin, and
+    // the app itself. Anything else here would be a second origin rule running
+    // after the core's middleware had already decided.
+    expect(fetchHandler.match(/await /g)).toHaveLength(2);
+    expect(fetchHandler).toContain("await schemaReady;");
     expect(fetchHandler).toContain("await backendApp.fetch(");
   });
 

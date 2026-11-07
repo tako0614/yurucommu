@@ -53,18 +53,22 @@ YURUCOMMU_DEV_PROXY_TARGET=http://localhost:8787 bun run dev
 
 ## どこで動かすか
 
-| 目的                        | 使うもの                                       | データの置き場所                  |
-| --------------------------- | ---------------------------------------------- | --------------------------------- |
-| UI をすぐ試す               | `bun run dev:mock`                             | メモリ。終了時に消える            |
-| Takoform Host で運用する    | [`deploy/takoform`](deploy/takoform/README.md) | Takoserver が提供する独立リソース |
-| Cloudflare で自分で運用する | ルートの `main.tf` または `wrangler.jsonc`     | D1、R2、Workers KV、Queues        |
+| 目的                                  | 使うもの                                           | データの置き場所                    |
+| ------------------------------------- | -------------------------------------------------- | ----------------------------------- |
+| UI をすぐ試す                         | `bun run dev:mock`                                 | メモリ。終了時に消える              |
+| Takoform Host で運用する              | [`deploy/takoform`](deploy/takoform/README.md)     | Takoserver が提供する独立リソース   |
+| Takosumi から Cloudflare へ直接入れる | [`deploy/cloudflare`](deploy/cloudflare/README.md) | 利用者の D1、R2、Workers KV、Queues |
+| Cloudflare で自分で運用する           | ルートの `main.tf` または `wrangler.jsonc`         | D1、R2、Workers KV、Queues          |
 
 Yurucommu本体が所有するのは必要な役割と接続名です。Takosumiではトップレベルで
 `Takoform`または`Cloudflare`のデプロイadapterを選び、その後に別の
 `ProviderConnection`で接続先を選びます。現在、Takoformの接続先はTakoform Hostとしての
 `Takoserver`、Cloudflareの接続先は利用者が接続したCloudflare accountです。
-`Takoserver`はadapterの選択肢ではありません。`deploy/takoform`とルートの`main.tf`は、
-その同じ契約をそれぞれTakoform HostとCloudflareへ写します。
+`Takoserver`はadapterの選択肢ではありません。`deploy/takoform`は同じ契約をTakoform Hostへ、
+`deploy/cloudflare`とルートの`main.tf`はCloudflareへ写します。`deploy/cloudflare`は
+Takosumi の Cloudflare 接続から直接インストールするための module で、Worker が自分の
+D1 へスキーマを適用します。ルートの`main.tf`は公開済みの成果物を置く手動セルフホスト用で、
+スキーマは運用者が管理します。
 
 ### Takosumi でインストール
 
@@ -75,8 +79,10 @@ https://app.takosumi.com/install?git=https%3A%2F%2Fgithub.com%2Ftako0614%2Fyuruc
 ```
 
 Takosumi は同じ Git revision の OpenTofu tree を読み、実在する root module と
-各 module が必要とする Provider を導出します。このリポジトリにはルートと
-`deploy/takoform` の2候補があるため、インストール画面で実行先を選びます。追加の
+各 module が必要とする Provider を導出します。このリポジトリにはルート、
+`deploy/cloudflare`、`deploy/takoform` の3候補があるため、インストール画面で実行先を
+選びます。Cloudflare 接続で直接入れる場合は `deploy/cloudflare` を選びます
+（[説明](deploy/cloudflare/README.md)）。追加の
 source-options 文書はありません。必要な場合だけ ref、module path、サービス名を
 調整します。
 
@@ -419,6 +425,7 @@ Worker surface の実行環境には `git`、`bun`、`node`、`tofu` と、上�
 - [`scripts/dev-mock-server.ts`](scripts/dev-mock-server.ts) — ローカル用モック API
 - [`scripts/build-yurucommu-worker.ts`](scripts/build-yurucommu-worker.ts) — Worker のビルド
 - [`deploy/takoform/`](deploy/takoform/) — Takosumi などの管理ホスト向け定義
+- [`deploy/cloudflare/`](deploy/cloudflare/) — Takosumi の Cloudflare 接続から直接入れる定義
 - [`main.tf`](main.tf) — Cloudflare セルフホスト用 OpenTofu モジュール
 - [`site/`](site/) — `yurucommu.com` の静的サイト、ヘルプ、仕様
 - [`site/DEPLOY.md`](site/DEPLOY.md) — Web サイトを公開するときの手順

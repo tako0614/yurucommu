@@ -8,7 +8,7 @@ import { once } from "node:events";
 const evidence = process.argv[2];
 if (!evidence)
   throw new Error(
-    "usage: node scripts/ux-post-delete-target-regression.mjs <evidence-directory>",
+    "usage: node scripts/ux-post-action-target-regression.mjs <evidence-directory>",
   );
 const timeout = 15_000;
 const pending = () => {
@@ -64,10 +64,8 @@ let web,
   mockOrigin,
   postA,
   postB,
-  postC,
   idA,
-  idB,
-  idC;
+  idB;
 try {
   await mkdir(evidence, { recursive: true, mode: 0o700 });
   const dist = resolve("dist");
@@ -151,15 +149,8 @@ try {
     like_count: 3,
   };
   // Two posts from the same author must still be distinguishable on an error.
-  postA = { ...postA, bookmarked: false, reply_count: 3 };
-  postB = { ...postB, author: postA.author, bookmarked: false, reply_count: 7 };
-  idC = `${origin}/ap/notes/post-3`;
-  postC = {
-    ...postB,
-    ap_id: idC,
-    content: "Reply C to delete",
-    reply_count: 0,
-  };
+  postA = { ...postA, bookmarked: false };
+  postB = { ...postB, author: postA.author, bookmarked: false };
   profile = await mkdtemp("/root/dev/tmp/yuru-post-action-profile-");
   context = await chromium.launchPersistentContext(profile, {
     executablePath: "/opt/google/chrome/chrome",
@@ -177,7 +168,7 @@ try {
   await context.route("**/*", async (route) => {
     const req = route.request();
     const url = new URL(req.url());
-    const expected = `/api/posts/${encodeURIComponent(current?.target ?? idA)}${current?.action === "delete" ? "" : `/${current?.action}`}`;
+    const expected = `/api/posts/${encodeURIComponent(current?.target ?? idA)}/${current?.action}`;
     if (
       current?.laterUndo &&
       req.method() === "DELETE" &&
@@ -187,8 +178,14 @@ try {
       current.undoCount++;
       current.undoEntered?.resolve();
       if (current.holdUndo) await current.releaseUndo.promise;
-      current.undoAccepted = true;
-      return json(route, { ok: true });
+      current.undoAccepted = (current.undoStatus ?? 200) === 200;
+      return json(
+        route,
+        current.undoAccepted
+          ? { ok: true }
+          : { error: "synthetic undo failed" },
+        current.undoStatus ?? 200,
+      );
     }
     if (
       req.method() === (current?.method ?? "POST") &&
@@ -248,6 +245,7 @@ try {
         posts: [
           {
             ...postA,
+            bookmarked: current.feedBookmarked ?? false,
             liked: current.feedLiked ?? false,
             like_count: current.feedCount ?? 3,
             reposted: current.feedReposted ?? false,
@@ -262,17 +260,9 @@ try {
     const match = url.pathname.match(/^\/api\/posts\/(.+?)(\/replies)?$/);
     if (match) {
       const id = decodeURIComponent(match[1]);
-      if (!match[2] && (id === idA || id === idB || id === idC)) {
-        if (
-          current?.action === "delete" &&
-          current.acknowledged &&
-          id === current.target
-        )
-          return json(route, { error: "synthetic post deleted" }, 404);
-        let value = id === idA ? postA : id === idB ? postB : postC;
+      if (!match[2] && (id === idA || id === idB)) {
+        let value = id === idA ? postA : postB;
         if (id === (current?.target ?? idA)) {
-          if (current?.initialBookmarked)
-            value = { ...value, bookmarked: true };
           if (current?.initialLiked)
             value = { ...value, liked: true, like_count: value.like_count + 1 };
           if (current?.initialReposted)
@@ -293,13 +283,6 @@ try {
           id === (current.target ?? idA) &&
           (!current.laterUndo || !current.undoAccepted)
         ) {
-          if (current.failAckGet)
-            return json(route, { error: "synthetic read unavailable" }, 503);
-          if (current.holdAckGet && !current.ackGetHeld) {
-            current.ackGetHeld = true;
-            current.ackGetEntered.resolve();
-            await current.releaseAckGet.promise;
-          }
           const desired = (current.method ?? "POST") === "POST";
           value =
             current.action === "bookmark"
@@ -320,12 +303,7 @@ try {
       }
       if (match[2] && id === idA)
         return json(route, {
-          replies:
-            current?.action === "delete" &&
-            current.acknowledged &&
-            current.target === idC
-              ? [{ ...postB, content: "Open post B" }]
-              : [{ ...postB, content: "Open post B" }, postC],
+          replies: [{ ...postB, content: "Open post B" }],
           next_cursor: null,
           has_more: false,
         });
@@ -348,39 +326,17 @@ try {
       const response = await original(...args);
       if (
         typeof args[0] === "string" &&
-        (args[1]?.method ?? "GET") === "DELETE" &&
-        /\/api\/posts\/[^/]+$/.test(args[0])
+        /\/(like|repost|bookmark)$/.test(args[0])
       )
         globalThis.__completedSyntheticActions++;
       return response;
     };
   });
 
-  async function beginDelete(page, target) {
-    if (target === "main") {
-      await page
-        .locator("div.px-4.py-4.border-b")
-        .first()
-        .getByRole("button", { name: /^(削除|Delete)$/ })
-        .click();
-    } else {
-      const row = page
-        .getByRole("link", { name: "Reply C to delete" })
-        .locator("xpath=ancestor::div[contains(@class,'border-b')][1]");
-      await row.getByRole("button", { name: /^(削除|Delete)$/ }).click();
-    }
-    await page
-      .getByRole("alertdialog")
-      .getByRole("button", { name: /^(削除|Delete)$/ })
-      .click();
-    await bounded(current.entered.promise, "synthetic delete dispatch");
-  }
-  for (const scenario of ["main-success", "reply-success", "main-unknown"]) {
+  for (const status of [200, 503]) {
     current = {
-      action: "delete",
-      method: "DELETE",
-      target: scenario === "reply-success" ? idC : idA,
-      status: scenario === "main-unknown" ? 503 : 200,
+      action: "bookmark",
+      status,
       count: 0,
       entered: pending(),
       release: pending(),
@@ -389,16 +345,17 @@ try {
     page.on("pageerror", (e) => result.errors.push(e.message));
     await page.goto(`${origin}/post/${encodeURIComponent(idA)}`);
     await page.getByRole("link", { name: "Open post B" }).waitFor({ timeout });
-    await beginDelete(page, scenario === "reply-success" ? "reply" : "main");
+    const bar = page
+      .locator("div.flex.items-center.justify-around.mt-3.pt-3")
+      .first();
+    await bar
+      .getByRole("button", { name: /^(ブックマーク|Bookmark)$/ })
+      .click();
+    await bounded(current.entered.promise, "synthetic bookmark request");
     await page.getByRole("link", { name: "Open post B" }).click();
     await page
       .getByText("Post B current", { exact: true })
       .waitFor({ timeout });
-    const before = await page
-      .locator("div.px-4.py-4.border-b")
-      .first()
-      .getByText("7", { exact: true })
-      .count();
     current.release.resolve();
     await page.waitForFunction(
       () => globalThis.__completedSyntheticActions === 1,
@@ -411,109 +368,120 @@ try {
           requestAnimationFrame(() => requestAnimationFrame(done)),
         ),
     );
-    const staysB = page.url().includes(encodeURIComponent(idB));
-    const after = await page
-      .locator("div.px-4.py-4.border-b")
-      .first()
-      .getByText("7", { exact: true })
-      .count();
-    const targetNotice = await page
+    const b = bar.getByRole("button", { name: /^(ブックマーク|Bookmark)$/ });
+    const bPressed = await b.getAttribute("aria-pressed");
+    const bInline = await page.locator('main [role="alert"]').count();
+    const originalNotice = await page
       .getByRole("alert")
       .filter({ hasText: idA })
       .count();
-    const pass =
-      current.count === 1 &&
-      staysB &&
-      before === 1 &&
-      after === 1 &&
-      (scenario !== "main-unknown" || targetNotice === 1);
     result.checks.push({
-      name: `delete ${scenario} after switching to B`,
-      pass,
-      staysB,
-      before,
-      after,
-      targetNotice,
-      count: current.count,
+      name: `bookmark A ${status} after navigation to B`,
+      pass:
+        bPressed === "false" &&
+        (status === 200 || (bInline === 0 && originalNotice === 1)),
+      bPressed,
+      bInline,
+      originalNotice,
+      intercepted: current.count,
     });
     await page.close();
   }
-  {
+  for (const scenario of ["accepted", "pending", "pending-failure"]) {
+    // The original bookmark committed, but its ACK is held until the user
+    // has started a later unbookmark on the actual timeline component.
     current = {
-      action: "delete",
-      method: "DELETE",
-      target: idC,
+      action: "bookmark",
       status: 200,
       count: 0,
       entered: pending(),
       release: pending(),
-    };
-    const page = await context.newPage();
-    page.on("pageerror", (e) => result.errors.push(e.message));
-    await page.goto(`${origin}/post/${encodeURIComponent(idA)}`);
-    await page
-      .getByRole("link", { name: "Reply C to delete" })
-      .waitFor({ timeout });
-    await beginDelete(page, "reply");
-    current.release.resolve();
-    await page
-      .getByRole("link", { name: "Reply C to delete" })
-      .waitFor({ state: "hidden", timeout });
-    const remaining = await page
-      .locator("div.px-4.py-4.border-b")
-      .first()
-      .getByText("2", { exact: true })
-      .count();
-    result.checks.push({
-      name: "confirmed reply deletion updates only its original parent",
-      pass: current.count === 1 && remaining === 1,
-      count: current.count,
-      remaining,
-    });
-    await page.close();
-  }
-  {
-    current = {
-      action: "delete",
-      method: "DELETE",
-      target: idA,
-      status: 503,
-      count: 0,
-      entered: pending(),
-      release: pending(),
+      feed: true,
+      feedBookmarked: true,
+      laterUndo: true,
+      holdUndo: scenario !== "accepted",
+      undoStatus: scenario === "pending-failure" ? 503 : 200,
+      undoCount: 0,
+      undoEntered: pending(),
+      releaseUndo: pending(),
     };
     const page = await context.newPage();
     page.on("pageerror", (e) => result.errors.push(e.message));
     await page.goto(`${origin}/post/${encodeURIComponent(idA)}`);
     await page.getByRole("link", { name: "Open post B" }).waitFor({ timeout });
-    await beginDelete(page, "main");
+    const bar = page
+      .locator("div.flex.items-center.justify-around.mt-3.pt-3")
+      .first();
+    await bar
+      .getByRole("button", { name: /^(ブックマーク|Bookmark)$/ })
+      .click();
+    await bounded(current.entered.promise, "older bookmark awaiting ACK");
+    await page.locator('aside a[href="/"]').click();
+    await page.waitForURL(origin + "/", { timeout });
+    const card = page
+      .getByText("Post A current", { exact: true })
+      .locator("xpath=ancestor::div[contains(@class,'border-b')][1]");
+    await card
+      .getByRole("button", { name: /^(ブックマークを外す|Remove bookmark)$/ })
+      .click();
+    await bounded(current.undoEntered.promise, "later timeline unbookmark");
+    if (scenario === "accepted") {
+      await page.waitForFunction(
+        () => globalThis.__completedSyntheticActions === 1,
+        null,
+        { timeout },
+      );
+    }
     current.release.resolve();
-    const alert = page.getByRole("alert").filter({ hasText: idA });
-    await alert.waitFor({ timeout });
-    const text = await alert.innerText();
-    const button = page
-      .locator("div.px-4.py-4.border-b")
-      .first()
-      .getByRole("button", { name: /^(削除|Delete)$/ });
-    const pendingState = await button.getAttribute("aria-disabled");
+    await page.waitForFunction(
+      (count) => globalThis.__completedSyntheticActions === count,
+      scenario === "accepted" ? 2 : 1,
+      { timeout },
+    );
+    await page.evaluate(
+      () =>
+        new Promise((done) =>
+          requestAnimationFrame(() => requestAnimationFrame(done)),
+        ),
+    );
+    const bookmark = card.locator(
+      'button[aria-label="ブックマーク"],button[aria-label="ブックマークを外す"],button[aria-label="Bookmark"],button[aria-label="Remove bookmark"]',
+    );
+    const during = await bookmark.getAttribute("aria-pressed");
+    if (scenario !== "accepted") {
+      current.releaseUndo.resolve();
+      await page.waitForFunction(
+        () => globalThis.__completedSyntheticActions === 2,
+        null,
+        { timeout },
+      );
+      await page.evaluate(
+        () =>
+          new Promise((done) =>
+            requestAnimationFrame(() => requestAnimationFrame(done)),
+          ),
+      );
+    }
+    const after = await bookmark.getAttribute("aria-pressed");
+    const expectedAfter = scenario === "pending-failure" ? "true" : "false";
     result.checks.push({
-      name: "unknown same-page deletion preserves the post and identifies the target",
+      name: `old detail bookmark ACK preserves newer timeline unbookmark (${scenario})`,
       pass:
+        during === "false" &&
+        after === expectedAfter &&
         current.count === 1 &&
-        page.url().includes(encodeURIComponent(idA)) &&
-        pendingState === "false" &&
-        /確認できません|could not be confirmed/i.test(text),
-      count: current.count,
-      pendingState,
-      text,
+        current.undoCount === 1,
+      during,
+      after,
+      expectedAfter,
+      earlierCount: current.count,
+      undoCount: current.undoCount,
     });
     await page.close();
   }
   {
     current = {
-      action: "delete",
-      method: "DELETE",
-      target: idA,
+      action: "bookmark",
       status: 200,
       count: 0,
       entered: pending(),
@@ -524,74 +492,102 @@ try {
     page.on("pageerror", (e) => result.errors.push(e.message));
     await page.goto(`${origin}/post/${encodeURIComponent(idA)}`);
     await page.getByRole("link", { name: "Open post B" }).waitFor({ timeout });
-    await beginDelete(page, "main");
+    const bar = page
+      .locator("div.flex.items-center.justify-around.mt-3.pt-3")
+      .first();
+    await bar
+      .getByRole("button", { name: /^(ブックマーク|Bookmark)$/ })
+      .click();
+    await bounded(current.entered.promise, "first bookmark");
     await page.locator('aside a[href="/"]').click();
     await page.waitForURL(origin + "/", { timeout });
     await page.getByRole("link", { name: "Post A current" }).click();
     await page.getByRole("link", { name: "Open post B" }).waitFor({ timeout });
-    const button = page
-      .locator("div.px-4.py-4.border-b")
-      .first()
-      .getByRole("button", { name: /^(削除|Delete)$/ });
-    const pendingState = await button.getAttribute("aria-disabled");
-    // Exercise the handler itself even when accessibility state marks it busy.
-    await button.evaluate((node) => node.click());
-    const dialogs = await page.getByRole("alertdialog").count();
-    const count = current.count;
+    const again = bar.getByRole("button", {
+      name: /^(ブックマーク|Bookmark)$/,
+    });
+    const busy = await again.getAttribute("aria-disabled");
+    await again.dispatchEvent("click");
+    await new Promise((done) => setTimeout(done, 200));
+    const before = current.count;
     current.release.resolve();
     await page.waitForFunction(
       (n) => globalThis.__completedSyntheticActions >= n,
-      count,
+      before,
       { timeout },
     );
-    await page
-      .getByText(/見つかりません|not found/i)
-      .first()
-      .waitFor({ timeout });
     result.checks.push({
-      name: "remounted detail cannot dispatch duplicate delete and refreshes after ACK",
-      pass: count === 1 && pendingState === "true" && dialogs === 0,
-      count,
-      pendingState,
-      dialogs,
+      name: "bookmark remount blocks duplicate pending action",
+      pass: busy === "true" && before === 1,
+      busy,
+      intercepted: before,
     });
     await page.close();
   }
   {
     current = {
-      action: "delete",
-      method: "DELETE",
-      target: idA,
+      action: "bookmark",
       status: 200,
       count: 0,
       entered: pending(),
       release: pending(),
+      feed: true,
+      simulateLogout: true,
+      logoutCount: 0,
     };
     const page = await context.newPage();
     page.on("pageerror", (e) => result.errors.push(e.message));
     await page.goto(`${origin}/post/${encodeURIComponent(idA)}`);
-    await page.getByRole("link", { name: "Open post B" }).click();
-    await page
-      .getByText("Post B current", { exact: true })
-      .waitFor({ timeout });
-    await page.goBack();
     await page.getByRole("link", { name: "Open post B" }).waitFor({ timeout });
-    await page
-      .locator("div.px-4.py-4.border-b")
-      .first()
-      .getByRole("button", { name: /^(削除|Delete)$/ })
+    const bar = page
+      .locator("div.flex.items-center.justify-around.mt-3.pt-3")
+      .first();
+    await bar
+      .getByRole("button", { name: /^(ブックマーク|Bookmark)$/ })
       .click();
-    await page.getByRole("alertdialog").waitFor({ timeout });
-    await page.goForward();
-    await page
-      .getByText("Post B current", { exact: true })
+    await bounded(current.entered.promise, "bookmark before epoch change");
+    await page.locator('aside a[href="/"]').click();
+    await page.waitForURL(origin + "/", { timeout });
+    const card = page
+      .getByText("Post A current", { exact: true })
+      .locator("xpath=ancestor::div[contains(@class,'border-b')][1]");
+    await card
+      .getByRole("button", { name: /^(ブックマーク|Bookmark)(?: |$)/ })
       .waitFor({ timeout });
-    const dialogs = await page.getByRole("alertdialog").count();
+    await page.locator('aside button[aria-haspopup="dialog"]').click();
+    await page.getByRole("button", { name: /^(ログアウト|Logout)$/ }).click();
+    await page
+      .getByRole("alertdialog")
+      .getByRole("button", { name: /^(ログアウト|Logout)$/ })
+      .click();
+    await page
+      .getByText(
+        /ログアウトできたか確認できません|could not confirm.*log.?out/i,
+      )
+      .waitFor({ timeout });
+    current.release.resolve();
+    await page.waitForFunction(
+      () => globalThis.__completedSyntheticActions === 1,
+      null,
+      { timeout },
+    );
+    await page.evaluate(
+      () =>
+        new Promise((done) =>
+          requestAnimationFrame(() => requestAnimationFrame(done)),
+        ),
+    );
+    const pressed = await card
+      .locator(
+        'button[aria-label^="ブックマーク"],button[aria-label^="Bookmark"],button[aria-label^="Remove bookmark"]',
+      )
+      .getAttribute("aria-pressed");
     result.checks.push({
-      name: "navigation dismisses the old delete confirmation",
-      pass: dialogs === 0 && current.count === 0,
-      dialogs,
-      count: current.count,
+      name: "old bookmark ACK cannot update newer auth epoch",
+      pass: pressed === "false" && current.logoutCount === 1,
+      pressed,
+      logoutCount: current.logoutCount,
+      intercepted: current.count,
     });
     await page.close();
   }
@@ -599,24 +595,31 @@ try {
   result.errors.push(String(error?.stack ?? error));
 } finally {
   current?.release.resolve();
-  current?.releaseAckGet?.resolve();
   current?.releaseReentryGet?.resolve();
   current?.releaseUndo?.resolve();
   if (context) {
     try {
-      await bounded(context.close(), "browser cleanup");
+      if (process.env.YURU_UX_INJECT_CLOSE_FAILURE === "1")
+        throw new Error("synthetic browser close failure");
+      await context.close();
     } catch (error) {
       result.errors.push(`browser cleanup: ${String(error)}`);
+      // Only the browser launched by this harness is retried for cleanup.
+      try {
+        await context.close();
+      } catch (retryError) {
+        result.errors.push(`browser cleanup retry: ${String(retryError)}`);
+      }
     }
   }
   if (mock && mock.exitCode === null && mock.signalCode === null) {
-    const exited = once(mock, "exit");
-    mock.kill("SIGTERM");
     try {
+      const exited = once(mock, "exit");
+      mock.kill("SIGTERM");
       const [code, signal] = await bounded(exited, "mock cleanup");
       result.mockShutdown = { code, signal };
     } catch (error) {
-      result.errors.push(String(error));
+      result.errors.push(`mock cleanup: ${String(error)}`);
     }
   }
   if (web) {

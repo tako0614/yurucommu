@@ -3,11 +3,7 @@
 import { createHash, randomUUID } from "node:crypto";
 
 const TIMEOUT_MS = 15_000;
-const DRAFT_KEYS = [
-  "compose.draft.content",
-  "compose.draft.summary",
-  "compose.draft.visibility",
-];
+const DRAFT_PREFIX = "compose.draft.v2.";
 const RETAINED_STATUS =
   "投稿は送信済みです。下書きが変わったか、保存状態を確認できないため残しています。続ける前に送信済みの投稿を確認してください。";
 
@@ -61,7 +57,7 @@ async function waitVisible(locator, label) {
 }
 
 function installDelayedDraftStorageEvents(page) {
-  return page.addInitScript((draftKeys) => {
+  return page.addInitScript((draftPrefix) => {
     const queue = [];
     let replaying = false;
     window.addEventListener(
@@ -69,7 +65,13 @@ function installDelayedDraftStorageEvents(page) {
       (event) => {
         if (
           !replaying &&
-          (event.key === null || draftKeys.includes(event.key))
+          // Delay the three draft fields under test. Outcome metadata shares
+          // their namespace but has independent subscribers and event counts.
+          (event.key === null ||
+            (event.key.startsWith(draftPrefix) &&
+              [".content", ".summary", ".visibility"].some((suffix) =>
+                event.key.endsWith(suffix),
+              )))
         ) {
           queue.push({
             key: event.key,
@@ -101,11 +103,62 @@ function installDelayedDraftStorageEvents(page) {
         replaying = false;
       }
     };
-  }, DRAFT_KEYS);
+  }, DRAFT_PREFIX);
 }
 
-async function readDraftStorage(page) {
-  return page.evaluate(() => {
+// Discover the keys written by the real composer, rather than reseeding or
+// guessing a namespace. These native self-host cases have no hosted selectors.
+export async function observeBrowserDraftKeys(page, { origin, actorApId }) {
+  const observed = await page.evaluate((prefix) => {
+    const namespaces = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key?.startsWith(prefix) || !key.endsWith(".content")) continue;
+      const namespace = key.slice(0, -".content".length);
+      try {
+        namespaces.push({
+          namespace,
+          owner: JSON.parse(decodeURIComponent(namespace.slice(prefix.length))),
+        });
+      } catch {
+        // An unrelated damaged namespace cannot supply this fixture's keys.
+      }
+    }
+    return { origin: location.origin, namespaces };
+  }, DRAFT_PREFIX);
+  const appOrigin = new URL(origin).origin;
+  const matches = observed.namespaces.filter(
+    ({ owner }) =>
+      Array.isArray(owner) &&
+      owner.length === 4 &&
+      owner[0] === appOrigin &&
+      owner[1] === actorApId &&
+      owner[2] === null &&
+      owner[3] === null,
+  );
+  assert(
+    observed.origin === appOrigin && matches.length === 1,
+    "actual-owner-draft-namespace-not-observed",
+  );
+  const namespace = matches[0].namespace;
+  const keys = {
+    body: `${namespace}.content`,
+    summary: `${namespace}.summary`,
+    visibility: `${namespace}.visibility`,
+  };
+  assert(
+    await page.evaluate(
+      (keys) =>
+        Object.values(keys).every((key) => localStorage.getItem(key) !== null),
+      keys,
+    ),
+    "actual-owner-draft-fields-not-written",
+  );
+  return keys;
+}
+
+export async function readBrowserDraftStorage(page, keys) {
+  return page.evaluate((keys) => {
     const read = (key) => {
       try {
         return JSON.parse(localStorage.getItem(key) ?? "null");
@@ -114,11 +167,11 @@ async function readDraftStorage(page) {
       }
     };
     return {
-      body: read("compose.draft.content"),
-      summary: read("compose.draft.summary"),
-      visibility: read("compose.draft.visibility"),
+      body: read(keys.body),
+      summary: read(keys.summary),
+      visibility: read(keys.visibility),
     };
-  });
+  }, keys);
 }
 
 async function readDraftDom(dialog) {
@@ -524,6 +577,11 @@ export async function qualifyBrowserDraftStorage({
     });
     await waitVisible(firstDialog, "first-owner-composer-open");
     await setDraft(firstDialog, originalDraft);
+    const draftKeys = await observeBrowserDraftKeys(firstPage, {
+      origin: appOrigin,
+      actorApId,
+    });
+    const draftKeyValues = Object.values(draftKeys);
 
     const secondMe = await observeBootAuthMe(secondPage, appUrl, "second-tab");
     assert(
@@ -578,19 +636,24 @@ export async function qualifyBrowserDraftStorage({
     await setDraft(secondDialog, newerDraft);
     await waitCapturedStorageEvents(
       firstPage,
-      DRAFT_KEYS.length,
+      draftKeyValues.length,
       "newer-draft-events",
     );
     await waitDraftDom(secondPage, newerDraft, "second-tab-newer-draft");
-    const sharedRawBeforeAck = await readDraftStorage(secondPage);
+    const sharedRawBeforeAck = await readBrowserDraftStorage(
+      secondPage,
+      draftKeys,
+    );
     const capturedNewerEvents = await takeEvents(firstPage);
     retainedEventDescriptors = capturedNewerEvents;
     assert(
       JSON.stringify(sharedRawBeforeAck) === JSON.stringify(newerDraft) &&
         JSON.stringify(await readDraftDom(firstDialog)) ===
           JSON.stringify(originalDraft) &&
-        capturedNewerEvents.length === DRAFT_KEYS.length &&
-        capturedNewerEvents.every((event) => DRAFT_KEYS.includes(event.key)),
+        capturedNewerEvents.length === draftKeyValues.length &&
+        capturedNewerEvents.every((event) =>
+          draftKeyValues.includes(event.key),
+        ),
       "cross-tab-newer-raw-draft-or-delayed-real-events-not-observed-before-ack",
     );
     assert(postAttempts === 1, "extra-post-before-held-ack");
@@ -609,7 +672,7 @@ export async function qualifyBrowserDraftStorage({
       "first-tab-acknowledged-newer-draft",
     );
     const afterAckFirst = await readDraftDom(firstDialog);
-    const afterAckStorage = await readDraftStorage(firstPage);
+    const afterAckStorage = await readBrowserDraftStorage(firstPage, draftKeys);
     const modalAfterAck = await firstDialog.isVisible();
     const currentNoteCounts = await countContentPosts(
       db,
@@ -664,14 +727,14 @@ export async function qualifyBrowserDraftStorage({
     await setDraft(secondDialog, latestDraft);
     await waitCapturedStorageEvents(
       firstPage,
-      DRAFT_KEYS.length,
+      draftKeyValues.length,
       "latest-draft-events",
     );
     await waitDraftDom(secondPage, latestDraft, "second-tab-latest-draft");
     latestEventDescriptors = await takeEvents(firstPage);
     assert(
-      latestEventDescriptors.length === DRAFT_KEYS.length &&
-        JSON.stringify(await readDraftStorage(secondPage)) ===
+      latestEventDescriptors.length === draftKeyValues.length &&
+        JSON.stringify(await readBrowserDraftStorage(secondPage, draftKeys)) ===
           JSON.stringify(latestDraft),
       "latest-storage-events-not-captured",
     );
@@ -696,7 +759,7 @@ export async function qualifyBrowserDraftStorage({
     assert(
       JSON.stringify(await readDraftDom(firstDialog)) ===
         JSON.stringify(latestDraft) &&
-        JSON.stringify(await readDraftStorage(firstPage)) ===
+        JSON.stringify(await readBrowserDraftStorage(firstPage, draftKeys)) ===
           JSON.stringify(latestDraft) &&
         JSON.stringify(await readDraftDom(secondDialog)) ===
           JSON.stringify(latestDraft),
@@ -725,15 +788,15 @@ export async function qualifyBrowserDraftStorage({
         clearPageProblems.push(`http-${response.status()}`);
     });
     await clearPage.goto(appUrl, { waitUntil: "domcontentloaded" });
-    await clearPage.evaluate(() => {
+    await clearPage.evaluate((draftKeyValues) => {
       const keep = Array.from({ length: localStorage.length }, (_, index) =>
         localStorage.key(index),
       )
-        .filter((key) => key && !key.startsWith("compose.draft."))
+        .filter((key) => key && !draftKeyValues.includes(key))
         .map((key) => [key, localStorage.getItem(key)]);
       localStorage.clear();
       for (const [key, value] of keep) localStorage.setItem(key, value);
-    });
+    }, draftKeyValues);
     await waitCapturedStorageEvents(firstPage, 1, "native-key-null-event");
     await waitDraftDom(
       secondPage,
@@ -762,11 +825,11 @@ export async function qualifyBrowserDraftStorage({
     assert(
       JSON.stringify(await readDraftDom(firstDialog)) ===
         JSON.stringify({ body: "", summary: "", visibility: "public" }) &&
-        JSON.stringify(await readDraftStorage(firstPage)) ===
+        JSON.stringify(await readBrowserDraftStorage(firstPage, draftKeys)) ===
           JSON.stringify({ body: null, summary: null, visibility: null }) &&
         JSON.stringify(await readDraftDom(secondDialog)) ===
           JSON.stringify({ body: "", summary: "", visibility: "public" }) &&
-        JSON.stringify(await readDraftStorage(secondPage)) ===
+        JSON.stringify(await readBrowserDraftStorage(secondPage, draftKeys)) ===
           JSON.stringify({ body: null, summary: null, visibility: null }),
       "key-null-storage-event-did-not-reset-both-composers-to-defaults",
     );
@@ -799,7 +862,7 @@ export async function qualifyBrowserDraftStorage({
         cleanNative.notes === 1 &&
         cleanNative.creates === 1 &&
         (await countCreates(db, actorApId)) === totalCreatesBefore + 2 &&
-        JSON.stringify(await readDraftStorage(firstPage)) ===
+        JSON.stringify(await readBrowserDraftStorage(firstPage, draftKeys)) ===
           JSON.stringify({ body: "", summary: "", visibility: "public" }),
       "unchanged-success-control-did-not-clear-default-draft-after-one-native-post",
     );

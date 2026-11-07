@@ -48,6 +48,9 @@ interface TimelinePostModalProps {
   onSubmitSuccess: () => void;
   draftNotice: string | null;
   draftRecoveryNeeded: boolean;
+  legacyDraftAvailable?: boolean;
+  legacyExportError?: string | null;
+  onExportLegacyDraft?: () => void;
   onRecoverDraft: () => void;
   onSaveRecoveryDraft: () => void;
   onKeepDraftAndClose: () => void;
@@ -321,6 +324,23 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
           <div class="min-h-0 overflow-y-auto">
             {/* In the scrolling part: the recovery notice can be taller than a
               short screen, and its buttons are the only way on. */}
+            <Show
+              when={props.legacyDraftAvailable && props.onExportLegacyDraft}
+            >
+              <div class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">
+                <p>{t("compose.legacyDraftNotice")}</p>
+                <button
+                  type="button"
+                  class="mt-2 min-h-[44px] font-semibold underline"
+                  onClick={props.onExportLegacyDraft}
+                >
+                  {t("compose.exportLegacyDraft")}
+                </button>
+                <Show when={props.legacyExportError}>
+                  <p role="alert">{props.legacyExportError}</p>
+                </Show>
+              </div>
+            </Show>
             <Show when={props.draftNotice}>
               <div class="px-4 pt-4">
                 <p role="status" class="text-sm text-amber-300">

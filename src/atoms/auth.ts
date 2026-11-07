@@ -1,4 +1,4 @@
-import { atom, type Setter } from "jotai/vanilla";
+import { atom, type Setter, type SetStateAction } from "jotai/vanilla";
 import type { Actor } from "../types/index.ts";
 import { tAtom } from "./i18n.ts";
 import {
@@ -27,7 +27,23 @@ export function isHostedDeployment(): boolean {
 }
 
 // --- State atoms ---
-export const actorAtom = atom<Actor | null>(null);
+// Track observed principal changes per store without treating them as proof
+// of a server session or revocation.
+const actorValueAtom = atom<Actor | null>(null);
+const actorIdentityVersionAtom = atom(0);
+export const observedActorIdentityVersionAtom = atom((get) =>
+  get(actorIdentityVersionAtom),
+);
+export const actorAtom = atom(
+  (get) => get(actorValueAtom),
+  (get, set, update: SetStateAction<Actor | null>) => {
+    const previous = get(actorValueAtom);
+    const next = typeof update === "function" ? update(previous) : update;
+    if ((previous?.ap_id ?? null) !== (next?.ap_id ?? null))
+      set(actorIdentityVersionAtom, (version) => version + 1);
+    set(actorValueAtom, next);
+  },
+);
 export const authLoadingAtom = atom(true);
 export const authErrorAtom = atom<string | null>(null);
 export const loginErrorAtom = atom<string | null>(null);
@@ -36,7 +52,21 @@ export const instancePendingAtom = atom(false);
 export const instanceMissingAtom = atom(false);
 export const instanceBlockedAtom = atom(false);
 export const instanceHealthAtom = atom<InstanceHealth | null>(null);
-export const hostedUserAtom = atom<HostedUserInfo | null>(null);
+const hostedUserValueAtom = atom<HostedUserInfo | null>(null);
+const hostedIdentityVersionAtom = atom(0);
+export const observedHostedIdentityVersionAtom = atom((get) =>
+  get(hostedIdentityVersionAtom),
+);
+export const hostedUserAtom = atom(
+  (get) => get(hostedUserValueAtom),
+  (get, set, update: SetStateAction<HostedUserInfo | null>) => {
+    const previous = get(hostedUserValueAtom);
+    const next = typeof update === "function" ? update(previous) : update;
+    if ((previous?.id ?? null) !== (next?.id ?? null))
+      set(hostedIdentityVersionAtom, (version) => version + 1);
+    set(hostedUserValueAtom, next);
+  },
+);
 export const instancesAtom = atom<HostedInstance[]>([]);
 export const selectedInstanceIdAtom = atom<string | null>(null);
 export const instancesLoadingAtom = atom(false);

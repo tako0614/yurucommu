@@ -109,7 +109,7 @@ async function withHarness(
     ) => void;
   }) => Promise<void>,
 ) {
-  const globals = ["localStorage", "navigator", "fetch"] as const;
+  const globals = ["localStorage", "navigator", "fetch", "location"] as const;
   const descriptors = new Map(
     globals.map((key) => [
       key,
@@ -129,6 +129,10 @@ async function withHarness(
   let previewId = 0;
   let plugin: Modules["plugin"] | null = null;
   try {
+    Object.defineProperty(globalThis, "location", {
+      configurable: true,
+      value: new URL("https://example.test/"),
+    });
     Object.defineProperty(globalThis, "localStorage", {
       configurable: true,
       writable: true,

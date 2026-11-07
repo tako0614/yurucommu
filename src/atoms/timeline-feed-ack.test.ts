@@ -92,7 +92,7 @@ type Harness = {
 };
 
 async function fixture(): Promise<Harness> {
-  const keys = ["localStorage", "navigator", "fetch"] as const;
+  const keys = ["localStorage", "navigator", "fetch", "location"] as const;
   const descriptors = new Map(
     keys.map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]),
   );
@@ -102,6 +102,10 @@ async function fixture(): Promise<Harness> {
   let postResponder: (() => Promise<Response>) | null = null;
   let deleteResponder = async () => new Response(null);
 
+  Object.defineProperty(globalThis, "location", {
+    configurable: true,
+    value: new URL("https://example.test/"),
+  });
   Object.defineProperty(globalThis, "localStorage", {
     configurable: true,
     enumerable: descriptors.get("localStorage")?.enumerable ?? true,
@@ -953,7 +957,10 @@ for (const kind of ["unified", "following", "poll"] as const) {
         ...actor(),
         ap_id: `${origin}/ap/users/persona`,
       });
+      // The previous actor's pagination cursor is retired with its feed.
+      expect(h.store.get(f.cursor)).toBeNull();
       h.store.set(f.posts, [next]);
+      h.store.set(f.cursor, "actor-cursor");
       h.heads[0]!.resolve(
         page(
           [
