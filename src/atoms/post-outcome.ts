@@ -54,6 +54,8 @@ export function createPostOutcomeAtoms(
     }
   };
   revision.onMount = (refresh) => {
+    // Storage events may have been missed while another account was selected.
+    refresh((n) => n + 1);
     const changed = (event: Event) => {
       const change = event as StorageEvent;
       try {

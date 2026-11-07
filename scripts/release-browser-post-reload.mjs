@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 
 const TIMEOUT = 15_000;
+const AUTH_WAIT_MAX = 61_000;
+const AUTH_READ_BUDGET = 8;
 const WARNING =
   "投稿結果を確認できません。すでに投稿されている可能性があります。再投稿する前にフィードを確認してください。";
 const need = (value, label) => {
@@ -24,6 +26,51 @@ async function bounded(promise) {
   }
 }
 
+export async function prepareBrowserAuthCapacity(
+  page,
+  origin,
+  minimum = AUTH_READ_BUDGET,
+) {
+  need(
+    Number.isInteger(minimum) && minimum > 0 && minimum < 20,
+    "auth-capacity-budget",
+  );
+  let waited = false;
+  for (let read = 0; read < 2; read++) {
+    const response = await page.request.get(`${origin}/api/auth/providers`, {
+      timeout: TIMEOUT,
+    });
+    const headers = response.headers();
+    const limit = Number(headers["x-ratelimit-limit"]);
+    const remaining = Number(headers["x-ratelimit-remaining"]);
+    const reset = Number(headers["x-ratelimit-reset"]);
+    need(
+      limit === 20 &&
+        Number.isFinite(remaining) &&
+        remaining >= 0 &&
+        remaining <= limit &&
+        Number.isFinite(reset) &&
+        reset > 0,
+      "public-auth-capacity-shape",
+    );
+    need(
+      response.status() === 200 || response.status() === 429,
+      "public-auth-capacity-status",
+    );
+    // Five document loads plus room for in-flight UI reads. Do not reset KV,
+    // alter the product limit, or let this appended cohort starve earlier cases.
+    if (response.status() === 200 && remaining >= minimum)
+      return { remaining, waited };
+    need(!waited, "public-auth-capacity-after-one-reset");
+    const waitMs = Math.max(1, reset * 1000 - Date.now());
+    // The advertised 60 s window is rounded up to an integer second.
+    need(waitMs <= AUTH_WAIT_MAX, "public-auth-reset-within-one-window");
+    waited = true;
+    await new Promise((resolve) => setTimeout(resolve, waitMs));
+  }
+  throw new Error("release-browser-post-reload:auth-capacity-unavailable");
+}
+
 /** Ordinary App POST, committed native data, lost browser ACK, then real reload. */
 export async function qualifyBrowserPostReload({
   page,
@@ -33,9 +80,21 @@ export async function qualifyBrowserPostReload({
   checks = [],
 }) {
   const content = `post-reload-${randomUUID()}`;
+  const authBudget = await prepareBrowserAuthCapacity(page, origin);
   const postUrl = new URL("/api/posts", origin).href;
   let attempts = 0;
   let retryPhase = false;
+  let acceptedRetryPhase = false;
+  let expectedNotes = 1;
+  let otherPage;
+  let resolveAccepted;
+  let releaseAccepted;
+  const acceptedRetry = new Promise((resolve) => {
+    resolveAccepted = resolve;
+  });
+  const acceptedRelease = new Promise((resolve) => {
+    releaseAccepted = resolve;
+  });
   let resolveRetry;
   const rejectedRetry = new Promise((resolve) => {
     resolveRetry = resolve;
@@ -68,7 +127,7 @@ export async function qualifyBrowserPostReload({
       post?.type === "Note" &&
         post.attributed_to === actorApId &&
         post.content === content &&
-        notes?.count === 1 &&
+        notes?.count === expectedNotes &&
         creates?.count === 1,
       "one-native-note-and-create",
     );
@@ -83,6 +142,20 @@ export async function qualifyBrowserPostReload({
       return route.continue();
     attempts++;
     try {
+      if (acceptedRetryPhase) {
+        need(attempts === 3, "one-explicit-accepted-retry");
+        const response = await route.fetch({ timeout: TIMEOUT });
+        need(response.status() === 200, "real-worker-accepted-retry");
+        const ack = await response.json();
+        const id = ack.post?.ap_id;
+        need(typeof id === "string", "accepted-retry-real-id");
+        expectedNotes = 2;
+        await counts(id);
+        resolveAccepted(id);
+        await acceptedRelease;
+        await route.fulfill({ response });
+        return;
+      }
       if (retryPhase) {
         need(attempts === 2, "one-explicit-retry");
         const wire = { ...request.postDataJSON(), content: "" };
@@ -111,15 +184,17 @@ export async function qualifyBrowserPostReload({
       routeError = error;
       await route.abort("failed").catch(() => {});
       resolveCommit(null);
+      resolveRetry(null);
+      resolveAccepted(null);
     }
   };
-  const open = async () => {
-    const button = page
+  const open = async (target = page) => {
+    const button = target
       .getByRole("button", { name: "投稿", exact: true })
       .first();
     await button.waitFor({ state: "visible", timeout: TIMEOUT });
     await button.click();
-    const dialog = page.getByRole("dialog", { name: "今なにしてる？" });
+    const dialog = target.getByRole("dialog", { name: "今なにしてる？" });
     await dialog.waitFor({ state: "visible", timeout: TIMEOUT });
     return dialog;
   };
@@ -198,6 +273,111 @@ export async function qualifyBrowserPostReload({
       }),
     );
     need(caution, "prior-uncertainty-survives-rejected-retry-and-reload");
+    // A further explicit retry may succeed while another tab edits the draft.
+    // Hold only its browser ACK after the real Worker has committed that retry.
+    acceptedRetryPhase = true;
+    await dialog.getByRole("button", { name: "投稿", exact: true }).click();
+    const acceptedId = await bounded(acceptedRetry);
+    if (routeError) throw routeError;
+    need(acceptedId && acceptedId !== id, "second-native-note-is-distinct");
+    otherPage = await page.context().newPage();
+    await otherPage.goto(origin, {
+      waitUntil: "domcontentloaded",
+      timeout: TIMEOUT,
+    });
+    const otherDialog = await open(otherPage);
+    const newer = `newer-draft-${randomUUID()}`;
+    await otherDialog.getByPlaceholder("今なにしてる？").fill(newer);
+    await page.waitForFunction(
+      (text) =>
+        Array.from(document.querySelectorAll("textarea")).some(
+          (node) => node.value === text,
+        ),
+      newer,
+      { timeout: TIMEOUT },
+    );
+    releaseAccepted();
+    await page.waitForFunction(
+      () =>
+        Array.from(document.querySelectorAll('[role="dialog"] button')).some(
+          (button) => button.textContent?.trim() === "投稿" && !button.disabled,
+        ),
+      undefined,
+      { timeout: TIMEOUT },
+    );
+    const notice = dialog.getByRole("status");
+    await notice.waitFor({ state: "visible", timeout: TIMEOUT });
+    const noticeText = (await notice.textContent())?.trim();
+    need(
+      noticeText && noticeText !== WARNING,
+      "accepted-retry-retained-draft-receipt",
+    );
+    need(
+      await dialog.getByText(WARNING, { exact: true }).isVisible(),
+      "accepted-retry-retains-earlier-uncertain-warning",
+    );
+    need(
+      (await dialog.getByPlaceholder("今なにしてる？").inputValue()) === newer,
+      "other-tab-newer-draft-kept",
+    );
+    need(attempts === 3, "only-three-explicit-attempts");
+    const acceptedNative = await counts(acceptedId);
+    const outcomeKey = await otherPage.evaluate(
+      (text) =>
+        Object.keys(localStorage).find(
+          (key) =>
+            key.startsWith("compose.draft.v2.") &&
+            key.endsWith(".outcome") &&
+            localStorage.getItem(
+              key.slice(0, -".outcome".length) + ".content",
+            ) === JSON.stringify(text),
+        ),
+      newer,
+    );
+    need(typeof outcomeKey === "string", "actual-newer-draft-outcome-key");
+    await page.evaluate((key) => {
+      globalThis.__postOutcomeFaultEvent = new Promise((resolve) => {
+        const changed = (event) => {
+          if (event.key === key && event.storageArea === localStorage) {
+            removeEventListener("storage", changed);
+            resolve(true);
+          }
+        };
+        addEventListener("storage", changed);
+      });
+    }, outcomeKey);
+    await otherPage.evaluate(
+      (key) => localStorage.setItem(key, "{broken"),
+      outcomeKey,
+    );
+    await bounded(page.evaluate(() => globalThis.__postOutcomeFaultEvent));
+    const warningAfterCorruption = await dialog
+      .getByText(WARNING, { exact: true })
+      .isVisible();
+    console.log(
+      JSON.stringify({
+        kind: "corrupt-journal-after-known-receipt",
+        warningVisible: warningAfterCorruption,
+        manualAttempts: attempts,
+        notes: acceptedNative.notes,
+      }),
+    );
+    need(
+      warningAfterCorruption,
+      "corrupt-journal-caution-survives-known-receipt",
+    );
+    await otherPage.close();
+    otherPage = null;
+    console.log(
+      JSON.stringify({
+        kind: "accepted-retry-retains-prior-caution",
+        warningVisible: true,
+        newerDraftRetained: true,
+        manualAttempts: attempts,
+        notes: acceptedNative.notes,
+        totalCreates: acceptedNative.creates + 1,
+      }),
+    );
     await dialog.getByRole("button", { name: "閉じる", exact: true }).click();
     const discard = page.getByRole("alertdialog", {
       name: "下書きを破棄しますか？",
@@ -215,7 +395,7 @@ export async function qualifyBrowserPostReload({
       (await dialog.getByText(WARNING, { exact: true }).count()) === 0,
       "explicit-discard-clears-caution",
     );
-    need(attempts === 2, "discard-does-not-resend");
+    need(attempts === 3, "discard-does-not-resend");
     const native = await counts(id);
     await dialog.getByRole("button", { name: "閉じる", exact: true }).click();
     checks.push(
@@ -223,15 +403,23 @@ export async function qualifyBrowserPostReload({
     );
     checks.push("post-prior-uncertainty-survives-a-real-rejected-manual-retry");
     checks.push(
-      "post-explicit-discard-clears-reload-caution-and-keeps-one-native-note",
+      "post-prior-uncertainty-remains-alongside-successful-retry-retained-draft-notice",
+    );
+    checks.push(
+      "post-explicit-discard-clears-reload-caution-without-deleting-accepted-notes",
     );
     return {
       status: "PASSED",
       matchingPostAttempts: attempts,
       definiteRejectedRetries: 1,
+      acceptedAttempts: 2,
+      totalCreates: native.creates + acceptedNative.creates,
+      authBudget,
       ...native,
     };
   } finally {
+    releaseAccepted();
+    await otherPage?.close();
     await page.unroute(postUrl, routePost);
   }
 }

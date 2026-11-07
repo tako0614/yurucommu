@@ -15,7 +15,10 @@ import { qualifySearchFollowing } from "./release-browser-follow.mjs";
 import { qualifyBrowserDM } from "./release-browser-dm.mjs";
 import { qualifyBrowserNotifications } from "./release-browser-notifications.mjs";
 import { qualifyBrowserPostOutcome } from "./release-browser-post-outcome.mjs";
-import { qualifyBrowserPostReload } from "./release-browser-post-reload.mjs";
+import {
+  prepareBrowserAuthCapacity,
+  qualifyBrowserPostReload,
+} from "./release-browser-post-reload.mjs";
 import { qualifyBrowserDraftStorage } from "./release-browser-draft-storage.mjs";
 import { qualifyBrowserPostSnapshot } from "./release-browser-post-snapshot.mjs";
 import { qualifyBrowserStorySubmit } from "./release-browser-story-submit.mjs";
@@ -775,13 +778,9 @@ async function runBrowserSmoke(artifactPath, artifactDigest, browser) {
       actorApId,
       checks,
     });
-    const postReloadMetadata = await qualifyBrowserPostReload({
-      page,
-      db,
-      origin,
-      actorApId,
-      checks,
-    });
+    // This cohort creates/switches real personas and navigates repeatedly.
+    // Respect the shared public auth window instead of entering it depleted.
+    await prepareBrowserAuthCapacity(page, origin, 18);
     const followMetadata = await qualifySearchFollowing({
       page,
       db,
@@ -1020,6 +1019,23 @@ async function runBrowserSmoke(artifactPath, artifactDigest, browser) {
     requireEffect(
       serverErrors.length === 0,
       "Feed ACK race returned an unexpected HTTP 5xx",
+    );
+
+    // Append new cohorts after the existing ordered checks.
+    const postReloadMetadata = await qualifyBrowserPostReload({
+      page,
+      db,
+      origin,
+      actorApId,
+      checks,
+    });
+    requireEffect(
+      pageErrors.length === 0,
+      "Post reload raised a page runtime error",
+    );
+    requireEffect(
+      serverErrors.length === 0,
+      "Post reload returned an unexpected HTTP 5xx",
     );
 
     result = {

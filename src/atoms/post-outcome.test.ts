@@ -197,3 +197,22 @@ test("repeated retries keep bounded caution and uncertainty takes precedence ove
   });
   expect(bytes.get("owner-A.outcome")!.length).toBeLessThan(200);
 });
+
+test("remount refreshes a cached outcome after another store wrote while unmounted", () => {
+  const { store, atoms, storage } = harness();
+  const stop = store.sub(atoms.valueAtom, () => {});
+  expect(store.get(atoms.valueAtom)).toEqual({ kind: "missing" });
+  stop();
+  const other = createPostOutcomeAtoms("owner-A", () => storage);
+  const id = createStore().set(other.beginAtom)!;
+  const remount = store.sub(atoms.valueAtom, () => {});
+  try {
+    expect(store.get(atoms.valueAtom)).toMatchObject({
+      kind: "record",
+      caution: "pending",
+      attempt: { id },
+    });
+  } finally {
+    remount();
+  }
+});

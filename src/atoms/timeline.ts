@@ -305,16 +305,23 @@ const postDraftMemoryNoticeAtom = compositionField("notice");
 export const postSubmitErrorAtom = atom(
   (get) => {
     const error = get(postSubmitMemoryErrorAtom);
-    if (error || get(pendingPostAtom) || get(postDraftMemoryNoticeAtom))
-      return error;
+    if (error || get(pendingPostAtom)) return error;
     const journal = currentCompositionConfiguration(get)?.outcome;
     if (!journal) return null;
     const outcome = get(journal.valueAtom);
+    const unconfirmed = get(tAtom)("feedback.postUnconfirmed");
     if (outcome.kind === "unreadable")
       return get(tAtom)("compose.draftSaveFailed");
-    return outcome.kind === "invalid" ||
-      (outcome.kind === "record" && outcome.caution === "pending")
-      ? get(tAtom)("feedback.postUnconfirmed")
+    if (outcome.kind === "invalid") return unconfirmed;
+    const notice = get(postDraftMemoryNoticeAtom);
+    if (notice)
+      return outcome.kind === "record" &&
+        outcome.caution === "pending" &&
+        notice !== unconfirmed
+        ? unconfirmed
+        : null;
+    return outcome.kind === "record" && outcome.caution === "pending"
+      ? unconfirmed
       : null;
   },
   (_get, set, value: string | null) => set(postSubmitMemoryErrorAtom, value),
@@ -322,13 +329,25 @@ export const postSubmitErrorAtom = atom(
 export const postDraftNoticeAtom = atom(
   (get) => {
     const notice = get(postDraftMemoryNoticeAtom);
-    if (notice || get(pendingPostAtom)) return notice;
+    if (get(pendingPostAtom)) return notice;
     const journal = currentCompositionConfiguration(get)?.outcome;
     const outcome = journal ? get(journal.valueAtom) : null;
+    const error = get(postSubmitMemoryErrorAtom);
+    const fault =
+      outcome?.kind === "unreadable"
+        ? get(tAtom)("compose.draftSaveFailed")
+        : outcome?.kind === "invalid"
+          ? get(tAtom)("feedback.postUnconfirmed")
+          : null;
+    if (fault) {
+      if (error && error !== fault)
+        return notice && notice !== fault ? `${notice}\n${fault}` : fault;
+      return notice === fault ? null : notice;
+    }
+    if (notice) return notice;
     if (outcome?.kind !== "record") return null;
     if (outcome.caution === "confirmed")
       return get(tAtom)("feedback.postDraftKept");
-    const error = get(postSubmitMemoryErrorAtom);
     const unconfirmed = get(tAtom)("feedback.postUnconfirmed");
     // A newer request's definite rejection does not settle the earlier post.
     return error && error !== unconfirmed ? unconfirmed : null;
