@@ -863,6 +863,8 @@ async function runBrowserSmoke(artifactPath, artifactDigest, browser) {
     );
     checks.push("browser-no-page-errors-or-http-5xx");
 
+    // The preceding navigation cohorts share this same public auth window.
+    await prepareBrowserAuthCapacity(page, origin);
     // Keep all prior checks in their existing order; append Story assertions
     // after the independent OIDC result is joined in main().
     const storySubmitChecks = [];
