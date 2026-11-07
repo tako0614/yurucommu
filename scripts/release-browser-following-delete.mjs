@@ -171,7 +171,8 @@ async function failedDeleteBeforeWorker(page, db, post) {
     await confirmDetailDeleteFailed(page);
     await page
       .getByRole("alert")
-      .filter({ hasText: "削除に失敗しました" })
+      .filter({ hasText: "結果を確認できません" })
+      .filter({ hasText: post.apId })
       .waitFor({ state: "visible", timeout: 5_000 });
     const native = await readObject(db, post.apId);
     const visible = await visiblePost(page, post.content);
