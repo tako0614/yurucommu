@@ -19,12 +19,12 @@ output "cloudflare_worker_route_id" {
 }
 
 output "launch_url" {
-  description = "Public URL for the published Yurucommu instance, when the Capsule has enough hostname input to derive it."
+  description = "Configured URL of the managed Worker, or an explicit app_url reference to an existing instance; null without either. This is not a runtime health check."
   value       = local.launch_url
 }
 
 output "api_url" {
-  description = "Primary Yurucommu social API endpoint."
+  description = "Social API URL of the managed or explicitly referenced instance, or null when launch_url is null."
   value       = local.launch_url != null ? "${trimsuffix(local.launch_url, "/")}/api" : null
 }
 

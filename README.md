@@ -136,7 +136,17 @@ Push gateway token は受け付けません。認証不要の Push gateway は U
 ### Cloudflare でセルフホスト
 
 ルートの [`main.tf`](main.tf) は、Worker と必要な Cloudflare リソースをまとめて
-作る OpenTofu モジュールです。主な入力は次のとおりです。
+作る OpenTofu モジュールです。
+
+この互換ルートの `enable_cloudflare_resources` と
+`enable_cloudflare_worker_script` は既定で `false` です。ルートを選ぶだけでは
+Worker は作られません。Worker を管理しない場合、明示した `app_url` は既存
+instance への参照として保持しますが、subdomain だけから `launch_url` や
+`api_url` を推測しません。明示 URL もなければ両 Output は `null` です。
+Worker を管理する既存構成の変更なし Plan では URL を引き続き返します。
+これらの Output は設定上の URL であり、稼働や到達性の確認ではありません。
+
+主な入力は次のとおりです。
 
 - Cloudflare の account ID
 - 公開する Worker 名と URL
