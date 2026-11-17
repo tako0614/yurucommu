@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 2.5.0 - 2026-11-17
+
+- The root module no longer advertises an inferred launch URL when it does
+  not create a Worker. An explicitly supplied URL for an existing deployment
+  is still accepted. For a fresh Takosumi installation on Cloudflare, select
+  `deploy/cloudflare`.
+
 - Add `deploy/cloudflare`, a module Takosumi installs straight onto a
   Cloudflare account through a Cloudflare connection, with the official
   `cloudflare/cloudflare` provider and no Takoform Host. Its Worker applies the

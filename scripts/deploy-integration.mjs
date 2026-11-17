@@ -186,8 +186,6 @@ export function loadIntegrationTarget(
       /^[a-f0-9]{64}$/u.test(t.artifactSha256),
     "target artifact differs from the published release lock",
   );
-  const source = readFileSync(join(REPO, "main.tf"), "utf8");
-  assertPinnedRootDefaults(source, TAG, expectedUrl, t.artifactSha256);
   const dir = privatePath(t.stateDir, "directory");
   insist(
     dirname(dir) === dirname(file) || within(dirname(file), dir),
@@ -1218,11 +1216,13 @@ async function attachDomain(t) {
 export async function deployIntegration(args) {
   const phase = parseIntegrationArgs(args);
   const t = loadIntegrationTarget();
+  sourceIsExact(t);
+  const source = readFileSync(join(REPO, "main.tf"), "utf8");
+  assertPinnedRootDefaults(source, TAG, t.expectedUrl, t.artifactSha256);
   process.umask(0o077);
   diagnosticsDir = join(t.stateDir, "diagnostics");
   if (!existsSync(diagnosticsDir)) mkdirSync(diagnosticsDir, { mode: 0o700 });
   privatePath(diagnosticsDir, "directory");
-  sourceIsExact(t);
   if (phase === "preflight") {
     await noTakeover(t);
     return { phase, status: "READY", target: ORIGIN, releaseTag: TAG };

@@ -277,22 +277,38 @@ test("target binds exact origin, resource prefix, source and published artifact"
   ).releases["v2.4.1"].artifact.sha256.slice(7);
   const url =
     "https://github.com/tako0614/yurucommu/releases/download/v2.4.1/yurucommu-worker.js";
+  expect(() => assertPinnedRootDefaults(root, "v2.4.1", url, pin)).toThrow(
+    "root module default release identity differs from target",
+  );
+  // Use the frozen helper's inputs to test the historical target independently
+  // of the current release's root defaults.
+  const historicalRoot = Object.entries({
+    worker_release_tag: "v2.4.1",
+    worker_bundle_url: url,
+    worker_bundle_sha256: `sha256:${pin}`,
+  })
+    .map(
+      ([name, value]) => `variable "${name}" {
+  default = "${value}"
+}`,
+    )
+    .join("\n");
   expect(() =>
-    assertPinnedRootDefaults(root, "v2.4.1", url, pin),
+    assertPinnedRootDefaults(historicalRoot, "v2.4.1", url, pin),
   ).not.toThrow();
   for (const [name, bad] of [
     ["worker_release_tag", "v2.4.0"],
     ["worker_bundle_url", "https://example.invalid/worker.js"],
     ["worker_bundle_sha256", `sha256:${"0".repeat(64)}`],
   ] as const) {
-    const changed = root.replace(
+    const changed = historicalRoot.replace(
       new RegExp(
         `(variable "${name}" \\{[\\s\\S]*?default\\s*=\\s*")[^"]+(")`,
         "u",
       ),
       (_, before: string, after: string) => `${before}${bad}${after}`,
     );
-    expect(changed).not.toBe(root);
+    expect(changed).not.toBe(historicalRoot);
     // An unrelated correct-looking default cannot repair this variable block.
     const decoy = `${changed}\nvariable "decoy" {\n  default = "v2.4.1"\n}\n`;
     expect(() => assertPinnedRootDefaults(decoy, "v2.4.1", url, pin)).toThrow();
