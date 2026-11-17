@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 2.5.1 - 2026-11-17
+
+- Let compatible Takosumi installers suggest the standard Cloudflare public
+  address from the selected connection and app name. A custom domain remains
+  editable, and older installers continue to accept an explicit URL.
+- Keep the root module's launch URL empty when workers.dev is disabled and no
+  custom domain is configured. Explicit URLs for existing deployments remain
+  accepted. Worker runtime and database migrations are unchanged.
+
 ## 2.5.0 - 2026-11-17
 
 - The root module no longer advertises an inferred launch URL when it does
