@@ -106,6 +106,35 @@ run "workers_dev_install_with_password" {
   }
 }
 
+run "chosen_workers_dev_address_sets_worker_name_without_renaming_storage" {
+  command = plan
+  variables {
+    project_name = "app-00000000-0000-4000-8000-000000000001"
+    app_url      = "https://community4.example-sub.workers.dev"
+  }
+
+  assert {
+    condition     = cloudflare_workers_script.worker.script_name == "community4"
+    error_message = "The chosen workers.dev address must name the Worker that serves it."
+  }
+
+  assert {
+    condition = (
+      cloudflare_d1_database.database.name == "${var.project_name}-db" &&
+      cloudflare_workers_kv_namespace.kv.title == "${var.project_name}-kv" &&
+      cloudflare_r2_bucket.media.name == "${var.project_name}-media" &&
+      cloudflare_queue.delivery.queue_name == "${var.project_name}-delivery" &&
+      cloudflare_queue.delivery_dlq.queue_name == "${var.project_name}-delivery-dlq"
+    )
+    error_message = "Public Worker naming must not rename the instance's storage or queues."
+  }
+
+  assert {
+    condition     = output.launch_url == var.app_url && output.api_url == "${var.app_url}/api"
+    error_message = "The Worker, launch URL and API must use the same public address."
+  }
+}
+
 run "no_sign_in_method_is_refused" {
   command = plan
   variables {
@@ -196,10 +225,19 @@ run "redirect_uri_must_match_the_worker_callback" {
   expect_failures = [cloudflare_workers_script.worker]
 }
 
-run "workers_dev_app_url_must_reach_this_worker" {
+run "explicit_worker_name_must_match_the_workers_dev_address" {
   command = plan
   variables {
-    app_url = "https://other-name.example-sub.workers.dev"
+    worker_name = "yc-test"
+    app_url     = "https://other-name.example-sub.workers.dev"
+  }
+  expect_failures = [cloudflare_workers_script.worker]
+}
+
+run "workers_dev_address_must_belong_to_the_selected_account" {
+  command = plan
+  variables {
+    app_url = "https://community4.other-account.workers.dev"
   }
   expect_failures = [cloudflare_workers_script.worker]
 }
