@@ -268,7 +268,8 @@ push gateway は、ネイティブアプリの端末へ送る場合と、以前�
 所有入口 `bun run deploy -- yurucommu-worker-release --execute` は、タグ、3 asset の
 読戻しと native smoke が成功した後も、既存の `takos.deploy-result@v1` / `PUBLISHED`
 を stdout に返します。その後、stderr の `yurucommu.release-source-followup@v1` が
-ledger の新行と公式 install link の ref だけをレビュー用に提示します。公開の証明や
+ledger の新行と、正本 `site-src/index.html`・生成物 `site/index.html` の公式 install link の
+ref をレビュー用に提示します。両 HTML の追随が必要で、生成物だけでは追随済みとしません。公開の証明や
 適用権限ではなく、source や consumer pin を自動で書き換えるものではありません。
 
 `sourceCommit` は追随案の local committed preimage、`published.commit` は公開済みの

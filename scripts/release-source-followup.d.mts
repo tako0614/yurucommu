@@ -7,6 +7,7 @@ export interface ReleaseFollowupSource {
   readonly modulePath: string;
   readonly ledger: string;
   readonly site: string;
+  readonly siteSource: string;
 }
 
 export function decodeReleaseSourceBytes(bytes: Uint8Array): string;

@@ -817,6 +817,7 @@ function publishWorkerRelease() {
         modulePath: JSON.parse(at(".well-known/tcs.json")).modulePath,
         ledger: at("release.lock.json"),
         site: at("site/index.html"),
+        siteSource: at("site-src/index.html"),
       };
     },
     (followup) => {

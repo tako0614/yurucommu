@@ -293,7 +293,9 @@ The owning `bun run deploy -- yurucommu-worker-release --execute` entrypoint kee
 its existing stdout `takos.deploy-result@v1` / `PUBLISHED` receipt after exact tag,
 three-asset readback and native smoke. It then emits a separate stderr
 `yurucommu.release-source-followup@v1` review proposal for a ledger row and official
-install-link refs. This is neither publication evidence nor permission to apply;
+install-link refs in authoritative `site-src/index.html` and generated
+`site/index.html`. Both must follow the release; generated HTML alone is
+insufficient. This is neither publication evidence nor permission to apply;
 it never writes source files or consumer pins.
 
 `sourceCommit` identifies the local committed preimage; `published.commit` is the

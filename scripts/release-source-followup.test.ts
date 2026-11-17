@@ -45,6 +45,7 @@ const source = (): ReleaseFollowupSource => ({
   modulePath: "deploy/takoform",
   ledger,
   site: `<a href="${href(oldRef)}">one</a><a href="${href(oldRef)}">two</a>\n`,
+  siteSource: `<a href="${href(oldRef)}">one</a><a href="${href(oldRef)}">two</a>\n`,
 });
 function report(
   input: unknown = published,
@@ -64,6 +65,100 @@ function report(
 }
 
 describe("publisher source follow-up", () => {
+  test("authoritative site source remains proposed when generated HTML already followed", () => {
+    const original = source();
+    const row = report(published, original).result!.changes!.find(
+      (change) => change.path === "release.lock.json",
+    )!.value;
+    const current = {
+      ...original,
+      ledger: JSON.stringify({
+        ...JSON.parse(original.ledger),
+        releases: {
+          ...JSON.parse(original.ledger).releases,
+          [tag]: { ...(row as object), seededFrom: "preserved provenance" },
+        },
+      }),
+      site: original.site.replaceAll(oldRef, commit),
+    };
+    const before = JSON.stringify({ published, current });
+    const { result } = report(published, current);
+    expect(result?.status).toBe("SOURCE_CHANGES_PROPOSED");
+    expect(result?.changes).toEqual([
+      {
+        path: "site-src/index.html",
+        preimageSha256: hash(current.siteSource),
+        operation: "replace-install-link-refs",
+        replacements: [
+          { before: href(oldRef), after: href(commit), occurrences: 2 },
+        ],
+      },
+    ]);
+    expect(JSON.stringify({ published, current })).toBe(before);
+    const followed = report(published, {
+      ...current,
+      siteSource: current.siteSource.replaceAll(oldRef, commit),
+    }).result;
+    expect(followed?.status).toBe("ALREADY_FOLLOWED");
+    expect(followed?.changes).toEqual([]);
+  });
+
+  test("authoritative HTML retains exact bytes and the same identity and cap refusals", () => {
+    const original = JSON.stringify(published);
+    const bytes = Buffer.from(
+      `\uFEFF<!-- 日本語 🐙 \uFFFD -->\n${source().siteSource} \t\n`,
+    );
+    const input = { ...source(), siteSource: decodeReleaseSourceBytes(bytes) };
+    expect(
+      report(published, input).result?.changes?.find(
+        (change) => change.path === "site-src/index.html",
+      )?.preimageSha256,
+    ).toBe(createHash("sha256").update(bytes).digest("hex"));
+    const reverse = report(published, {
+      ...source(),
+      siteSource: source().siteSource.replaceAll(oldRef, commit),
+    }).result!;
+    expect(reverse.changes?.map((change) => change.path)).toEqual([
+      "release.lock.json",
+      "site/index.html",
+    ]);
+    const missing: Omit<ReleaseFollowupSource, "siteSource"> & {
+      siteSource?: string;
+    } = { ...source() };
+    delete missing.siteSource;
+    for (const current of [
+      missing as ReleaseFollowupSource,
+      { ...source(), siteSource: "no install link" },
+      {
+        ...source(),
+        siteSource: source().siteSource.replace("deploy%2Ftakoform", "."),
+      },
+      { ...source(), siteSource: "x".repeat(1024 * 1024 + 1) },
+      // Both HTML files share the existing total 64-link ceiling.
+      { ...source(), siteSource: source().siteSource.repeat(32) },
+    ]) {
+      const { result } = report(published, current);
+      expect(result?.status).toBe("SOURCE_FOLLOWUP_UNAVAILABLE");
+      expect(result?.changes).toBeUndefined();
+    }
+    const invalid = Buffer.concat([
+      Buffer.from("<!--"),
+      Buffer.from([0xff]),
+      Buffer.from(`-->${source().siteSource}`),
+    ]);
+    const emitted: ReleaseSourceFollowup[] = [];
+    const failed = reportPublishedReleaseSourceFollowup(
+      published,
+      () => ({ ...source(), siteSource: decodeReleaseSourceBytes(invalid) }),
+      (value) => emitted.push(value),
+    );
+    expect(failed?.status).toBe("SOURCE_FOLLOWUP_UNAVAILABLE");
+    expect(failed?.reason).toBe("SOURCE_READ_OR_PARSE_FAILED");
+    expect(failed?.changes).toBeUndefined();
+    expect(emitted).toEqual([failed!]);
+    expect(JSON.stringify(published)).toBe(original);
+  });
+
   test("source decoder retains valid UTF-8 BOM and whitespace bytes in the proposal preimage", () => {
     for (const site of [
       source().site,
@@ -176,6 +271,14 @@ describe("publisher source follow-up", () => {
         },
       },
       {
+        path: "site-src/index.html",
+        preimageSha256: hash(input.siteSource),
+        operation: "replace-install-link-refs",
+        replacements: [
+          { before: href(oldRef), after: href(commit), occurrences: 2 },
+        ],
+      },
+      {
         path: "site/index.html",
         preimageSha256: hash(input.site),
         operation: "replace-install-link-refs",
@@ -201,6 +304,7 @@ describe("publisher source follow-up", () => {
         },
       }),
       site: original.site.replaceAll(oldRef, commit),
+      siteSource: original.siteSource.replaceAll(oldRef, commit),
     };
     const before = JSON.stringify(current);
     const { result } = report(published, current);
@@ -286,6 +390,10 @@ describe("publisher source follow-up", () => {
       ...source(),
       modulePath: longModule,
       site: source().site.replaceAll("deploy%2Ftakoform", longModule),
+      siteSource: source().siteSource.replaceAll(
+        "deploy%2Ftakoform",
+        longModule,
+      ),
     });
     expect(result?.status).toBe("SOURCE_FOLLOWUP_UNAVAILABLE");
     expect(result?.reason).toBe("OUTPUT_LIMIT");

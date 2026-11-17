@@ -89,7 +89,8 @@ function proposal(published, source) {
     return unavailable("SOURCE_IDENTITY_MISMATCH");
   }
   const ledgerText = sourceText(source.ledger);
-  const siteText = sourceText(source.site);
+  const generatedSiteText = sourceText(source.site);
+  const siteSourceText = sourceText(source.siteSource);
   const ledger = JSON.parse(ledgerText);
   if (!record(ledger) || !record(ledger.releases)) {
     return unavailable("INVALID_SOURCE_METADATA");
@@ -135,60 +136,67 @@ function proposal(published, source) {
     });
   }
 
-  const replacements = new Map();
-  let links = 0;
-  for (const match of siteText.matchAll(
-    /href="([^"]*app\.takosumi\.com\/install[^"]*)"/gu,
-  )) {
-    links += 1;
-    const before = match[1];
-    const url = new URL(before.replaceAll("&amp;", "&"));
-    const keys = [...url.searchParams.keys()];
-    const ref = url.searchParams.get("ref");
-    if (
-      links > 64 ||
-      url.origin !== "https://app.takosumi.com" ||
-      url.pathname !== "/install" ||
-      url.username !== "" ||
-      url.password !== "" ||
-      url.hash !== "" ||
-      keys.length !== 3 ||
-      new Set(keys).size !== 3 ||
-      keys.some((key) => !["git", "ref", "path"].includes(key)) ||
-      ![
-        `https://github.com/${REPOSITORY}`,
-        `https://github.com/${REPOSITORY}.git`,
-      ].includes(url.searchParams.get("git")) ||
-      url.searchParams.get("path") !== source.modulePath ||
-      ref === null ||
-      !COMMIT.test(ref)
-    ) {
-      return unavailable("INSTALL_LINK_IDENTITY_MISMATCH");
+  let totalLinks = 0;
+  for (const [path, siteText] of [
+    ["site-src/index.html", siteSourceText],
+    ["site/index.html", generatedSiteText],
+  ]) {
+    const replacements = new Map();
+    let links = 0;
+    for (const match of siteText.matchAll(
+      /href="([^"]*app\.takosumi\.com\/install[^"]*)"/gu,
+    )) {
+      links += 1;
+      totalLinks += 1;
+      const before = match[1];
+      const url = new URL(before.replaceAll("&amp;", "&"));
+      const keys = [...url.searchParams.keys()];
+      const ref = url.searchParams.get("ref");
+      if (
+        totalLinks > 64 ||
+        url.origin !== "https://app.takosumi.com" ||
+        url.pathname !== "/install" ||
+        url.username !== "" ||
+        url.password !== "" ||
+        url.hash !== "" ||
+        keys.length !== 3 ||
+        new Set(keys).size !== 3 ||
+        keys.some((key) => !["git", "ref", "path"].includes(key)) ||
+        ![
+          `https://github.com/${REPOSITORY}`,
+          `https://github.com/${REPOSITORY}.git`,
+        ].includes(url.searchParams.get("git")) ||
+        url.searchParams.get("path") !== source.modulePath ||
+        ref === null ||
+        !COMMIT.test(ref)
+      ) {
+        return unavailable("INSTALL_LINK_IDENTITY_MISMATCH");
+      }
+      if (ref === published.commit) continue;
+      const field = /([?&](?:amp;)?ref=)[0-9a-f]{40}(?=&|$)/gu;
+      if ([...before.matchAll(field)].length !== 1) {
+        return unavailable("INSTALL_LINK_IDENTITY_MISMATCH");
+      }
+      const after = before.replace(
+        field,
+        (_match, prefix) => prefix + published.commit,
+      );
+      const previous = replacements.get(before);
+      replacements.set(before, {
+        before,
+        after,
+        occurrences: (previous?.occurrences ?? 0) + 1,
+      });
     }
-    if (ref === published.commit) continue;
-    const field = /([?&](?:amp;)?ref=)[0-9a-f]{40}(?=&|$)/gu;
-    if ([...before.matchAll(field)].length !== 1) {
-      return unavailable("INSTALL_LINK_IDENTITY_MISMATCH");
+    if (links === 0) return unavailable("INSTALL_LINK_IDENTITY_MISMATCH");
+    if (replacements.size > 0) {
+      changes.push({
+        path,
+        preimageSha256: hash(siteText),
+        operation: "replace-install-link-refs",
+        replacements: [...replacements.values()],
+      });
     }
-    const after = before.replace(
-      field,
-      (_match, prefix) => prefix + published.commit,
-    );
-    const previous = replacements.get(before);
-    replacements.set(before, {
-      before,
-      after,
-      occurrences: (previous?.occurrences ?? 0) + 1,
-    });
-  }
-  if (links === 0) return unavailable("INSTALL_LINK_IDENTITY_MISMATCH");
-  if (replacements.size > 0) {
-    changes.push({
-      path: "site/index.html",
-      preimageSha256: hash(siteText),
-      operation: "replace-install-link-refs",
-      replacements: [...replacements.values()],
-    });
   }
   return {
     kind: KIND,
