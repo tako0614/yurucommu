@@ -74,7 +74,9 @@ Takosumi の Cloudflare 接続は、確認済みの `cloudflare_account_id` と
 尋ねるのは次だけです。
 
 - `app_url`（必須、module に既定値はありません）:
-  `https://<サービス名>.<workers.dev サブドメイン>.workers.dev`。Takosumi はこの
+  対応するTakosumiは、接続先とアプリ名から標準の
+  `https://<サービス名>.<workers.dev サブドメイン>.workers.dev` を提示します。
+  名前を変えると標準URLも変わり、独自ドメインは手入力できます。Takosumi はこの
   origin に `/api/auth/callback/takos` を足した URL で Takosumi Accounts の OIDC
   client を登録し、発行者・client ID・redirect URI を変数で渡します。workers.dev の
   URL は Worker 名と接続のサブドメインに一致する必要があります。
@@ -85,6 +87,11 @@ Takosumi の Cloudflare 接続は、確認済みの `cloudflare_account_id` と
   DNS レコードと証明書を作るので、トークンはそのゾーンにもアクセスできる必要が
   あります（少なくとも Zone Read。実際の独自ドメイン割り当ては未検証です）。
 - `notification_push_gateway_url`（任意）: ネイティブアプリ用の Push gateway。
+
+manifestの `cloudflare-workers-url` は入力補助の指定です。このmoduleでは、
+`service_name` の値を実Worker名に使う契約を宣言します。手動OpenTofuで `worker_name` を
+上書きする場合は、自分でその名前と一致する `app_url` を渡します。未対応のクライアントは
+通常のURL入力として扱い、入力補助から実行権限や公開済みであることを推測しません。
 
 ### 所有者
 

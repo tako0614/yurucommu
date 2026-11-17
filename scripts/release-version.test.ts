@@ -326,7 +326,8 @@ exit 1
 
 describe("release version", () => {
   test("records the stable fresh-install release while retaining authoritative rollback pins", () => {
-    expect(packageVersion).toBe("2.5.0");
+    expect(packageVersion).toBe("2.5.1");
+    expect(changelogSource).toContain("## 2.5.1 - 2026-11-17");
     expect(changelogSource).toContain("## 2.5.0 - 2026-11-17");
     expect(changelogSource).toContain("## 2.4.1 - 2026-10-11");
     expect(changelogSource).toContain("## 2.3.0 - 2026-10-03");

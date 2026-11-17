@@ -662,7 +662,7 @@ describe("repository-owned Takosumi install UX", () => {
     ).toMatchObject({
       source: { kind: "user" },
       required: true,
-      format: "url",
+      format: "cloudflare-workers-url",
     });
     for (const name of [
       "takosumi_accounts_url",
