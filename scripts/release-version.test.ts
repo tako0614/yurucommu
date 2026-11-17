@@ -144,12 +144,14 @@ async function createReleaseHarness(scenario: ReleaseScenario) {
 
   const [
     deploySource,
+    releaseSourceFollowup,
     packageText,
     repositoryText,
     rootModule,
     takoformModule,
   ] = await Promise.all([
     readFile(new URL("./deploy.mjs", import.meta.url), "utf8"),
+    readFile(new URL("./release-source-followup.mjs", import.meta.url)),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
     readFile(new URL("../.well-known/takosumi.json", import.meta.url), "utf8"),
     readFile(new URL("../main.tf", import.meta.url), "utf8"),
@@ -172,6 +174,10 @@ async function createReleaseHarness(scenario: ReleaseScenario) {
     );
   await Promise.all([
     writeFile(join(scripts, "deploy.mjs"), deploySource),
+    writeFile(
+      join(scripts, "release-source-followup.mjs"),
+      releaseSourceFollowup,
+    ),
     writeFile(
       join(root, "package.json"),
       JSON.stringify({ ...JSON.parse(packageText), version }),

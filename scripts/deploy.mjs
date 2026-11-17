@@ -25,11 +25,17 @@ import {
   readFileSync,
   rmSync,
   writeFileSync,
+  writeSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import process from "node:process";
+
+import {
+  decodeReleaseSourceBytes,
+  reportPublishedReleaseSourceFollowup,
+} from "./release-source-followup.mjs";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const OWNER_GATE = "bun run check";
@@ -208,6 +214,7 @@ const CONTRACT = {
         "scripts/build-yurucommu-worker.ts",
         "scripts/smoke-release-worker.mjs",
         "scripts/yurucommu-worker-bindings.ts",
+        "scripts/release-source-followup.mjs",
       ],
       requiresScripts: ["check", "build:worker", R.smokeScript],
       requiresTools: ["git", "bun", "node", "gh"],
@@ -219,11 +226,11 @@ const CONTRACT = {
         provenance:
           "refuses a dirty, detached, or unpushed worktree; requires main for publication and rechecks fresh origin/main parity after the owner gate and candidate smoke; runs `bun run check`; builds and boots the embedded Worker from that exact commit; requires the repository manifest's default deploy/takoform module and sourceBuild-generated Worker/migration assets, plus direct-Cloudflare module release pins, to align with the same tag and artifact digest; records the source commit plus SHA-256 in the release manifest; and projects the exact version's checked-in CHANGELOG.md section into Release notes",
         "post-conditions":
-          "derives the prerelease lane from the SemVer suffix and creates prereleases with --prerelease --latest=false; reads the create-only tag and GitHub Release back, requires the tag to resolve to the source commit, isImmutable:true, the exact expected isPrerelease boolean, and exactly three unique expected assets; downloads all three assets, requires their exact SHA-256 digests, and boots the downloaded Worker in workerd with runtime-native DB/KV/MEDIA/queue bindings",
+          "derives the prerelease lane from the SemVer suffix and creates prereleases with --prerelease --latest=false; reads the create-only tag and GitHub Release back, requires the tag to resolve to the source commit, isImmutable:true, the exact expected isPrerelease boolean, and exactly three unique expected assets; downloads all three assets, requires their exact SHA-256 digests, and boots the downloaded Worker in workerd with runtime-native DB/KV/MEDIA/queue bindings; after the unchanged PUBLISHED stdout receipt emits a bounded review-only source-follow-up record on stderr from that same call, binding ledger/site suggestions to exact local committed preimages without writing source or consumer pins",
         reversal:
           "the release identity is never replaced or deleted by this entrypoint; consumers remain able to pin the preceding release, and a defect is repaired by publishing a higher version",
         "failure-handling":
-          "fails before mutation when the tag or release already exists; after release creation starts it reports an indeterminate publication and requires authoritative tag/release readback before any retry",
+          "fails before mutation when the tag or release already exists; after release creation starts it reports an indeterminate publication and requires authoritative tag/release readback before any retry; local source-follow-up read/identity/output failures after PUBLISHED are separate non-secret diagnostics and do not change the completed publication result or authorize a publication retry",
         "no-overwrite":
           "derives one SemVer tag from package.json, refuses any existing local/remote tag or GitHub Release and rechecks their absence after the owner gate and candidate smoke, reads repos/tako0614/yurucommu/immutable-releases immediately before create and requires enabled:true, requires post-readback isImmutable:true, and uses GitHub create-only release publication without update or delete paths",
       },
@@ -767,23 +774,58 @@ function publishWorkerRelease() {
     tag,
   );
 
-  process.stdout.write(
-    `\n${JSON.stringify(
-      {
-        kind: "takos.deploy-result@v1",
-        surface: R.surface,
-        target: `github-release:${R.repository}/${tag}`,
-        commit,
-        tag,
-        sourceIdentity: "PACKAGE_REPOSITORY_MODULE_ARTIFACT_ALIGNED",
-        releaseUrl: release.url,
-        assetDigests: expectedDigests,
-        postConditions: "EXACT_RELEASE_READBACK_AND_RUNTIME_NATIVE_SMOKE",
-        status: "PUBLISHED",
-      },
-      null,
-      2,
-    )}\n`,
+  const published = {
+    kind: "takos.deploy-result@v1",
+    surface: R.surface,
+    target: `github-release:${R.repository}/${tag}`,
+    commit,
+    tag,
+    sourceIdentity: "PACKAGE_REPOSITORY_MODULE_ARTIFACT_ALIGNED",
+    releaseUrl: release.url,
+    assetDigests: expectedDigests,
+    postConditions: "EXACT_RELEASE_READBACK_AND_RUNTIME_NATIVE_SMOKE",
+    status: "PUBLISHED",
+  };
+  process.stdout.write(`\n${JSON.stringify(published, null, 2)}\n`);
+  // Only this completed call supplies the result: no receipt-file/CLI ingress.
+  // Local follow-up failure must not change PUBLISHED or invite a new publish.
+  reportPublishedReleaseSourceFollowup(
+    published,
+    () => {
+      const localGit = (args) =>
+        execFileSync("git", args, {
+          cwd: repo,
+          env: gitSubprocessEnvironment(),
+          stdio: ["ignore", "pipe", "pipe"],
+          maxBuffer: 1024 * 1024,
+        });
+      const sourceCommit = decodeReleaseSourceBytes(
+        localGit(["rev-parse", "HEAD"]),
+      ).trim();
+      const at = (path) =>
+        decodeReleaseSourceBytes(localGit(["show", `${sourceCommit}:${path}`]));
+      const main = at("main.tf");
+      return {
+        commit: sourceCommit,
+        version: JSON.parse(at("package.json")).version,
+        workerReleaseTag: terraformStringDefault(main, "worker_release_tag"),
+        workerBundleUrl: terraformStringDefault(main, "worker_bundle_url"),
+        workerBundleSha256: terraformStringDefault(
+          main,
+          "worker_bundle_sha256",
+        ),
+        modulePath: JSON.parse(at(".well-known/tcs.json")).modulePath,
+        ledger: at("release.lock.json"),
+        site: at("site/index.html"),
+        siteSource: at("site-src/index.html"),
+      };
+    },
+    (followup) => {
+      const bytes = Buffer.from(`\n${JSON.stringify(followup)}\n`);
+      if (writeSync(2, bytes) !== bytes.length) {
+        throw new Error("source follow-up diagnostic was incomplete");
+      }
+    },
   );
   rmSync(releaseDir, { recursive: true, force: true });
 }

@@ -287,6 +287,30 @@ and later ignore a hand-entered key).
 offers a push gateway must inject its URL at runtime, together with a token
 only when the gateway requires one.
 
+## Source follow-up after a distribution release
+
+The owning `bun run deploy -- yurucommu-worker-release --execute` entrypoint keeps
+its existing stdout `takos.deploy-result@v1` / `PUBLISHED` receipt after exact tag,
+three-asset readback and native smoke. It then emits a separate stderr
+`yurucommu.release-source-followup@v1` review proposal for a ledger row and official
+install-link refs in authoritative `site-src/index.html` and generated
+`site/index.html`. Both must follow the release; generated HTML alone is
+insufficient. This is neither publication evidence nor permission to apply;
+it never writes source files or consumer pins.
+
+`sourceCommit` identifies the local committed preimage; `published.commit` is the
+published revision. Each edit carries its exact preimage SHA-256 and append or
+ref-replacement values/counts. Old ledger rows, the TCS module path and legacy
+integration pins remain unchanged. Already-followed source returns
+`ALREADY_FOLLOWED` with no edits.
+
+Source read, identity or diagnostic-output failures become
+`SOURCE_FOLLOWUP_UNAVAILABLE` without reversing publication success. Follow up
+through ordinary source review; do not republish to repair metadata. Local Git
+reads are limited to 1MiB each and diagnostic JSON to 32KiB. Synchronous stderr I/O
+can delay, truncate or lose diagnostics; it does not prove proposal receipt or
+source integration. The operator still decides whether to publish.
+
 ## Operations and troubleshooting
 
 Run the full repository check before sending a change:
