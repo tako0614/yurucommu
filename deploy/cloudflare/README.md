@@ -11,7 +11,7 @@ Cloudflare アカウントへ直接置く OpenTofu module です。公式の
 
 | 役割                     | Cloudflare リソース                         | Worker の接続名                |
 | ------------------------ | ------------------------------------------- | ------------------------------ |
-| HTTP サービス            | Worker（`<project_name>`）                  | —                              |
+| HTTP サービス            | Worker（公開URLの名前、または `worker_name`）                  | —                              |
 | SQL データベース         | D1（`<project_name>-db`、読み取り複製なし） | `DB`                           |
 | キー・バリューストア     | Workers KV（`<project_name>-kv`）           | `KV`                           |
 | メディア                 | R2（`<project_name>-media`）                | `MEDIA`                        |
@@ -21,6 +21,12 @@ Cloudflare アカウントへ直接置く OpenTofu module です。公式の
 | 定期整理                 | 1時間ごとの Cron Trigger                    | `scheduled` handler            |
 | 公開 URL                 | workers.dev、または Workers Custom Domain   | `APP_URL`                      |
 | 暗号化キー・session salt | `random_bytes`（state に保持）              | `ENCRYPTION_KEY` などの Secret |
+
+公開先が `https://community.example-sub.workers.dev` なら、明示した
+`worker_name` がない場合はWorker名を `community` にする。D1・KV・R2・Queueは
+内部の `project_name` を使い続ける。独自ドメインの場合、Worker名の既定は
+`project_name`。明示したWorker名とURLの不一致、接続先アカウントと異なる
+workers.devサブドメインは、配備前の検証で拒否する。
 
 Worker は `YURUCOMMU_RUNTIME_LANE=cloudflare`（生の D1・KV・R2・Queue binding）
 で動きます。互換日付と flag は公式の [`wrangler.jsonc`](../../wrangler.jsonc) と

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 2.5.2 - 2026-11-17
+
+- Derive the Cloudflare Worker name from the chosen workers.dev public URL
+  when no explicit Worker name is set. Instance storage and queue names keep
+  their internal project prefix. Explicit Worker names and account subdomains
+  still have to match the public URL. Existing valid deployments, custom
+  domains, runtime bytes and database migrations are unchanged.
+
 ## 2.5.1 - 2026-11-17
 
 - Let compatible Takosumi installers suggest the standard Cloudflare public

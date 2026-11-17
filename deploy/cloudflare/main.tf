@@ -71,7 +71,7 @@ variable "project_name" {
 }
 
 variable "worker_name" {
-  description = "Cloudflare Worker name. Defaults to project_name."
+  description = "Cloudflare Worker name. When empty, a workers.dev app_url supplies its name; a custom-domain app defaults to project_name."
   type        = string
   default     = ""
 
@@ -246,11 +246,14 @@ variable "worker_compatibility_flags" {
 
 locals {
   worker_bundle_path = "${path.module}/.generated/yurucommu-worker.js"
-  worker_name        = var.worker_name != "" ? var.worker_name : var.project_name
+  app_host           = trimprefix(var.app_url, "https://")
+  # A chosen workers.dev address owns its public Worker label, independently
+  # of the internal project prefix used by databases, buckets and queues.
+  workers_dev_name = try(regex("^([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.workers\\.dev$", local.app_host)[0], "")
+  worker_name      = var.worker_name != "" ? var.worker_name : local.workers_dev_name != "" ? local.workers_dev_name : var.project_name
 
   workers_dev_url = var.cloudflare_workers_subdomain != "" ? "https://${local.worker_name}.${var.cloudflare_workers_subdomain}.workers.dev" : ""
   launch_url      = var.app_url
-  app_host        = trimprefix(var.app_url, "https://")
   # One origin per instance: actor ids, the OIDC redirect, and cookies all
   # follow APP_URL, so a custom-domain instance does not also answer on
   # workers.dev.
