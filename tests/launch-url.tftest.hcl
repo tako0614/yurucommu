@@ -103,3 +103,36 @@ run "existing_managed_worker_noop_retains_its_launcher" {
     error_message = "A managed no-op must not be confused with metadata-only mode."
   }
 }
+
+run "managed_worker_without_workers_dev_has_no_derived_launcher" {
+  command = plan
+  variables {
+    enable_cloudflare_resources     = true
+    enable_cloudflare_worker_script = true
+    enable_workers_dev_subdomain    = false
+    cloudflare_account_id           = "00000000000000000000000000000000"
+    worker_bundle_path              = "tests/fixtures/session-salt-worker.js"
+    worker_release_tag              = ""
+    worker_bundle_url               = ""
+    worker_bundle_sha256            = ""
+    encryption_key                  = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    auth_password_hash              = "test-only-bootstrap-credential"
+    session_hash_salt               = "test-only-fixture-session-salt"
+  }
+
+  assert {
+    condition     = length(cloudflare_workers_script.worker) == 1 && length(cloudflare_workers_script_subdomain.worker) == 0
+    error_message = "The fixture must manage a Worker without enabling its workers.dev endpoint."
+  }
+  assert {
+    condition     = output.launch_url == null && output.api_url == null
+    error_message = "A disabled workers.dev endpoint must not produce a derived launcher URL."
+  }
+  assert {
+    condition = alltrue([
+      for binding in cloudflare_workers_script.worker[0].bindings : binding.text == ""
+      if binding.name == "APP_URL"
+    ])
+    error_message = "The existing APP_URL binding must receive empty text when no public origin is configured."
+  }
+}

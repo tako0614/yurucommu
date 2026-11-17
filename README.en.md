@@ -154,9 +154,11 @@ This compatibility root defaults `enable_cloudflare_resources` and
 `enable_cloudflare_worker_script` to `false`; selecting it alone creates no
 Worker. Without a managed Worker, an explicit `app_url` remains a reference to
 an existing instance, but a subdomain alone cannot produce `launch_url` or
-`api_url`. Both outputs are `null` without that explicit URL. An unchanged Plan
-for an existing managed configuration still returns its URL. These are
-configured URLs, not evidence of runtime health or reachability.
+`api_url`. Both outputs are `null` without that explicit URL. Even with a managed
+Worker, `enable_workers_dev_subdomain = false` prevents an inferred workers.dev
+URL; use `app_url` to reference a custom domain. An unchanged Plan for an existing
+configuration with a valid URL still returns it. These are configured URLs, not
+evidence of runtime health or reachability.
 
 Its main inputs are:
 
