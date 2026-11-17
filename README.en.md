@@ -148,7 +148,17 @@ responsibility.
 ### Self-host on Cloudflare
 
 The root [`main.tf`](main.tf) is an OpenTofu module that can create the Worker
-and its Cloudflare resources. Its main inputs are:
+and its Cloudflare resources.
+
+This compatibility root defaults `enable_cloudflare_resources` and
+`enable_cloudflare_worker_script` to `false`; selecting it alone creates no
+Worker. Without a managed Worker, an explicit `app_url` remains a reference to
+an existing instance, but a subdomain alone cannot produce `launch_url` or
+`api_url`. Both outputs are `null` without that explicit URL. An unchanged Plan
+for an existing managed configuration still returns its URL. These are
+configured URLs, not evidence of runtime health or reachability.
+
+Its main inputs are:
 
 - the Cloudflare account ID;
 - the Worker name and public URL;

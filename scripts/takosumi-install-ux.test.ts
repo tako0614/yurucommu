@@ -398,7 +398,7 @@ describe("repository-owned Takosumi install UX", () => {
       'workers_dev_url               = trimspace(var.cloudflare_workers_subdomain) != "" ? "https://${local.worker_name}.${trimspace(var.cloudflare_workers_subdomain)}.workers.dev" : null',
     );
     expect(rootModuleSource).toContain(
-      'launch_url                    = trimspace(var.app_url) != "" ? trimspace(var.app_url) : local.workers_dev_url',
+      'launch_url                    = trimspace(var.app_url) != "" ? trimspace(var.app_url) : (local.cloudflare_worker_enabled ? local.workers_dev_url : null)',
     );
   });
 
