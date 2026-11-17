@@ -263,6 +263,24 @@ push gateway は、ネイティブアプリの端末へ送る場合と、以前�
 管理ホストが push gateway を提供する場合は、URL と、必要な場合だけ token を
 実行時設定として安全に渡します。
 
+## 配布版公開後の source 追随
+
+所有入口 `bun run deploy -- yurucommu-worker-release --execute` は、タグ、3 asset の
+読戻しと native smoke が成功した後も、既存の `takos.deploy-result@v1` / `PUBLISHED`
+を stdout に返します。その後、stderr の `yurucommu.release-source-followup@v1` が
+ledger の新行と公式 install link の ref だけをレビュー用に提示します。公開の証明や
+適用権限ではなく、source や consumer pin を自動で書き換えるものではありません。
+
+`sourceCommit` は追随案の local committed preimage、`published.commit` は公開済みの
+commit です。各変更は exact preimage SHA-256 と append / ref replacement の値・件数を
+持ちます。旧 ledger 行、TCS の module path、旧 integration pin は保持します。
+既に追随済みなら `ALREADY_FOLLOWED` となり変更はありません。
+
+source 読取り・整合・診断出力の失敗は `SOURCE_FOLLOWUP_UNAVAILABLE` として公開成功から
+分離します。公開をやり直さず、通常の source review で追随します。local Git 読取りは
+各1MiB、診断 JSON は32KiBまでです。stderr の同期 I/O は遅延・部分出力・喪失があり得て、
+追随案の受領や source の統合を証明しません。実行可否は operator の判断です。
+
 ## 運用とトラブルシューティング
 
 変更を送る前の確認は次の1コマンドです。
