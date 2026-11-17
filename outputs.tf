@@ -19,7 +19,7 @@ output "cloudflare_worker_route_id" {
 }
 
 output "launch_url" {
-  description = "Configured URL of the managed Worker, or an explicit app_url reference to an existing instance; null without either. This is not a runtime health check."
+  description = "Configured workers.dev URL when the module manages and enables that endpoint, or an explicit app_url reference to an existing instance; null without either. This is not a runtime health check."
   value       = local.launch_url
 }
 

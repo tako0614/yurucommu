@@ -143,7 +143,9 @@ Push gateway token は受け付けません。認証不要の Push gateway は U
 Worker は作られません。Worker を管理しない場合、明示した `app_url` は既存
 instance への参照として保持しますが、subdomain だけから `launch_url` や
 `api_url` を推測しません。明示 URL もなければ両 Output は `null` です。
-Worker を管理する既存構成の変更なし Plan では URL を引き続き返します。
+Worker を管理していても `enable_workers_dev_subdomain = false` の場合は、
+明示 `app_url` なしに workers.dev の URL を推測しません。custom domain を参照する場合も
+`app_url` を指定します。有効な URL を持つ既存構成の変更なし Plan では URL を引き続き返します。
 これらの Output は設定上の URL であり、稼働や到達性の確認ではありません。
 
 主な入力は次のとおりです。
