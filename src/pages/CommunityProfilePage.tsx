@@ -611,13 +611,13 @@ export function CommunityProfilePage() {
             chatPath={`/dm?c=${encodeURIComponent(community()!.ap_id)}`}
           />
           {/* Tabs */}
-          <div class="border-b border-neutral-900 flex">
+          <div class="border-b border-neutral-800 flex">
             <button
               onClick={() => setActiveTab("about")}
               class={`flex-1 py-4 text-center font-bold transition-colors relative ${
                 activeTab() === "about"
                   ? "text-white"
-                  : "text-neutral-500 hover:bg-neutral-900/50"
+                  : "text-neutral-500 hover:bg-neutral-800/50"
               }`}
             >
               {t("community.tabAbout")}
@@ -630,7 +630,7 @@ export function CommunityProfilePage() {
               class={`flex-1 py-4 text-center font-bold transition-colors relative ${
                 activeTab() === "members"
                   ? "text-white"
-                  : "text-neutral-500 hover:bg-neutral-900/50"
+                  : "text-neutral-500 hover:bg-neutral-800/50"
               }`}
             >
               {t("members.title")}
@@ -644,7 +644,7 @@ export function CommunityProfilePage() {
                 class={`flex-1 py-4 text-center font-bold transition-colors relative ${
                   activeTab() === "settings"
                     ? "text-white"
-                    : "text-neutral-500 hover:bg-neutral-900/50"
+                    : "text-neutral-500 hover:bg-neutral-800/50"
                 }`}
               >
                 {t("nav.settings")}

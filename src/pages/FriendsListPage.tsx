@@ -177,12 +177,12 @@ export function FriendsListPage() {
         <InlineErrorBanner message={error()!} onClose={clearError} />
       </Show>
       {/* Header */}
-      <header class="sticky top-0 bg-neutral-900/80 backdrop-blur-sm border-b border-neutral-900 z-10">
-        <div class="flex items-center gap-4 px-4 py-3">
+      <header class="sticky top-0 bg-neutral-900/80 backdrop-blur-sm border-b border-neutral-800 z-10">
+        <div class="flex items-center gap-4 px-4 py-1.5">
           <button
             onClick={() => navigate(-1)}
             aria-label={t("common.back")}
-            class="p-2 -ml-2 hover:bg-neutral-900 rounded-full"
+            class="-ml-2 flex min-h-11 min-w-11 items-center justify-center rounded-full transition-colors hover:bg-neutral-800"
           >
             <BackIcon />
           </button>
@@ -191,7 +191,7 @@ export function FriendsListPage() {
 
         {/* Tabs */}
         <div
-          class="flex border-b border-neutral-900"
+          class="flex border-t border-neutral-800"
           role="tablist"
           aria-label={t("friends.title")}
           onKeyDown={(e) =>
@@ -211,7 +211,7 @@ export function FriendsListPage() {
             class={`flex-1 py-3 text-center font-medium relative transition-colors ${
               activeTab() === "following"
                 ? "text-white"
-                : "text-neutral-500 hover:bg-neutral-900/50"
+                : "text-neutral-500 hover:bg-neutral-800/50"
             }`}
           >
             {t("profile.following")} ({followingTotal()})
@@ -227,7 +227,7 @@ export function FriendsListPage() {
             class={`flex-1 py-3 text-center font-medium relative transition-colors ${
               activeTab() === "followers"
                 ? "text-white"
-                : "text-neutral-500 hover:bg-neutral-900/50"
+                : "text-neutral-500 hover:bg-neutral-800/50"
             }`}
           >
             {t("profile.followers")} ({followersTotal()})
@@ -239,8 +239,8 @@ export function FriendsListPage() {
       </header>
 
       {/* Search */}
-      <div class="px-4 py-3 border-b border-neutral-900">
-        <div class="flex items-center gap-2 bg-neutral-900 rounded-full px-4 py-2">
+      <div class="px-4 py-3 border-b border-neutral-800">
+        <div class="flex items-center gap-2 rounded-full border border-neutral-700/80 bg-neutral-800 px-4 py-2 transition-colors focus-within:border-accent">
           <SearchIcon />
           <input
             type="text"
@@ -293,7 +293,7 @@ export function FriendsListPage() {
             >
               <For each={filteredList()}>
                 {(friend) => (
-                  <div class="flex items-center gap-3 px-4 py-3 hover:bg-neutral-900/30 transition-colors">
+                  <div class="flex items-center gap-3 px-4 py-3 border-b border-neutral-800 hover:bg-neutral-800/40 transition-colors">
                     <A href={`/profile/${encodeURIComponent(friend.ap_id)}`}>
                       <UserAvatar
                         avatarUrl={friend.icon_url}
@@ -330,7 +330,7 @@ export function FriendsListPage() {
                 <button
                   onClick={() => void loadMore()}
                   disabled={loadingMore()}
-                  class="w-full py-3 text-sm text-accent hover:bg-neutral-900/30 disabled:opacity-50"
+                  class="w-full py-3 text-sm text-accent hover:bg-neutral-800/40 disabled:opacity-50"
                 >
                   {loadingMore() ? t("common.loading") : t("common.loadMore")}
                 </button>

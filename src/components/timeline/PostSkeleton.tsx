@@ -16,7 +16,7 @@ export function PostSkeleton(props: PostSkeletonProps) {
     <div aria-hidden="true">
       <For each={rows()}>
         {() => (
-          <div class="flex gap-3 px-4 py-3 border-b border-neutral-900">
+          <div class="flex gap-3 px-4 py-3 border-b border-neutral-800">
             <div class="w-12 h-12 rounded-full bg-neutral-800 animate-pulse shrink-0" />
             <div class="flex-1 min-w-0 space-y-2">
               <div class="flex items-center gap-2">

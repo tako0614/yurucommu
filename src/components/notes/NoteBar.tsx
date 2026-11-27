@@ -3,6 +3,7 @@ import { Portal } from "solid-js/web";
 import type { Actor, ActorNote } from "../../types/index.ts";
 import { useI18n } from "../../lib/i18n.tsx";
 import { useDialog } from "../../lib/useDialog.ts";
+import { isComposingKey } from "../ime.ts";
 import { UserAvatar } from "../UserAvatar.tsx";
 import { WordBreakText } from "../WordBreakText.tsx";
 
@@ -144,7 +145,7 @@ export function NoteBar(props: NoteBarProps) {
       <Show
         when={!props.loading}
         fallback={
-          <div class="border-b border-neutral-900 px-4 py-3">
+          <div class="border-b border-neutral-800 px-4 py-3">
             <div class="flex gap-3 overflow-x-hidden">
               <div class="h-24 w-20 shrink-0 rounded-2xl bg-neutral-800/80 animate-pulse" />
               <div class="h-24 w-20 shrink-0 rounded-2xl bg-neutral-800/60 animate-pulse" />
@@ -153,7 +154,7 @@ export function NoteBar(props: NoteBarProps) {
           </div>
         }
       >
-        <div class="border-b border-neutral-900 px-4 py-3">
+        <div class="border-b border-neutral-800 px-4 py-3">
           <div class="flex gap-3 overflow-x-auto scrollbar-hide">
             <NoteTile
               onClick={openEditor}
@@ -227,7 +228,7 @@ export function NoteBar(props: NoteBarProps) {
                 <button
                   type="button"
                   onClick={() => setEditorOpen(false)}
-                  class="rounded-full p-2 text-neutral-400 transition-colors hover:bg-neutral-900 hover:text-white"
+                  class="rounded-full p-2 text-neutral-400 transition-colors hover:bg-neutral-800 hover:text-white"
                   aria-label={t("common.close")}
                 >
                   <svg
@@ -251,7 +252,18 @@ export function NoteBar(props: NoteBarProps) {
                 value={draft()}
                 maxLength={MAX_NOTE_LENGTH}
                 onInput={(event) => setDraft(event.currentTarget.value)}
+                onKeyDown={(event) => {
+                  if (
+                    (event.metaKey || event.ctrlKey) &&
+                    event.key === "Enter" &&
+                    !isComposingKey(event)
+                  ) {
+                    event.preventDefault();
+                    if (canSave()) void save();
+                  }
+                }}
                 placeholder={t("notes.placeholder")}
+                aria-label={t("notes.placeholder")}
                 class="h-28 w-full resize-none rounded-xl border border-neutral-800 bg-neutral-900 px-3 py-3 text-sm leading-relaxed text-white outline-none transition-colors placeholder:text-neutral-500 focus:border-neutral-600"
                 autofocus
               />
@@ -267,7 +279,7 @@ export function NoteBar(props: NoteBarProps) {
                       type="button"
                       onClick={() => void remove()}
                       disabled={props.saving}
-                      class="rounded-full px-3 py-1.5 text-sm text-neutral-400 transition-colors hover:bg-neutral-900 hover:text-white disabled:opacity-50"
+                      class="rounded-full px-3 py-1.5 text-sm text-neutral-400 transition-colors hover:bg-neutral-800 hover:text-white disabled:opacity-50"
                     >
                       {t("common.delete")}
                     </button>

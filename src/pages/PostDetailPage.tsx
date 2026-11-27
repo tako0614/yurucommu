@@ -44,6 +44,7 @@ import {
   timelinePostsAtom,
 } from "../atoms/timeline.ts";
 import { ConfirmSheet } from "../components/ConfirmSheet.tsx";
+import { isComposingKey } from "../components/ime.ts";
 import { formatDateTime } from "../lib/datetime.ts";
 import { UserAvatar } from "../components/UserAvatar.tsx";
 import { PostContent } from "../components/PostContent.tsx";
@@ -1204,12 +1205,12 @@ export function PostDetailPage() {
       <Show when={error()}>
         <InlineErrorBanner message={error()!} onClose={clearError} />
       </Show>
-      <header class="sticky top-0 bg-neutral-900/80 backdrop-blur-sm border-b border-neutral-900 z-10">
-        <div class="flex items-center gap-4 px-4 py-3">
+      <header class="sticky top-0 bg-neutral-900/80 backdrop-blur-sm border-b border-neutral-800 z-10">
+        <div class="flex items-center gap-4 px-4 py-1.5">
           <button
             onClick={() => navigate(-1)}
             aria-label={t("common.back")}
-            class="p-1 hover:bg-neutral-800 rounded-full"
+            class="-ml-2.5 flex min-h-11 min-w-11 items-center justify-center rounded-full p-2.5 transition-colors hover:bg-neutral-800"
           >
             <BackIcon />
           </button>
@@ -1242,7 +1243,7 @@ export function PostDetailPage() {
       <Show when={!loading() && post()}>
         <div class="flex-1 overflow-y-auto">
           {/* Main Post */}
-          <div class="px-4 py-4 border-b border-neutral-900">
+          <div class="px-4 py-4 border-b border-neutral-800">
             <div class="flex gap-3">
               <A href={`/profile/${encodeURIComponent(post()!.author.ap_id)}`}>
                 <UserAvatar
@@ -1438,7 +1439,7 @@ export function PostDetailPage() {
           </div>
 
           {/* Reply Composer */}
-          <div class="px-4 py-3 border-b border-neutral-900">
+          <div class="px-4 py-3 border-b border-neutral-800">
             <div class="flex gap-3">
               <UserAvatar
                 avatarUrl={actor.icon_url}
@@ -1488,7 +1489,24 @@ export function PostDetailPage() {
                     setReplyDraftNotRetained(!retained);
                     setReplyContent(value);
                   }}
+                  onKeyDown={(e) => {
+                    if (
+                      (e.metaKey || e.ctrlKey) &&
+                      e.key === "Enter" &&
+                      !isComposingKey(e)
+                    ) {
+                      e.preventDefault();
+                      if (
+                        replyContent().trim() &&
+                        !replying() &&
+                        !replyOverLimit()
+                      ) {
+                        void handleReply();
+                      }
+                    }
+                  }}
                   placeholder={t("posts.replyPlaceholder")}
+                  aria-label={t("posts.replyPlaceholder")}
                   class="w-full bg-transparent text-white placeholder-neutral-500 resize-none outline-none"
                   rows={2}
                 />
@@ -1528,7 +1546,7 @@ export function PostDetailPage() {
           {/* Replies */}
           <For each={replies()}>
             {(reply) => (
-              <div class="flex gap-3 px-4 py-3 border-b border-neutral-900 hover:bg-neutral-900/30 transition-colors">
+              <div class="flex gap-3 px-4 py-3 border-b border-neutral-800 hover:bg-neutral-800/40 transition-colors">
                 <A href={`/profile/${encodeURIComponent(reply.author.ap_id)}`}>
                   <UserAvatar
                     avatarUrl={reply.author.icon_url}

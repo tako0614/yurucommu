@@ -48,16 +48,21 @@ export function Sidebar() {
   const rowClass = (item: NavItem) =>
     `flex items-center gap-4 px-4 py-3 rounded-full text-xl transition-colors ${
       active(item)
-        ? "bg-neutral-900 text-white font-bold"
-        : "text-neutral-400 hover:bg-neutral-900/50 hover:text-white"
+        ? "bg-neutral-800 text-white font-bold"
+        : "text-neutral-400 hover:bg-neutral-800/60 hover:text-white"
     }`;
 
   return (
     <aside class="hidden md:flex w-72 bg-neutral-900 flex-col h-screen shrink-0">
       <div class="px-6 pt-8 pb-6">
-        <h1 class="text-2xl font-bold text-white">Yurucommu</h1>
+        <A
+          href="/"
+          class="inline-block text-2xl font-bold text-white transition-opacity hover:opacity-90"
+        >
+          Yurucommu
+        </A>
       </div>
-      <nav class="flex-1 px-4">
+      <nav aria-label={t("nav.primary")} class="flex-1 px-4">
         <div class="space-y-2">
           <For each={NAV_ITEMS}>
             {(item) => {
@@ -119,7 +124,7 @@ export function Sidebar() {
         <button
           type="button"
           onClick={() => openCreateScope(true)}
-          class="mb-3 flex w-full items-center gap-3 rounded-full border border-neutral-700 px-4 py-2.5 text-sm font-medium text-neutral-200 transition-colors hover:bg-neutral-900/50 hover:text-white"
+          class="mb-3 flex w-full items-center gap-3 rounded-full border border-neutral-700 px-4 py-2.5 text-sm font-medium text-neutral-200 transition-colors hover:bg-neutral-800/70 hover:text-white"
         >
           <svg
             class="h-5 w-5 shrink-0"
@@ -137,7 +142,7 @@ export function Sidebar() {
           </svg>
           <span class="truncate">{t("scope.create")}</span>
         </button>
-        <div class="border-t border-neutral-900 pt-4">
+        <div class="border-t border-neutral-800 pt-4">
           {/* Account block — opens the AppMenu (settings / bookmarks /
               account switch / language / logout) as a desktop popover. */}
           {/* `title` not `aria-label`: the visible account name stays the
@@ -148,7 +153,7 @@ export function Sidebar() {
             onClick={() => openMenu(true)}
             aria-haspopup="dialog"
             title={t("menu.open")}
-            class="w-full text-left px-3 py-2 rounded-xl bg-neutral-900/40 transition-colors hover:bg-neutral-900"
+            class="w-full text-left px-3 py-2 rounded-xl bg-neutral-800/60 transition-colors hover:bg-neutral-800"
           >
             <div class="text-xs text-neutral-500 mb-2">
               {t("settings.account")}

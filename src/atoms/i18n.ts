@@ -6,6 +6,8 @@ export type Language = "ja" | "en";
 const translations = {
   ja: {
     "nav.home": "ホーム",
+    "nav.primary": "メインナビゲーション",
+    "nav.skipToContent": "本文へスキップ",
     "nav.search": "検索",
     "nav.groups": "コミュニティ",
     "nav.messages": "メッセージ",
@@ -823,6 +825,8 @@ const translations = {
   },
   en: {
     "nav.home": "Home",
+    "nav.primary": "Primary navigation",
+    "nav.skipToContent": "Skip to main content",
     "nav.search": "Search",
     "nav.groups": "Communities",
     "nav.messages": "Messages",

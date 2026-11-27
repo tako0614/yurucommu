@@ -1,5 +1,6 @@
 import { onMount, type JSX } from "solid-js";
 import { useSetAtom } from "solid-jotai";
+import { useI18n } from "../../lib/i18n.tsx";
 import { Sidebar } from "./Sidebar.tsx";
 import { BottomNav } from "./BottomNav.tsx";
 import { RightSidebar } from "./RightSidebar.tsx";
@@ -13,6 +14,7 @@ import { useDmUnreadPolling } from "../../hooks/useDmUnreadPolling.ts";
 import { hydrateScopeAtom } from "../../atoms/scope.ts";
 
 export function AppLayout(props: { children?: JSX.Element }) {
+  const { t } = useI18n();
   rememberHistoryStart();
   // Single mount point for unread polling (both pause when the tab is hidden).
   useNotificationPolling();
@@ -36,9 +38,17 @@ export function AppLayout(props: { children?: JSX.Element }) {
 
   return (
     <div class="flex justify-center h-screen h-[100dvh] bg-neutral-900 text-white">
+      <a
+        href="#main-content"
+        class="sr-only focus:not-sr-only focus:fixed focus:left-2 focus:top-2 focus:z-[100] focus:rounded-lg focus:bg-accent focus:px-4 focus:py-2 focus:text-sm focus:font-bold focus:text-white"
+      >
+        {t("nav.skipToContent")}
+      </a>
       <Sidebar />
       <main
-        class={`flex-1 flex flex-col min-h-screen pt-[env(safe-area-inset-top)] ${mainPadding()} md:pt-0 md:pb-0 overflow-hidden border-x border-neutral-800 max-w-2xl`}
+        id="main-content"
+        tabindex="-1"
+        class={`flex-1 flex flex-col min-h-screen pt-[env(safe-area-inset-top)] ${mainPadding()} md:pt-0 md:pb-0 overflow-hidden border-x border-neutral-800 max-w-2xl focus:outline-none`}
       >
         {/* Mobile-only app-shell header: the AppMenu trigger, on screens
             without a header of their own (see routeChrome.ts). */}

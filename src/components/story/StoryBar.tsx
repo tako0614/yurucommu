@@ -67,7 +67,7 @@ export function StoryBar(props: StoryBarProps) {
     <Show
       when={!props.loading}
       fallback={
-        <div class="px-4 py-3 border-b border-neutral-900">
+        <div class="px-4 py-3 border-b border-neutral-800">
           <div class="flex gap-4 overflow-x-auto scrollbar-hide -m-1 p-1">
             <div class="flex flex-col items-center gap-1 flex-shrink-0">
               <div class="w-16 h-16 rounded-full bg-neutral-800 animate-pulse" />
@@ -80,7 +80,7 @@ export function StoryBar(props: StoryBarProps) {
       <Show
         when={!props.error}
         fallback={
-          <div class="px-4 py-3 border-b border-neutral-900">
+          <div class="px-4 py-3 border-b border-neutral-800">
             <div class="flex items-center gap-3 overflow-x-auto scrollbar-hide">
               <button
                 onClick={props.onAddStory}
@@ -124,7 +124,7 @@ export function StoryBar(props: StoryBarProps) {
         <Show
           when={props.actorStories.length > 0 || hasMyStories()}
           fallback={
-            <div class="px-4 py-3 border-b border-neutral-900">
+            <div class="px-4 py-3 border-b border-neutral-800">
               <div class="flex gap-4 overflow-x-auto scrollbar-hide -m-1 p-1">
                 <button
                   onClick={props.onAddStory}
@@ -152,7 +152,7 @@ export function StoryBar(props: StoryBarProps) {
             </div>
           }
         >
-          <div class="px-4 py-3 border-b border-neutral-900">
+          <div class="px-4 py-3 border-b border-neutral-800">
             <div class="flex gap-4 overflow-x-auto scrollbar-hide -m-1 p-1">
               {/* My story / Add story button (always first) */}
               <div class="flex flex-col items-center gap-1 flex-shrink-0">
@@ -197,7 +197,7 @@ export function StoryBar(props: StoryBarProps) {
                     }}
                     aria-label={t("story.addStory")}
                     title={t("story.addStory")}
-                    class="absolute -bottom-0.5 -right-0.5 w-5 h-5 bg-accent rounded-full flex items-center justify-center ring-2 ring-black transition-colors"
+                    class="absolute -bottom-1 -right-1 w-7 h-7 bg-accent rounded-full flex items-center justify-center ring-2 ring-neutral-900 transition-colors hover:brightness-110"
                   >
                     <PlusIcon />
                   </button>

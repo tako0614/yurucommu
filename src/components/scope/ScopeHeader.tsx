@@ -77,7 +77,7 @@ export function ScopeHeader(props: ScopeHeaderProps) {
 
   return (
     <header class="sticky top-0 z-30 border-b border-neutral-800 bg-neutral-900/80 backdrop-blur-sm">
-      <div class="flex items-center gap-2 px-4 py-2.5">
+      <div class="flex items-center gap-2 px-4 py-1.5 md:py-2.5">
         {/* Mobile-only AppMenu trigger. Desktop reaches the menu via Sidebar. */}
         <Show when={actor()}>
           {(current) => (
@@ -86,16 +86,18 @@ export function ScopeHeader(props: ScopeHeaderProps) {
               onClick={() => openMenu(true)}
               aria-label={t("menu.open")}
               aria-haspopup="dialog"
-              class="shrink-0 rounded-full ring-1 ring-neutral-700 transition-colors hover:ring-neutral-500 md:hidden"
+              class="-ml-1.5 flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-neutral-800/70 md:hidden"
             >
               {/* The button is named メニューを開く; the avatar's alt repeated
                   the account's name. */}
-              <UserAvatar
-                decorative
-                avatarUrl={current().icon_url}
-                name={current().name || current().preferred_username}
-                size={32}
-              />
+              <span class="rounded-full ring-1 ring-neutral-700 transition-colors hover:ring-neutral-500">
+                <UserAvatar
+                  decorative
+                  avatarUrl={current().icon_url}
+                  name={current().name || current().preferred_username}
+                  size={32}
+                />
+              </span>
             </button>
           )}
         </Show>
@@ -115,36 +117,38 @@ export function ScopeHeader(props: ScopeHeaderProps) {
                 community) must remain the accessible name (WCAG 2.5.3 Label in
                 Name) so voice control can target it; the filter hint rides along
                 as the tooltip/description. */}
-            <button
-              type="button"
-              onClick={props.onOpenSwitcher}
-              aria-haspopup="dialog"
-              title={t("scope.filterLabel")}
-              class="-ml-2 flex max-w-full items-center gap-1.5 rounded-full px-2 py-1 transition-colors hover:bg-neutral-800"
-            >
-              <Show
-                when={activeCommunity()}
-                fallback={
-                  <span class="truncate text-base font-bold text-white">
-                    {t("nav.home")}
-                  </span>
-                }
+            <h1 class="m-0 flex min-w-0">
+              <button
+                type="button"
+                onClick={props.onOpenSwitcher}
+                aria-haspopup="dialog"
+                title={t("scope.filterLabel")}
+                class="-ml-2 flex min-h-11 max-w-full items-center gap-1.5 rounded-full px-2 py-2 transition-colors hover:bg-neutral-800"
               >
-                {(c) => (
-                  <>
-                    <UserAvatar
-                      avatarUrl={c().icon_url ?? null}
-                      name={c().display_name || c().name}
-                      size={24}
-                    />
+                <Show
+                  when={activeCommunity()}
+                  fallback={
                     <span class="truncate text-base font-bold text-white">
-                      {c().display_name || c().name}
+                      {t("nav.home")}
                     </span>
-                  </>
-                )}
-              </Show>
-              <ChevronDownIcon />
-            </button>
+                  }
+                >
+                  {(c) => (
+                    <>
+                      <UserAvatar
+                        avatarUrl={c().icon_url ?? null}
+                        name={c().display_name || c().name}
+                        size={24}
+                      />
+                      <span class="truncate text-base font-bold text-white">
+                        {c().display_name || c().name}
+                      </span>
+                    </>
+                  )}
+                </Show>
+                <ChevronDownIcon />
+              </button>
+            </h1>
           </Show>
         </div>
 

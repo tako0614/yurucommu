@@ -105,7 +105,7 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
     <div>
       <Show when={props.canManage}>
         <ComposeAside />
-        <div class="border-b border-neutral-900">
+        <div class="border-b border-neutral-800">
           <div class="px-4 py-3">
             <div class="text-sm font-semibold text-neutral-400">
               {props.t("members.joinRequests")}
@@ -131,7 +131,7 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
                   repeated per row, they did not say. */}
               <For each={props.joinRequests}>
                 {(request, index) => (
-                  <div class="flex items-center gap-3 px-4 py-3 border-t border-neutral-900">
+                  <div class="flex items-center gap-3 px-4 py-3 border-t border-neutral-800">
                     <UserAvatar
                       avatarUrl={request.icon_url}
                       name={request.name || request.preferred_username}
@@ -233,7 +233,7 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
               // opens the profile as it did when the whole row was the link.
               <div
                 data-member-row={index()}
-                class="flex items-center gap-3 pr-4 hover:bg-neutral-900/30 transition-colors"
+                class="flex items-center gap-3 pr-4 hover:bg-neutral-800/40 transition-colors"
               >
                 <A
                   href={`/profile/${encodeURIComponent(member.ap_id)}`}
@@ -368,7 +368,7 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
         </For>
       </Show>
       <Show when={props.canManage && props.joinPolicy === "invite"}>
-        <div class="mt-4 p-3 bg-neutral-900/50 rounded-lg">
+        <div class="mt-4 p-3 bg-neutral-800/50 border border-neutral-800 rounded-lg">
           <div class="text-sm font-semibold text-neutral-300 mb-2">
             {props.t("members.inviteCode")}
           </div>

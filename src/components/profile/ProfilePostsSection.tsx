@@ -104,7 +104,7 @@ export function ProfilePostsSection(props: ProfilePostsSectionProps) {
   return (
     <>
       {/* Tabs */}
-      <div class="border-b border-neutral-900 flex">
+      <div class="border-b border-neutral-800 flex">
         <button
           onClick={() => props.onChangeTab("posts")}
           class="flex-1 py-4 text-center font-bold transition-colors relative text-white"
@@ -117,7 +117,7 @@ export function ProfilePostsSection(props: ProfilePostsSectionProps) {
       {/* Posts tab */}
       <Show when={props.activeTab === "posts"}>
         {/* View toggle: media grid (default) vs. detailed list */}
-        <div class="flex items-center justify-end gap-1 border-b border-neutral-900 px-3 py-1.5">
+        <div class="flex items-center justify-end gap-1 border-b border-neutral-800 px-3 py-1.5">
           <button
             type="button"
             onClick={() => props.onChangeView("grid")}
@@ -276,7 +276,7 @@ function ProfilePostItem(props: ProfilePostItemProps) {
   const lightbox = useMediaLightbox();
   const { language } = useI18n();
   return (
-    <div class="flex gap-3 px-4 py-3 border-b border-neutral-900 hover:bg-neutral-900/30 transition-colors">
+    <div class="flex gap-3 px-4 py-3 border-b border-neutral-800 hover:bg-neutral-800/40 transition-colors">
       <A href={`/profile/${encodeURIComponent(props.post.author.ap_id)}`}>
         <UserAvatar
           avatarUrl={props.post.author.icon_url}

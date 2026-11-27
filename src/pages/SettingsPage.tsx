@@ -393,19 +393,19 @@ export function SettingsPage() {
       </Show>
 
       <Show when={activeSection() === "main"}>
-        <header class="sticky top-0 bg-neutral-900/80 backdrop-blur-sm border-b border-neutral-900 z-10">
+        <header class="sticky top-0 bg-neutral-900/80 backdrop-blur-sm border-b border-neutral-800 z-10">
           <h1 class="text-xl font-bold px-4 py-3">{t("settings.title")}</h1>
         </header>
         <div class="flex-1 overflow-y-auto">
           {/* Language */}
-          <div class="border-b border-neutral-900">
+          <div class="border-b border-neutral-800">
             <div class="px-4 py-2 text-sm text-neutral-500 uppercase">
               {t("settings.sectionDisplay")}
             </div>
             <button
               type="button"
               onClick={() => setLanguage(language() === "ja" ? "en" : "ja")}
-              class="w-full flex items-center justify-between px-4 py-3 hover:bg-neutral-900/50"
+              class="w-full flex items-center justify-between px-4 py-3 hover:bg-neutral-800/60 transition-colors"
             >
               <span>{t("settings.language")}</span>
               <span class="text-neutral-500">
@@ -418,7 +418,7 @@ export function SettingsPage() {
 
           {/* Browser push is an explicit opt-in. Never trigger the browser
               permission prompt on page load. */}
-          <div class="border-b border-neutral-900">
+          <div class="border-b border-neutral-800">
             <div class="px-4 py-2 text-sm text-neutral-500 uppercase">
               {t("settings.sectionNotifications")}
             </div>
@@ -457,14 +457,14 @@ export function SettingsPage() {
           </div>
 
           {/* Privacy */}
-          <div class="border-b border-neutral-900">
+          <div class="border-b border-neutral-800">
             <div class="px-4 py-2 text-sm text-neutral-500 uppercase">
               {t("settings.sectionPrivacy")}
             </div>
             <button
               type="button"
               onClick={() => setActiveSection("blocked")}
-              class="w-full flex items-center justify-between px-4 py-3 hover:bg-neutral-900/50"
+              class="w-full flex items-center justify-between px-4 py-3 hover:bg-neutral-800/60 transition-colors"
             >
               <span>{t("settings.blockedUsers")}</span>
               <ChevronRightIcon />
@@ -472,7 +472,7 @@ export function SettingsPage() {
             <button
               type="button"
               onClick={() => setActiveSection("muted")}
-              class="w-full flex items-center justify-between px-4 py-3 hover:bg-neutral-900/50"
+              class="w-full flex items-center justify-between px-4 py-3 hover:bg-neutral-800/60 transition-colors"
             >
               <span>{t("settings.mutedUsers")}</span>
               <ChevronRightIcon />
@@ -480,7 +480,7 @@ export function SettingsPage() {
             <button
               type="button"
               onClick={() => setActiveSection("filters")}
-              class="w-full flex items-center justify-between px-4 py-3 hover:bg-neutral-900/50"
+              class="w-full flex items-center justify-between px-4 py-3 hover:bg-neutral-800/60 transition-colors"
             >
               <span>{t("settings.filters")}</span>
               <ChevronRightIcon />
@@ -488,14 +488,14 @@ export function SettingsPage() {
           </div>
 
           {/* Account */}
-          <div class="border-b border-neutral-900">
+          <div class="border-b border-neutral-800">
             <div class="px-4 py-2 text-sm text-neutral-500 uppercase">
               {t("settings.sectionAccount")}
             </div>
             <button
               type="button"
               onClick={() => setActiveSection("accounts")}
-              class="w-full flex items-center justify-between px-4 py-3 hover:bg-neutral-900/50"
+              class="w-full flex items-center justify-between px-4 py-3 hover:bg-neutral-800/60 transition-colors"
             >
               <div class="flex items-center gap-3">
                 <UserAvatar
@@ -517,7 +517,7 @@ export function SettingsPage() {
             <button
               type="button"
               onClick={() => setActiveSection("migration")}
-              class="w-full flex items-center justify-between px-4 py-3 hover:bg-neutral-900/50"
+              class="w-full flex items-center justify-between px-4 py-3 hover:bg-neutral-800/60 transition-colors"
             >
               <div class="flex items-center gap-3">
                 <MigrateIcon />
@@ -528,7 +528,7 @@ export function SettingsPage() {
             <button
               type="button"
               onClick={() => setConfirmingLogout(true)}
-              class="w-full flex items-center justify-between px-4 py-3 hover:bg-neutral-900/50"
+              class="w-full flex items-center justify-between px-4 py-3 hover:bg-neutral-800/60 transition-colors"
             >
               <span>{t("settings.logout")}</span>
               <ChevronRightIcon />
@@ -536,7 +536,7 @@ export function SettingsPage() {
             <button
               type="button"
               onClick={() => setActiveSection("delete")}
-              class="w-full flex items-center justify-between px-4 py-3 hover:bg-neutral-900/50 text-red-500"
+              class="w-full flex items-center justify-between px-4 py-3 hover:bg-neutral-800/60 transition-colors text-red-500"
             >
               <span>{t("settings.deleteAccount")}</span>
               <ChevronRightIcon />
@@ -545,14 +545,14 @@ export function SettingsPage() {
 
           {/* Moderation (instance owner only) */}
           <Show when={isOwner()}>
-            <div class="border-b border-neutral-900">
+            <div class="border-b border-neutral-800">
               <div class="px-4 py-2 text-sm text-neutral-500 uppercase">
                 {t("settings.moderation")}
               </div>
               <button
                 type="button"
                 onClick={() => setActiveSection("moderation")}
-                class="w-full flex items-center justify-between px-4 py-3 hover:bg-neutral-900/50"
+                class="w-full flex items-center justify-between px-4 py-3 hover:bg-neutral-800/60 transition-colors"
               >
                 <div class="flex items-center gap-3">
                   <ShieldIcon />

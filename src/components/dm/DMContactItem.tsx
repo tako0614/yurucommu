@@ -38,7 +38,7 @@ export function DMContactItem(props: DMContactItemProps) {
     props.contact.type !== "community" &&
     (props.onArchive !== undefined || props.onUnarchive !== undefined);
   return (
-    <div class="flex items-center hover:bg-neutral-900 active:bg-neutral-800 transition-colors">
+    <div class="flex items-center hover:bg-neutral-800/50 active:bg-neutral-800 transition-colors">
       <button
         onClick={props.onClick}
         class="flex-1 min-w-0 flex items-center gap-3 px-4 py-3 text-left"

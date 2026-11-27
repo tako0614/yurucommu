@@ -793,7 +793,7 @@ export function NotificationPage() {
         <InlineErrorBanner message={error()!} onClose={clearError} />
       </Show>
       {/* Header */}
-      <header class="sticky top-0 bg-neutral-900/80 backdrop-blur-sm border-b border-neutral-900 z-10">
+      <header class="sticky top-0 bg-neutral-900/80 backdrop-blur-sm border-b border-neutral-800 z-10">
         <div class="flex items-center justify-between gap-2 px-4 py-3">
           <h1 class="text-xl font-bold">{t("notifications.title")}</h1>
           <div class="flex items-center gap-1">
@@ -838,7 +838,7 @@ export function NotificationPage() {
         <div
           role="tablist"
           aria-label={t("notifications.title")}
-          class="flex overflow-x-auto scrollbar-hide border-t border-neutral-900"
+          class="flex overflow-x-auto scrollbar-hide border-t border-neutral-800"
           onKeyDown={(e) => {
             if (notificationMutationPending()) return;
             const tabs = filterTabs();
@@ -914,8 +914,8 @@ export function NotificationPage() {
                   const target = notificationTarget(notification);
                   return (
                     <div
-                      class={`flex items-start gap-3 px-4 py-3 border-b border-neutral-900 transition-colors ${
-                        !notification.read ? "bg-neutral-900/50" : ""
+                      class={`flex items-start gap-3 px-4 py-3 border-b border-neutral-800 transition-colors ${
+                        !notification.read ? "bg-accent/10" : ""
                       }`}
                     >
                       <Dynamic
@@ -938,7 +938,7 @@ export function NotificationPage() {
                               }
                             : undefined
                         }
-                        class={`flex items-start gap-3 flex-1 min-w-0 rounded-md hover:bg-neutral-900/30 transition-colors ${
+                        class={`flex items-start gap-3 flex-1 min-w-0 rounded-md hover:bg-neutral-800/50 transition-colors ${
                           target ? "cursor-pointer" : ""
                         }`}
                       >
@@ -1006,7 +1006,7 @@ export function NotificationPage() {
                             ? "notifications.unarchive"
                             : "notifications.archive",
                         )}
-                        class="shrink-0 self-center p-2 rounded-full text-neutral-500 hover:text-neutral-200 hover:bg-neutral-800 transition-colors disabled:opacity-50"
+                        class="shrink-0 self-center flex min-h-10 min-w-10 items-center justify-center p-2.5 rounded-full text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800 transition-colors disabled:opacity-50"
                       >
                         <ArchiveIcon />
                       </button>
