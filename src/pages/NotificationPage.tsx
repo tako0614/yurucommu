@@ -23,6 +23,7 @@ import {
   unarchiveNotifications,
 } from "../lib/api.ts";
 import { handleTablistKeydown } from "../lib/tablistNav.ts";
+import { createHorizontalScrollFade } from "../hooks/useHorizontalScrollFade.ts";
 import { useI18n } from "../lib/i18n.tsx";
 import { formatRelativeTime } from "../lib/datetime.ts";
 import { UserAvatar } from "../components/UserAvatar.tsx";
@@ -149,6 +150,7 @@ function safeNotificationPath(value: string | null | undefined): string | null {
 }
 
 export function NotificationPage() {
+  const tabScrollFade = createHorizontalScrollFade();
   const { t, language } = useI18n();
   const navigate = useNavigate();
   const refreshUnread = useSetAtom(refreshNotificationUnreadAtom);
@@ -835,38 +837,53 @@ export function NotificationPage() {
           </div>
         </div>
         {/* Filter tabs */}
-        <div
-          role="tablist"
-          aria-label={t("notifications.title")}
-          class="flex overflow-x-auto scrollbar-hide border-t border-neutral-800"
-          onKeyDown={(e) => {
-            if (notificationMutationPending()) return;
-            const tabs = filterTabs();
-            const cur = tabs.findIndex((tb) => tb.key === filter());
-            handleTablistKeydown(e, tabs.length, cur < 0 ? 0 : cur, (i) =>
-              setFilter(tabs[i].key),
-            );
-          }}
-        >
-          <For each={filterTabs()}>
-            {(tab) => (
-              <button
-                role="tab"
-                aria-selected={filter() === tab.key}
-                tabindex={filter() === tab.key ? 0 : -1}
-                disabled={notificationMutationPending()}
-                onClick={() => setFilter(tab.key)}
-                class={`flex items-center gap-1.5 px-4 py-2.5 text-sm whitespace-nowrap transition-colors border-b-2 ${
-                  filter() === tab.key
-                    ? "text-white border-accent"
-                    : "text-neutral-500 border-transparent hover:text-neutral-300"
-                }`}
-              >
-                {tab.icon}
-                <span>{tab.label}</span>
-              </button>
-            )}
-          </For>
+        <div class="relative border-t border-neutral-800">
+          <div
+            ref={(el) => tabScrollFade.bind(el)}
+            role="tablist"
+            aria-label={t("notifications.title")}
+            class="flex overflow-x-auto scrollbar-hide"
+            onKeyDown={(e) => {
+              if (notificationMutationPending()) return;
+              const tabs = filterTabs();
+              const cur = tabs.findIndex((tb) => tb.key === filter());
+              handleTablistKeydown(e, tabs.length, cur < 0 ? 0 : cur, (i) =>
+                setFilter(tabs[i].key),
+              );
+            }}
+          >
+            <For each={filterTabs()}>
+              {(tab) => (
+                <button
+                  role="tab"
+                  aria-selected={filter() === tab.key}
+                  tabindex={filter() === tab.key ? 0 : -1}
+                  disabled={notificationMutationPending()}
+                  onClick={() => setFilter(tab.key)}
+                  class={`flex items-center gap-1.5 px-4 py-2.5 text-sm whitespace-nowrap transition-colors border-b-2 ${
+                    filter() === tab.key
+                      ? "text-white border-accent"
+                      : "text-neutral-500 border-transparent hover:text-neutral-300"
+                  }`}
+                >
+                  {tab.icon}
+                  <span>{tab.label}</span>
+                </button>
+              )}
+            </For>
+          </div>
+          <Show when={tabScrollFade.canScrollLeft()}>
+            <div
+              aria-hidden="true"
+              class="pointer-events-none absolute inset-y-0 left-0 w-8 bg-gradient-to-r from-neutral-900 to-transparent"
+            />
+          </Show>
+          <Show when={tabScrollFade.canScrollRight()}>
+            <div
+              aria-hidden="true"
+              class="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-neutral-900 to-transparent"
+            />
+          </Show>
         </div>
       </header>
 

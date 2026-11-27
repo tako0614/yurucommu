@@ -16,6 +16,7 @@ import type { InhabitedScope } from "../../atoms/scope.ts";
 import { EmojiPicker } from "../story/EmojiPicker.tsx";
 import { ConfirmSheet } from "../ConfirmSheet.tsx";
 import { isComposingKey } from "../ime.ts";
+import { submitShortcutLabel } from "../../lib/shortcuts.ts";
 import { useDialog } from "../../lib/useDialog.ts";
 import { useI18n } from "../../lib/i18n.tsx";
 import { mediaNeedsReupload } from "../../lib/staged-media.ts";
@@ -686,6 +687,12 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
                   {props.uploadError}
                 </span>
               </Show>
+              <span class="ml-auto hidden sm:inline text-xs text-neutral-500">
+                {t("compose.submitHint").replace(
+                  "{shortcut}",
+                  submitShortcutLabel(),
+                )}
+              </span>
             </div>
           </fieldset>
         </div>

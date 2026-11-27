@@ -30,6 +30,7 @@ import { useI18n } from "../../lib/i18n.tsx";
 import { ConfirmSheet } from "../ConfirmSheet.tsx";
 import { InlineErrorRetry } from "../InlineErrorRetry.tsx";
 import { isComposingKey } from "../ime.ts";
+import { ChatMessagesSkeleton } from "../skeletons/PageSkeletons.tsx";
 import { UserAvatar } from "../UserAvatar.tsx";
 import { markConversationOnScreen } from "../layout/routeChrome.ts";
 import { formatMessageDay, messageDayKey } from "./message-day.ts";
@@ -482,17 +483,18 @@ export function DMChatPanel(props: DMChatPanelProps) {
 
   return (
     <div class="flex flex-col h-full">
-      <div class="flex items-center gap-3 px-4 py-3 border-b border-neutral-800 bg-neutral-900/80 backdrop-blur-sm">
+      <div class="flex items-center gap-3 px-4 py-2 border-b border-neutral-800 bg-neutral-900/80 backdrop-blur-sm">
         <button
           onClick={props.onBack}
           aria-label={t("common.back")}
-          class="text-neutral-400 hover:text-white transition-colors"
+          class="-ml-2 flex min-h-11 min-w-11 items-center justify-center rounded-full text-neutral-400 hover:bg-neutral-800 hover:text-white transition-colors"
         >
           <svg
             class="w-6 h-6"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
+            aria-hidden="true"
           >
             <path
               stroke-linecap="round"
@@ -508,9 +510,9 @@ export function DMChatPanel(props: DMChatPanelProps) {
           size={40}
         />
         <div class="flex-1 min-w-0">
-          <div class="font-semibold text-white truncate">
+          <h1 class="font-semibold text-white truncate">
             {props.contact.name || props.contact.preferred_username}
-          </div>
+          </h1>
           <div class="text-xs text-neutral-500 truncate">
             @{props.contact.preferred_username}
             <Show
@@ -533,13 +535,14 @@ export function DMChatPanel(props: DMChatPanelProps) {
             href={`/groups/${encodeURIComponent(props.contact.preferred_username)}`}
             aria-label={t("dm.openCommunityProfile")}
             title={t("dm.openCommunityProfile")}
-            class="flex-shrink-0 p-2 text-neutral-400 hover:text-white transition-colors"
+            class="flex min-h-11 min-w-11 flex-shrink-0 items-center justify-center rounded-full p-2 text-neutral-400 hover:bg-neutral-800 hover:text-white transition-colors"
           >
             <svg
               class="w-5 h-5"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
+              aria-hidden="true"
             >
               <path
                 stroke-linecap="round"
@@ -560,14 +563,7 @@ export function DMChatPanel(props: DMChatPanelProps) {
         aria-atomic="false"
         class="flex-1 overflow-y-auto px-4 py-4"
       >
-        <Show
-          when={!loading()}
-          fallback={
-            <div class="text-center text-neutral-500">
-              {t("common.loading")}
-            </div>
-          }
-        >
+        <Show when={!loading()} fallback={<ChatMessagesSkeleton />}>
           <Show
             when={messages().length > 0}
             fallback={

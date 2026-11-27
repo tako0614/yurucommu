@@ -1,6 +1,11 @@
-import { onMount, type JSX } from "solid-js";
-import { useSetAtom } from "solid-jotai";
+import { onCleanup, onMount, type JSX } from "solid-js";
+import { useNavigate } from "@solidjs/router";
+import { useAtomValue, useSetAtom } from "solid-jotai";
 import { useI18n } from "../../lib/i18n.tsx";
+import { classifyGlobalShortcut } from "../../lib/shortcuts.ts";
+import { hasOpenDialogStack } from "../../lib/useDialog.ts";
+import { appMenuOpenAtom } from "../../atoms/shell.ts";
+import { showPostModalAtom } from "../../atoms/timeline.ts";
 import { Sidebar } from "./Sidebar.tsx";
 import { BottomNav } from "./BottomNav.tsx";
 import { RightSidebar } from "./RightSidebar.tsx";
@@ -15,6 +20,9 @@ import { hydrateScopeAtom } from "../../atoms/scope.ts";
 
 export function AppLayout(props: { children?: JSX.Element }) {
   const { t } = useI18n();
+  const navigate = useNavigate();
+  const appMenuOpen = useAtomValue(appMenuOpenAtom);
+  const openComposer = useSetAtom(showPostModalAtom);
   rememberHistoryStart();
   // Single mount point for unread polling (both pause when the tab is hidden).
   useNotificationPolling();
@@ -26,6 +34,40 @@ export function AppLayout(props: { children?: JSX.Element }) {
   const hydrateScope = useSetAtom(hydrateScopeAtom);
   onMount(() => {
     void hydrateScope();
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      const dialogOpen =
+        hasOpenDialogStack() ||
+        Boolean(
+          document.querySelector('[role="dialog"], [role="alertdialog"]'),
+        );
+      const action = classifyGlobalShortcut(event, {
+        dialogOpen,
+        menuOpen: appMenuOpen(),
+      });
+      if (!action) return;
+
+      if (action === "compose") {
+        event.preventDefault();
+        openComposer(true);
+        return;
+      }
+
+      if (action === "search") {
+        event.preventDefault();
+        const existingSearch = document.querySelector<HTMLInputElement>(
+          'main input[data-search-input], main input[type="search"]',
+        );
+        if (existingSearch) {
+          existingSearch.focus();
+          existingSearch.select();
+        } else {
+          navigate("/search", { state: { focusSearch: true } });
+        }
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    onCleanup(() => window.removeEventListener("keydown", onKeyDown));
   });
 
   // The phone's bottom nav steps aside in an open conversation (BottomNav), so

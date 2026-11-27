@@ -30,6 +30,7 @@ import { useSetAtom } from "solid-jotai";
 import { pushToast, toastsAtom } from "../atoms/toast.ts";
 import { ConfirmSheet } from "../components/ConfirmSheet.tsx";
 import { InlineErrorBanner } from "../components/InlineErrorBanner.tsx";
+import { UserListSkeleton } from "../components/skeletons/PageSkeletons.tsx";
 import { CommunityProfileHeader } from "../components/community/CommunityProfileHeader.tsx";
 import { CommunityProfileSummary } from "../components/community/CommunityProfileSummary.tsx";
 import { CommunityAboutPanel } from "../components/community/CommunityAboutPanel.tsx";
@@ -552,9 +553,7 @@ export function CommunityProfilePage() {
           subtitle=""
           onBack={() => navigate(-1)}
         />
-        <div class="p-8 text-center text-neutral-500">
-          {t("common.loading")}
-        </div>
+        <UserListSkeleton count={5} />
       </Show>
 
       {/* Genuine not-found (404 leaves community() null without an error). */}

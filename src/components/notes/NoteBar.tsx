@@ -4,6 +4,7 @@ import type { Actor, ActorNote } from "../../types/index.ts";
 import { useI18n } from "../../lib/i18n.tsx";
 import { useDialog } from "../../lib/useDialog.ts";
 import { isComposingKey } from "../ime.ts";
+import { submitShortcutLabel } from "../../lib/shortcuts.ts";
 import { UserAvatar } from "../UserAvatar.tsx";
 import { WordBreakText } from "../WordBreakText.tsx";
 
@@ -268,11 +269,22 @@ export function NoteBar(props: NoteBarProps) {
                 autofocus
               />
               <div class="mt-2 flex items-center justify-between gap-3">
-                <span class="text-xs text-neutral-500">
-                  {t("notes.charCount")
-                    .replace("{count}", String(draft().trim().length))
-                    .replace("{max}", String(MAX_NOTE_LENGTH))}
-                </span>
+                <div class="flex items-center gap-2 text-xs text-neutral-500">
+                  <span>
+                    {t("notes.charCount")
+                      .replace("{count}", String(draft().trim().length))
+                      .replace("{max}", String(MAX_NOTE_LENGTH))}
+                  </span>
+                  <span class="hidden sm:inline" aria-hidden="true">
+                    {"·"}
+                  </span>
+                  <span class="hidden sm:inline">
+                    {t("compose.saveHint").replace(
+                      "{shortcut}",
+                      submitShortcutLabel(),
+                    )}
+                  </span>
+                </div>
                 <div class="flex items-center gap-2">
                   <Show when={myNote()}>
                     <button

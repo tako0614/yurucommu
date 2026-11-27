@@ -45,6 +45,8 @@ import {
 } from "../atoms/timeline.ts";
 import { ConfirmSheet } from "../components/ConfirmSheet.tsx";
 import { isComposingKey } from "../components/ime.ts";
+import { submitShortcutLabel } from "../lib/shortcuts.ts";
+import { PostDetailSkeleton } from "../components/skeletons/PageSkeletons.tsx";
 import { formatDateTime } from "../lib/datetime.ts";
 import { UserAvatar } from "../components/UserAvatar.tsx";
 import { PostContent } from "../components/PostContent.tsx";
@@ -1219,9 +1221,7 @@ export function PostDetailPage() {
       </header>
 
       <Show when={loading()}>
-        <div class="p-8 text-center text-neutral-500">
-          {t("common.loading")}
-        </div>
+        <PostDetailSkeleton />
       </Show>
 
       {/* Retry view for unexpected load failures — "post not found" is
@@ -1270,7 +1270,7 @@ export function PostDetailPage() {
                   <button
                     onClick={() => setEditingPost(post()!)}
                     aria-label={t("posts.edit")}
-                    class="p-2 text-neutral-500 hover:text-accent hover:bg-[var(--accent)]/10 rounded-full transition-colors"
+                    class="flex min-h-11 min-w-11 items-center justify-center p-2 md:min-h-0 md:min-w-0 text-neutral-500 hover:text-accent hover:bg-[var(--accent)]/10 rounded-full transition-colors"
                   >
                     <EditIcon />
                   </button>
@@ -1280,7 +1280,7 @@ export function PostDetailPage() {
                     aria-disabled={pendingInteractions().has(
                       interactionKey("delete", post()!.ap_id),
                     )}
-                    class="p-2 text-neutral-500 hover:text-red-500 hover:bg-red-500/10 rounded-full transition-colors aria-disabled:opacity-50 aria-disabled:cursor-wait"
+                    class="flex min-h-11 min-w-11 items-center justify-center p-2 md:min-h-0 md:min-w-0 text-neutral-500 hover:text-red-500 hover:bg-red-500/10 rounded-full transition-colors aria-disabled:opacity-50 aria-disabled:cursor-wait"
                   >
                     <TrashIcon />
                   </button>
@@ -1378,7 +1378,7 @@ export function PostDetailPage() {
                   });
                 }}
                 aria-label={t("posts.reply")}
-                class="flex items-center gap-2 p-2 text-neutral-500 hover:text-accent transition-colors"
+                class="flex min-h-11 min-w-11 items-center justify-center gap-2 p-2.5 md:min-h-0 md:min-w-0 md:p-2 text-neutral-500 hover:text-accent transition-colors"
               >
                 <ReplyIcon />
               </button>
@@ -1392,7 +1392,7 @@ export function PostDetailPage() {
                   aria-disabled={pendingInteractions().has(
                     interactionKey("repost", post()!.ap_id),
                   )}
-                  class={`flex items-center gap-2 p-2 transition-colors aria-disabled:opacity-50 aria-disabled:cursor-wait ${
+                  class={`flex min-h-11 min-w-11 items-center justify-center gap-2 p-2.5 md:min-h-0 md:min-w-0 md:p-2 transition-colors aria-disabled:opacity-50 aria-disabled:cursor-wait ${
                     post()!.reposted
                       ? "text-green-500"
                       : "text-neutral-500 hover:text-green-500"
@@ -1408,7 +1408,7 @@ export function PostDetailPage() {
                 aria-disabled={pendingInteractions().has(
                   interactionKey("like", post()!.ap_id),
                 )}
-                class={`flex items-center gap-2 p-2 transition-colors aria-disabled:opacity-50 aria-disabled:cursor-wait ${
+                class={`flex min-h-11 min-w-11 items-center justify-center gap-2 p-2.5 md:min-h-0 md:min-w-0 md:p-2 transition-colors aria-disabled:opacity-50 aria-disabled:cursor-wait ${
                   post()!.liked
                     ? "text-pink-500"
                     : "text-neutral-500 hover:text-pink-500"
@@ -1427,7 +1427,7 @@ export function PostDetailPage() {
                 aria-disabled={pendingInteractions().has(
                   interactionKey("bookmark", post()!.ap_id),
                 )}
-                class={`flex items-center gap-2 p-2 transition-colors aria-disabled:opacity-50 aria-disabled:cursor-wait ${
+                class={`flex min-h-11 min-w-11 items-center justify-center gap-2 p-2.5 md:min-h-0 md:min-w-0 md:p-2 transition-colors aria-disabled:opacity-50 aria-disabled:cursor-wait ${
                   post()!.bookmarked
                     ? "text-accent"
                     : "text-neutral-500 hover:text-accent"
@@ -1518,6 +1518,12 @@ export function PostDetailPage() {
                   </p>
                 </Show>
                 <div class="flex items-center justify-end gap-3">
+                  <span class="mr-auto hidden sm:inline text-xs text-neutral-500">
+                    {t("compose.replyHint").replace(
+                      "{shortcut}",
+                      submitShortcutLabel(),
+                    )}
+                  </span>
                   <Show when={replyContent().length > 0}>
                     <span
                       class={`text-xs tabular-nums ${
@@ -1585,7 +1591,7 @@ export function PostDetailPage() {
                         <button
                           onClick={() => setEditingPost(reply)}
                           aria-label={t("posts.edit")}
-                          class="p-1 text-neutral-500 hover:text-accent hover:bg-[var(--accent)]/10 rounded-full transition-colors"
+                          class="flex min-h-10 min-w-10 items-center justify-center p-2 md:min-h-0 md:min-w-0 md:p-1 text-neutral-500 hover:text-accent hover:bg-[var(--accent)]/10 rounded-full transition-colors"
                         >
                           <EditIcon />
                         </button>
@@ -1595,7 +1601,7 @@ export function PostDetailPage() {
                           aria-disabled={pendingInteractions().has(
                             interactionKey("delete", reply.ap_id),
                           )}
-                          class="p-1 text-neutral-500 hover:text-red-500 hover:bg-red-500/10 rounded-full transition-colors aria-disabled:opacity-50 aria-disabled:cursor-wait"
+                          class="flex min-h-10 min-w-10 items-center justify-center p-2 md:min-h-0 md:min-w-0 md:p-1 text-neutral-500 hover:text-red-500 hover:bg-red-500/10 rounded-full transition-colors aria-disabled:opacity-50 aria-disabled:cursor-wait"
                         >
                           <TrashIcon />
                         </button>
@@ -1615,7 +1621,7 @@ export function PostDetailPage() {
                       class="text-[15px] text-neutral-200 mt-1"
                     />
                   </A>
-                  <div class="flex items-center gap-6 mt-2">
+                  <div class="flex items-center gap-3 md:gap-6 mt-2">
                     <A
                       href={`/post/${encodeURIComponent(reply.ap_id)}`}
                       aria-label={
@@ -1623,7 +1629,7 @@ export function PostDetailPage() {
                           ? `${t("posts.reply")} ${reply.reply_count}`
                           : t("posts.reply")
                       }
-                      class="flex items-center gap-2 text-neutral-500 hover:text-[var(--accent)] transition-colors"
+                      class="-my-2 -mx-1.5 flex min-h-11 min-w-11 items-center justify-center gap-1.5 px-2.5 py-2 md:m-0 md:min-h-0 md:min-w-0 md:gap-2 md:p-0 text-neutral-500 hover:text-[var(--accent)] transition-colors"
                     >
                       <ReplyIcon />
                       <span class="text-sm">{reply.reply_count || ""}</span>
@@ -1637,7 +1643,7 @@ export function PostDetailPage() {
                       aria-disabled={pendingInteractions().has(
                         interactionKey("like", reply.ap_id),
                       )}
-                      class={`flex items-center gap-2 transition-colors aria-disabled:opacity-50 aria-disabled:cursor-wait ${
+                      class={`-my-2 -mx-1.5 flex min-h-11 min-w-11 items-center justify-center gap-1.5 px-2.5 py-2 md:m-0 md:min-h-0 md:min-w-0 md:gap-2 md:p-0 transition-colors aria-disabled:opacity-50 aria-disabled:cursor-wait ${
                         reply.liked
                           ? "text-pink-500"
                           : "text-neutral-500 hover:text-pink-500"

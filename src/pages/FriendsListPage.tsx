@@ -8,6 +8,8 @@ import { useI18n } from "../lib/i18n.tsx";
 import { UserAvatar } from "../components/UserAvatar.tsx";
 import { InlineErrorBanner } from "../components/InlineErrorBanner.tsx";
 import { InlineErrorRetry } from "../components/InlineErrorRetry.tsx";
+import { isComposingKey } from "../components/ime.ts";
+import { UserListSkeleton } from "../components/skeletons/PageSkeletons.tsx";
 
 const BackIcon = () => (
   <svg
@@ -88,6 +90,7 @@ export function FriendsListPage() {
   const [loadingMore, setLoadingMore] = createSignal(false);
   const [loading, setLoading] = createSignal(true);
   const [searchQuery, setSearchQuery] = createSignal("");
+  let searchInputRef: HTMLInputElement | undefined;
 
   onMount(() => {
     setSearchQuery("");
@@ -240,16 +243,51 @@ export function FriendsListPage() {
 
       {/* Search */}
       <div class="px-4 py-3 border-b border-neutral-800">
-        <div class="flex items-center gap-2 rounded-full border border-neutral-700/80 bg-neutral-800 px-4 py-2 transition-colors focus-within:border-accent">
+        <div class="flex items-center gap-2 rounded-full border border-neutral-700/80 bg-neutral-800 px-4 py-2 transition-colors focus-within:border-accent focus-within:ring-1 focus-within:ring-accent">
           <SearchIcon />
           <input
+            ref={searchInputRef}
             type="text"
+            data-search-input
             value={searchQuery()}
             onInput={(e) => setSearchQuery(e.currentTarget.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape" && !isComposingKey(e) && searchQuery()) {
+                e.preventDefault();
+                e.stopPropagation();
+                setSearchQuery("");
+              }
+            }}
             placeholder={t("friends.searchPlaceholder")}
             aria-label={t("common.search")}
             class="flex-1 bg-transparent text-white placeholder-neutral-500 outline-none"
           />
+          <Show when={searchQuery()}>
+            <button
+              type="button"
+              onClick={() => {
+                setSearchQuery("");
+                searchInputRef?.focus();
+              }}
+              aria-label={t("search.clear")}
+              class="-m-2 flex min-h-10 min-w-10 items-center justify-center rounded-full p-2 md:-m-1.5 md:min-h-0 md:min-w-0 md:p-1.5 text-neutral-400 transition-colors hover:bg-neutral-700/60 hover:text-white"
+            >
+              <svg
+                class="h-4 w-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width={2}
+                  d="M6 18L18 6M6 6l12 12"
+                />
+              </svg>
+            </button>
+          </Show>
         </div>
       </div>
 
@@ -271,14 +309,7 @@ export function FriendsListPage() {
             />
           }
         >
-          <Show
-            when={!loading()}
-            fallback={
-              <div class="p-8 text-center text-neutral-500">
-                {t("common.loading")}
-              </div>
-            }
-          >
+          <Show when={!loading()} fallback={<UserListSkeleton count={6} />}>
             <Show
               when={filteredList().length > 0}
               fallback={
@@ -315,7 +346,7 @@ export function FriendsListPage() {
                     <button
                       onClick={() => handleStartDM(friend.ap_id)}
                       aria-label={t("friends.sendMessage")}
-                      class="p-2 text-neutral-400 hover:text-white hover:bg-neutral-800 rounded-full transition-colors"
+                      class="flex min-h-11 min-w-11 items-center justify-center p-2 md:min-h-0 md:min-w-0 text-neutral-400 hover:text-white hover:bg-neutral-800 rounded-full transition-colors"
                       title={t("friends.sendMessage")}
                     >
                       <MessageIcon />

@@ -119,7 +119,7 @@ export function ProfileSummary(props: ProfileSummaryProps) {
                   // without role="menu"/menuitem/arrow-key semantics.
                   aria-haspopup="true"
                   aria-expanded={props.showMenu}
-                  class="p-2 border border-neutral-600 rounded-full hover:bg-neutral-800 transition-colors"
+                  class="flex min-h-11 min-w-11 items-center justify-center p-2 md:min-h-0 md:min-w-0 border border-neutral-600 rounded-full hover:bg-neutral-800 transition-colors"
                 >
                   <MoreIcon />
                 </button>
@@ -154,7 +154,7 @@ export function ProfileSummary(props: ProfileSummaryProps) {
               <button
                 onClick={props.onToggleFollow}
                 disabled={props.followPending || props.followBusy}
-                class={`px-4 py-2 rounded-full font-bold transition-colors ${
+                class={`min-h-11 px-4 py-2 md:min-h-0 rounded-full font-bold transition-colors ${
                   props.followPending
                     ? "bg-transparent border border-neutral-700 text-neutral-400 cursor-default"
                     : props.isFollowing
@@ -173,7 +173,7 @@ export function ProfileSummary(props: ProfileSummaryProps) {
           <Show when={props.isOwnProfile}>
             <button
               onClick={props.onOpenEdit}
-              class="px-4 py-2 rounded-full font-bold border border-neutral-600 text-white hover:bg-neutral-800 transition-colors"
+              class="min-h-11 px-4 py-2 md:min-h-0 rounded-full font-bold border border-neutral-600 text-white hover:bg-neutral-800 transition-colors"
             >
               {props.t("profile.editProfile")}
             </button>

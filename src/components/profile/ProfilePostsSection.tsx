@@ -123,7 +123,7 @@ export function ProfilePostsSection(props: ProfilePostsSectionProps) {
             onClick={() => props.onChangeView("grid")}
             aria-label={props.t("profile.viewGrid")}
             aria-pressed={props.view === "grid"}
-            class={`rounded-lg p-1.5 transition-colors ${
+            class={`flex min-h-11 min-w-11 items-center justify-center rounded-lg p-2 md:min-h-0 md:min-w-0 md:p-1.5 transition-colors ${
               props.view === "grid"
                 ? "text-white"
                 : "text-neutral-500 hover:text-neutral-300"
@@ -136,7 +136,7 @@ export function ProfilePostsSection(props: ProfilePostsSectionProps) {
             onClick={() => props.onChangeView("list")}
             aria-label={props.t("profile.viewList")}
             aria-pressed={props.view === "list"}
-            class={`rounded-lg p-1.5 transition-colors ${
+            class={`flex min-h-11 min-w-11 items-center justify-center rounded-lg p-2 md:min-h-0 md:min-w-0 md:p-1.5 transition-colors ${
               props.view === "list"
                 ? "text-white"
                 : "text-neutral-500 hover:text-neutral-300"
@@ -276,111 +276,120 @@ function ProfilePostItem(props: ProfilePostItemProps) {
   const lightbox = useMediaLightbox();
   const { language } = useI18n();
   return (
-    <div class="flex gap-3 px-4 py-3 border-b border-neutral-800 hover:bg-neutral-800/40 transition-colors">
-      <A href={`/profile/${encodeURIComponent(props.post.author.ap_id)}`}>
-        <UserAvatar
-          avatarUrl={props.post.author.icon_url}
-          name={props.post.author.name || props.post.author.preferred_username}
-          size={48}
-        />
-      </A>
-      <div class="flex-1 min-w-0">
-        {/* Like the timeline row (see the comment there): the handle gives
-            way first, so a long handle no longer shrinks the name to "R…";
-            the name truncates only once the handle is gone, then the chip
-            and 編集済み. The time never wraps. */}
-        <div class="flex min-w-0 items-baseline gap-2">
-          <span class="flex min-w-12 shrink-[10000] items-baseline gap-2">
-            <A
-              href={`/profile/${encodeURIComponent(props.post.author.ap_id)}`}
-              class="font-bold text-white truncate hover:underline shrink-0 max-w-full"
-            >
-              {props.post.author.name || props.post.author.preferred_username}
-            </A>
-            <span class="text-neutral-500 truncate min-w-0">
-              @{props.post.author.username}
-            </span>
-          </span>
-          <span class="text-neutral-500 shrink-0">・</span>
-          <span class="text-neutral-500 text-sm shrink-0 whitespace-nowrap">
-            {formatRelativeTime(props.post.published, { locale: language() })}
-          </span>
-          <Show when={props.post.edited_at}>
-            <span class="text-neutral-500 shrink-0">・</span>
-            <span
-              class="text-neutral-500 text-sm min-w-0 truncate"
-              title={formatRelativeTime(props.post.edited_at!, {
-                locale: language(),
-              })}
-            >
-              {props.t("posts.edited")}
-            </span>
-          </Show>
-          <ScopeChip
-            communityApId={props.post.community_ap_id}
-            class="ml-auto self-center min-w-7"
-          />
-        </div>
-        <A href={`/post/${encodeURIComponent(props.post.ap_id)}`} class="block">
-          <PostContent
-            content={props.post.content}
-            summary={props.post.summary}
-            class="text-[15px] text-neutral-200 mt-1"
+    <article class="border-b border-neutral-800 hover:bg-neutral-800/40 transition-colors">
+      <div class="flex gap-3 px-4 py-3">
+        <A href={`/profile/${encodeURIComponent(props.post.author.ap_id)}`}>
+          <UserAvatar
+            avatarUrl={props.post.author.icon_url}
+            name={
+              props.post.author.name || props.post.author.preferred_username
+            }
+            size={48}
           />
         </A>
-        <Show
-          when={props.post.attachments && props.post.attachments.length > 0}
-        >
-          <AttachmentGrid
-            attachments={props.post.attachments}
-            onOpen={(idx, e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              lightbox.open(props.post.attachments, idx);
-            }}
-          />
-        </Show>
-        {/* Actions: 36px tap areas around 20px icons, as on the timeline. */}
-        <div class="flex items-center gap-6 mt-3">
+        <div class="flex-1 min-w-0">
+          {/* Like the timeline row (see the comment there): the handle gives
+              way first, so a long handle no longer shrinks the name to "R…";
+              the name truncates only once the handle is gone, then the chip
+              and 編集済み. The time never wraps. */}
+          <div class="flex min-w-0 items-baseline gap-2">
+            <span class="flex min-w-12 shrink-[10000] items-baseline gap-2">
+              <A
+                href={`/profile/${encodeURIComponent(props.post.author.ap_id)}`}
+                class="font-bold text-white truncate hover:underline shrink-0 max-w-full"
+              >
+                {props.post.author.name || props.post.author.preferred_username}
+              </A>
+              <span class="text-neutral-500 truncate min-w-0">
+                @{props.post.author.username}
+              </span>
+            </span>
+            <span class="text-neutral-500 shrink-0">・</span>
+            <span class="text-neutral-500 text-sm shrink-0 whitespace-nowrap">
+              {formatRelativeTime(props.post.published, { locale: language() })}
+            </span>
+            <Show when={props.post.edited_at}>
+              <span class="text-neutral-500 shrink-0">・</span>
+              <span
+                class="text-neutral-500 text-sm min-w-0 truncate"
+                title={formatRelativeTime(props.post.edited_at!, {
+                  locale: language(),
+                })}
+              >
+                {props.t("posts.edited")}
+              </span>
+            </Show>
+            <ScopeChip
+              communityApId={props.post.community_ap_id}
+              class="ml-auto self-center min-w-7"
+            />
+          </div>
           <A
             href={`/post/${encodeURIComponent(props.post.ap_id)}`}
-            aria-label={props.t("posts.reply")}
-            class="-m-2 flex items-center gap-2 p-2 text-neutral-500 hover:text-[var(--accent)] transition-colors"
+            class="block"
           >
-            <ReplyIcon />
-            <span class="text-sm">{props.post.reply_count || ""}</span>
+            <PostContent
+              content={props.post.content}
+              summary={props.post.summary}
+              class="text-[15px] text-neutral-200 mt-1"
+            />
           </A>
-          <button
-            onClick={() => props.onLike(props.post)}
-            aria-label={
-              props.post.liked ? props.t("posts.unlike") : props.t("posts.like")
-            }
-            aria-pressed={props.post.liked}
-            class={`-m-2 flex items-center gap-2 p-2 transition-colors ${
-              props.post.liked
-                ? "text-pink-500"
-                : "text-neutral-500 hover:text-pink-500"
-            }`}
+          <Show
+            when={props.post.attachments && props.post.attachments.length > 0}
           >
-            <HeartIcon filled={props.post.liked || false} />
-            <Show
-              when={
-                props.post.author.ap_id === props.actorApId &&
-                props.post.like_count > 0
-              }
+            <AttachmentGrid
+              attachments={props.post.attachments}
+              onOpen={(idx, e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                lightbox.open(props.post.attachments, idx);
+              }}
+            />
+          </Show>
+          {/* Actions: >=44px mobile touch targets, compact 36px desktop hitboxes. */}
+          <div class="flex items-center gap-3 md:gap-6 mt-3">
+            <A
+              href={`/post/${encodeURIComponent(props.post.ap_id)}`}
+              aria-label={props.t("posts.reply")}
+              class="-my-2.5 -mx-1.5 flex min-h-11 min-w-11 items-center justify-center gap-1.5 px-2.5 py-2.5 md:-m-2 md:min-h-0 md:min-w-0 md:gap-2 md:p-2 text-neutral-500 hover:text-[var(--accent)] transition-colors"
             >
-              <span class="text-sm">{props.post.like_count}</span>
-            </Show>
-          </button>
+              <ReplyIcon />
+              <span class="text-sm">{props.post.reply_count || ""}</span>
+            </A>
+            <button
+              onClick={() => props.onLike(props.post)}
+              aria-label={
+                props.post.liked
+                  ? props.t("posts.unlike")
+                  : props.t("posts.like")
+              }
+              aria-pressed={props.post.liked}
+              class={`-my-2.5 -mx-1.5 flex min-h-11 min-w-11 items-center justify-center gap-1.5 px-2.5 py-2.5 md:-m-2 md:min-h-0 md:min-w-0 md:gap-2 md:p-2 transition-colors ${
+                props.post.liked
+                  ? "text-pink-500"
+                  : "text-neutral-500 hover:text-pink-500"
+              }`}
+            >
+              <HeartIcon filled={props.post.liked || false} />
+              <Show
+                when={
+                  props.post.author.ap_id === props.actorApId &&
+                  props.post.like_count > 0
+                }
+              >
+                <span class="text-sm">{props.post.like_count}</span>
+              </Show>
+            </button>
+          </div>
         </div>
+        <Show when={lightbox.isOpen()}>
+          <MediaLightbox
+            attachments={lightbox.attachments()}
+            index={lightbox.index()}
+            onClose={lightbox.close}
+          />
+        </Show>
       </div>
-      <Show when={lightbox.isOpen()}>
-        <MediaLightbox
-          attachments={lightbox.attachments()}
-          index={lightbox.index()}
-          onClose={lightbox.close}
-        />
-      </Show>
-    </div>
+    </article>
   );
 }
