@@ -339,7 +339,7 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
     <Show
       when={hasMedia()}
       fallback={
-        <div class="border-b border-neutral-800 hover:bg-neutral-800/40 transition-colors">
+        <article class="border-b border-neutral-800 hover:bg-neutral-800/40 transition-colors">
           {repostLine()}
           <div class="flex gap-3 px-4 py-3">
             <A href={`/profile/${encodeURIComponent(props.post.author.ap_id)}`}>
@@ -365,7 +365,7 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
             </div>
             {lightboxOverlay}
           </div>
-        </div>
+        </article>
       }
     >
       <article class="border-b border-neutral-800 hover:bg-neutral-800/30 transition-colors">
