@@ -65,7 +65,7 @@ export function SettingsAccountsSection(props: SettingsAccountsSectionProps) {
               <button
                 onClick={() => props.onSwitchAccount(account.ap_id)}
                 disabled={props.switching}
-                class="w-full flex items-center gap-3 px-4 py-3 border-b border-neutral-900 hover:bg-neutral-900/50 disabled:opacity-50"
+                class="w-full flex items-center gap-3 px-4 py-3 border-b border-neutral-800 hover:bg-neutral-800/60 transition-colors disabled:opacity-50"
               >
                 <UserAvatar
                   avatarUrl={account.icon_url}
@@ -93,7 +93,7 @@ export function SettingsAccountsSection(props: SettingsAccountsSectionProps) {
             fallback={
               <button
                 onClick={() => props.onToggleCreate(true)}
-                class="w-full flex items-center gap-3 px-4 py-3 hover:bg-neutral-900/50 text-accent"
+                class="w-full flex items-center gap-3 px-4 py-3 hover:bg-neutral-800/60 transition-colors text-accent"
               >
                 <div class="w-12 h-12 rounded-full bg-neutral-800 flex items-center justify-center">
                   <PlusIcon />
@@ -102,7 +102,7 @@ export function SettingsAccountsSection(props: SettingsAccountsSectionProps) {
               </button>
             }
           >
-            <div class="p-4 border-t border-neutral-900">
+            <div class="p-4 border-t border-neutral-800">
               <div class="flex items-center justify-between mb-4">
                 <h3 class="font-bold">{props.t("settings.newAccount")}</h3>
                 <button

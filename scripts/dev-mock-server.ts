@@ -1491,6 +1491,9 @@ async function handleRequest(request: Request): Promise<Response> {
   const searchResponse = await handleSearch(request, method, path, url);
   if (searchResponse) return searchResponse;
 
+  if (path === "/api/notifications/pushers/config" && method === "GET") {
+    return json(request, {});
+  }
   if (path === "/api/notifications/pushers" && method === "POST") {
     const body = await readJson(request);
     const pusher =

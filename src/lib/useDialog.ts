@@ -1,4 +1,5 @@
 import { createEffect, onCleanup, type Accessor } from "solid-js";
+import { isComposingKey } from "../components/ime.ts";
 
 interface UseDialogOptions {
   // Reactive open/closed state. The behaviours below activate only while true.
@@ -196,6 +197,9 @@ export function useDialog(options: UseDialogOptions): void {
       if (dialogStack[dialogStack.length - 1] !== entry) return;
 
       if (e.key === "Escape") {
+        // Ignore Escape pressed to cancel IME composition so CJK input
+        // cancellation never prematurely dismisses the open dialog.
+        if (isComposingKey(e)) return;
         e.preventDefault();
         e.stopPropagation();
         entry.onClose();

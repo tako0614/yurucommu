@@ -205,7 +205,7 @@ export function RightSidebar() {
         <aside aria-labelledby="sidebar-suggested-title" class="p-4 pb-0">
           <div
             ref={listRef}
-            class="bg-neutral-900/50 rounded-2xl overflow-hidden"
+            class="bg-neutral-800/50 border border-neutral-800 rounded-2xl overflow-hidden"
           >
             <h2
               id="sidebar-suggested-title"
@@ -240,7 +240,7 @@ export function RightSidebar() {
           tabindex="-1"
           class="focus-card p-4 pb-0"
         >
-          <div class="space-y-6 rounded-2xl bg-neutral-900/50 p-4">
+          <div class="space-y-6 rounded-2xl bg-neutral-800/50 border border-neutral-800 p-4">
             <h2 id="sidebar-connect-title" class="text-lg font-bold">
               {t("firstFeed.sidebarTitle")}
             </h2>

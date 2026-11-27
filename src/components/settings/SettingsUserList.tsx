@@ -38,7 +38,7 @@ export function SettingsUserList(props: SettingsUserListProps) {
           >
             <For each={props.users}>
               {(user) => (
-                <div class="flex items-center gap-3 px-4 py-3 border-b border-neutral-900">
+                <div class="flex items-center gap-3 px-4 py-3 border-b border-neutral-800">
                   <UserAvatar
                     avatarUrl={user.icon_url}
                     name={user.name || user.preferred_username}
@@ -54,7 +54,7 @@ export function SettingsUserList(props: SettingsUserListProps) {
                   </div>
                   <button
                     onClick={() => props.onAction(user.ap_id)}
-                    class="px-3 py-1.5 border border-neutral-600 rounded-full text-sm hover:bg-neutral-900"
+                    class="px-3 py-1.5 border border-neutral-600 rounded-full text-sm hover:bg-neutral-800 transition-colors"
                   >
                     {props.actionLabel}
                   </button>

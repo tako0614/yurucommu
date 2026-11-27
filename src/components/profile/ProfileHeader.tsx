@@ -57,10 +57,10 @@ export function ProfileHeader(props: ProfileHeaderProps) {
     Boolean(props.actorId) ||
     (!props.isOwnProfile && location.pathname.startsWith("/users/"));
   return (
-    <header class="sticky top-0 bg-neutral-900/80 backdrop-blur-sm border-b border-neutral-900 z-10">
-      <div class="flex items-center justify-between px-4 py-3">
+    <header class="sticky top-0 bg-neutral-900/80 backdrop-blur-sm border-b border-neutral-800 z-10">
+      <div class="flex items-center justify-between px-4 py-1.5">
         {/* Left: Back button (only when viewing another's profile) */}
-        <div class="w-10">
+        <div class="w-11">
           <Show when={showBack()}>
             <BackHeaderMark />
             {/* Back to where the profile was opened from (知り合い, a
@@ -76,7 +76,7 @@ export function ProfileHeader(props: ProfileHeaderProps) {
                 navigate(-1);
               }}
               aria-label={t("common.back")}
-              class="p-2 -ml-2 hover:bg-neutral-900 rounded-full inline-block"
+              class="-ml-2 inline-flex min-h-11 min-w-11 items-center justify-center rounded-full transition-colors hover:bg-neutral-800"
             >
               <BackIcon />
             </A>
@@ -86,21 +86,26 @@ export function ProfileHeader(props: ProfileHeaderProps) {
         {/* Center: prominent federated handle (user@domain). Empty while another
             user's profile is still loading — never falls back to the viewer's
             own handle. */}
-        <span
-          class="min-w-0 truncate font-bold text-white"
+        <h1
+          class="min-w-0 truncate text-base font-bold text-white"
           title={props.handle ? `@${props.handle}` : undefined}
         >
-          <Show when={props.handle}>@{props.handle}</Show>
-        </span>
+          <Show
+            when={props.handle}
+            fallback={<span class="sr-only">{t("nav.profile")}</span>}
+          >
+            @{props.handle}
+          </Show>
+        </h1>
 
         {/* Right: QR / share (own profile) */}
-        <div class="flex w-10 justify-end">
+        <div class="flex w-11 justify-end">
           <Show when={props.isOwnProfile}>
             <button
               type="button"
               onClick={props.onOpenQr}
               aria-label={t("profile.showQr")}
-              class="p-2 -mr-2 rounded-full text-white transition-colors hover:bg-neutral-900"
+              class="-mr-2 flex min-h-11 min-w-11 items-center justify-center rounded-full text-white transition-colors hover:bg-neutral-800"
             >
               <QrIcon />
             </button>

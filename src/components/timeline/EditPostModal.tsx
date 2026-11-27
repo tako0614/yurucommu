@@ -3,6 +3,7 @@ import { Portal } from "solid-js/web";
 import type { Post } from "../../types/index.ts";
 import { CloseIconLarge } from "./TimelineIcons.tsx";
 import { ConfirmSheet } from "../ConfirmSheet.tsx";
+import { isComposingKey } from "../ime.ts";
 import { useDialog } from "../../lib/useDialog.ts";
 import { useI18n } from "../../lib/i18n.tsx";
 
@@ -134,7 +135,7 @@ export function EditPostModal(props: EditPostModalProps) {
               <button
                 onClick={requestClose}
                 aria-label={t("common.close")}
-                class="text-white hover:text-neutral-400 transition-colors"
+                class="-ml-2 rounded-full p-2 text-white transition-colors hover:bg-neutral-800 hover:text-neutral-300"
               >
                 <CloseIconLarge />
               </button>
@@ -173,6 +174,7 @@ export function EditPostModal(props: EditPostModalProps) {
                   value={summary()}
                   onInput={(e) => setSummary(e.currentTarget.value)}
                   placeholder={t("posts.cwPlaceholder")}
+                  aria-label={t("posts.cwPlaceholder")}
                   class={`w-full bg-neutral-800 text-white placeholder-neutral-500 rounded-lg px-3 py-2 text-sm outline-none border transition-colors ${
                     summaryOverLimit()
                       ? "border-red-500 focus:ring-1 focus:ring-red-500"
@@ -202,7 +204,18 @@ export function EditPostModal(props: EditPostModalProps) {
               ref={textareaRef}
               value={content()}
               onInput={(e) => setContent(e.currentTarget.value)}
+              onKeyDown={(e) => {
+                if (
+                  (e.metaKey || e.ctrlKey) &&
+                  e.key === "Enter" &&
+                  !isComposingKey(e)
+                ) {
+                  e.preventDefault();
+                  handleSave();
+                }
+              }}
               placeholder={t("posts.placeholder")}
+              aria-label={t("posts.placeholder")}
               class="w-full bg-transparent text-white placeholder-neutral-500 resize-none outline-none text-lg min-h-[120px]"
             />
           </div>

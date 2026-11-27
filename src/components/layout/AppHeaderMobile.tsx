@@ -34,23 +34,25 @@ export function AppHeaderMobile() {
   return (
     <Show when={hidden() ? null : actor()}>
       {(current) => (
-        <header class="md:hidden sticky top-0 z-30 flex min-h-14 items-center px-4 py-3 bg-neutral-900/80 backdrop-blur-sm border-b border-neutral-800">
+        <header class="md:hidden sticky top-0 z-30 flex min-h-14 items-center px-4 py-1.5 bg-neutral-900/80 backdrop-blur-sm border-b border-neutral-800">
           {/* Avatar / menu trigger — opens the global AppMenu drawer. */}
           <button
             type="button"
             onClick={() => openMenu(true)}
             aria-label={t("menu.open")}
             aria-haspopup="dialog"
-            class="rounded-full ring-1 ring-neutral-700 transition-colors hover:ring-neutral-500"
+            class="-ml-1.5 flex min-h-11 min-w-11 items-center justify-center rounded-full transition-colors hover:bg-neutral-800/70"
           >
             {/* The button is named メニューを開く; the avatar's alt repeated
                 the account's name. */}
-            <UserAvatar
-              decorative
-              avatarUrl={current().icon_url}
-              name={current().name || current().preferred_username}
-              size={32}
-            />
+            <span class="rounded-full ring-1 ring-neutral-700 transition-colors hover:ring-neutral-500">
+              <UserAvatar
+                decorative
+                avatarUrl={current().icon_url}
+                name={current().name || current().preferred_username}
+                size={32}
+              />
+            </span>
           </button>
         </header>
       )}

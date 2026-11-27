@@ -1568,10 +1568,11 @@ export function SearchPage() {
       </Show>
 
       {/* Header with Search */}
-      <header class="sticky top-0 bg-neutral-900/80 backdrop-blur-sm z-10">
+      <header class="sticky top-0 bg-neutral-900/80 backdrop-blur-sm border-b border-neutral-800 z-10">
+        <h1 class="sr-only">{t("nav.search")}</h1>
         <div class="px-4 py-3">
           <form
-            class="flex items-center gap-2 bg-neutral-900 rounded-lg px-3 py-2"
+            class="flex items-center gap-2 rounded-lg border border-neutral-700/80 bg-neutral-800 px-3 py-2 transition-colors focus-within:border-accent"
             onSubmit={(e) => {
               e.preventDefault();
               submitSearch(searchQuery());
@@ -1580,7 +1581,7 @@ export function SearchPage() {
             <button
               type="submit"
               aria-label={t("common.search")}
-              class="text-neutral-500 hover:text-white transition-colors"
+              class="-m-1.5 rounded-full p-1.5 text-neutral-400 transition-colors hover:bg-neutral-700/60 hover:text-white"
             >
               <SearchIcon />
             </button>
@@ -1597,7 +1598,7 @@ export function SearchPage() {
                 type="button"
                 onClick={clearSearch}
                 aria-label={t("search.clear")}
-                class="text-neutral-500 hover:text-white"
+                class="-m-1.5 rounded-full p-1.5 text-neutral-400 transition-colors hover:bg-neutral-700/60 hover:text-white"
               >
                 <CloseIcon />
               </button>
@@ -1616,7 +1617,7 @@ export function SearchPage() {
         {/* Search result tabs */}
         <Show when={searched()}>
           <div
-            class="flex border-t border-neutral-900"
+            class="flex border-t border-neutral-800"
             role="tablist"
             aria-label={t("nav.search")}
             onKeyDown={(e) => {
@@ -1759,7 +1760,7 @@ export function SearchPage() {
                         /* The row link and the join button are SIBLINGS — a
                            <button> nested inside an <A> is invalid interactive
                            nesting and breaks SR/keyboard focus order. */
-                        <div class="flex items-center gap-3 px-4 py-3 border-b border-neutral-900 hover:bg-neutral-900/30 transition-colors">
+                        <div class="flex items-center gap-3 px-4 py-3 border-b border-neutral-800 hover:bg-neutral-800/40 transition-colors">
                           <A
                             href={`/groups/${community.name}`}
                             class="flex min-w-0 flex-1 items-center gap-3"
@@ -1938,7 +1939,7 @@ export function SearchPage() {
                                 // if the search comes back empty.
                                 submitSearch(`#${tag}`, "posts");
                               }}
-                              class="block w-full text-left px-3 py-2.5 rounded-lg hover:bg-neutral-900/50 transition-colors"
+                              class="block w-full text-left px-3 py-2.5 rounded-lg hover:bg-neutral-800/60 transition-colors"
                             >
                               <div class="font-medium text-white">#{tag}</div>
                               <div class="text-xs text-neutral-500 mt-0.5">
@@ -1961,7 +1962,7 @@ export function SearchPage() {
                 {/* Inward-first affordance: results above are from your own
                     instance / connections. Reaching out to other servers is an
                     explicit secondary toggle, not the default. */}
-                <div class="border-b border-neutral-900 px-4 py-3">
+                <div class="border-b border-neutral-800 px-4 py-3">
                   <button
                     type="button"
                     onClick={toggleIncludeRemote}
@@ -2002,7 +2003,7 @@ export function SearchPage() {
                   </Show>
                 </div>
                 <Show when={searchUsersResult().length > 0}>
-                  <div class="flex items-center justify-end gap-2 px-4 py-2 border-b border-neutral-900">
+                  <div class="flex items-center justify-end gap-2 px-4 py-2 border-b border-neutral-800">
                     <label for="users-sort" class="text-xs text-neutral-500">
                       {t("search.sortLabel")}
                     </label>
@@ -2059,7 +2060,7 @@ export function SearchPage() {
                 >
                   <For each={searchUsersResult()}>
                     {(user) => (
-                      <div class="flex items-center gap-3 px-4 py-3 border-b border-neutral-900 hover:bg-neutral-900/30 transition-colors">
+                      <div class="flex items-center gap-3 px-4 py-3 border-b border-neutral-800 hover:bg-neutral-800/40 transition-colors">
                         <A href={`/profile/${encodeURIComponent(user.ap_id)}`}>
                           <UserAvatar
                             avatarUrl={user.icon_url}
@@ -2156,7 +2157,7 @@ export function SearchPage() {
               {/* Posts tab */}
               <Show when={searchTab() === "posts"}>
                 <Show when={searchPostsResult().length > 0}>
-                  <div class="flex items-center justify-end gap-2 px-4 py-2 border-b border-neutral-900">
+                  <div class="flex items-center justify-end gap-2 px-4 py-2 border-b border-neutral-800">
                     <label for="posts-sort" class="text-xs text-neutral-500">
                       {t("search.sortLabel")}
                     </label>
@@ -2184,7 +2185,7 @@ export function SearchPage() {
                 >
                   <For each={searchPostsResult()}>
                     {(post) => (
-                      <div class="flex gap-3 px-4 py-3 border-b border-neutral-900 hover:bg-neutral-900/30 transition-colors">
+                      <div class="flex gap-3 px-4 py-3 border-b border-neutral-800 hover:bg-neutral-800/40 transition-colors">
                         <A
                           href={`/profile/${encodeURIComponent(
                             post.author.ap_id,
@@ -2322,7 +2323,7 @@ export function SearchPage() {
                     {(community) => (
                       <A
                         href={`/groups/${community.name}`}
-                        class="flex items-center gap-3 px-4 py-3 border-b border-neutral-900 hover:bg-neutral-900/30 transition-colors"
+                        class="flex items-center gap-3 px-4 py-3 border-b border-neutral-800 hover:bg-neutral-800/40 transition-colors"
                       >
                         <div class="w-12 h-12 rounded-full bg-neutral-800 flex items-center justify-center overflow-hidden shrink-0">
                           <Show

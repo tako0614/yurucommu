@@ -93,7 +93,7 @@ export function ProfileSummary(props: ProfileSummaryProps) {
         {/* Avatar: 96px below 360px wide, so on a 320px phone it no longer
             runs under the ... / follow buttons on the right. */}
         <div class="absolute -top-12 left-4 min-[360px]:-top-16">
-          <div class="w-24 h-24 rounded-full border-4 border-black overflow-hidden bg-neutral-800 min-[360px]:w-32 min-[360px]:h-32">
+          <div class="w-24 h-24 rounded-full border-4 border-neutral-900 overflow-hidden bg-neutral-800 min-[360px]:w-32 min-[360px]:h-32">
             <UserAvatar
               avatarUrl={props.profile.icon_url}
               name={props.profile.name || props.profile.preferred_username}
@@ -119,7 +119,7 @@ export function ProfileSummary(props: ProfileSummaryProps) {
                   // without role="menu"/menuitem/arrow-key semantics.
                   aria-haspopup="true"
                   aria-expanded={props.showMenu}
-                  class="p-2 border border-neutral-600 rounded-full hover:bg-neutral-900 transition-colors"
+                  class="p-2 border border-neutral-600 rounded-full hover:bg-neutral-800 transition-colors"
                 >
                   <MoreIcon />
                 </button>
@@ -173,7 +173,7 @@ export function ProfileSummary(props: ProfileSummaryProps) {
           <Show when={props.isOwnProfile}>
             <button
               onClick={props.onOpenEdit}
-              class="px-4 py-2 rounded-full font-bold border border-neutral-600 text-white hover:bg-neutral-900 transition-colors"
+              class="px-4 py-2 rounded-full font-bold border border-neutral-600 text-white hover:bg-neutral-800 transition-colors"
             >
               {props.t("profile.editProfile")}
             </button>

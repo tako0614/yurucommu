@@ -15,6 +15,7 @@ import type { PostVisibility } from "../../atoms/timeline.ts";
 import type { InhabitedScope } from "../../atoms/scope.ts";
 import { EmojiPicker } from "../story/EmojiPicker.tsx";
 import { ConfirmSheet } from "../ConfirmSheet.tsx";
+import { isComposingKey } from "../ime.ts";
 import { useDialog } from "../../lib/useDialog.ts";
 import { useI18n } from "../../lib/i18n.tsx";
 import { mediaNeedsReupload } from "../../lib/staged-media.ts";
@@ -289,7 +290,7 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
                 props.posting || props.uploading || props.draftRecoveryNeeded
               }
               aria-label={t("common.close")}
-              class="text-white hover:text-neutral-400 transition-colors disabled:opacity-50"
+              class="-ml-2 rounded-full p-2 text-white transition-colors hover:bg-neutral-800 hover:text-neutral-300 disabled:opacity-50"
             >
               <CloseIconLarge />
             </button>
@@ -444,6 +445,7 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
                         props.onPostSummaryChange(e.currentTarget.value)
                       }
                       placeholder={t("posts.cwPlaceholder")}
+                      aria-label={t("posts.cwPlaceholder")}
                       class={`w-full bg-neutral-800 text-white placeholder-neutral-500 rounded-lg px-3 py-2 text-sm outline-none border transition-colors ${
                         summaryOverLimit()
                           ? "border-red-500 focus:ring-1 focus:ring-red-500"
@@ -484,7 +486,21 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
                       onInput={(e) =>
                         props.onPostContentChange(e.currentTarget.value)
                       }
+                      onKeyDown={(e) => {
+                        if (
+                          (e.metaKey || e.ctrlKey) &&
+                          e.key === "Enter" &&
+                          !isComposingKey(e)
+                        ) {
+                          e.preventDefault();
+                          if (!canSubmit()) return;
+                          void props.onSubmit().then((canClose) => {
+                            if (canClose) props.onSubmitSuccess();
+                          });
+                        }
+                      }}
                       placeholder={props.placeholder}
+                      aria-label={props.placeholder}
                       class="w-full bg-transparent text-white placeholder-neutral-500 resize-none outline-none text-lg min-h-[120px]"
                       autofocus
                     />
@@ -526,7 +542,7 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
                                 <button
                                   onClick={() => props.onRemoveMedia(idx)}
                                   aria-label={t("compose.removeMedia")}
-                                  class="absolute -top-1 -right-1 bg-black/70 rounded-full p-0.5 hover:bg-neutral-900"
+                                  class="absolute -top-1 -right-1 bg-black/70 rounded-full p-0.5 hover:bg-neutral-800"
                                 >
                                   <CloseIcon />
                                 </button>

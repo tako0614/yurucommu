@@ -289,9 +289,9 @@ export function AppMenu() {
                                   ? "true"
                                   : undefined
                               }
-                              class={`w-full flex items-center gap-3 px-4 py-3 hover:bg-neutral-900 transition-colors ${
+                              class={`w-full flex items-center gap-3 px-4 py-3 hover:bg-neutral-800 transition-colors ${
                                 account.ap_id === currentApId()
-                                  ? "bg-neutral-900/50"
+                                  ? "bg-neutral-800/60"
                                   : ""
                               }`}
                             >
@@ -335,7 +335,7 @@ export function AppMenu() {
                 <A
                   href="/profile"
                   onClick={close}
-                  class="flex items-center gap-4 px-4 py-3 rounded-full hover:bg-neutral-900 transition-colors"
+                  class="flex items-center gap-4 px-4 py-3 rounded-full hover:bg-neutral-800 transition-colors"
                 >
                   <ProfileIconMenu />
                   <span class="text-lg">{t("nav.profile")}</span>
@@ -343,7 +343,7 @@ export function AppMenu() {
                 <A
                   href="/friends"
                   onClick={close}
-                  class="flex items-center gap-4 px-4 py-3 rounded-full hover:bg-neutral-900 transition-colors"
+                  class="flex items-center gap-4 px-4 py-3 rounded-full hover:bg-neutral-800 transition-colors"
                 >
                   <FriendsIcon />
                   <span class="text-lg">{t("nav.friends")}</span>
@@ -351,7 +351,7 @@ export function AppMenu() {
                 <A
                   href="/bookmarks"
                   onClick={close}
-                  class="flex items-center gap-4 px-4 py-3 rounded-full hover:bg-neutral-900 transition-colors"
+                  class="flex items-center gap-4 px-4 py-3 rounded-full hover:bg-neutral-800 transition-colors"
                 >
                   <BookmarkIconMenu />
                   <span class="text-lg">{t("nav.bookmarks")}</span>
@@ -359,7 +359,7 @@ export function AppMenu() {
                 <A
                   href="/search"
                   onClick={close}
-                  class="flex items-center gap-4 px-4 py-3 rounded-full hover:bg-neutral-900 transition-colors"
+                  class="flex items-center gap-4 px-4 py-3 rounded-full hover:bg-neutral-800 transition-colors"
                 >
                   <DiscoverIcon />
                   <span class="text-lg">{t("nav.discover")}</span>
@@ -367,7 +367,7 @@ export function AppMenu() {
                 <A
                   href="/settings"
                   onClick={close}
-                  class="flex items-center gap-4 px-4 py-3 rounded-full hover:bg-neutral-900 transition-colors"
+                  class="flex items-center gap-4 px-4 py-3 rounded-full hover:bg-neutral-800 transition-colors"
                 >
                   <SettingsIconMenu />
                   <span class="text-lg">{t("nav.settings")}</span>
@@ -375,7 +375,7 @@ export function AppMenu() {
                 <button
                   type="button"
                   onClick={() => setLanguage(language() === "ja" ? "en" : "ja")}
-                  class="w-full flex items-center gap-4 px-4 py-3 rounded-full hover:bg-neutral-900 transition-colors text-left"
+                  class="w-full flex items-center gap-4 px-4 py-3 rounded-full hover:bg-neutral-800 transition-colors text-left"
                 >
                   <LanguageIcon />
                   <span class="flex-1 text-lg">{t("settings.language")}</span>
@@ -388,7 +388,7 @@ export function AppMenu() {
                 <button
                   type="button"
                   onClick={() => setConfirmLogout(true)}
-                  class="w-full flex items-center gap-4 px-4 py-3 rounded-full hover:bg-neutral-900 transition-colors text-left"
+                  class="w-full flex items-center gap-4 px-4 py-3 rounded-full hover:bg-neutral-800 transition-colors text-left"
                 >
                   <LogoutIcon />
                   <span class="text-lg">{t("settings.logout")}</span>

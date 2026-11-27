@@ -77,10 +77,10 @@ export function SettingsFiltersSection(props: SettingsFiltersSectionProps) {
             </div>
           }
         >
-          <ul class="border-t border-neutral-900">
+          <ul class="border-t border-neutral-800">
             <For each={words()}>
               {(word) => (
-                <li class="flex items-center justify-between px-4 py-3 border-b border-neutral-900">
+                <li class="flex items-center justify-between px-4 py-3 border-b border-neutral-800">
                   <span class="truncate text-white">{word}</span>
                   <button
                     type="button"

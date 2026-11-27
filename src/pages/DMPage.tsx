@@ -709,14 +709,14 @@ export function DMPage() {
                       onInput={(e) => setSearchQuery(e.currentTarget.value)}
                       placeholder={t("nav.search")}
                       aria-label={t("common.search")}
-                      class="w-full pl-10 pr-4 py-2 bg-neutral-900 rounded-lg text-white placeholder-neutral-500 focus:outline-none focus:ring-1 focus:ring-neutral-700"
+                      class="w-full pl-10 pr-4 py-2 bg-neutral-800 border border-neutral-700/80 rounded-lg text-white placeholder-neutral-500 focus:outline-none focus:border-accent transition-colors"
                     />
                   </div>
                 </div>
 
                 {/* Tab bar - LINE style with underline on active */}
                 <div
-                  class="relative flex overflow-x-auto scrollbar-hide border-b border-neutral-900"
+                  class="relative flex overflow-x-auto scrollbar-hide border-b border-neutral-800"
                   role="tablist"
                   aria-label={t("nav.messages")}
                   onKeyDown={(e) =>

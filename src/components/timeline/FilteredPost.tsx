@@ -25,8 +25,8 @@ export function FilteredPost(props: FilteredPostProps) {
 
   return (
     <Show when={filtered()} fallback={props.children}>
-      <div class="border-b border-neutral-900 px-4 py-3">
-        <div class="flex items-center justify-between gap-3 rounded-xl bg-neutral-900/60 px-4 py-3">
+      <div class="border-b border-neutral-800 px-4 py-3">
+        <div class="flex items-center justify-between gap-3 rounded-xl border border-neutral-800 bg-neutral-800/50 px-4 py-3">
           <span class="min-w-0 truncate text-sm text-neutral-400">
             {t("filters.hiddenPost").replace("{word}", matched() ?? "")}
           </span>

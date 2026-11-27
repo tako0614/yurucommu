@@ -142,8 +142,8 @@ export function BottomNav() {
     item.route !== undefined && isActive(item.route);
 
   const itemClass = (item: NavItem) =>
-    `flex flex-col items-center justify-center p-2 ${
-      active(item) ? "text-white" : "text-neutral-500"
+    `flex min-h-11 min-w-11 flex-col items-center justify-center rounded-full transition-colors ${
+      active(item) ? "text-white" : "text-neutral-500 hover:text-neutral-300"
     }`;
 
   return (
@@ -168,7 +168,10 @@ export function BottomNav() {
         </button>
       </Show>
       <Show when={!conversationOnScreen()}>
-        <nav class="md:hidden fixed bottom-0 left-0 right-0 h-[calc(3.5rem+env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] bg-neutral-900 border-t border-neutral-900 flex items-center justify-around z-50">
+        <nav
+          aria-label={t("nav.primary")}
+          class="md:hidden fixed bottom-0 left-0 right-0 h-[calc(3.5rem+env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] bg-neutral-900 border-t border-neutral-800 flex items-center justify-around z-50"
+        >
           <For each={MOBILE_NAV_ITEMS}>
             {(item) => {
               const Icon = item.icon;

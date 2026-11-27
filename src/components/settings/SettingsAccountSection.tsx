@@ -127,7 +127,7 @@ export function SettingsAccountSection(props: SettingsAccountSectionProps) {
         </Show>
 
         {/* Data export */}
-        <div class="border-b border-neutral-900 p-4">
+        <div class="border-b border-neutral-800 p-4">
           <div class="text-sm text-neutral-500 uppercase mb-2">
             {props.t("settings.dataExport")}
           </div>

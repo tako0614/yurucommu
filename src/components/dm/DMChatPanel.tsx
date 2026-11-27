@@ -482,7 +482,7 @@ export function DMChatPanel(props: DMChatPanelProps) {
 
   return (
     <div class="flex flex-col h-full">
-      <div class="flex items-center gap-3 px-4 py-3 border-b border-neutral-900 bg-neutral-900/80 backdrop-blur-sm">
+      <div class="flex items-center gap-3 px-4 py-3 border-b border-neutral-800 bg-neutral-900/80 backdrop-blur-sm">
         <button
           onClick={props.onBack}
           aria-label={t("common.back")}
@@ -762,7 +762,7 @@ export function DMChatPanel(props: DMChatPanelProps) {
         <div ref={messagesEndRef!} />
       </div>
 
-      <form onSubmit={handleSend} class="p-4 border-t border-neutral-900">
+      <form onSubmit={handleSend} class="p-4 border-t border-neutral-800">
         <Show when={errorMessage()}>
           <div
             role="alert"

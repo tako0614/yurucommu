@@ -179,7 +179,7 @@ export function SettingsModerationSection(
 
         <Show when={!loading() && !forbidden()}>
           {/* Blocked domains */}
-          <div class="border-b border-neutral-900 py-4">
+          <div class="border-b border-neutral-800 py-4">
             <div class="px-4 pb-3 text-sm text-neutral-500 uppercase">
               {props.t("settings.blockedDomains")}
             </div>
@@ -219,7 +219,7 @@ export function SettingsModerationSection(
           </div>
 
           {/* Blocked actors */}
-          <div class="border-b border-neutral-900 py-4">
+          <div class="border-b border-neutral-800 py-4">
             <div class="px-4 pb-3 text-sm text-neutral-500 uppercase">
               {props.t("settings.blockedActors")}
             </div>
@@ -273,7 +273,7 @@ export function SettingsModerationSection(
             >
               <For each={reports()}>
                 {(r) => (
-                  <div class="px-4 py-3 border-t border-neutral-900">
+                  <div class="px-4 py-3 border-t border-neutral-800">
                     <div class="flex items-center justify-between gap-3">
                       <span
                         class={

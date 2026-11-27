@@ -104,7 +104,7 @@ export function BookmarksPage() {
       <Show when={error()}>
         <InlineErrorBanner message={error()!} onClose={clearError} />
       </Show>
-      <header class="sticky top-0 bg-neutral-900/80 backdrop-blur-sm border-b border-neutral-900 z-10">
+      <header class="sticky top-0 bg-neutral-900/80 backdrop-blur-sm border-b border-neutral-800 z-10">
         <h1 class="text-xl font-bold px-4 py-3">{t("bookmarks.title")}</h1>
       </header>
 
@@ -135,7 +135,7 @@ export function BookmarksPage() {
             >
               <For each={posts()}>
                 {(post) => (
-                  <div class="flex gap-3 px-4 py-3 border-b border-neutral-900 hover:bg-neutral-900/30 transition-colors">
+                  <div class="flex gap-3 px-4 py-3 border-b border-neutral-800 hover:bg-neutral-800/40 transition-colors">
                     <A
                       href={`/profile/${encodeURIComponent(post.author.ap_id)}`}
                     >
