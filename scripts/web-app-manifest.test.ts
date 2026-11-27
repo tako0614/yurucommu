@@ -135,6 +135,12 @@ describe("web app manifest", () => {
       (await stat(new URL("icons/yurucommu.svg", publicDir))).isFile(),
     ).toBe(true);
   });
+
+  test("loads the language initializer in the head before the app module", () => {
+    const head = indexHtml.split("</head>")[0];
+    expect(head).toContain('<script src="/language-init.js"></script>');
+    expect(head).not.toContain('<script type="module"');
+  });
 });
 
 describe("Worker serving of the manifest and icons", () => {
@@ -230,22 +236,22 @@ describe("Worker serving of the manifest and icons", () => {
   });
 
   test("serves every fixed-name public file byte-for-byte, revalidated hourly and never immutable", async () => {
-    // The manifest, every icon, the existing SVG mark and the push service
-    // worker. The service worker is the one whose name ends in .js like the
-    // fingerprinted bundles, so a cache rule keyed on the extension would
-    // make it immutable again; it must stay on the fixed-name rule.
+    // The service worker and language initializer end in .js like the
+    // fingerprinted bundles, so both must stay on the fixed-name cache rule.
     expect(servedFiles).toEqual(
       expect.arrayContaining([
         "manifest.webmanifest",
         "apple-touch-icon.png",
         "icons/yurucommu.svg",
         "notification-push-sw.js",
+        "language-init.js",
         ...manifest.icons.map(({ src }) => src.slice(1)),
       ]),
     );
     const expectedTypes: Record<string, string> = {
       "manifest.webmanifest": "application/manifest+json",
       "notification-push-sw.js": "text/javascript; charset=utf-8",
+      "language-init.js": "text/javascript; charset=utf-8",
       "icons/yurucommu.svg": "image/svg+xml",
     };
     const { fetch } = await loadWorker();
@@ -289,7 +295,7 @@ describe("Worker serving of the manifest and icons", () => {
     expect(shell.headers.get("cache-control")).toBe("no-cache");
   });
 
-  test("the document CSP lets the browser load the same-origin manifest and icons", async () => {
+  test("the document CSP lets the browser load the same-origin language initializer, manifest and icons", async () => {
     const { fetch } = await loadWorker();
     const shell = await fetch(
       new Request(`${origin}/`, { headers: { accept: "text/html" } }),
@@ -307,6 +313,9 @@ describe("Worker serving of the manifest and icons", () => {
     // otherwise default-src (CSP3 fallback). Either way it must allow 'self'.
     const effective = (directive: string) =>
       directives.get(directive) ?? directives.get("default-src") ?? [];
+    expect(
+      directives.get("script-src-elem") ?? effective("script-src"),
+    ).toContain("'self'");
     expect(effective("manifest-src")).toContain("'self'");
     expect(effective("img-src")).toContain("'self'");
   });
