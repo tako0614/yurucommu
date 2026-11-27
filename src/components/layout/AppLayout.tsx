@@ -62,12 +62,7 @@ export function AppLayout(props: { children?: JSX.Element }) {
           existingSearch.focus();
           existingSearch.select();
         } else {
-          navigate("/search");
-          requestAnimationFrame(() => {
-            document
-              .querySelector<HTMLInputElement>("main input[data-search-input]")
-              ?.focus();
-          });
+          navigate("/search", { state: { focusSearch: true } });
         }
       }
     };

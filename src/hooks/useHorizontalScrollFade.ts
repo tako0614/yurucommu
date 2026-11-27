@@ -21,7 +21,7 @@ export function createHorizontalScrollFade() {
     if (attached) measure(attached);
   };
 
-  const cleanup = () => {
+  const detach = () => {
     if (attached) {
       attached.removeEventListener("scroll", onScroll);
       attached = null;
@@ -30,12 +30,14 @@ export function createHorizontalScrollFade() {
       observer.disconnect();
       observer = null;
     }
+    setCanScrollLeft(false);
+    setCanScrollRight(false);
   };
 
-  onCleanup(cleanup);
+  onCleanup(detach);
 
   const bind = (el: HTMLElement) => {
-    cleanup();
+    detach();
     attached = el;
     el.addEventListener("scroll", onScroll, { passive: true });
     if (typeof ResizeObserver !== "undefined") {
@@ -47,5 +49,5 @@ export function createHorizontalScrollFade() {
     });
   };
 
-  return { canScrollLeft, canScrollRight, bind };
+  return { canScrollLeft, canScrollRight, bind, detach };
 }

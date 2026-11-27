@@ -481,6 +481,12 @@ export function DMPage() {
   const showDeepLinkState = () =>
     !showChat() && !!validContactId() && (resolving() || notFound());
 
+  // Detach ResizeObserver and scroll listeners while the tablist is unmounted
+  // (e.g. inside an open conversation or deep-link overlay).
+  createEffect(() => {
+    if (showChat() || showDeepLinkState()) tabScrollFade.detach();
+  });
+
   // Get current tab's content with search filter
   const currentContacts = createMemo(() => {
     let result: DMContact[] = [];

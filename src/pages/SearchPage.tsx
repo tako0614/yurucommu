@@ -8,7 +8,7 @@ import {
   Show,
   untrack,
 } from "solid-js";
-import { A, useSearchParams } from "@solidjs/router";
+import { A, useLocation, useNavigate, useSearchParams } from "@solidjs/router";
 import { useAtomValue, useSetAtom, useStore } from "solid-jotai";
 import { atom } from "jotai/vanilla";
 import { useRequiredActor } from "../hooks/useRequiredActor.ts";
@@ -534,7 +534,24 @@ export function SearchPage() {
     return pendingLikes().has(searchLikeKey(store, id));
   };
   const clearError = () => setError(null);
+  const location = useLocation<{ focusSearch?: boolean }>();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  let searchInputRef: HTMLInputElement | undefined;
+  createEffect(() => {
+    if (location.state?.focusSearch) {
+      queueMicrotask(() => {
+        if (searchInputRef?.isConnected) {
+          searchInputRef.focus();
+          searchInputRef.select();
+        }
+      });
+      navigate(`${location.pathname}${location.search}`, {
+        replace: true,
+        state: {},
+      });
+    }
+  });
 
   const [searchQuery, setSearchQuery] = createSignal("");
   const [searchTab, setSearchTab] = createSignal<SearchTab>("users");
@@ -1588,6 +1605,7 @@ export function SearchPage() {
               <SearchIcon />
             </button>
             <input
+              ref={searchInputRef}
               type="text"
               data-search-input
               value={searchQuery()}
@@ -1606,7 +1624,10 @@ export function SearchPage() {
             <Show when={searchQuery()}>
               <button
                 type="button"
-                onClick={clearSearch}
+                onClick={() => {
+                  clearSearch();
+                  searchInputRef?.focus();
+                }}
                 aria-label={t("search.clear")}
                 class="-m-2 flex min-h-10 min-w-10 items-center justify-center rounded-full p-2 md:-m-1.5 md:min-h-0 md:min-w-0 md:p-1.5 text-neutral-400 transition-colors hover:bg-neutral-700/60 hover:text-white"
               >

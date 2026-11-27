@@ -167,6 +167,8 @@ mock.module("solid-jotai", () => ({
   },
 }));
 mock.module("@solidjs/router", () => ({
+  useLocation: () => ({ pathname: "/search", search: "", state: {} }),
+  useNavigate: () => () => {},
   useSearchParams: () => {
     const owner = fixture;
     const [params, setParams] = createSignal({ search: "", tab: "users" });
