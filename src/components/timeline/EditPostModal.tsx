@@ -4,6 +4,7 @@ import type { Post } from "../../types/index.ts";
 import { CloseIconLarge } from "./TimelineIcons.tsx";
 import { ConfirmSheet } from "../ConfirmSheet.tsx";
 import { isComposingKey } from "../ime.ts";
+import { submitShortcutLabel } from "../../lib/shortcuts.ts";
 import { useDialog } from "../../lib/useDialog.ts";
 import { useI18n } from "../../lib/i18n.tsx";
 
@@ -234,6 +235,12 @@ export function EditPostModal(props: EditPostModalProps) {
             >
               CW
             </button>
+            <span class="ml-auto hidden sm:inline text-xs text-neutral-500">
+              {t("compose.saveHint").replace(
+                "{shortcut}",
+                submitShortcutLabel(),
+              )}
+            </span>
           </div>
         </div>
         {/* Discard confirm — layered above the editor; cancel keeps editing. */}

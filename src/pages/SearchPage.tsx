@@ -50,6 +50,8 @@ import { InlineErrorBanner } from "../components/InlineErrorBanner.tsx";
 import { InlineErrorRetry } from "../components/InlineErrorRetry.tsx";
 import { EmptyState } from "../components/EmptyState.tsx";
 import { PostSkeleton } from "../components/timeline/PostSkeleton.tsx";
+import { PostVisibilityIndicator } from "../components/timeline/PostVisibilityIndicator.tsx";
+import { isComposingKey } from "../components/ime.ts";
 import { HeartIcon } from "../components/icons/SocialIcons.tsx";
 import {
   AttachmentGrid,
@@ -1572,7 +1574,7 @@ export function SearchPage() {
         <h1 class="sr-only">{t("nav.search")}</h1>
         <div class="px-4 py-3">
           <form
-            class="flex items-center gap-2 rounded-lg border border-neutral-700/80 bg-neutral-800 px-3 py-2 transition-colors focus-within:border-accent"
+            class="flex items-center gap-2 rounded-lg border border-neutral-700/80 bg-neutral-800 px-3 py-2 transition-colors focus-within:border-accent focus-within:ring-1 focus-within:ring-accent"
             onSubmit={(e) => {
               e.preventDefault();
               submitSearch(searchQuery());
@@ -1581,14 +1583,22 @@ export function SearchPage() {
             <button
               type="submit"
               aria-label={t("common.search")}
-              class="-m-1.5 rounded-full p-1.5 text-neutral-400 transition-colors hover:bg-neutral-700/60 hover:text-white"
+              class="-m-2 flex min-h-10 min-w-10 items-center justify-center rounded-full p-2 md:-m-1.5 md:min-h-0 md:min-w-0 md:p-1.5 text-neutral-400 transition-colors hover:bg-neutral-700/60 hover:text-white"
             >
               <SearchIcon />
             </button>
             <input
               type="text"
+              data-search-input
               value={searchQuery()}
               onInput={(e) => setSearchQuery(e.currentTarget.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape" && !isComposingKey(e) && searchQuery()) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  clearSearch();
+                }
+              }}
               placeholder={t("nav.search")}
               aria-label={t("common.search")}
               class="flex-1 bg-transparent outline-none text-white placeholder-neutral-500 text-sm"
@@ -1598,7 +1608,7 @@ export function SearchPage() {
                 type="button"
                 onClick={clearSearch}
                 aria-label={t("search.clear")}
-                class="-m-1.5 rounded-full p-1.5 text-neutral-400 transition-colors hover:bg-neutral-700/60 hover:text-white"
+                class="-m-2 flex min-h-10 min-w-10 items-center justify-center rounded-full p-2 md:-m-1.5 md:min-h-0 md:min-w-0 md:p-1.5 text-neutral-400 transition-colors hover:bg-neutral-700/60 hover:text-white"
               >
                 <CloseIcon />
               </button>
@@ -2185,110 +2195,123 @@ export function SearchPage() {
                 >
                   <For each={searchPostsResult()}>
                     {(post) => (
-                      <div class="flex gap-3 px-4 py-3 border-b border-neutral-800 hover:bg-neutral-800/40 transition-colors">
-                        <A
-                          href={`/profile/${encodeURIComponent(
-                            post.author.ap_id,
-                          )}`}
-                        >
-                          <UserAvatar
-                            avatarUrl={post.author.icon_url}
-                            name={
-                              post.author.name || post.author.preferred_username
-                            }
-                            size={48}
-                          />
-                        </A>
-                        <div class="flex-1 min-w-0">
-                          <div class="flex items-baseline gap-2">
-                            <A
-                              href={`/profile/${encodeURIComponent(
-                                post.author.ap_id,
-                              )}`}
-                              class="font-bold text-white truncate hover:underline"
-                            >
-                              {post.author.name ||
-                                post.author.preferred_username}
-                            </A>
-                            <span class="text-neutral-500 truncate">
-                              @{post.author.username}
-                            </span>
-                            <span class="text-neutral-500">·</span>
-                            <span class="text-neutral-500 text-sm">
-                              {formatRelativeTime(post.published, {
-                                locale: language(),
-                              })}
-                            </span>
-                          </div>
-                          <A href={`/post/${encodeURIComponent(post.ap_id)}`}>
-                            <PostContent
-                              content={post.content}
-                              summary={post.summary}
-                              class="text-[15px] text-neutral-200 mt-1"
+                      <article class="border-b border-neutral-800 hover:bg-neutral-800/40 transition-colors">
+                        <div class="flex gap-3 px-4 py-3">
+                          <A
+                            href={`/profile/${encodeURIComponent(
+                              post.author.ap_id,
+                            )}`}
+                          >
+                            <UserAvatar
+                              avatarUrl={post.author.icon_url}
+                              name={
+                                post.author.name ||
+                                post.author.preferred_username
+                              }
+                              size={48}
                             />
                           </A>
-                          <Show
-                            when={
-                              post.attachments && post.attachments.length > 0
-                            }
-                          >
-                            <AttachmentGrid
-                              attachments={post.attachments}
-                              onOpen={(idx, e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                lightbox.open(post.attachments, idx);
-                              }}
-                            />
-                          </Show>
-                          <div class="flex items-center gap-6 mt-3">
-                            <button
-                              onClick={() => handleLike(post)}
-                              disabled={
-                                isLikePending(post.ap_id) || instancesLoading()
-                              }
-                              aria-busy={
-                                isLikePending(post.ap_id) || instancesLoading()
-                              }
-                              aria-label={
-                                post.liked ? t("posts.unlike") : t("posts.like")
-                              }
-                              aria-pressed={post.liked}
-                              class={`flex items-center gap-2 transition-colors ${
-                                post.liked
-                                  ? "text-pink-500"
-                                  : "text-neutral-500 hover:text-pink-500"
-                              }`}
+                          <div class="flex-1 min-w-0">
+                            <div class="flex min-w-0 items-baseline gap-2">
+                              <A
+                                href={`/profile/${encodeURIComponent(
+                                  post.author.ap_id,
+                                )}`}
+                                class="font-bold text-white truncate hover:underline"
+                              >
+                                {post.author.name ||
+                                  post.author.preferred_username}
+                              </A>
+                              <span class="text-neutral-500 truncate">
+                                @{post.author.username}
+                              </span>
+                              <span class="text-neutral-500 shrink-0">·</span>
+                              <span class="text-neutral-500 text-sm shrink-0 whitespace-nowrap">
+                                {formatRelativeTime(post.published, {
+                                  locale: language(),
+                                })}
+                              </span>
+                              <PostVisibilityIndicator
+                                visibility={post.visibility}
+                              />
+                            </div>
+                            <A
+                              href={`/post/${encodeURIComponent(post.ap_id)}`}
+                              class="block"
                             >
-                              <HeartIcon filled={post.liked || false} />
-                              <Show
-                                when={
+                              <PostContent
+                                content={post.content}
+                                summary={post.summary}
+                                class="text-[15px] text-neutral-200 mt-1"
+                              />
+                            </A>
+                            <Show
+                              when={
+                                post.attachments && post.attachments.length > 0
+                              }
+                            >
+                              <AttachmentGrid
+                                attachments={post.attachments}
+                                onOpen={(idx, e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  lightbox.open(post.attachments, idx);
+                                }}
+                              />
+                            </Show>
+                            <div class="flex items-center gap-3 md:gap-6 mt-3">
+                              <button
+                                onClick={() => handleLike(post)}
+                                disabled={
                                   isLikePending(post.ap_id) ||
                                   instancesLoading()
                                 }
-                              >
-                                <span class="text-xs">
-                                  {isLikePending(post.ap_id)
-                                    ? language() === "ja"
-                                      ? "処理中"
-                                      : "Updating…"
-                                    : language() === "ja"
-                                      ? "接続先を確認中"
-                                      : "Checking connection…"}
-                                </span>
-                              </Show>
-                              <Show
-                                when={
-                                  post.author.ap_id === actor.ap_id &&
-                                  post.like_count > 0
+                                aria-busy={
+                                  isLikePending(post.ap_id) ||
+                                  instancesLoading()
                                 }
+                                aria-label={
+                                  post.liked
+                                    ? t("posts.unlike")
+                                    : t("posts.like")
+                                }
+                                aria-pressed={post.liked}
+                                class={`-my-2.5 -mx-1.5 flex min-h-11 min-w-11 items-center justify-center gap-1.5 px-2.5 py-2.5 md:-m-2 md:min-h-0 md:min-w-0 md:gap-2 md:p-2 transition-colors ${
+                                  post.liked
+                                    ? "text-pink-500"
+                                    : "text-neutral-500 hover:text-pink-500"
+                                }`}
                               >
-                                <span class="text-sm">{post.like_count}</span>
-                              </Show>
-                            </button>
+                                <HeartIcon filled={post.liked || false} />
+                                <Show
+                                  when={
+                                    isLikePending(post.ap_id) ||
+                                    instancesLoading()
+                                  }
+                                >
+                                  <span class="text-xs">
+                                    {isLikePending(post.ap_id)
+                                      ? language() === "ja"
+                                        ? "処理中"
+                                        : "Updating…"
+                                      : language() === "ja"
+                                        ? "接続先を確認中"
+                                        : "Checking connection…"}
+                                  </span>
+                                </Show>
+                                <Show
+                                  when={
+                                    post.author.ap_id === actor.ap_id &&
+                                    post.like_count > 0
+                                  }
+                                >
+                                  <span class="text-sm">{post.like_count}</span>
+                                </Show>
+                              </button>
+                            </div>
                           </div>
                         </div>
-                      </div>
+                      </article>
                     )}
                   </For>
                   <Show when={postsHasMore()}>

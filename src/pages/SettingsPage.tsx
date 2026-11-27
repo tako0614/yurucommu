@@ -435,7 +435,7 @@ export function SettingsPage() {
               </div>
               <button
                 type="button"
-                class="shrink-0 rounded-lg border border-neutral-700 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+                class="min-h-11 md:min-h-0 shrink-0 rounded-lg border border-neutral-700 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
                 disabled={
                   pushBusy() ||
                   !pushConfigResolved() ||

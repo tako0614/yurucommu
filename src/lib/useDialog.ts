@@ -55,6 +55,11 @@ interface DialogEntry {
 // top of the composer) don't both close on a single Escape.
 const dialogStack: DialogEntry[] = [];
 
+/** True while any modal dialog registered with `useDialog` is open. */
+export function hasOpenDialogStack(): boolean {
+  return dialogStack.length > 0;
+}
+
 // Refcounted scroll-lock so concurrent dialogs lock/unlock in an
 // order-independent way. The first opener captures the prior overflow; the
 // last closer restores it.

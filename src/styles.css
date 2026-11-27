@@ -194,6 +194,8 @@ select:focus-visible,
       [class*="focus:ring-[var(--accent)]"],
       [class*="focus:ring-red-"]
     ),
+  [class*="focus-within:border-accent"]
+    :is(input, textarea, select):focus-visible,
   [class*="focus-within:ring-accent"]
     :is(input, textarea, select):focus-visible,
   [class*="has-[input:focus-visible]:ring-accent"] input:focus-visible {
@@ -236,8 +238,9 @@ button:disabled,
  * nothing becomes unreachable.
  */
 @media (prefers-reduced-motion: reduce) {
-  /* Spinner: stop the rotation loop, leave the element visible. */
-  .animate-spin {
+  /* Spinner and loading skeletons: stop looping animations, leave visible. */
+  .animate-spin,
+  .animate-pulse {
     animation: none !important;
   }
 

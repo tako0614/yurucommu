@@ -230,10 +230,11 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
     </div>
   );
 
-  // Each action is a 20px icon; -m-2 p-2 gives it a 36px tap area without
-  // moving it, leaving 8px between neighbours.
+  // Each action is a 20px icon; mobile uses >=44px touch targets with negative
+  // margins so spacing stays tight without overflowing 375px, while desktop
+  // keeps compact 36px hitboxes and gap-6.
   const actions = (
-    <div class="flex items-center gap-6 mt-3">
+    <div class="flex items-center gap-3 md:gap-6 mt-3">
       <button
         onClick={() => props.onReply(props.post)}
         // Include the visible count in the accessible name (WCAG 2.5.3 Label in
@@ -243,7 +244,7 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
             ? `${t("posts.reply")} ${props.post.reply_count}`
             : t("posts.reply")
         }
-        class="-m-2 flex items-center gap-2 p-2 text-neutral-500 hover:text-[var(--accent)] transition-colors"
+        class="-my-2.5 -mx-1.5 flex min-h-11 min-w-11 items-center justify-center gap-1.5 px-2.5 py-2.5 md:-m-2 md:min-h-0 md:min-w-0 md:gap-2 md:p-2 text-neutral-500 hover:text-[var(--accent)] transition-colors"
       >
         <ReplyIcon />
         <span class="text-sm">{props.post.reply_count || ""}</span>
@@ -258,7 +259,7 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
               : "")
           }
           aria-pressed={props.post.reposted}
-          class={`-m-2 flex items-center gap-2 p-2 transition-colors ${
+          class={`-my-2.5 -mx-1.5 flex min-h-11 min-w-11 items-center justify-center gap-1.5 px-2.5 py-2.5 md:-m-2 md:min-h-0 md:min-w-0 md:gap-2 md:p-2 transition-colors ${
             props.post.reposted
               ? "text-green-500"
               : "text-neutral-500 hover:text-green-500"
@@ -279,7 +280,7 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
             : "")
         }
         aria-pressed={props.post.liked}
-        class={`-m-2 flex items-center gap-2 p-2 transition-colors ${
+        class={`-my-2.5 -mx-1.5 flex min-h-11 min-w-11 items-center justify-center gap-1.5 px-2.5 py-2.5 md:-m-2 md:min-h-0 md:min-w-0 md:gap-2 md:p-2 transition-colors ${
           props.post.liked
             ? "text-pink-500"
             : "text-neutral-500 hover:text-pink-500"
@@ -298,7 +299,7 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
             : t("posts.bookmark")
         }
         aria-pressed={props.post.bookmarked}
-        class={`-m-2 flex items-center gap-2 p-2 transition-colors ${
+        class={`-my-2.5 -mx-1.5 flex min-h-11 min-w-11 items-center justify-center gap-1.5 px-2.5 py-2.5 md:-m-2 md:min-h-0 md:min-w-0 md:gap-2 md:p-2 transition-colors ${
           props.post.bookmarked
             ? "text-accent"
             : "text-neutral-500 hover:text-[var(--accent)]"

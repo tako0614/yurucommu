@@ -135,92 +135,99 @@ export function BookmarksPage() {
             >
               <For each={posts()}>
                 {(post) => (
-                  <div class="flex gap-3 px-4 py-3 border-b border-neutral-800 hover:bg-neutral-800/40 transition-colors">
-                    <A
-                      href={`/profile/${encodeURIComponent(post.author.ap_id)}`}
-                    >
-                      <UserAvatar
-                        avatarUrl={post.author.icon_url}
-                        name={
-                          post.author.name || post.author.preferred_username
-                        }
-                        size={48}
-                      />
-                    </A>
-                    <div class="flex-1 min-w-0">
-                      <div class="flex items-baseline gap-2">
-                        <A
-                          href={`/profile/${encodeURIComponent(
-                            post.author.ap_id,
-                          )}`}
-                          class="font-bold text-white truncate hover:underline"
-                        >
-                          {post.author.name || post.author.preferred_username}
-                        </A>
-                        <span class="text-neutral-500 truncate">
-                          @{post.author.username}
-                        </span>
-                        <span class="text-neutral-500">·</span>
-                        <span class="text-neutral-500 text-sm">
-                          {formatRelativeTime(post.published, {
-                            locale: language(),
-                          })}
-                        </span>
-                        <PostVisibilityIndicator visibility={post.visibility} />
-                      </div>
-                      <A href={`/post/${encodeURIComponent(post.ap_id)}`}>
-                        <PostContent
-                          content={post.content}
-                          summary={post.summary}
-                          class="text-[15px] text-neutral-200 mt-1"
+                  <article class="border-b border-neutral-800 hover:bg-neutral-800/40 transition-colors">
+                    <div class="flex gap-3 px-4 py-3">
+                      <A
+                        href={`/profile/${encodeURIComponent(post.author.ap_id)}`}
+                      >
+                        <UserAvatar
+                          avatarUrl={post.author.icon_url}
+                          name={
+                            post.author.name || post.author.preferred_username
+                          }
+                          size={48}
                         />
                       </A>
-                      <Show
-                        when={post.attachments && post.attachments.length > 0}
-                      >
-                        <AttachmentGrid
-                          attachments={post.attachments}
-                          onOpen={(idx, e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            lightbox.open(post.attachments, idx);
-                          }}
-                        />
-                      </Show>
-                      <div class="flex items-center gap-6 mt-3">
-                        <button
-                          onClick={() => handleLike(post)}
-                          aria-label={
-                            post.liked ? t("posts.unlike") : t("posts.like")
-                          }
-                          aria-pressed={post.liked}
-                          class={`flex items-center gap-2 transition-colors ${
-                            post.liked
-                              ? "text-pink-500"
-                              : "text-neutral-500 hover:text-pink-500"
-                          }`}
-                        >
-                          <HeartIcon filled={post.liked || false} />
-                          <Show
-                            when={
-                              post.author.ap_id === actor.ap_id &&
-                              post.like_count > 0
-                            }
+                      <div class="flex-1 min-w-0">
+                        <div class="flex min-w-0 items-baseline gap-2">
+                          <A
+                            href={`/profile/${encodeURIComponent(
+                              post.author.ap_id,
+                            )}`}
+                            class="font-bold text-white truncate hover:underline"
                           >
-                            <span class="text-sm">{post.like_count}</span>
-                          </Show>
-                        </button>
-                        <button
-                          onClick={() => setPendingUnbookmark(post.ap_id)}
-                          aria-label={t("bookmarks.remove")}
-                          class="flex items-center gap-2 text-accent transition-colors"
-                          title={t("bookmarks.remove")}
+                            {post.author.name || post.author.preferred_username}
+                          </A>
+                          <span class="text-neutral-500 truncate">
+                            @{post.author.username}
+                          </span>
+                          <span class="text-neutral-500 shrink-0">·</span>
+                          <span class="text-neutral-500 text-sm shrink-0 whitespace-nowrap">
+                            {formatRelativeTime(post.published, {
+                              locale: language(),
+                            })}
+                          </span>
+                          <PostVisibilityIndicator
+                            visibility={post.visibility}
+                          />
+                        </div>
+                        <A
+                          href={`/post/${encodeURIComponent(post.ap_id)}`}
+                          class="block"
                         >
-                          <BookmarkIcon filled={true} />
-                        </button>
+                          <PostContent
+                            content={post.content}
+                            summary={post.summary}
+                            class="text-[15px] text-neutral-200 mt-1"
+                          />
+                        </A>
+                        <Show
+                          when={post.attachments && post.attachments.length > 0}
+                        >
+                          <AttachmentGrid
+                            attachments={post.attachments}
+                            onOpen={(idx, e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              lightbox.open(post.attachments, idx);
+                            }}
+                          />
+                        </Show>
+                        <div class="flex items-center gap-3 md:gap-6 mt-3">
+                          <button
+                            onClick={() => handleLike(post)}
+                            aria-label={
+                              post.liked ? t("posts.unlike") : t("posts.like")
+                            }
+                            aria-pressed={post.liked}
+                            class={`-my-2.5 -mx-1.5 flex min-h-11 min-w-11 items-center justify-center gap-1.5 px-2.5 py-2.5 md:-m-2 md:min-h-0 md:min-w-0 md:gap-2 md:p-2 transition-colors ${
+                              post.liked
+                                ? "text-pink-500"
+                                : "text-neutral-500 hover:text-pink-500"
+                            }`}
+                          >
+                            <HeartIcon filled={post.liked || false} />
+                            <Show
+                              when={
+                                post.author.ap_id === actor.ap_id &&
+                                post.like_count > 0
+                              }
+                            >
+                              <span class="text-sm">{post.like_count}</span>
+                            </Show>
+                          </button>
+                          <button
+                            onClick={() => setPendingUnbookmark(post.ap_id)}
+                            aria-label={t("bookmarks.remove")}
+                            class="-my-2.5 -mx-1.5 flex min-h-11 min-w-11 items-center justify-center gap-1.5 px-2.5 py-2.5 md:-m-2 md:min-h-0 md:min-w-0 md:gap-2 md:p-2 text-accent transition-colors"
+                            title={t("bookmarks.remove")}
+                          >
+                            <BookmarkIcon filled={true} />
+                          </button>
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  </article>
                 )}
               </For>
               <Show when={hasMore()}>

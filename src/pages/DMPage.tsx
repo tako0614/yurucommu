@@ -34,6 +34,8 @@ import {
 } from "../lib/api.ts";
 import { handleTablistKeydown } from "../lib/tablistNav.ts";
 import { useI18n } from "../lib/i18n.tsx";
+import { createHorizontalScrollFade } from "../hooks/useHorizontalScrollFade.ts";
+import { isComposingKey } from "../components/ime.ts";
 import { DMChatPanel } from "../components/dm/DMChatPanel.tsx";
 import { DMContactItem } from "../components/dm/DMContactItem.tsx";
 import { NoteBar } from "../components/notes/NoteBar.tsx";
@@ -166,6 +168,8 @@ export function DMPage() {
   const [listError, setListError] = createSignal<string | null>(null);
   const [activeTab, setActiveTab] = createSignal<TabType>("all");
   const [searchQuery, setSearchQuery] = createSignal("");
+  let searchInputRef: HTMLInputElement | undefined;
+  const tabScrollFade = createHorizontalScrollFade();
   // Archived one-to-one conversations (lazy-loaded when the archived tab opens).
   const [archived, setArchived] = createSignal<DMContact[]>([]);
   const [loadingArchived, setLoadingArchived] = createSignal(false);
@@ -689,12 +693,13 @@ export function DMPage() {
 
                 {/* Search bar */}
                 <div class="px-4 pb-3">
-                  <div class="relative">
+                  <div class="flex items-center gap-2 rounded-lg border border-neutral-700/80 bg-neutral-800 px-3 py-2 transition-colors focus-within:border-accent focus-within:ring-1 focus-within:ring-accent">
                     <svg
-                      class="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-neutral-500"
+                      class="w-5 h-5 shrink-0 text-neutral-500"
                       fill="none"
                       stroke="currentColor"
                       viewBox="0 0 24 24"
+                      aria-hidden="true"
                     >
                       <path
                         stroke-linecap="round"
@@ -704,109 +709,165 @@ export function DMPage() {
                       />
                     </svg>
                     <input
+                      ref={searchInputRef}
                       type="text"
+                      data-search-input
                       value={searchQuery()}
                       onInput={(e) => setSearchQuery(e.currentTarget.value)}
+                      onKeyDown={(e) => {
+                        if (
+                          e.key === "Escape" &&
+                          !isComposingKey(e) &&
+                          searchQuery()
+                        ) {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setSearchQuery("");
+                        }
+                      }}
                       placeholder={t("nav.search")}
                       aria-label={t("common.search")}
-                      class="w-full pl-10 pr-4 py-2 bg-neutral-800 border border-neutral-700/80 rounded-lg text-white placeholder-neutral-500 focus:outline-none focus:border-accent transition-colors"
+                      class="flex-1 min-w-0 bg-transparent text-white placeholder-neutral-500 outline-none"
                     />
+                    <Show when={searchQuery()}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSearchQuery("");
+                          searchInputRef?.focus();
+                        }}
+                        aria-label={t("search.clear")}
+                        class="-m-2 flex min-h-10 min-w-10 items-center justify-center rounded-full p-2 md:-m-1.5 md:min-h-0 md:min-w-0 md:p-1.5 text-neutral-400 transition-colors hover:bg-neutral-700/60 hover:text-white"
+                      >
+                        <svg
+                          class="h-4 w-4"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                          aria-hidden="true"
+                        >
+                          <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width={2}
+                            d="M6 18L18 6M6 6l12 12"
+                          />
+                        </svg>
+                      </button>
+                    </Show>
                   </div>
                 </div>
 
-                {/* Tab bar - LINE style with underline on active */}
-                <div
-                  class="relative flex overflow-x-auto scrollbar-hide border-b border-neutral-800"
-                  role="tablist"
-                  aria-label={t("nav.messages")}
-                  onKeyDown={(e) =>
-                    handleTablistKeydown(
-                      e,
-                      tabs.length,
-                      Math.max(0, tabs.indexOf(activeTab())),
-                      (i) => setActiveTab(tabs[i]),
-                    )
-                  }
-                >
-                  <button
-                    ref={(el) => (tabRefs[0] = el)}
-                    role="tab"
-                    aria-selected={activeTab() === "all"}
-                    tabindex={activeTab() === "all" ? 0 : -1}
-                    onClick={() => setActiveTab("all")}
-                    class={`px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors ${
-                      activeTab() === "all" ? "text-white" : "text-neutral-500"
-                    }`}
-                  >
-                    {t("timeline.all")}
-                  </button>
-                  <button
-                    ref={(el) => (tabRefs[1] = el)}
-                    role="tab"
-                    aria-selected={activeTab() === "friends"}
-                    tabindex={activeTab() === "friends" ? 0 : -1}
-                    onClick={() => setActiveTab("friends")}
-                    class={`px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors ${
-                      activeTab() === "friends"
-                        ? "text-white"
-                        : "text-neutral-500"
-                    }`}
-                  >
-                    {t("dm.filterFriends")}
-                  </button>
-                  <button
-                    ref={(el) => (tabRefs[2] = el)}
-                    role="tab"
-                    aria-selected={activeTab() === "communities"}
-                    tabindex={activeTab() === "communities" ? 0 : -1}
-                    onClick={() => setActiveTab("communities")}
-                    class={`px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors ${
-                      activeTab() === "communities"
-                        ? "text-white"
-                        : "text-neutral-500"
-                    }`}
-                  >
-                    {t("nav.groups")}
-                  </button>
-                  <button
-                    ref={(el) => (tabRefs[3] = el)}
-                    role="tab"
-                    aria-selected={activeTab() === "requests"}
-                    tabindex={activeTab() === "requests" ? 0 : -1}
-                    onClick={() => setActiveTab("requests")}
-                    class={`px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors relative ${
-                      activeTab() === "requests"
-                        ? "text-white"
-                        : "text-neutral-500"
-                    }`}
-                  >
-                    {t("dm.filterRequests")}
-                    <Show when={requestCount() > 0}>
-                      <span class="absolute top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-red-500 rounded-full text-[10px] flex items-center justify-center text-white font-bold">
-                        {requestCount() > 99 ? "99+" : requestCount()}
-                      </span>
-                    </Show>
-                  </button>
-                  <button
-                    ref={(el) => (tabRefs[4] = el)}
-                    role="tab"
-                    aria-selected={activeTab() === "archived"}
-                    tabindex={activeTab() === "archived" ? 0 : -1}
-                    onClick={() => setActiveTab("archived")}
-                    class={`px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors ${
-                      activeTab() === "archived"
-                        ? "text-white"
-                        : "text-neutral-500"
-                    }`}
-                  >
-                    {t("dm.archived")}
-                  </button>
-                  {/* Tab indicator - underline tracking the active tab's real
-                      geometry (measured, so it is correct for any locale). */}
+                {/* Tab bar - LINE style with underline on active and mobile horizontal scroll fade */}
+                <div class="relative border-b border-neutral-800">
                   <div
-                    class="absolute bottom-0 h-0.5 bg-accent transition-all duration-200"
-                    style={indicatorStyle()}
-                  />
+                    ref={(el) => tabScrollFade.bind(el)}
+                    class="relative flex overflow-x-auto scrollbar-hide"
+                    role="tablist"
+                    aria-label={t("nav.messages")}
+                    onKeyDown={(e) =>
+                      handleTablistKeydown(
+                        e,
+                        tabs.length,
+                        Math.max(0, tabs.indexOf(activeTab())),
+                        (i) => setActiveTab(tabs[i]),
+                      )
+                    }
+                  >
+                    <button
+                      ref={(el) => (tabRefs[0] = el)}
+                      role="tab"
+                      aria-selected={activeTab() === "all"}
+                      tabindex={activeTab() === "all" ? 0 : -1}
+                      onClick={() => setActiveTab("all")}
+                      class={`px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors ${
+                        activeTab() === "all"
+                          ? "text-white"
+                          : "text-neutral-500"
+                      }`}
+                    >
+                      {t("timeline.all")}
+                    </button>
+                    <button
+                      ref={(el) => (tabRefs[1] = el)}
+                      role="tab"
+                      aria-selected={activeTab() === "friends"}
+                      tabindex={activeTab() === "friends" ? 0 : -1}
+                      onClick={() => setActiveTab("friends")}
+                      class={`px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors ${
+                        activeTab() === "friends"
+                          ? "text-white"
+                          : "text-neutral-500"
+                      }`}
+                    >
+                      {t("dm.filterFriends")}
+                    </button>
+                    <button
+                      ref={(el) => (tabRefs[2] = el)}
+                      role="tab"
+                      aria-selected={activeTab() === "communities"}
+                      tabindex={activeTab() === "communities" ? 0 : -1}
+                      onClick={() => setActiveTab("communities")}
+                      class={`px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors ${
+                        activeTab() === "communities"
+                          ? "text-white"
+                          : "text-neutral-500"
+                      }`}
+                    >
+                      {t("nav.groups")}
+                    </button>
+                    <button
+                      ref={(el) => (tabRefs[3] = el)}
+                      role="tab"
+                      aria-selected={activeTab() === "requests"}
+                      tabindex={activeTab() === "requests" ? 0 : -1}
+                      onClick={() => setActiveTab("requests")}
+                      class={`px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors relative ${
+                        activeTab() === "requests"
+                          ? "text-white"
+                          : "text-neutral-500"
+                      }`}
+                    >
+                      {t("dm.filterRequests")}
+                      <Show when={requestCount() > 0}>
+                        <span class="absolute top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-red-500 rounded-full text-[10px] flex items-center justify-center text-white font-bold">
+                          {requestCount() > 99 ? "99+" : requestCount()}
+                        </span>
+                      </Show>
+                    </button>
+                    <button
+                      ref={(el) => (tabRefs[4] = el)}
+                      role="tab"
+                      aria-selected={activeTab() === "archived"}
+                      tabindex={activeTab() === "archived" ? 0 : -1}
+                      onClick={() => setActiveTab("archived")}
+                      class={`px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors ${
+                        activeTab() === "archived"
+                          ? "text-white"
+                          : "text-neutral-500"
+                      }`}
+                    >
+                      {t("dm.archived")}
+                    </button>
+                    {/* Tab indicator - underline tracking the active tab's real
+                      geometry (measured, so it is correct for any locale). */}
+                    <div
+                      class="absolute bottom-0 h-0.5 bg-accent transition-all duration-200"
+                      style={indicatorStyle()}
+                    />
+                  </div>
+                  <Show when={tabScrollFade.canScrollLeft()}>
+                    <div
+                      aria-hidden="true"
+                      class="pointer-events-none absolute inset-y-0 left-0 w-8 bg-gradient-to-r from-neutral-900 to-transparent"
+                    />
+                  </Show>
+                  <Show when={tabScrollFade.canScrollRight()}>
+                    <div
+                      aria-hidden="true"
+                      class="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-neutral-900 to-transparent"
+                    />
+                  </Show>
                 </div>
               </header>
 
