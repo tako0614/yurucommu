@@ -24,6 +24,7 @@ import {
 } from "../lib/api.ts";
 import { toggleLike } from "../atoms/posts.ts";
 import { useI18n } from "../lib/i18n.tsx";
+import { useDocumentTitle } from "../lib/useDocumentTitle.ts";
 import { useSetAtom } from "solid-jotai";
 import { pushToast, toastsAtom } from "../atoms/toast.ts";
 import {
@@ -132,6 +133,12 @@ export function ProfilePage() {
   // must not leak the viewer's handle, so we show an empty header instead.
   const displayUsername = () =>
     profile()?.username || (isOwnProfile() ? actor.username : "");
+  useDocumentTitle(() => {
+    const p = profile();
+    if (!p) return t("nav.profile");
+    const name = p.name || p.preferred_username;
+    return `${name} (@${p.username})`;
+  });
 
   // Generation guard: a fast profile→profile navigation must not let a slow
   // prior load overwrite the new one, and the id is captured ONCE so the actor

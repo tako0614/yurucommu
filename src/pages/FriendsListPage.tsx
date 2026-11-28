@@ -5,6 +5,7 @@ import { Actor } from "../types/index.ts";
 import { fetchFollowers, fetchFollowing } from "../lib/api.ts";
 import { handleTablistKeydown } from "../lib/tablistNav.ts";
 import { useI18n } from "../lib/i18n.tsx";
+import { useDocumentTitle } from "../lib/useDocumentTitle.ts";
 import { UserAvatar } from "../components/UserAvatar.tsx";
 import { InlineErrorBanner } from "../components/InlineErrorBanner.tsx";
 import { InlineErrorRetry } from "../components/InlineErrorRetry.tsx";
@@ -67,6 +68,7 @@ type TabType = "following" | "followers";
 export function FriendsListPage() {
   const actor = useRequiredActor();
   const { t } = useI18n();
+  useDocumentTitle(() => t("friends.title"));
   const [error, setError] = createSignal<string | null>(null);
   const clearError = () => setError(null);
   // Distinct from the dismissible `error` banner: a FATAL load failure that
@@ -243,7 +245,7 @@ export function FriendsListPage() {
 
       {/* Search */}
       <div class="px-4 py-3 border-b border-neutral-800">
-        <div class="flex items-center gap-2 rounded-full border border-neutral-700/80 bg-neutral-800 px-4 py-2 transition-colors focus-within:border-accent focus-within:ring-1 focus-within:ring-accent">
+        <div class="flex items-center gap-2 rounded-full border border-neutral-700/80 bg-neutral-800 px-4 transition-colors focus-within:border-accent focus-within:ring-1 focus-within:ring-accent">
           <SearchIcon />
           <input
             ref={searchInputRef}
@@ -260,7 +262,7 @@ export function FriendsListPage() {
             }}
             placeholder={t("friends.searchPlaceholder")}
             aria-label={t("common.search")}
-            class="flex-1 bg-transparent text-white placeholder-neutral-500 outline-none"
+            class="flex-1 min-h-11 md:min-h-0 py-2.5 md:py-2 bg-transparent text-white placeholder-neutral-500 outline-none"
           />
           <Show when={searchQuery()}>
             <button
@@ -270,7 +272,7 @@ export function FriendsListPage() {
                 searchInputRef?.focus();
               }}
               aria-label={t("search.clear")}
-              class="-m-2 flex min-h-10 min-w-10 items-center justify-center rounded-full p-2 md:-m-1.5 md:min-h-0 md:min-w-0 md:p-1.5 text-neutral-400 transition-colors hover:bg-neutral-700/60 hover:text-white"
+              class="-mr-2 flex min-h-11 min-w-11 items-center justify-center rounded-full p-2 md:-mr-1.5 md:min-h-0 md:min-w-0 md:p-1.5 text-neutral-400 transition-colors hover:bg-neutral-700/60 hover:text-white"
             >
               <svg
                 class="h-4 w-4"

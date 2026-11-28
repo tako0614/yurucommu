@@ -111,7 +111,7 @@ export function SettingsAccountSection(props: SettingsAccountSectionProps) {
   };
 
   const inputClass =
-    "w-full bg-neutral-800 rounded-lg px-3 py-2 text-white placeholder-neutral-500 outline-none focus:ring-2 focus:ring-accent";
+    "w-full min-h-11 md:min-h-0 bg-neutral-800 rounded-lg px-3 py-2 text-white placeholder-neutral-500 outline-none focus:ring-2 focus:ring-accent";
 
   return (
     <div class="flex flex-col h-full">
@@ -121,7 +121,10 @@ export function SettingsAccountSection(props: SettingsAccountSectionProps) {
       />
       <div class="flex-1 overflow-y-auto">
         <Show when={error()}>
-          <div class="mx-4 mt-4 p-2 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
+          <div
+            role="alert"
+            class="mx-4 mt-4 p-2 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm"
+          >
             {error()}
           </div>
         </Show>
@@ -138,7 +141,7 @@ export function SettingsAccountSection(props: SettingsAccountSectionProps) {
             type="button"
             onClick={handleExport}
             disabled={exporting()}
-            class="w-full py-2 bg-accent rounded-lg font-bold disabled:opacity-50"
+            class="w-full min-h-11 md:min-h-0 py-2 bg-accent rounded-lg font-bold disabled:opacity-50"
           >
             {exporting()
               ? props.t("settings.exporting")
@@ -153,16 +156,16 @@ export function SettingsAccountSection(props: SettingsAccountSectionProps) {
           </div>
 
           {/* alsoKnownAs aliases */}
-          <label class="block text-sm text-neutral-400 mb-1">
+          <p class="block text-sm text-neutral-400 mb-1">
             {props.t("settings.alsoKnownAs")}
-          </label>
+          </p>
           <p class="text-xs text-neutral-500 mb-2">
             {props.t("settings.alsoKnownAsHint")}
           </p>
           <div class="space-y-2 mb-2">
             <Index each={aliases()}>
               {(alias, index) => (
-                <div class="flex gap-2">
+                <div class="flex items-center gap-2">
                   <input
                     type="text"
                     value={alias()}
@@ -175,7 +178,7 @@ export function SettingsAccountSection(props: SettingsAccountSectionProps) {
                     type="button"
                     onClick={() => removeAlias(index)}
                     aria-label={props.t("profile.removeField")}
-                    class="p-2 hover:bg-neutral-800 rounded-full shrink-0"
+                    class="flex min-h-11 min-w-11 items-center justify-center p-2 md:min-h-0 md:min-w-0 hover:bg-neutral-800 rounded-full shrink-0"
                   >
                     <CloseIcon />
                   </button>
@@ -186,7 +189,7 @@ export function SettingsAccountSection(props: SettingsAccountSectionProps) {
           <button
             type="button"
             onClick={addAlias}
-            class="flex items-center gap-2 text-sm text-accent mb-3"
+            class="flex min-h-11 md:min-h-0 items-center gap-2 text-sm text-accent mb-3"
           >
             <PlusIcon />
             {props.t("profile.addField")}
@@ -195,7 +198,7 @@ export function SettingsAccountSection(props: SettingsAccountSectionProps) {
             type="button"
             onClick={handleSaveAliases}
             disabled={savingAliases()}
-            class="w-full py-2 bg-neutral-800 rounded-lg font-bold disabled:opacity-50 mb-2"
+            class="w-full min-h-11 md:min-h-0 py-2 bg-neutral-800 rounded-lg font-bold disabled:opacity-50 mb-2"
           >
             {savingAliases()
               ? props.t("common.saving")
@@ -240,7 +243,7 @@ export function SettingsAccountSection(props: SettingsAccountSectionProps) {
               type="button"
               onClick={() => setConfirmingMove(true)}
               disabled={moving() || moveTarget().trim().length === 0}
-              class="w-full py-2 bg-red-500/90 rounded-lg font-bold disabled:opacity-50"
+              class="w-full min-h-11 md:min-h-0 py-2 bg-red-500/90 rounded-lg font-bold disabled:opacity-50"
             >
               {/* The action, not the question: the confirm sheet asks it. */}
               {props.t("settings.moveAccount")}

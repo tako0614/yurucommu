@@ -202,7 +202,7 @@ export function CreateScopeModal(props: CreateScopeModalProps) {
                   placeholder={t("scope.createDisplayNamePlaceholder")}
                   maxlength={64}
                   disabled={submitting()}
-                  class="w-full rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm text-white outline-none placeholder-neutral-600 focus:border-[var(--accent)] disabled:opacity-50"
+                  class="w-full rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm text-white outline-none placeholder-neutral-500 focus:border-[var(--accent)] disabled:opacity-50"
                 />
               </div>
 
@@ -240,7 +240,7 @@ export function CreateScopeModal(props: CreateScopeModalProps) {
                     aria-invalid={
                       name().trim().length > 0 && !isNameValid(name())
                     }
-                    class="w-full rounded-lg border border-neutral-800 bg-neutral-950 py-2 pr-3 pl-7 text-sm text-white outline-none placeholder-neutral-600 focus:border-[var(--accent)] disabled:opacity-50"
+                    class="w-full rounded-lg border border-neutral-800 bg-neutral-950 py-2 pr-3 pl-7 text-sm text-white outline-none placeholder-neutral-500 focus:border-[var(--accent)] disabled:opacity-50"
                   />
                 </div>
                 <Show
@@ -282,7 +282,7 @@ export function CreateScopeModal(props: CreateScopeModalProps) {
                   rows={3}
                   maxlength={500}
                   disabled={submitting()}
-                  class="w-full resize-none rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm text-white outline-none placeholder-neutral-600 focus:border-[var(--accent)] disabled:opacity-50"
+                  class="w-full resize-none rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm text-white outline-none placeholder-neutral-500 focus:border-[var(--accent)] disabled:opacity-50"
                 />
               </div>
             </div>
@@ -292,14 +292,14 @@ export function CreateScopeModal(props: CreateScopeModalProps) {
                 type="button"
                 onClick={close}
                 disabled={submitting()}
-                class="flex-1 rounded-full bg-neutral-800 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-neutral-700 disabled:opacity-50"
+                class="flex-1 min-h-11 md:min-h-0 rounded-full bg-neutral-800 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-neutral-700 disabled:opacity-50"
               >
                 {t("common.cancel")}
               </button>
               <button
                 type="submit"
                 disabled={!canSubmit()}
-                class="flex-1 rounded-full bg-[var(--accent)] px-4 py-2.5 text-sm font-bold text-white transition-colors hover:brightness-110 disabled:opacity-50"
+                class="flex-1 min-h-11 md:min-h-0 rounded-full bg-accent px-4 py-2.5 text-sm font-bold text-white transition-colors disabled:opacity-50"
               >
                 {submitting() ? t("scope.creating") : t("scope.createSubmit")}
               </button>

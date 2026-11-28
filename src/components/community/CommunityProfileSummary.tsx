@@ -84,11 +84,12 @@ export function CommunityProfileSummary(props: CommunityProfileSummaryProps) {
             when={props.community.is_member}
             fallback={
               <button
+                type="button"
                 onClick={props.onJoin}
                 disabled={
                   props.joining || props.community.join_status === "pending"
                 }
-                class="px-6 py-2 bg-accent text-white rounded-full font-bold transition-colors disabled:opacity-50"
+                class="min-h-11 md:min-h-0 px-6 py-2 bg-accent text-white rounded-full font-bold transition-colors disabled:opacity-50"
               >
                 {joinLabel()}
               </button>
@@ -96,7 +97,7 @@ export function CommunityProfileSummary(props: CommunityProfileSummaryProps) {
           >
             <A
               href={props.chatPath}
-              class="flex items-center gap-2 px-4 py-2 bg-accent text-white rounded-full font-bold transition-colors"
+              class="flex min-h-11 min-w-11 md:min-h-0 md:min-w-0 items-center justify-center gap-2 px-4 py-2 bg-accent text-white rounded-full font-bold transition-colors"
             >
               <ChatIcon />
               {/* Icon-only below 400px: with 退出 beside it the labelled
@@ -106,9 +107,10 @@ export function CommunityProfileSummary(props: CommunityProfileSummaryProps) {
               </span>
             </A>
             <button
+              type="button"
               onClick={props.onLeave}
               disabled={props.joining}
-              class="px-4 py-2 border border-neutral-600 text-white hover:border-red-500 hover:text-red-500 rounded-full font-bold transition-colors disabled:opacity-50"
+              class="min-h-11 md:min-h-0 px-4 py-2 border border-neutral-600 text-white hover:border-red-500 hover:text-red-500 rounded-full font-bold transition-colors disabled:opacity-50"
             >
               {t("groups.leave")}
             </button>

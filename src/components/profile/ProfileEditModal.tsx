@@ -175,12 +175,13 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
             class="bg-neutral-900 rounded-2xl w-full max-w-md max-h-[calc(100dvh-3rem)] flex flex-col overflow-hidden"
           >
             <div class="flex shrink-0 items-center justify-between px-4 py-3 border-b border-neutral-800">
-              <div class="flex min-w-0 items-center gap-4">
+              <div class="flex min-w-0 items-center gap-2 sm:gap-4">
                 <button
+                  type="button"
                   onClick={requestClose}
                   disabled={props.saving}
                   aria-label={props.t("common.close")}
-                  class="p-1 hover:bg-neutral-800 rounded-full transition-colors"
+                  class="-ml-2 flex min-h-11 min-w-11 items-center justify-center p-2 md:ml-0 md:min-h-0 md:min-w-0 md:p-1 hover:bg-neutral-800 rounded-full transition-colors"
                 >
                   <CloseIcon />
                 </button>
@@ -194,12 +195,13 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
                 </h2>
               </div>
               <button
+                type="button"
                 onClick={() => {
                   if (!props.saving && !uploadingIcon() && !uploadingHeader())
                     props.onSave();
                 }}
                 disabled={props.saving || uploadingIcon() || uploadingHeader()}
-                class="shrink-0 whitespace-nowrap px-4 py-1.5 bg-white text-black rounded-full font-bold text-sm hover:bg-neutral-200 disabled:bg-neutral-600 transition-colors"
+                class="shrink-0 min-h-11 md:min-h-0 whitespace-nowrap px-4 py-1.5 bg-white text-black rounded-full font-bold text-sm hover:bg-neutral-200 disabled:bg-neutral-600 transition-colors"
               >
                 {props.saving
                   ? props.t("common.saving")
@@ -335,7 +337,7 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
                     onInput={props.onChangeName}
                     maxlength={MAX_NAME_LENGTH}
                     placeholder={props.t("profile.editNamePlaceholder")}
-                    class="w-full bg-neutral-800 rounded-lg px-3 py-2 text-white placeholder-neutral-500 outline-none focus:ring-2 focus:ring-accent"
+                    class="w-full min-h-11 md:min-h-0 bg-neutral-800 rounded-lg px-3 py-2 text-white placeholder-neutral-500 outline-none focus:ring-2 focus:ring-accent"
                   />
                 </div>
                 <div>
@@ -357,9 +359,9 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
                 </div>
                 {/* Structured profile fields (PropertyValue rows) */}
                 <div>
-                  <label class="block text-sm text-neutral-400 mb-1">
+                  <p class="block text-sm text-neutral-400 mb-1">
                     {props.t("profile.fieldsLabel")}
-                  </label>
+                  </p>
                   <p class="text-xs text-neutral-500 mb-2">
                     {props.t("profile.fieldsHint")}
                   </p>
@@ -378,7 +380,7 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
                               }
                               placeholder={props.t("profile.fieldName")}
                               aria-label={props.t("profile.fieldName")}
-                              class="w-full bg-neutral-800 rounded-lg px-3 py-2 text-sm text-white placeholder-neutral-500 outline-none focus:ring-2 focus:ring-accent"
+                              class="w-full min-h-11 md:min-h-0 bg-neutral-800 rounded-lg px-3 py-2 text-sm text-white placeholder-neutral-500 outline-none focus:ring-2 focus:ring-accent"
                             />
                             <input
                               type="text"
@@ -390,14 +392,14 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
                               }
                               placeholder={props.t("profile.fieldValue")}
                               aria-label={props.t("profile.fieldValue")}
-                              class="w-full bg-neutral-800 rounded-lg px-3 py-2 text-sm text-white placeholder-neutral-500 outline-none focus:ring-2 focus:ring-accent"
+                              class="w-full min-h-11 md:min-h-0 bg-neutral-800 rounded-lg px-3 py-2 text-sm text-white placeholder-neutral-500 outline-none focus:ring-2 focus:ring-accent"
                             />
                           </div>
                           <button
                             type="button"
                             onClick={() => removeField(index)}
                             aria-label={props.t("profile.removeField")}
-                            class="mt-1 p-2 rounded-full text-neutral-400 hover:bg-neutral-800 hover:text-red-500 transition-colors"
+                            class="flex min-h-11 min-w-11 items-center justify-center p-2 md:mt-1 md:min-h-0 md:min-w-0 rounded-full text-neutral-400 hover:bg-neutral-800 hover:text-red-500 transition-colors"
                           >
                             <CloseIcon />
                           </button>
@@ -410,7 +412,7 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
                       type="button"
                       ref={addFieldRef}
                       onClick={addField}
-                      class="mt-2 px-3 py-1.5 rounded-full border border-neutral-600 text-sm text-white hover:bg-neutral-800 transition-colors"
+                      class="mt-2 min-h-11 md:min-h-0 px-3 py-2 md:py-1.5 rounded-full border border-neutral-600 text-sm text-white hover:bg-neutral-800 transition-colors"
                     >
                       {props.t("profile.addField")}
                     </button>

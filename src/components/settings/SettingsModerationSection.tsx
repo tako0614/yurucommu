@@ -1,5 +1,6 @@
 import { createSignal, For, onMount, Show } from "solid-js";
 import { SettingsSectionHeader } from "./SettingsSectionHeader.tsx";
+import { isComposingKey } from "../ime.ts";
 import {
   blockActor,
   blockDomain,
@@ -150,7 +151,7 @@ export function SettingsModerationSection(
     });
 
   const inputClass =
-    "flex-1 min-w-0 bg-neutral-800 rounded-lg px-3 py-2 text-white placeholder-neutral-500 outline-none focus:ring-2 focus:ring-accent";
+    "flex-1 min-w-0 min-h-11 md:min-h-0 bg-neutral-800 rounded-lg px-3 py-2 text-white placeholder-neutral-500 outline-none focus:ring-2 focus:ring-accent";
 
   return (
     <div class="flex flex-col h-full">
@@ -160,7 +161,10 @@ export function SettingsModerationSection(
       />
       <div class="flex-1 overflow-y-auto">
         <Show when={error()}>
-          <div class="mx-4 mt-4 p-2 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
+          <div
+            role="alert"
+            class="mx-4 mt-4 p-2 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm"
+          >
             {error()}
           </div>
         </Show>
@@ -188,6 +192,12 @@ export function SettingsModerationSection(
                 type="text"
                 value={domainInput()}
                 onInput={(e) => setDomainInput(e.currentTarget.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !isComposingKey(e)) {
+                    e.preventDefault();
+                    void handleAddDomain();
+                  }
+                }}
                 placeholder={props.t("settings.domainPlaceholder")}
                 aria-label={props.t("settings.blockedDomains")}
                 class={inputClass}
@@ -196,7 +206,7 @@ export function SettingsModerationSection(
                 type="button"
                 onClick={handleAddDomain}
                 disabled={busy() || domainInput().trim().length === 0}
-                class="px-4 py-2 bg-accent rounded-lg font-bold disabled:opacity-50"
+                class="min-h-11 md:min-h-0 px-4 py-2 bg-accent rounded-lg font-bold disabled:opacity-50"
               >
                 {props.t("settings.addBlockedDomain")}
               </button>
@@ -209,7 +219,7 @@ export function SettingsModerationSection(
                     type="button"
                     onClick={() => handleUnblockDomain(d.domain)}
                     disabled={isPending(`domain:${d.domain}`)}
-                    class="text-sm text-accent hover:underline ml-3 shrink-0 disabled:opacity-50"
+                    class="min-h-11 md:min-h-0 text-sm text-accent hover:underline ml-3 shrink-0 disabled:opacity-50"
                   >
                     {props.t("settings.unblock")}
                   </button>
@@ -228,6 +238,12 @@ export function SettingsModerationSection(
                 type="text"
                 value={actorInput()}
                 onInput={(e) => setActorInput(e.currentTarget.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !isComposingKey(e)) {
+                    e.preventDefault();
+                    void handleAddActor();
+                  }
+                }}
                 placeholder={props.t("settings.actorPlaceholder")}
                 aria-label={props.t("settings.blockedActors")}
                 class={inputClass}
@@ -236,7 +252,7 @@ export function SettingsModerationSection(
                 type="button"
                 onClick={handleAddActor}
                 disabled={busy() || actorInput().trim().length === 0}
-                class="px-4 py-2 bg-accent rounded-lg font-bold disabled:opacity-50"
+                class="min-h-11 md:min-h-0 px-4 py-2 bg-accent rounded-lg font-bold disabled:opacity-50"
               >
                 {props.t("settings.addBlockedActor")}
               </button>
@@ -249,7 +265,7 @@ export function SettingsModerationSection(
                     type="button"
                     onClick={() => handleUnblockActor(a.actor_ap_id)}
                     disabled={isPending(`actor:${a.actor_ap_id}`)}
-                    class="text-sm text-accent hover:underline ml-3 shrink-0 disabled:opacity-50"
+                    class="min-h-11 md:min-h-0 text-sm text-accent hover:underline ml-3 shrink-0 disabled:opacity-50"
                   >
                     {props.t("settings.unblock")}
                   </button>
@@ -291,7 +307,7 @@ export function SettingsModerationSection(
                           type="button"
                           onClick={() => handleResolve(r.id)}
                           disabled={isPending(`report:${r.id}`)}
-                          class="text-sm text-accent hover:underline shrink-0 disabled:opacity-50"
+                          class="min-h-11 md:min-h-0 text-sm text-accent hover:underline shrink-0 disabled:opacity-50"
                         >
                           {props.t("settings.resolveReport")}
                         </button>

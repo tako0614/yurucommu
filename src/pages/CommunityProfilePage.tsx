@@ -4,6 +4,8 @@ import { useNavigate, useParams } from "@solidjs/router";
 import { useRequiredActor } from "../hooks/useRequiredActor.ts";
 import { ApiError } from "../lib/api/fetch.ts";
 import { useDialog } from "../lib/useDialog.ts";
+import { handleTablistKeydown } from "../lib/tablistNav.ts";
+import { useDocumentTitle } from "../lib/useDocumentTitle.ts";
 import { leaveCommunityScopeAtom, refreshScopesAtom } from "../atoms/scope.ts";
 import {
   acceptCommunityJoinRequest,
@@ -62,6 +64,10 @@ export function CommunityProfilePage() {
   const params = useParams();
   const navigate = useNavigate();
   const [community, setCommunity] = createSignal<CommunityDetail | null>(null);
+  useDocumentTitle(() => {
+    const c = community();
+    return c ? c.display_name || c.name : t("nav.groups");
+  });
   const [members, setMembers] = createSignal<CommunityMember[]>([]);
   const [loading, setLoading] = createSignal(true);
   const [activeTab, setActiveTab] = createSignal<
@@ -610,10 +616,27 @@ export function CommunityProfilePage() {
             chatPath={`/dm?c=${encodeURIComponent(community()!.ap_id)}`}
           />
           {/* Tabs */}
-          <div class="border-b border-neutral-800 flex">
+          <div
+            class="border-b border-neutral-800 flex"
+            role="tablist"
+            aria-label={t("community.tabsLabel")}
+            onKeyDown={(e) => {
+              const tabs: Array<"about" | "members" | "settings"> = canManage()
+                ? ["about", "members", "settings"]
+                : ["about", "members"];
+              const cur = tabs.indexOf(activeTab());
+              handleTablistKeydown(e, tabs.length, cur < 0 ? 0 : cur, (i) =>
+                setActiveTab(tabs[i]),
+              );
+            }}
+          >
             <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab() === "about"}
+              tabindex={activeTab() === "about" ? 0 : -1}
               onClick={() => setActiveTab("about")}
-              class={`flex-1 py-4 text-center font-bold transition-colors relative ${
+              class={`flex-1 min-h-11 md:min-h-0 py-4 text-center font-bold transition-colors relative ${
                 activeTab() === "about"
                   ? "text-white"
                   : "text-neutral-500 hover:bg-neutral-800/50"
@@ -625,8 +648,12 @@ export function CommunityProfilePage() {
               </Show>
             </button>
             <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab() === "members"}
+              tabindex={activeTab() === "members" ? 0 : -1}
               onClick={() => setActiveTab("members")}
-              class={`flex-1 py-4 text-center font-bold transition-colors relative ${
+              class={`flex-1 min-h-11 md:min-h-0 py-4 text-center font-bold transition-colors relative ${
                 activeTab() === "members"
                   ? "text-white"
                   : "text-neutral-500 hover:bg-neutral-800/50"
@@ -639,8 +666,12 @@ export function CommunityProfilePage() {
             </button>
             <Show when={canManage()}>
               <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab() === "settings"}
+                tabindex={activeTab() === "settings" ? 0 : -1}
                 onClick={() => setActiveTab("settings")}
-                class={`flex-1 py-4 text-center font-bold transition-colors relative ${
+                class={`flex-1 min-h-11 md:min-h-0 py-4 text-center font-bold transition-colors relative ${
                   activeTab() === "settings"
                     ? "text-white"
                     : "text-neutral-500 hover:bg-neutral-800/50"
@@ -793,7 +824,7 @@ export function CommunityProfilePage() {
                   autocapitalize="off"
                   spellcheck={false}
                   disabled={joining()}
-                  class="w-full rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm text-white outline-none placeholder-neutral-600 focus:border-[var(--accent)] disabled:opacity-50"
+                  class="w-full min-h-11 md:min-h-0 rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm text-white outline-none placeholder-neutral-500 focus:border-[var(--accent)] disabled:opacity-50"
                 />
               </div>
               <div class="mt-5 flex gap-2">
@@ -801,14 +832,14 @@ export function CommunityProfilePage() {
                   type="button"
                   onClick={() => setInvitePromptOpen(false)}
                   disabled={joining()}
-                  class="flex-1 rounded-full bg-neutral-800 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-neutral-700 disabled:opacity-50"
+                  class="flex-1 min-h-11 md:min-h-0 rounded-full bg-neutral-800 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-neutral-700 disabled:opacity-50"
                 >
                   {t("common.cancel")}
                 </button>
                 <button
                   type="submit"
                   disabled={!inviteInput().trim() || joining()}
-                  class="flex-1 rounded-full bg-[var(--accent)] px-4 py-2.5 text-sm font-bold text-white transition-colors hover:brightness-110 disabled:opacity-50"
+                  class="flex-1 min-h-11 md:min-h-0 rounded-full bg-accent px-4 py-2.5 text-sm font-bold text-white transition-colors disabled:opacity-50"
                 >
                   {t("community.joinWithInvite")}
                 </button>

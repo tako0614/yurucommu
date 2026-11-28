@@ -134,9 +134,10 @@ export function EditPostModal(props: EditPostModalProps) {
           <div class="flex shrink-0 items-center justify-between gap-2 px-4 py-3 border-b border-neutral-800">
             <div class="flex min-w-0 items-center gap-2">
               <button
+                type="button"
                 onClick={requestClose}
                 aria-label={t("common.close")}
-                class="-ml-2 rounded-full p-2 text-white transition-colors hover:bg-neutral-800 hover:text-neutral-300"
+                class="-ml-2 flex min-h-11 min-w-11 items-center justify-center rounded-full p-2 md:min-h-0 md:min-w-0 text-white transition-colors hover:bg-neutral-800 hover:text-neutral-300"
               >
                 <CloseIconLarge />
               </button>
@@ -155,9 +156,10 @@ export function EditPostModal(props: EditPostModalProps) {
                   .replace("{max}", String(MAX_CONTENT_LENGTH))}
               </span>
               <button
+                type="button"
                 onClick={handleSave}
                 disabled={!canSave()}
-                class="whitespace-nowrap px-4 py-1.5 bg-accent disabled:bg-neutral-700 disabled:text-neutral-500 rounded-full font-bold text-sm transition-colors"
+                class="min-h-11 md:min-h-0 whitespace-nowrap px-4 py-1.5 bg-accent disabled:bg-neutral-700 disabled:text-neutral-500 rounded-full font-bold text-sm transition-colors"
               >
                 {props.saving ? t("common.saving") : t("common.save")}
               </button>
@@ -224,10 +226,11 @@ export function EditPostModal(props: EditPostModalProps) {
           {/* Footer — CW toggle only (media/visibility are fixed on edit). */}
           <div class="flex shrink-0 items-center gap-2 px-4 py-3 border-t border-neutral-800">
             <button
+              type="button"
               onClick={() => setShowCw((v) => !v)}
               aria-label={t("posts.cwToggle")}
               aria-pressed={showCw()}
-              class={`px-2 py-1 rounded-full text-sm font-bold transition-colors ${
+              class={`flex min-h-11 min-w-11 items-center justify-center px-2.5 py-2 md:min-h-0 md:min-w-0 md:px-2 md:py-1 rounded-full text-sm font-bold transition-colors ${
                 showCw()
                   ? "text-accent bg-accent-soft"
                   : "text-accent hover:bg-[var(--accent)]/10"

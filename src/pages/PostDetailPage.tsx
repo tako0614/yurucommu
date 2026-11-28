@@ -26,6 +26,7 @@ import { ApiError } from "../lib/api/fetch.ts";
 import { EditPostModal } from "../components/timeline/EditPostModal.tsx";
 import { PostVisibilityIndicator } from "../components/timeline/PostVisibilityIndicator.tsx";
 import { useI18n } from "../lib/i18n.tsx";
+import { useDocumentTitle } from "../lib/useDocumentTitle.ts";
 import { decodeApIdParam } from "../lib/routeApId.ts";
 import { useAtom, useAtomValue, useSetAtom, useStore } from "solid-jotai";
 import { atom } from "jotai/vanilla";
@@ -274,6 +275,12 @@ export function PostDetailPage() {
   const [error, setError] = createSignal<string | null>(null);
   const clearError = () => setError(null);
   const [post, setPost] = createSignal<Post | null>(null);
+  useDocumentTitle(() => {
+    const p = post();
+    if (!p) return t("postDetail.title");
+    const author = p.author.name || p.author.preferred_username;
+    return `${author} — ${t("postDetail.title")}`;
+  });
   const [replyTarget, setReplyTarget] = createSignal<{
     requested: string;
     canonical: string;
@@ -1536,11 +1543,12 @@ export function PostDetailPage() {
                     </span>
                   </Show>
                   <button
+                    type="button"
                     onClick={handleReply}
                     disabled={
                       !replyContent().trim() || replying() || replyOverLimit()
                     }
-                    class="px-4 py-1.5 bg-accent disabled:bg-neutral-800 disabled:text-neutral-600 rounded-full text-sm font-bold transition-colors"
+                    class="min-h-11 md:min-h-0 px-4 py-1.5 bg-accent disabled:bg-neutral-800 disabled:text-neutral-600 rounded-full text-sm font-bold transition-colors"
                   >
                     {t("posts.reply")}
                   </button>
@@ -1589,19 +1597,21 @@ export function PostDetailPage() {
                     <Show when={reply.author.ap_id === actor.ap_id}>
                       <div class="ml-auto flex items-center gap-1">
                         <button
+                          type="button"
                           onClick={() => setEditingPost(reply)}
                           aria-label={t("posts.edit")}
-                          class="flex min-h-10 min-w-10 items-center justify-center p-2 md:min-h-0 md:min-w-0 md:p-1 text-neutral-500 hover:text-accent hover:bg-[var(--accent)]/10 rounded-full transition-colors"
+                          class="flex min-h-11 min-w-11 items-center justify-center p-2 md:min-h-0 md:min-w-0 md:p-1 text-neutral-500 hover:text-accent hover:bg-[var(--accent)]/10 rounded-full transition-colors"
                         >
                           <EditIcon />
                         </button>
                         <button
+                          type="button"
                           onClick={() => handleDelete(reply, true)}
                           aria-label={t("common.delete")}
                           aria-disabled={pendingInteractions().has(
                             interactionKey("delete", reply.ap_id),
                           )}
-                          class="flex min-h-10 min-w-10 items-center justify-center p-2 md:min-h-0 md:min-w-0 md:p-1 text-neutral-500 hover:text-red-500 hover:bg-red-500/10 rounded-full transition-colors aria-disabled:opacity-50 aria-disabled:cursor-wait"
+                          class="flex min-h-11 min-w-11 items-center justify-center p-2 md:min-h-0 md:min-w-0 md:p-1 text-neutral-500 hover:text-red-500 hover:bg-red-500/10 rounded-full transition-colors aria-disabled:opacity-50 aria-disabled:cursor-wait"
                         >
                           <TrashIcon />
                         </button>

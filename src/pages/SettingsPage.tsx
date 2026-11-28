@@ -2,6 +2,7 @@ import { createEffect, createSignal, on, onMount, Show } from "solid-js";
 import { useRequiredActor } from "../hooks/useRequiredActor.ts";
 import type { Actor } from "../types/index.ts";
 import { useI18n } from "../lib/i18n.tsx";
+import { useDocumentTitle } from "../lib/useDocumentTitle.ts";
 import { useAtomValue, useSetAtom } from "solid-jotai";
 import { logoutAtom, logoutBusyAtom, logoutErrorAtom } from "../atoms/auth.ts";
 import { pushToast, toastsAtom } from "../atoms/toast.ts";
@@ -65,6 +66,26 @@ export function SettingsPage() {
     | "migration"
     | "moderation"
   >("main");
+  useDocumentTitle(() => {
+    switch (activeSection()) {
+      case "blocked":
+        return t("settings.blockedUsers");
+      case "muted":
+        return t("settings.mutedUsers");
+      case "filters":
+        return t("settings.filters");
+      case "delete":
+        return t("settings.deleteAccountButton");
+      case "accounts":
+        return t("settings.switchAccount");
+      case "migration":
+        return t("settings.accountMigration");
+      case "moderation":
+        return t("settings.moderation");
+      default:
+        return t("settings.title");
+    }
+  });
   // The first actor created on an instance is the owner; only they get the
   // federation moderation surface (the backend also enforces this with 403).
   const isOwner = () => actor.role === "owner";

@@ -43,6 +43,7 @@ import { classifyWriteFailure } from "../lib/write-outcome.ts";
 import { getAuthStrategy } from "../lib/plugin.ts";
 import { handleTablistKeydown } from "../lib/tablistNav.ts";
 import { useI18n } from "../lib/i18n.tsx";
+import { useDocumentTitle } from "../lib/useDocumentTitle.ts";
 import { formatRelativeTime } from "../lib/datetime.ts";
 import { UserAvatar } from "../components/UserAvatar.tsx";
 import { PostContent } from "../components/PostContent.tsx";
@@ -561,6 +562,12 @@ export function SearchPage() {
   const [searched, setSearched] = createSignal(false);
   const [searchError, setSearchError] = createSignal<string | null>(null);
   const [lastQuery, setLastQuery] = createSignal("");
+  useDocumentTitle(() => {
+    const query = lastQuery().trim();
+    return searched() && query
+      ? `${query} — ${t("nav.search")}`
+      : t("nav.search");
+  });
   // Sort + keyset-less offset pagination for the users / posts result tabs.
   // `usersOffset` / `postsOffset` track the INWARD fetch cursor only (remote
   // webfinger merges append separately and never advance the cursor).
@@ -1591,7 +1598,7 @@ export function SearchPage() {
         <h1 class="sr-only">{t("nav.search")}</h1>
         <div class="px-4 py-3">
           <form
-            class="flex items-center gap-2 rounded-lg border border-neutral-700/80 bg-neutral-800 px-3 py-2 transition-colors focus-within:border-accent focus-within:ring-1 focus-within:ring-accent"
+            class="flex items-center gap-2 rounded-lg border border-neutral-700/80 bg-neutral-800 px-3 transition-colors focus-within:border-accent focus-within:ring-1 focus-within:ring-accent"
             onSubmit={(e) => {
               e.preventDefault();
               submitSearch(searchQuery());
@@ -1600,7 +1607,7 @@ export function SearchPage() {
             <button
               type="submit"
               aria-label={t("common.search")}
-              class="-m-2 flex min-h-10 min-w-10 items-center justify-center rounded-full p-2 md:-m-1.5 md:min-h-0 md:min-w-0 md:p-1.5 text-neutral-400 transition-colors hover:bg-neutral-700/60 hover:text-white"
+              class="-ml-2 flex min-h-11 min-w-11 items-center justify-center rounded-full p-2 md:-ml-1.5 md:min-h-0 md:min-w-0 md:p-1.5 text-neutral-400 transition-colors hover:bg-neutral-700/60 hover:text-white"
             >
               <SearchIcon />
             </button>
@@ -1619,7 +1626,7 @@ export function SearchPage() {
               }}
               placeholder={t("nav.search")}
               aria-label={t("common.search")}
-              class="flex-1 bg-transparent outline-none text-white placeholder-neutral-500 text-sm"
+              class="flex-1 min-h-11 md:min-h-0 py-2.5 md:py-2 bg-transparent outline-none text-white placeholder-neutral-500 text-sm"
             />
             <Show when={searchQuery()}>
               <button
@@ -1629,7 +1636,7 @@ export function SearchPage() {
                   searchInputRef?.focus();
                 }}
                 aria-label={t("search.clear")}
-                class="-m-2 flex min-h-10 min-w-10 items-center justify-center rounded-full p-2 md:-m-1.5 md:min-h-0 md:min-w-0 md:p-1.5 text-neutral-400 transition-colors hover:bg-neutral-700/60 hover:text-white"
+                class="-mr-2 flex min-h-11 min-w-11 items-center justify-center rounded-full p-2 md:-mr-1.5 md:min-h-0 md:min-w-0 md:p-1.5 text-neutral-400 transition-colors hover:bg-neutral-700/60 hover:text-white"
               >
                 <CloseIcon />
               </button>
@@ -1855,12 +1862,13 @@ export function SearchPage() {
                                   when={community.join_status === "pending"}
                                   fallback={
                                     <button
+                                      type="button"
                                       onClick={(e) => handleJoin(community, e)}
                                       disabled={
                                         instancesLoading() ||
                                         isJoinPending(community.ap_id)
                                       }
-                                      class="px-4 py-1.5 bg-[var(--accent)] text-white font-medium rounded-full hover:brightness-110 transition-colors text-sm shrink-0 disabled:opacity-50"
+                                      class="min-h-11 md:min-h-0 px-4 py-1.5 bg-accent text-white font-medium rounded-full transition-colors text-sm shrink-0 disabled:opacity-50"
                                     >
                                       {isJoinPending(community.ap_id)
                                         ? t("discover.joining")
@@ -1905,7 +1913,7 @@ export function SearchPage() {
                                         isJoinPending(community.ap_id)
                                       }
                                       onClick={(e) => handleJoin(community, e)}
-                                      class="rounded-full bg-[var(--accent)] px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+                                      class="min-h-11 md:min-h-0 rounded-full bg-accent px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50"
                                     >
                                       {language() === "ja"
                                         ? "もう一度参加"
@@ -2010,9 +2018,7 @@ export function SearchPage() {
                     </div>
                     <span
                       class={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
-                        includeRemote()
-                          ? "bg-[var(--accent)]"
-                          : "bg-neutral-700"
+                        includeRemote() ? "bg-accent" : "bg-neutral-700"
                       }`}
                     >
                       <span
@@ -2042,7 +2048,7 @@ export function SearchPage() {
                       id="users-sort"
                       value={usersSort()}
                       onChange={(e) => changeUsersSort(e.currentTarget.value)}
-                      class="bg-neutral-800 text-neutral-200 text-xs rounded-md px-2 py-1 border border-neutral-700 focus:outline-none focus:border-accent"
+                      class="min-h-11 md:min-h-0 bg-neutral-800 text-neutral-200 text-xs rounded-md px-2.5 py-2 md:px-2 md:py-1 border border-neutral-700 focus:outline-none focus:border-accent"
                     >
                       <For each={USER_SORTS}>
                         {(s) => <option value={s}>{sortLabel(s)}</option>}
@@ -2081,7 +2087,7 @@ export function SearchPage() {
                         <button
                           type="button"
                           onClick={acceptRemoteHandlePrompt}
-                          class="mt-4 inline-flex items-center rounded-full bg-[var(--accent)] px-4 py-1.5 text-sm font-medium text-white transition-colors hover:brightness-110"
+                          class="mt-4 inline-flex min-h-11 md:min-h-0 items-center rounded-full bg-accent px-4 py-1.5 text-sm font-medium text-white transition-colors"
                         >
                           {t("search.searchOtherServers")}
                         </button>
@@ -2196,7 +2202,7 @@ export function SearchPage() {
                       id="posts-sort"
                       value={postsSort()}
                       onChange={(e) => changePostsSort(e.currentTarget.value)}
-                      class="bg-neutral-800 text-neutral-200 text-xs rounded-md px-2 py-1 border border-neutral-700 focus:outline-none focus:border-accent"
+                      class="min-h-11 md:min-h-0 bg-neutral-800 text-neutral-200 text-xs rounded-md px-2.5 py-2 md:px-2 md:py-1 border border-neutral-700 focus:outline-none focus:border-accent"
                     >
                       <For each={POST_SORTS}>
                         {(s) => <option value={s}>{sortLabel(s)}</option>}

@@ -79,7 +79,7 @@ function ToastItem(props: { toast: Toast }) {
         type="button"
         onClick={() => dismissToast(setToasts, props.toast.id)}
         aria-label={t("common.close")}
-        class="-mr-1 shrink-0 text-current/70 hover:text-current"
+        class="-my-2 -mr-2 flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-full p-2 text-current/70 transition-colors hover:text-current md:my-0 md:-mr-1 md:min-h-0 md:min-w-0 md:p-0.5"
       >
         <svg
           class="h-4 w-4"

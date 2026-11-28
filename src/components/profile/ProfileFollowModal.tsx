@@ -5,6 +5,7 @@ import type { Actor } from "../../types/index.ts";
 import { UserAvatar } from "../UserAvatar.tsx";
 import { CloseIcon } from "./ProfileIcons.tsx";
 import { InlineErrorRetry } from "../InlineErrorRetry.tsx";
+import { UserListSkeleton } from "../skeletons/PageSkeletons.tsx";
 import { useDialog } from "../../lib/useDialog.ts";
 import type { Translate } from "../../lib/i18n.tsx";
 
@@ -54,11 +55,12 @@ export function ProfileFollowModal(props: ProfileFollowModalProps) {
             class="bg-neutral-900 rounded-2xl w-full max-w-md max-h-[80vh] flex flex-col"
           >
             <div class="flex items-center justify-between px-4 py-3 border-b border-neutral-800">
-              <div class="flex items-center gap-4">
+              <div class="flex items-center gap-2 sm:gap-4">
                 <button
+                  type="button"
                   onClick={props.onClose}
                   aria-label={props.t("common.close")}
-                  class="p-1 hover:bg-neutral-800 rounded-full transition-colors"
+                  class="-ml-2 flex min-h-11 min-w-11 items-center justify-center p-2 md:ml-0 md:min-h-0 md:min-w-0 md:p-1 hover:bg-neutral-800 rounded-full transition-colors"
                 >
                   <CloseIcon />
                 </button>
@@ -82,11 +84,7 @@ export function ProfileFollowModal(props: ProfileFollowModalProps) {
               >
                 <Show
                   when={!props.loading}
-                  fallback={
-                    <div class="p-8 text-center text-neutral-500">
-                      {props.t("common.loading")}
-                    </div>
-                  }
+                  fallback={<UserListSkeleton count={5} />}
                 >
                   <Show
                     when={props.actors.length > 0}

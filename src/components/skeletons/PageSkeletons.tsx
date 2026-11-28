@@ -1,4 +1,5 @@
 import { For } from "solid-js";
+import { useI18n } from "../../lib/i18n.tsx";
 
 /**
  * Loading skeleton for PostDetailPage: mirrors the main post header, body,
@@ -50,22 +51,26 @@ export function PostDetailSkeleton() {
  * Loading skeleton for user/member list rows (FriendsListPage, community
  * profiles, etc.): avatar + display name + @handle + trailing action slot.
  */
-export function UserListSkeleton(props: { count?: number }) {
+export function UserListSkeleton(props: { count?: number; label?: string }) {
+  const { t } = useI18n();
   const rows = () => Array.from({ length: props.count ?? 6 });
   return (
-    <div aria-hidden="true">
-      <For each={rows()}>
-        {() => (
-          <div class="flex items-center gap-3 border-b border-neutral-800 px-4 py-3">
-            <div class="h-12 w-12 shrink-0 rounded-full bg-neutral-800 animate-pulse" />
-            <div class="flex-1 min-w-0 space-y-2">
-              <div class="h-4 w-32 rounded bg-neutral-800 animate-pulse" />
-              <div class="h-3.5 w-24 rounded bg-neutral-800/70 animate-pulse" />
+    <div role="status">
+      <span class="sr-only">{props.label ?? t("common.loading")}</span>
+      <div aria-hidden="true">
+        <For each={rows()}>
+          {() => (
+            <div class="flex items-center gap-3 border-b border-neutral-800 px-4 py-3">
+              <div class="h-12 w-12 shrink-0 rounded-full bg-neutral-800 animate-pulse" />
+              <div class="flex-1 min-w-0 space-y-2">
+                <div class="h-4 w-32 rounded bg-neutral-800 animate-pulse" />
+                <div class="h-3.5 w-24 rounded bg-neutral-800/70 animate-pulse" />
+              </div>
+              <div class="h-9 w-9 shrink-0 rounded-full bg-neutral-800/70 animate-pulse" />
             </div>
-            <div class="h-9 w-9 shrink-0 rounded-full bg-neutral-800/70 animate-pulse" />
-          </div>
-        )}
-      </For>
+          )}
+        </For>
+      </div>
     </div>
   );
 }
