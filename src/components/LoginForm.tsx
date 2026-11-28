@@ -196,7 +196,7 @@ export function LoginForm(props: LoginFormProps) {
                       type="password"
                       value={password()}
                       onInput={(e) => setPassword(e.currentTarget.value)}
-                      class="w-full px-4 py-2 bg-neutral-800 border border-neutral-700 rounded-md text-neutral-100 focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:border-transparent"
+                      class="w-full min-h-11 md:min-h-0 px-4 py-2 bg-neutral-800 border border-neutral-700 rounded-md text-neutral-100 focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:border-transparent"
                       placeholder={t("auth.passwordPlaceholder")}
                       disabled={submitting()}
                       autocomplete="current-password"

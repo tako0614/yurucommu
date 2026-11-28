@@ -1,5 +1,6 @@
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { useI18n } from "../lib/i18n.tsx";
+import { useDocumentTitle } from "../lib/useDocumentTitle.ts";
 import type { InstanceHealth } from "../lib/plugin.ts";
 import type { TranslationKey } from "../atoms/i18n.ts";
 
@@ -36,6 +37,7 @@ const CHECK_ROWS: Array<{
  */
 export function InstancePendingScreen(props: InstancePendingScreenProps) {
   const { t, language } = useI18n();
+  useDocumentTitle(() => t("instance.pendingTitle"));
   const [polls, setPolls] = createSignal(0);
   const [rebuilding, setRebuilding] = createSignal(false);
 
@@ -61,7 +63,7 @@ export function InstancePendingScreen(props: InstancePendingScreenProps) {
   };
 
   return (
-    <div class="flex min-h-screen flex-col items-center justify-center bg-neutral-950 p-6 text-neutral-100">
+    <main class="flex min-h-screen flex-col items-center justify-center bg-neutral-950 p-6 text-neutral-100">
       <div class="w-full max-w-sm space-y-6">
         <div class="flex flex-col items-center space-y-3 text-center">
           <div class="h-10 w-10 animate-spin rounded-full border-3 border-neutral-700 border-t-accent" />
@@ -133,7 +135,7 @@ export function InstancePendingScreen(props: InstancePendingScreenProps) {
           <button
             type="button"
             onClick={() => void props.onRefresh()}
-            class="w-full rounded-md border border-neutral-700 px-4 py-2 text-sm font-medium text-neutral-200 transition-colors hover:bg-neutral-800"
+            class="w-full min-h-11 md:min-h-0 rounded-md border border-neutral-700 px-4 py-2 text-sm font-medium text-neutral-200 transition-colors hover:bg-neutral-800"
           >
             {t("instance.refresh")}
           </button>
@@ -147,7 +149,7 @@ export function InstancePendingScreen(props: InstancePendingScreenProps) {
                 type="button"
                 onClick={handleRebuild}
                 disabled={rebuilding()}
-                class="w-full rounded-md border border-accent px-4 py-2 text-sm font-medium text-accent transition-colors hover:bg-[var(--accent)]/10 disabled:cursor-not-allowed disabled:opacity-50"
+                class="w-full min-h-11 md:min-h-0 rounded-md border border-accent px-4 py-2 text-sm font-medium text-accent transition-colors hover:bg-[var(--accent)]/10 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {rebuilding()
                   ? t("instance.rebuilding")
@@ -157,7 +159,7 @@ export function InstancePendingScreen(props: InstancePendingScreenProps) {
           </Show>
         </div>
       </div>
-    </div>
+    </main>
   );
 }
 

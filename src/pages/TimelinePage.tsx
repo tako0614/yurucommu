@@ -18,6 +18,7 @@ import { showScopeSwitcherAtom } from "../atoms/timeline.ts";
 import { inhabitedScopeAtom } from "../atoms/scope.ts";
 import type { HomeFeedTab } from "../atoms/timeline.ts";
 import { handleTablistKeydown } from "../lib/tablistNav.ts";
+import { useDocumentTitle } from "../lib/useDocumentTitle.ts";
 import { LoadingSpinner } from "../components/LoadingSpinner.tsx";
 
 // Lazy load heavy components
@@ -103,6 +104,12 @@ export function TimelinePage() {
     const scope = inhabitedScope();
     return scope.kind === "community" ? { name: scope.name } : null;
   };
+  useDocumentTitle(() => {
+    const scope = inhabitedScope();
+    return scope.kind === "community"
+      ? scope.display_name || scope.name
+      : state.t()("nav.home");
+  });
 
   // Prefetch the lazy story chunks once the home view is up, so the first tap on
   // a story (view) or "+" (compose) opens instantly instead of flashing the
@@ -184,11 +191,12 @@ export function TimelinePage() {
           <For each={FEED_TABS}>
             {(tab) => (
               <button
+                type="button"
                 role="tab"
                 aria-selected={state.feedTab() === tab.key}
                 tabindex={state.feedTab() === tab.key ? 0 : -1}
                 onClick={() => state.setFeedTab(tab.key)}
-                class={`flex-1 px-4 py-2.5 text-sm font-bold whitespace-nowrap transition-colors border-b-2 ${
+                class={`flex-1 min-h-11 md:min-h-0 px-4 py-2.5 text-sm font-bold whitespace-nowrap transition-colors border-b-2 ${
                   state.feedTab() === tab.key
                     ? "text-white border-accent"
                     : "text-neutral-500 border-transparent hover:text-neutral-300"
@@ -342,7 +350,7 @@ export function TimelinePage() {
                 aria-hidden="true"
               />
               <Show when={!state.hasMore() && state.posts().length > 0}>
-                <div class="p-4 text-center text-neutral-600 text-sm">
+                <div class="p-4 text-center text-neutral-500 text-sm">
                   {state.t()("timeline.noMorePosts")}
                 </div>
               </Show>

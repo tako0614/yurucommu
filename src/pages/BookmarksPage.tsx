@@ -12,6 +12,7 @@ import {
 } from "../atoms/timeline.ts";
 import { formatRelativeTime } from "../lib/datetime.ts";
 import { useI18n } from "../lib/i18n.tsx";
+import { useDocumentTitle } from "../lib/useDocumentTitle.ts";
 import { UserAvatar } from "../components/UserAvatar.tsx";
 import { PostContent } from "../components/PostContent.tsx";
 import { PostVisibilityIndicator } from "../components/timeline/PostVisibilityIndicator.tsx";
@@ -31,6 +32,7 @@ export function BookmarksPage() {
   const actor = useRequiredActor();
   const currentActor = useAtomValue(actorAtom);
   const { t, language } = useI18n();
+  useDocumentTitle(() => t("bookmarks.title"));
   const lightbox = useMediaLightbox();
   const bookmarks = createBookmarksState();
   const [posts, setPosts] = useAtom(bookmarks.posts);

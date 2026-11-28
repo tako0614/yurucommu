@@ -3,6 +3,8 @@ import { useAtomValue } from "solid-jotai";
 import type { AccountInfo } from "../../lib/api.ts";
 import { currentApIdAtom } from "../../atoms/timeline.ts";
 import { UserAvatar } from "../UserAvatar.tsx";
+import { UserListSkeleton } from "../skeletons/PageSkeletons.tsx";
+import { isComposingKey } from "../ime.ts";
 import { CheckIcon, CloseIcon, PlusIcon } from "./SettingsIcons.tsx";
 import { SettingsSectionHeader } from "./SettingsSectionHeader.tsx";
 import type { Translate } from "../../lib/i18n.tsx";
@@ -38,21 +40,18 @@ export function SettingsAccountsSection(props: SettingsAccountsSectionProps) {
         onBack={props.onBack}
       />
       <div class="flex-1 overflow-y-auto">
-        <Show
-          when={!props.loading}
-          fallback={
-            <div class="p-8 text-center text-neutral-500">
-              {props.t("common.loading")}
-            </div>
-          }
-        >
+        <Show when={!props.loading} fallback={<UserListSkeleton count={4} />}>
           <Show when={props.loadError}>
-            <div class="m-4 p-3 rounded-lg bg-rose-500/10 flex items-center justify-between gap-3">
+            <div
+              role="alert"
+              class="m-4 p-3 rounded-lg bg-rose-500/10 flex items-center justify-between gap-3"
+            >
               <span class="text-sm text-rose-300">{props.loadError}</span>
               <Show when={props.onRetry}>
                 <button
+                  type="button"
                   onClick={() => props.onRetry?.()}
-                  class="text-sm text-accent hover:underline shrink-0"
+                  class="min-h-11 md:min-h-0 px-2 text-sm text-accent hover:underline shrink-0"
                 >
                   {props.t("common.retry")}
                 </button>
@@ -63,6 +62,7 @@ export function SettingsAccountsSection(props: SettingsAccountsSectionProps) {
           <For each={props.accounts}>
             {(account) => (
               <button
+                type="button"
                 onClick={() => props.onSwitchAccount(account.ap_id)}
                 disabled={props.switching}
                 class="w-full flex items-center gap-3 px-4 py-3 border-b border-neutral-800 hover:bg-neutral-800/60 transition-colors disabled:opacity-50"
@@ -92,6 +92,7 @@ export function SettingsAccountsSection(props: SettingsAccountsSectionProps) {
             when={props.showCreateAccount}
             fallback={
               <button
+                type="button"
                 onClick={() => props.onToggleCreate(true)}
                 class="w-full flex items-center gap-3 px-4 py-3 hover:bg-neutral-800/60 transition-colors text-accent"
               >
@@ -104,11 +105,12 @@ export function SettingsAccountsSection(props: SettingsAccountsSectionProps) {
           >
             <div class="p-4 border-t border-neutral-800">
               <div class="flex items-center justify-between mb-4">
-                <h3 class="font-bold">{props.t("settings.newAccount")}</h3>
+                <h2 class="font-bold">{props.t("settings.newAccount")}</h2>
                 <button
+                  type="button"
                   onClick={props.onResetCreate}
                   aria-label={props.t("common.close")}
-                  class="p-1 hover:bg-neutral-800 rounded-full"
+                  class="-mr-2 flex min-h-11 min-w-11 items-center justify-center p-2 md:mr-0 md:min-h-0 md:min-w-0 md:p-1 hover:bg-neutral-800 rounded-full"
                 >
                   <CloseIcon />
                 </button>
@@ -117,7 +119,10 @@ export function SettingsAccountsSection(props: SettingsAccountsSectionProps) {
                 {props.t("settings.accountOwnershipHint")}
               </p>
               <Show when={props.createError}>
-                <div class="mb-3 p-2 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
+                <div
+                  role="alert"
+                  class="mb-3 p-2 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm"
+                >
                   {props.createError}
                 </div>
               </Show>
@@ -136,10 +141,20 @@ export function SettingsAccountsSection(props: SettingsAccountsSectionProps) {
                     onInput={(e) =>
                       props.onChangeUsername(e.currentTarget.value)
                     }
+                    onKeyDown={(e) => {
+                      if (
+                        e.key === "Enter" &&
+                        !isComposingKey(e) &&
+                        props.isUsernameValid
+                      ) {
+                        e.preventDefault();
+                        props.onCreate();
+                      }
+                    }}
                     placeholder="username"
                     pattern="^[a-zA-Z0-9_]+$"
                     required
-                    class="w-full bg-neutral-800 rounded-lg px-3 py-2 text-white placeholder-neutral-500 outline-none focus:ring-2 focus:ring-accent"
+                    class="w-full min-h-11 md:min-h-0 bg-neutral-800 rounded-lg px-3 py-2 text-white placeholder-neutral-500 outline-none focus:ring-2 focus:ring-accent"
                   />
                   <p class="text-xs text-neutral-500 mt-1">
                     {props.t("settings.usernameHint")}
@@ -159,14 +174,25 @@ export function SettingsAccountsSection(props: SettingsAccountsSectionProps) {
                     onInput={(e) =>
                       props.onChangeDisplayName(e.currentTarget.value)
                     }
+                    onKeyDown={(e) => {
+                      if (
+                        e.key === "Enter" &&
+                        !isComposingKey(e) &&
+                        props.isUsernameValid
+                      ) {
+                        e.preventDefault();
+                        props.onCreate();
+                      }
+                    }}
                     placeholder={props.t("settings.displayName")}
-                    class="w-full bg-neutral-800 rounded-lg px-3 py-2 text-white placeholder-neutral-500 outline-none focus:ring-2 focus:ring-accent"
+                    class="w-full min-h-11 md:min-h-0 bg-neutral-800 rounded-lg px-3 py-2 text-white placeholder-neutral-500 outline-none focus:ring-2 focus:ring-accent"
                   />
                 </div>
                 <button
+                  type="button"
                   onClick={props.onCreate}
                   disabled={!props.isUsernameValid}
-                  class="w-full py-2 bg-accent rounded-lg font-bold transition-colors disabled:opacity-50"
+                  class="w-full min-h-11 md:min-h-0 py-2 bg-accent rounded-lg font-bold transition-colors disabled:opacity-50"
                 >
                   {props.t("groups.create")}
                 </button>

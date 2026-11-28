@@ -777,15 +777,20 @@ export function DMChatPanel(props: DMChatPanelProps) {
             placeholder={t("dm.placeholder")}
             aria-label={t("dm.placeholder")}
             enterkeyhint={coarsePointer() ? "enter" : "send"}
-            class="flex-1 min-w-0 resize-none overflow-y-auto px-4 py-2 leading-6 bg-neutral-900 border border-neutral-800 rounded-3xl text-white placeholder-neutral-500 focus:outline-none focus:border-accent"
+            class="flex-1 min-w-0 min-h-11 md:min-h-0 resize-none overflow-y-auto px-4 py-2.5 md:py-2 leading-6 bg-neutral-900 border border-neutral-800 rounded-3xl text-white placeholder-neutral-500 focus:outline-none focus:border-accent"
           />
           <button
             type="submit"
             disabled={!input().trim() || sending()}
             aria-label={t("dm.send")}
-            class="h-[42px] shrink-0 px-4 py-2 bg-accent disabled:bg-neutral-700 disabled:cursor-not-allowed text-white rounded-full font-medium transition-colors"
+            class="flex min-h-11 min-w-11 md:h-[42px] md:min-h-0 md:min-w-0 items-center justify-center shrink-0 px-4 py-2 bg-accent disabled:bg-neutral-700 disabled:cursor-not-allowed text-white rounded-full font-medium transition-colors"
           >
-            <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+            <svg
+              class="w-5 h-5"
+              fill="currentColor"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
               <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
             </svg>
           </button>

@@ -25,6 +25,7 @@ import {
 import { handleTablistKeydown } from "../lib/tablistNav.ts";
 import { createHorizontalScrollFade } from "../hooks/useHorizontalScrollFade.ts";
 import { useI18n } from "../lib/i18n.tsx";
+import { useDocumentTitle } from "../lib/useDocumentTitle.ts";
 import { formatRelativeTime } from "../lib/datetime.ts";
 import { UserAvatar } from "../components/UserAvatar.tsx";
 import {
@@ -152,6 +153,7 @@ function safeNotificationPath(value: string | null | undefined): string | null {
 export function NotificationPage() {
   const tabScrollFade = createHorizontalScrollFade();
   const { t, language } = useI18n();
+  useDocumentTitle(() => t("notifications.title"));
   const navigate = useNavigate();
   const refreshUnread = useSetAtom(refreshNotificationUnreadAtom);
   const actor = useAtomValue(actorAtom);
@@ -855,12 +857,13 @@ export function NotificationPage() {
             <For each={filterTabs()}>
               {(tab) => (
                 <button
+                  type="button"
                   role="tab"
                   aria-selected={filter() === tab.key}
                   tabindex={filter() === tab.key ? 0 : -1}
                   disabled={notificationMutationPending()}
                   onClick={() => setFilter(tab.key)}
-                  class={`flex items-center gap-1.5 px-4 py-2.5 text-sm whitespace-nowrap transition-colors border-b-2 ${
+                  class={`flex min-h-11 md:min-h-0 items-center gap-1.5 px-4 py-2.5 text-sm whitespace-nowrap transition-colors border-b-2 ${
                     filter() === tab.key
                       ? "text-white border-accent"
                       : "text-neutral-500 border-transparent hover:text-neutral-300"
@@ -976,7 +979,7 @@ export function NotificationPage() {
                           <p class="text-[15px] text-neutral-400">
                             {getNotificationText(notification)}
                           </p>
-                          <p class="text-sm text-neutral-600 mt-1">
+                          <p class="text-sm text-neutral-500 mt-1">
                             {formatRelativeTime(notification.created_at, {
                               locale: language(),
                             })}
@@ -991,26 +994,29 @@ export function NotificationPage() {
                       >
                         <div class="flex gap-2 shrink-0 self-center">
                           <button
+                            type="button"
                             onClick={() =>
                               handleFollowRequest(notification, "accept")
                             }
                             disabled={pendingAction()[notification.id]}
-                            class="px-3 py-1 text-xs bg-accent text-white rounded-full transition-colors disabled:opacity-50"
+                            class="min-h-11 md:min-h-0 px-3.5 py-2 md:px-3 md:py-1 text-xs bg-accent text-white rounded-full transition-colors disabled:opacity-50"
                           >
                             {t("dm.accept")}
                           </button>
                           <button
+                            type="button"
                             onClick={() =>
                               handleFollowRequest(notification, "reject")
                             }
                             disabled={pendingAction()[notification.id]}
-                            class="px-3 py-1 text-xs bg-neutral-800 text-neutral-200 rounded-full hover:bg-neutral-700 transition-colors disabled:opacity-50"
+                            class="min-h-11 md:min-h-0 px-3.5 py-2 md:px-3 md:py-1 text-xs bg-neutral-800 text-neutral-200 rounded-full hover:bg-neutral-700 transition-colors disabled:opacity-50"
                           >
                             {t("dm.reject")}
                           </button>
                         </div>
                       </Show>
                       <button
+                        type="button"
                         onClick={() => handleArchiveToggle(notification)}
                         disabled={archiving()[notification.id]}
                         aria-label={t(
@@ -1023,7 +1029,7 @@ export function NotificationPage() {
                             ? "notifications.unarchive"
                             : "notifications.archive",
                         )}
-                        class="shrink-0 self-center flex min-h-10 min-w-10 items-center justify-center p-2.5 rounded-full text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800 transition-colors disabled:opacity-50"
+                        class="shrink-0 self-center flex min-h-11 min-w-11 items-center justify-center p-2.5 md:min-h-10 md:min-w-10 rounded-full text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800 transition-colors disabled:opacity-50"
                       >
                         <ArchiveIcon />
                       </button>

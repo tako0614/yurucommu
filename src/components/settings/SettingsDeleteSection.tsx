@@ -45,10 +45,11 @@ export function SettingsDeleteSection(props: SettingsDeleteSectionProps) {
             // bg-neutral-800 like the other settings fields: on the page's
             // own neutral-900 only the placeholder showed where to type. The
             // transparent border draws an edge in forced-colors mode.
-            class="w-full bg-neutral-800 border border-transparent rounded-lg px-3 py-2 text-white outline-none focus:ring-2 focus:ring-red-500"
+            class="w-full min-h-11 md:min-h-0 bg-neutral-800 border border-transparent rounded-lg px-3 py-2 text-white outline-none focus:ring-2 focus:ring-red-500"
           />
         </div>
         <button
+          type="button"
           onClick={props.onDelete}
           disabled={
             props.deleting ||

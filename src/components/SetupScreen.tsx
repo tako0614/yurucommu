@@ -1,5 +1,6 @@
 import { createMemo, createSignal, Show } from "solid-js";
 import { useI18n } from "../lib/i18n.tsx";
+import { useDocumentTitle } from "../lib/useDocumentTitle.ts";
 
 interface SetupScreenProps {
   /** Claims the handle and provisions the instance. Returns success. */
@@ -16,6 +17,7 @@ const HANDLE_PATTERN = /^[a-z0-9_]{3,30}$/;
  */
 export function SetupScreen(props: SetupScreenProps) {
   const { t } = useI18n();
+  useDocumentTitle(() => t("setup.instanceTitle"));
   const [handle, setHandle] = createSignal("");
   const [submitting, setSubmitting] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
@@ -58,7 +60,7 @@ export function SetupScreen(props: SetupScreenProps) {
   };
 
   return (
-    <div class="flex min-h-screen flex-col items-center justify-center bg-neutral-950 p-6 text-neutral-100">
+    <main class="flex min-h-screen flex-col items-center justify-center bg-neutral-950 p-6 text-neutral-100">
       <div class="w-full max-w-sm space-y-6">
         <div class="space-y-2 text-center">
           {/* Break between phrases where the browser can (Chromium's
@@ -145,7 +147,7 @@ export function SetupScreen(props: SetupScreenProps) {
           </button>
         </form>
       </div>
-    </div>
+    </main>
   );
 }
 

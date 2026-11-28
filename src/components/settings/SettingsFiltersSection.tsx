@@ -32,7 +32,7 @@ export function SettingsFiltersSection(props: SettingsFiltersSectionProps) {
   };
 
   const inputClass =
-    "flex-1 min-w-0 bg-neutral-800 rounded-lg px-3 py-2 text-white placeholder-neutral-500 outline-none focus:ring-2 focus:ring-accent";
+    "flex-1 min-w-0 min-h-11 md:min-h-0 bg-neutral-800 rounded-lg px-3 py-2 text-white placeholder-neutral-500 outline-none focus:ring-2 focus:ring-accent";
 
   return (
     <div class="flex flex-col h-full">
@@ -63,7 +63,7 @@ export function SettingsFiltersSection(props: SettingsFiltersSectionProps) {
             type="button"
             onClick={handleAdd}
             disabled={input().trim().length === 0}
-            class="px-4 py-2 bg-accent rounded-lg font-bold disabled:opacity-50"
+            class="min-h-11 md:min-h-0 px-4 py-2 bg-accent rounded-lg font-bold disabled:opacity-50"
           >
             {props.t("filters.add")}
           </button>
@@ -86,7 +86,7 @@ export function SettingsFiltersSection(props: SettingsFiltersSectionProps) {
                     type="button"
                     onClick={() => removeWord(word)}
                     aria-label={`${props.t("filters.remove")}: ${word}`}
-                    class="text-sm text-accent hover:underline ml-3 shrink-0"
+                    class="min-h-11 md:min-h-0 text-sm text-accent hover:underline ml-3 shrink-0"
                   >
                     {props.t("filters.remove")}
                   </button>

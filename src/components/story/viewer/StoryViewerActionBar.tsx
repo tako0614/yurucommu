@@ -42,7 +42,7 @@ export function StoryViewerActionBar(props: StoryViewerActionBarProps) {
         {/* The field's focus shows on the pill itself; its own outline drew a
             square inside it. Only for the field: the send button inside
             keeps its own outline, without a second accent frame around it. */}
-        <div class="flex-1 min-w-0 flex items-center gap-2 border border-white/40 rounded-full px-4 py-2 has-[input:focus-visible]:border-accent has-[input:focus-visible]:ring-1 has-[input:focus-visible]:ring-accent">
+        <div class="flex-1 min-w-0 flex items-center gap-2 border border-white/40 rounded-full px-4 has-[input:focus-visible]:border-accent has-[input:focus-visible]:ring-1 has-[input:focus-visible]:ring-accent">
           <input
             type="text"
             enterkeyhint="send"
@@ -50,7 +50,7 @@ export function StoryViewerActionBar(props: StoryViewerActionBarProps) {
             placeholder={props.placeholder}
             aria-label={props.placeholder}
             disabled={sending()}
-            class="flex-1 min-w-0 select-text bg-transparent text-white placeholder-white/50 text-sm outline-none disabled:opacity-50"
+            class="flex-1 min-w-0 min-h-11 md:min-h-0 py-2.5 md:py-2 select-text bg-transparent text-white placeholder-white/50 text-sm outline-none disabled:opacity-50"
             onInput={(e) => setReply(e.currentTarget.value)}
             onClick={(e) => e.stopPropagation()}
             onPointerDown={(e) => e.stopPropagation()}
@@ -70,7 +70,8 @@ export function StoryViewerActionBar(props: StoryViewerActionBarProps) {
               up-pointing plane read as a warning sign. */}
           <Show when={hasText() || sending()}>
             <button
-              class="-my-2 -mr-2 shrink-0 rounded-full p-2 text-white/80 hover:text-white transition-colors disabled:opacity-40"
+              type="button"
+              class="-mr-2 flex min-h-11 min-w-11 md:min-h-0 md:min-w-0 shrink-0 items-center justify-center rounded-full p-2 text-white/80 hover:text-white transition-colors disabled:opacity-40"
               disabled={sending()}
               onClick={(e) => {
                 e.stopPropagation();

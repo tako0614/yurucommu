@@ -24,14 +24,20 @@ export function CommunitySettingsPanel(props: CommunitySettingsPanelProps) {
   return (
     <div class="p-4 space-y-6">
       <Show when={props.settingsError}>
-        <div class="p-3 bg-red-500/20 border border-red-500 rounded-lg text-red-400 text-sm">
+        <div
+          role="alert"
+          class="p-3 bg-red-500/20 border border-red-500 rounded-lg text-red-400 text-sm"
+        >
           {props.settingsError}
         </div>
       </Show>
 
       {/* Icon Upload */}
       <div>
-        <label class="block text-sm font-semibold text-neutral-300 mb-2">
+        <label
+          for="community-icon-upload"
+          class="block text-sm font-semibold text-neutral-300 mb-2"
+        >
           {t("community.icon")}
         </label>
         <div class="flex items-center gap-4">
@@ -53,16 +59,23 @@ export function CommunitySettingsPanel(props: CommunitySettingsPanelProps) {
               />
             </Show>
           </div>
-          <label class="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-white rounded-lg cursor-pointer transition-colors">
+          {/* Visually hidden but focusable file input (class="hidden" made it
+              unreachable by keyboard Tab and screen readers); focus outlines
+              the visible trigger button. */}
+          <label class="inline-flex min-h-11 md:min-h-0 items-center px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-white rounded-lg cursor-pointer transition-colors has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-accent">
             {props.uploadingIcon
               ? t("common.uploading")
               : t("community.selectImage")}
             <input
+              id="community-icon-upload"
               type="file"
               accept="image/*"
+              aria-disabled={props.uploadingIcon ? "true" : undefined}
+              onClick={(e) => {
+                if (props.uploadingIcon) e.preventDefault();
+              }}
               onChange={props.onUploadIcon}
-              disabled={props.uploadingIcon}
-              class="hidden"
+              class="sr-only"
             />
           </label>
         </div>
@@ -86,7 +99,7 @@ export function CommunitySettingsPanel(props: CommunitySettingsPanelProps) {
               display_name: e.currentTarget.value,
             }))
           }
-          class="w-full px-3 py-2 bg-neutral-900 border border-neutral-700 rounded-lg text-white placeholder-neutral-500 focus:border-[var(--accent)] focus:outline-none"
+          class="w-full min-h-11 md:min-h-0 px-3 py-2 bg-neutral-900 border border-neutral-700 rounded-lg text-white placeholder-neutral-500 focus:border-[var(--accent)] focus:outline-none"
           placeholder={t("community.displayNamePlaceholder")}
         />
       </div>
@@ -115,10 +128,10 @@ export function CommunitySettingsPanel(props: CommunitySettingsPanelProps) {
       </div>
 
       {/* Visibility */}
-      <div>
-        <label class="block text-sm font-semibold text-neutral-300 mb-2">
+      <fieldset>
+        <legend class="block text-sm font-semibold text-neutral-300 mb-2">
           {t("community.visibility")}
-        </label>
+        </legend>
         <div class="space-y-2">
           <label class="flex items-center gap-3 p-3 bg-neutral-900 border border-neutral-700 rounded-lg cursor-pointer hover:border-neutral-600">
             <input
@@ -131,7 +144,7 @@ export function CommunitySettingsPanel(props: CommunitySettingsPanelProps) {
                   visibility: "public",
                 }))
               }
-              class="w-4 h-4 text-accent"
+              class="w-4 h-4 shrink-0 text-accent"
             />
             <div>
               <div class="text-white font-medium">{t("community.public")}</div>
@@ -151,7 +164,7 @@ export function CommunitySettingsPanel(props: CommunitySettingsPanelProps) {
                   visibility: "private",
                 }))
               }
-              class="w-4 h-4 text-accent"
+              class="w-4 h-4 shrink-0 text-accent"
             />
             <div>
               <div class="text-white font-medium">{t("community.private")}</div>
@@ -161,13 +174,13 @@ export function CommunitySettingsPanel(props: CommunitySettingsPanelProps) {
             </div>
           </label>
         </div>
-      </div>
+      </fieldset>
 
       {/* Join Policy */}
-      <div>
-        <label class="block text-sm font-semibold text-neutral-300 mb-2">
+      <fieldset>
+        <legend class="block text-sm font-semibold text-neutral-300 mb-2">
           {t("community.joinPolicy")}
-        </label>
+        </legend>
         <div class="space-y-2">
           <label class="flex items-center gap-3 p-3 bg-neutral-900 border border-neutral-700 rounded-lg cursor-pointer hover:border-neutral-600">
             <input
@@ -180,7 +193,7 @@ export function CommunitySettingsPanel(props: CommunitySettingsPanelProps) {
                   join_policy: "open",
                 }))
               }
-              class="w-4 h-4 text-accent"
+              class="w-4 h-4 shrink-0 text-accent"
             />
             <div>
               <div class="text-white font-medium">
@@ -202,7 +215,7 @@ export function CommunitySettingsPanel(props: CommunitySettingsPanelProps) {
                   join_policy: "approval",
                 }))
               }
-              class="w-4 h-4 text-accent"
+              class="w-4 h-4 shrink-0 text-accent"
             />
             <div>
               <div class="text-white font-medium">
@@ -224,7 +237,7 @@ export function CommunitySettingsPanel(props: CommunitySettingsPanelProps) {
                   join_policy: "invite",
                 }))
               }
-              class="w-4 h-4 text-accent"
+              class="w-4 h-4 shrink-0 text-accent"
             />
             <div>
               <div class="text-white font-medium">
@@ -236,13 +249,13 @@ export function CommunitySettingsPanel(props: CommunitySettingsPanelProps) {
             </div>
           </label>
         </div>
-      </div>
+      </fieldset>
 
       {/* Post Policy */}
-      <div>
-        <label class="block text-sm font-semibold text-neutral-300 mb-2">
+      <fieldset>
+        <legend class="block text-sm font-semibold text-neutral-300 mb-2">
           {t("community.postPolicy")}
-        </label>
+        </legend>
         <div class="space-y-2">
           <label class="flex items-center gap-3 p-3 bg-neutral-900 border border-neutral-700 rounded-lg cursor-pointer hover:border-neutral-600">
             <input
@@ -255,7 +268,7 @@ export function CommunitySettingsPanel(props: CommunitySettingsPanelProps) {
                   post_policy: "anyone",
                 }))
               }
-              class="w-4 h-4 text-accent"
+              class="w-4 h-4 shrink-0 text-accent"
             />
             <div>
               <div class="text-white font-medium">
@@ -277,7 +290,7 @@ export function CommunitySettingsPanel(props: CommunitySettingsPanelProps) {
                   post_policy: "members",
                 }))
               }
-              class="w-4 h-4 text-accent"
+              class="w-4 h-4 shrink-0 text-accent"
             />
             <div>
               <div class="text-white font-medium">
@@ -299,7 +312,7 @@ export function CommunitySettingsPanel(props: CommunitySettingsPanelProps) {
                   post_policy: "mods",
                 }))
               }
-              class="w-4 h-4 text-accent"
+              class="w-4 h-4 shrink-0 text-accent"
             />
             <div>
               <div class="text-white font-medium">
@@ -321,7 +334,7 @@ export function CommunitySettingsPanel(props: CommunitySettingsPanelProps) {
                   post_policy: "owners",
                 }))
               }
-              class="w-4 h-4 text-accent"
+              class="w-4 h-4 shrink-0 text-accent"
             />
             <div>
               <div class="text-white font-medium">
@@ -333,14 +346,15 @@ export function CommunitySettingsPanel(props: CommunitySettingsPanelProps) {
             </div>
           </label>
         </div>
-      </div>
+      </fieldset>
 
       {/* Save Button */}
       <div class="pt-4">
         <button
+          type="button"
           onClick={props.onSaveSettings}
           disabled={props.savingSettings}
-          class="w-full px-6 py-3 bg-accent text-white rounded-full font-bold transition-colors disabled:opacity-50"
+          class="w-full min-h-11 md:min-h-0 px-6 py-3 bg-accent text-white rounded-full font-bold transition-colors disabled:opacity-50"
         >
           {props.savingSettings
             ? t("common.saving")

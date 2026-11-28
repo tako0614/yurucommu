@@ -9,10 +9,18 @@
  * Single brand accent token. BLUE — used for primary affordances (login,
  * new-posts pill, story-unviewed ring, primary confirm). The pink heart is a
  * separate like-only semantic color and is intentionally NOT derived from this.
+ *
+ * Dark-surface contrast split: no single blue hex achieves WCAG AA (>= 4.5:1)
+ * both as foreground text on neutral-900 (#171717) and as a solid fill behind
+ * white (#fff) text. `--accent` (blue-500, 5.02:1 on neutral-900) serves text,
+ * borders, focus outlines, and translucent tints; `--accent-fill` (blue-600,
+ * 5.17:1 with #fff) and `--accent-hover` (blue-700, 6.70:1 with #fff) serve
+ * solid filled surfaces (`.bg-accent`).
  */
 :root {
   --accent: #3b82f6; /* blue-500 */
-  --accent-hover: #2563eb; /* blue-600 */
+  --accent-fill: #2563eb; /* blue-600 */
+  --accent-hover: #1d4ed8; /* blue-700 */
 }
 
 /*
@@ -48,12 +56,17 @@
  * looked tappable, and text-accent ignored hover:text-*.
  */
 
-/* Accent buttons and links darken on hover, as the old helper did; skip
-   disabled buttons, decorative accent surfaces (own DM bubbles, tab marks)
-   and touch screens, where :hover sticks after a tap. :where() keeps the
-   specificity at one class plus the element, so an explicit hover:bg-* on
-   the element still wins; later in the layer, it beats plain .bg-accent. */
+/* Solid accent fills use `--accent-fill` (blue-600, 5.17:1 with white text)
+   inside the utilities layer so higher-specificity variants such as
+   `disabled:bg-neutral-700` and explicit `hover:bg-*` still win. Accent
+   buttons and links darken to `--accent-hover` (blue-700, 6.70:1 with white)
+   on pointer hover; skip disabled buttons, decorative accent surfaces (own DM
+   bubbles, tab marks) and touch screens, where :hover sticks after a tap. */
 @layer utilities {
+  .bg-accent {
+    background-color: var(--accent-fill);
+  }
+
   @media (hover: hover) {
     :is(button, a).bg-accent:where(:not(:disabled):hover) {
       background-color: var(--accent-hover);

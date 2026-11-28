@@ -1,5 +1,6 @@
 import { createSignal, For, Show } from "solid-js";
 import { useI18n } from "../lib/i18n.tsx";
+import { useDocumentTitle } from "../lib/useDocumentTitle.ts";
 import type { InstanceHealth } from "../lib/plugin.ts";
 import { yurucommuDeployDocsUrl } from "../lib/deploy-docs.ts";
 
@@ -20,6 +21,7 @@ interface InstanceProblemScreenProps {
  */
 export function InstanceProblemScreen(props: InstanceProblemScreenProps) {
   const { t } = useI18n();
+  useDocumentTitle(() => t("instance.problemTitle"));
   const [rebuilding, setRebuilding] = createSignal(false);
   const deployDocsUrl = yurucommuDeployDocsUrl();
 
@@ -40,7 +42,7 @@ export function InstanceProblemScreen(props: InstanceProblemScreenProps) {
   };
 
   return (
-    <div class="flex min-h-screen flex-col items-center justify-center bg-neutral-950 p-6 text-neutral-100">
+    <main class="flex min-h-screen flex-col items-center justify-center bg-neutral-950 p-6 text-neutral-100">
       <div class="w-full max-w-sm space-y-6">
         <div class="flex flex-col items-center space-y-3 text-center">
           <div class="flex h-12 w-12 items-center justify-center rounded-full bg-red-900/30 text-red-400">
@@ -49,6 +51,7 @@ export function InstanceProblemScreen(props: InstanceProblemScreenProps) {
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
+              aria-hidden="true"
             >
               <path
                 stroke-linecap="round"
@@ -95,7 +98,7 @@ export function InstanceProblemScreen(props: InstanceProblemScreenProps) {
           </a>
         </div>
       </div>
-    </div>
+    </main>
   );
 }
 

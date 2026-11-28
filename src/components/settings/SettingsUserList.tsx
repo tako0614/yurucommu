@@ -1,6 +1,7 @@
 import { For, Show } from "solid-js";
 import type { Actor } from "../../types/index.ts";
 import { UserAvatar } from "../UserAvatar.tsx";
+import { UserListSkeleton } from "../skeletons/PageSkeletons.tsx";
 import { SettingsSectionHeader } from "./SettingsSectionHeader.tsx";
 import type { Translate } from "../../lib/i18n.tsx";
 
@@ -20,14 +21,7 @@ export function SettingsUserList(props: SettingsUserListProps) {
     <div class="flex flex-col h-full">
       <SettingsSectionHeader title={props.title} onBack={props.onBack} />
       <div class="flex-1 overflow-y-auto">
-        <Show
-          when={!props.loading}
-          fallback={
-            <div class="p-8 text-center text-neutral-500">
-              {props.t("common.loading")}
-            </div>
-          }
-        >
+        <Show when={!props.loading} fallback={<UserListSkeleton count={5} />}>
           <Show
             when={props.users.length > 0}
             fallback={
@@ -53,8 +47,9 @@ export function SettingsUserList(props: SettingsUserListProps) {
                     </div>
                   </div>
                   <button
+                    type="button"
                     onClick={() => props.onAction(user.ap_id)}
-                    class="px-3 py-1.5 border border-neutral-600 rounded-full text-sm hover:bg-neutral-800 transition-colors"
+                    class="min-h-11 md:min-h-0 px-3 py-1.5 border border-neutral-600 rounded-full text-sm hover:bg-neutral-800 transition-colors"
                   >
                     {props.actionLabel}
                   </button>

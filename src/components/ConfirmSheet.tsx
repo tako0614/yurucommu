@@ -85,7 +85,7 @@ export function ConfirmSheet(props: ConfirmSheetProps) {
                 class={`flex-1 rounded-full px-4 py-2.5 text-sm font-bold text-white transition-colors disabled:opacity-50 ${
                   props.destructive
                     ? "bg-red-600 hover:bg-red-700"
-                    : "bg-[var(--accent)] hover:brightness-110"
+                    : "bg-accent"
                 }`}
               >
                 {props.confirmLabel ?? t("common.confirm")}

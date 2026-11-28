@@ -9,6 +9,7 @@ import { fetchActor, follow, searchRemote } from "../lib/api.ts";
 import { UserAvatar } from "./UserAvatar.tsx";
 import { QrSvg } from "./QrSvg.tsx";
 import { useDialog } from "../lib/useDialog.ts";
+import { handleTablistKeydown } from "../lib/tablistNav.ts";
 import { useI18n } from "../lib/i18n.tsx";
 
 interface QRCodeModalProps {
@@ -17,7 +18,13 @@ interface QRCodeModalProps {
 }
 
 const CloseIcon = () => (
-  <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+  <svg
+    class="w-6 h-6"
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+  >
     <path
       stroke-linecap="round"
       stroke-linejoin="round"
@@ -28,7 +35,13 @@ const CloseIcon = () => (
 );
 
 const ShareIcon = () => (
-  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+  <svg
+    class="w-5 h-5"
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+  >
     <path
       stroke-linecap="round"
       stroke-linejoin="round"
@@ -40,7 +53,8 @@ const ShareIcon = () => (
 
 export function QRCodeModal(props: QRCodeModalProps) {
   const { t } = useI18n();
-  const [copied, setCopied] = createSignal(false);
+  const [copyStatus, setCopyStatus] = createSignal<string | null>(null);
+  let copyTimer: ReturnType<typeof setTimeout> | undefined;
   const [tab, setTab] = createSignal<"myqr" | "scan">("myqr");
   const [scanning, setScanning] = createSignal(false);
   const [lookingUp, setLookingUp] = createSignal(false);
@@ -84,8 +98,9 @@ export function QRCodeModal(props: QRCodeModalProps) {
       props.actor.ap_id,
     )}#${props.actor.preferred_username}`;
 
-  // Stop scanner when component unmounts
+  // Stop scanner and copy timer when component unmounts
   onCleanup(() => {
+    clearTimeout(copyTimer);
     void stopScannerSafely();
   });
 
@@ -204,6 +219,13 @@ export function QRCodeModal(props: QRCodeModalProps) {
     }
   };
 
+  const announceCopy = (message: string) => {
+    clearTimeout(copyTimer);
+    setCopyStatus(null);
+    queueMicrotask(() => setCopyStatus(message));
+    copyTimer = setTimeout(() => setCopyStatus(null), 1800);
+  };
+
   const handleShare = async () => {
     if (navigator.share) {
       try {
@@ -217,10 +239,16 @@ export function QRCodeModal(props: QRCodeModalProps) {
         // User cancelled sharing
       }
     } else {
-      // Fallback: copy to clipboard
-      navigator.clipboard.writeText(qrUrl());
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
+      // Fallback: copy to clipboard and only report success when the write succeeds.
+      try {
+        if (!navigator.clipboard?.writeText) {
+          throw new Error("Clipboard unavailable");
+        }
+        await navigator.clipboard.writeText(qrUrl());
+        announceCopy(t("settings.linkCopied"));
+      } catch {
+        announceCopy(t("common.error"));
+      }
     }
   };
 
@@ -228,6 +256,7 @@ export function QRCodeModal(props: QRCodeModalProps) {
     setScanResult(null);
     setScanError(null);
     setFollowSuccess(false);
+    setFollowPending(false);
     setLookingUp(false);
     if (tab() === "scan") {
       startScanner();
@@ -244,9 +273,15 @@ export function QRCodeModal(props: QRCodeModalProps) {
           if (e.target === e.currentTarget) props.onClose();
         }}
       >
-        <Show when={copied()}>
-          <div class="fixed bottom-8 left-1/2 -translate-x-1/2 z-[60] px-4 py-2 bg-neutral-800 text-white text-sm rounded-full shadow-lg">
-            {t("settings.linkCopied")}
+        <div role="status" aria-live="polite" class="sr-only">
+          {copyStatus() ?? ""}
+        </div>
+        <Show when={copyStatus()}>
+          <div
+            aria-hidden="true"
+            class="fixed bottom-8 left-1/2 -translate-x-1/2 z-[60] px-4 py-2 bg-neutral-800 text-white text-sm rounded-full shadow-lg"
+          >
+            {copyStatus()}
           </div>
         </Show>
         <div
@@ -260,19 +295,33 @@ export function QRCodeModal(props: QRCodeModalProps) {
           <div class="flex items-center justify-between px-4 py-3 border-b border-neutral-800">
             <h2 class="text-lg font-bold text-white">{t("qr.title")}</h2>
             <button
+              type="button"
               onClick={props.onClose}
               aria-label={t("common.close")}
-              class="p-1 hover:bg-neutral-800 rounded-full transition-colors text-neutral-400 hover:text-white"
+              class="-mr-2 flex min-h-11 min-w-11 items-center justify-center p-2 md:mr-0 md:min-h-0 md:min-w-0 md:p-1 hover:bg-neutral-800 rounded-full transition-colors text-neutral-400 hover:text-white"
             >
               <CloseIcon />
             </button>
           </div>
 
           {/* Tabs */}
-          <div class="flex border-b border-neutral-800">
+          <div
+            class="flex border-b border-neutral-800"
+            role="tablist"
+            aria-label={t("qr.tabsLabel")}
+            onKeyDown={(e) =>
+              handleTablistKeydown(e, 2, tab() === "myqr" ? 0 : 1, (i) =>
+                setTab(i === 0 ? "myqr" : "scan"),
+              )
+            }
+          >
             <button
+              type="button"
+              role="tab"
+              aria-selected={tab() === "myqr"}
+              tabindex={tab() === "myqr" ? 0 : -1}
               onClick={() => setTab("myqr")}
-              class={`flex-1 py-3 text-center font-medium relative ${
+              class={`flex-1 min-h-11 md:min-h-0 py-3 text-center font-medium relative ${
                 tab() === "myqr" ? "text-white" : "text-neutral-500"
               }`}
             >
@@ -282,8 +331,12 @@ export function QRCodeModal(props: QRCodeModalProps) {
               </Show>
             </button>
             <button
+              type="button"
+              role="tab"
+              aria-selected={tab() === "scan"}
+              tabindex={tab() === "scan" ? 0 : -1}
               onClick={() => setTab("scan")}
-              class={`flex-1 py-3 text-center font-medium relative ${
+              class={`flex-1 min-h-11 md:min-h-0 py-3 text-center font-medium relative ${
                 tab() === "scan" ? "text-white" : "text-neutral-500"
               }`}
             >
@@ -360,9 +413,10 @@ export function QRCodeModal(props: QRCodeModalProps) {
                           }
                         >
                           <button
+                            type="button"
                             onClick={handleFollow}
                             disabled={following()}
-                            class="px-6 py-2 bg-accent disabled:bg-neutral-700 text-white rounded-full font-medium transition-colors"
+                            class="min-h-11 md:min-h-0 px-6 py-2 bg-accent disabled:bg-neutral-700 text-white rounded-full font-medium transition-colors"
                           >
                             {following()
                               ? t("qr.following")
@@ -372,8 +426,9 @@ export function QRCodeModal(props: QRCodeModalProps) {
                       </Show>
 
                       <button
+                        type="button"
                         onClick={resetScan}
-                        class="text-neutral-400 hover:text-white text-sm"
+                        class="min-h-11 md:min-h-0 px-3 text-neutral-400 hover:text-white text-sm"
                       >
                         {t("qr.scanAgain")}
                       </button>
@@ -383,10 +438,13 @@ export function QRCodeModal(props: QRCodeModalProps) {
                   <Show when={!lookingUp() && !scanResult() && scanError()}>
                     {/* Error State */}
                     <div class="flex flex-col items-center space-y-4">
-                      <div class="text-red-400 text-center">{scanError()}</div>
+                      <div role="alert" class="text-red-400 text-center">
+                        {scanError()}
+                      </div>
                       <button
+                        type="button"
                         onClick={resetScan}
-                        class="px-6 py-2 bg-neutral-800 hover:bg-neutral-700 text-white rounded-full transition-colors"
+                        class="min-h-11 md:min-h-0 px-6 py-2 bg-neutral-800 hover:bg-neutral-700 text-white rounded-full transition-colors"
                       >
                         {t("common.retry")}
                       </button>
@@ -433,8 +491,9 @@ export function QRCodeModal(props: QRCodeModalProps) {
 
                 {/* Share Button */}
                 <button
+                  type="button"
                   onClick={handleShare}
-                  class="flex items-center gap-2 px-6 py-2 bg-neutral-800 hover:bg-neutral-700 rounded-full text-white transition-colors"
+                  class="flex min-h-11 md:min-h-0 items-center gap-2 px-6 py-2 bg-neutral-800 hover:bg-neutral-700 rounded-full text-white transition-colors"
                 >
                   <ShareIcon />
                   {t("qr.share")}

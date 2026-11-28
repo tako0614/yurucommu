@@ -166,39 +166,85 @@ export function MediaLightbox(props: MediaLightboxProps) {
         class="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center select-none"
         role="dialog"
         aria-modal="true"
+        aria-label={t("lightbox.title")}
         onClick={() => props.onClose()}
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
       >
-        {/* Close button */}
-        <button
-          ref={closeButtonRef}
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            props.onClose();
-          }}
-          aria-label={t("lightbox.close")}
-          class="absolute top-4 right-4 z-20 p-2 rounded-full bg-neutral-900/70 text-white hover:bg-neutral-800 transition-colors"
-        >
-          <svg
-            class="w-6 h-6"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
+        {/* Top-right controls: keyboard-accessible zoom toggle (images) + close */}
+        <div class="absolute top-4 right-4 z-20 flex items-center gap-2">
+          <Show when={active() && !isVideo(active()!)}>
+            <button
+              type="button"
+              onClick={toggleZoom}
+              aria-pressed={zoomed()}
+              aria-label={
+                zoomed() ? t("lightbox.zoomOut") : t("lightbox.zoomIn")
+              }
+              class="flex min-h-11 min-w-11 items-center justify-center p-2.5 rounded-full bg-neutral-900/70 text-white hover:bg-neutral-800 transition-colors"
+            >
+              <svg
+                class="w-6 h-6"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+              >
+                <Show
+                  when={zoomed()}
+                  fallback={
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width={2}
+                      d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v6m3-3H7"
+                    />
+                  }
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width={2}
+                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM13 10H7"
+                  />
+                </Show>
+              </svg>
+            </button>
+          </Show>
+          <button
+            ref={closeButtonRef}
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              props.onClose();
+            }}
+            aria-label={t("lightbox.close")}
+            class="flex min-h-11 min-w-11 items-center justify-center p-2.5 rounded-full bg-neutral-900/70 text-white hover:bg-neutral-800 transition-colors"
           >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width={2}
-              d="M6 18L18 6M6 6l12 12"
-            />
-          </svg>
-        </button>
+            <svg
+              class="w-6 h-6"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width={2}
+                d="M6 18L18 6M6 6l12 12"
+              />
+            </svg>
+          </button>
+        </div>
 
         {/* Counter */}
         <Show when={hasMultiple()}>
-          <div class="absolute top-4 left-1/2 -translate-x-1/2 z-20 px-3 py-1 rounded-full bg-neutral-900/70 text-sm text-white">
+          <div
+            role="status"
+            aria-live="polite"
+            class="absolute top-4 left-1/2 -translate-x-1/2 z-20 px-3 py-1 rounded-full bg-neutral-900/70 text-sm text-white"
+          >
             {t("lightbox.counter")
               .replace("{current}", String(clampedCurrent() + 1))
               .replace("{total}", String(count()))}
@@ -214,13 +260,14 @@ export function MediaLightbox(props: MediaLightboxProps) {
               goPrev();
             }}
             aria-label={t("lightbox.prev")}
-            class="absolute left-2 sm:left-4 top-1/2 -translate-y-1/2 z-20 p-2 rounded-full bg-neutral-900/70 text-white hover:bg-neutral-800 transition-colors"
+            class="absolute left-2 sm:left-4 top-1/2 -translate-y-1/2 z-20 flex min-h-11 min-w-11 items-center justify-center p-2.5 rounded-full bg-neutral-900/70 text-white hover:bg-neutral-800 transition-colors"
           >
             <svg
               class="w-6 h-6"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
+              aria-hidden="true"
             >
               <path
                 stroke-linecap="round"
@@ -241,13 +288,14 @@ export function MediaLightbox(props: MediaLightboxProps) {
               goNext();
             }}
             aria-label={t("lightbox.next")}
-            class="absolute right-2 sm:right-4 top-1/2 -translate-y-1/2 z-20 p-2 rounded-full bg-neutral-900/70 text-white hover:bg-neutral-800 transition-colors"
+            class="absolute right-2 sm:right-4 top-1/2 -translate-y-1/2 z-20 flex min-h-11 min-w-11 items-center justify-center p-2.5 rounded-full bg-neutral-900/70 text-white hover:bg-neutral-800 transition-colors"
           >
             <svg
               class="w-6 h-6"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
+              aria-hidden="true"
             >
               <path
                 stroke-linecap="round"
@@ -367,7 +415,7 @@ export function AttachmentGrid(props: AttachmentGridProps) {
             <button
               type="button"
               onClick={(e) => props.onOpen(idx(), e)}
-              aria-label={altText("lightbox.zoomIn")}
+              aria-label={m.name || altText("lightbox.zoomIn")}
               class="relative block w-full"
             >
               <video
@@ -377,7 +425,12 @@ export function AttachmentGrid(props: AttachmentGridProps) {
               />
               <span class="absolute inset-0 flex items-center justify-center">
                 <span class="flex items-center justify-center w-12 h-12 rounded-full bg-black/60 text-white">
-                  <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+                  <svg
+                    class="w-6 h-6"
+                    fill="currentColor"
+                    viewBox="0 0 24 24"
+                    aria-hidden="true"
+                  >
                     <path d="M8 5v14l11-7z" />
                   </svg>
                 </span>

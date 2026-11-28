@@ -23,6 +23,7 @@ import { OfflineBanner } from "./components/OfflineBanner.tsx";
 import { yurucommuDeployDocsUrl } from "./lib/deploy-docs.ts";
 import { refreshBrowserNotificationPush } from "./lib/api.ts";
 import { resolveYurucommuBrowserPushConfig } from "./lib/browser-push.ts";
+import { useDocumentTitle } from "./lib/useDocumentTitle.ts";
 
 // Lazy load page components for code splitting
 const TimelinePage = lazy(() => import("./pages/TimelinePage.tsx"));
@@ -93,8 +94,9 @@ function LoginScreen(props: {
 }) {
   const t = useAtomValue(tAtom);
   const deployDocsUrl = yurucommuDeployDocsUrl();
+  useDocumentTitle(() => t()("auth.login"));
   return (
-    <div class="flex min-h-screen flex-col items-center justify-center bg-neutral-950 p-8 text-neutral-100">
+    <main class="flex min-h-screen flex-col items-center justify-center bg-neutral-950 p-8 text-neutral-100">
       <h1 class="mb-2 text-4xl font-bold">Yurucommu</h1>
       <p class="mb-1 text-neutral-300">{t()("app.tagline")}</p>
       <p class="mb-8 max-w-xs text-center text-sm text-neutral-500">
@@ -103,12 +105,12 @@ function LoginScreen(props: {
       <LoginForm onLogin={props.onLogin} error={props.error} />
       <a
         href={deployDocsUrl}
-        class="mt-6 inline-flex items-center justify-center rounded-lg border border-accent px-4 py-2 text-sm font-medium text-accent transition-colors hover:bg-[var(--accent)]/10"
+        class="mt-6 inline-flex min-h-11 md:min-h-0 items-center justify-center rounded-lg border border-accent px-4 py-2 text-sm font-medium text-accent transition-colors hover:bg-[var(--accent)]/10"
         rel="noopener"
       >
         {t()("instance.deployDocs")}
       </a>
-    </div>
+    </main>
   );
 }
 
@@ -117,8 +119,9 @@ function AuthErrorScreen(props: {
   reason?: string | null;
 }) {
   const t = useAtomValue(tAtom);
+  useDocumentTitle(() => t()("auth.errorTitle"));
   return (
-    <div class="flex min-h-screen flex-col items-center justify-center bg-neutral-950 p-6 text-neutral-100">
+    <main class="flex min-h-screen flex-col items-center justify-center bg-neutral-950 p-6 text-neutral-100">
       <div class="w-full max-w-sm space-y-6 text-center">
         <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-red-900/30 text-red-400">
           <svg
@@ -126,6 +129,7 @@ function AuthErrorScreen(props: {
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
+            aria-hidden="true"
           >
             <path
               stroke-linecap="round"
@@ -135,6 +139,7 @@ function AuthErrorScreen(props: {
             />
           </svg>
         </div>
+        <h1 class="text-xl font-bold text-white">{t()("auth.errorTitle")}</h1>
         <p role="alert" class="text-sm text-neutral-400">
           {props.reason ?? t()("auth.checkFailed")}
         </p>
@@ -146,7 +151,7 @@ function AuthErrorScreen(props: {
           {t()("common.retry")}
         </button>
       </div>
-    </div>
+    </main>
   );
 }
 
@@ -156,21 +161,23 @@ function AuthErrorScreen(props: {
 // resolves and we can localize instead of hardcoding English.
 function AppErrorFallback() {
   const t = useAtomValue(tAtom);
+  useDocumentTitle(() => t()("app.errorTitle"));
   return (
-    <div class="min-h-screen bg-neutral-950 flex items-center justify-center p-4">
+    <main class="min-h-screen bg-neutral-950 flex items-center justify-center p-4">
       <div class="max-w-md w-full bg-neutral-900 rounded-xl p-6 text-center">
         <h1 class="text-xl font-bold text-white mb-2">
           {t()("app.errorTitle")}
         </h1>
         <p class="text-neutral-400 mb-6">{t()("app.errorBody")}</p>
         <button
+          type="button"
           onClick={() => window.location.reload()}
-          class="px-4 py-2 bg-accent text-white rounded-lg transition-colors"
+          class="px-4 py-2 min-h-11 md:min-h-0 bg-accent text-white rounded-lg transition-colors"
         >
           {t()("app.reloadButton")}
         </button>
       </div>
-    </div>
+    </main>
   );
 }
 

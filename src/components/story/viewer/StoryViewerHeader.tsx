@@ -47,6 +47,7 @@ export function StoryViewerHeader(props: StoryViewerHeaderProps) {
             be immediately reset by the story change. */}
         <Show when={props.isVideo}>
           <button
+            type="button"
             onClick={(e) => {
               e.stopPropagation();
               props.onToggleMute();
@@ -54,30 +55,32 @@ export function StoryViewerHeader(props: StoryViewerHeaderProps) {
             aria-label={
               props.isMuted ? t("story.unmuteVideo") : t("story.muteVideo")
             }
-            class="p-2 text-white hover:bg-white/10 rounded-full transition-colors"
+            class="flex min-h-11 min-w-11 items-center justify-center p-2 md:min-h-0 md:min-w-0 text-white hover:bg-white/10 rounded-full transition-colors"
           >
             {props.isMuted ? <MutedIcon /> : <UnmutedIcon />}
           </button>
         </Show>
         <Show when={props.isOwnStory}>
           <button
+            type="button"
             onClick={(e) => {
               e.stopPropagation();
               props.onDelete();
             }}
             aria-label={t("story.deleteStory")}
-            class="p-2 text-white hover:bg-white/10 rounded-full transition-colors"
+            class="flex min-h-11 min-w-11 items-center justify-center p-2 md:min-h-0 md:min-w-0 text-white hover:bg-white/10 rounded-full transition-colors"
           >
             <TrashIcon />
           </button>
         </Show>
         <button
+          type="button"
           onClick={(e) => {
             e.stopPropagation();
             props.onClose();
           }}
           aria-label={t("story.close")}
-          class="p-2 text-white hover:bg-white/10 rounded-full transition-colors"
+          class="flex min-h-11 min-w-11 items-center justify-center p-2 md:min-h-0 md:min-w-0 text-white hover:bg-white/10 rounded-full transition-colors"
         >
           <CloseIcon />
         </button>

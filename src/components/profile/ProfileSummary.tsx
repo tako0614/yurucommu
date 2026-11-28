@@ -252,8 +252,9 @@ export function ProfileSummary(props: ProfileSummaryProps) {
         {/* Follow Stats */}
         <div class="flex gap-4 text-sm">
           <button
+            type="button"
             onClick={() => props.onOpenFollowModal("following")}
-            class="hover:underline"
+            class="-my-2 inline-flex min-h-11 items-center hover:underline md:my-0 md:min-h-0"
           >
             <span class="font-bold text-white">
               {props.profile.following_count}
@@ -263,8 +264,9 @@ export function ProfileSummary(props: ProfileSummaryProps) {
             </span>
           </button>
           <button
+            type="button"
             onClick={() => props.onOpenFollowModal("followers")}
-            class="hover:underline"
+            class="-my-2 inline-flex min-h-11 items-center hover:underline md:my-0 md:min-h-0"
           >
             <span class="font-bold text-white">
               {props.profile.follower_count}

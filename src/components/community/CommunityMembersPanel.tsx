@@ -151,18 +151,20 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
                     </div>
                     <div class="flex gap-2">
                       <button
+                        type="button"
                         aria-describedby={`community-request-name-${index()}`}
                         onClick={() => props.onAcceptRequest(request)}
                         disabled={props.requestAction[request.ap_id]}
-                        class="px-3 py-1 text-xs bg-accent text-white rounded-full transition-colors disabled:opacity-50"
+                        class="min-h-11 md:min-h-0 px-3.5 py-2 md:px-3 md:py-1 text-xs bg-accent text-white rounded-full transition-colors disabled:opacity-50"
                       >
                         {props.t("dm.accept")}
                       </button>
                       <button
+                        type="button"
                         aria-describedby={`community-request-name-${index()}`}
                         onClick={() => props.onRejectRequest(request)}
                         disabled={props.requestAction[request.ap_id]}
-                        class="px-3 py-1 text-xs bg-neutral-800 text-neutral-200 rounded-full hover:bg-neutral-700 transition-colors disabled:opacity-50"
+                        class="min-h-11 md:min-h-0 px-3.5 py-2 md:px-3 md:py-1 text-xs bg-neutral-800 text-neutral-200 rounded-full hover:bg-neutral-700 transition-colors disabled:opacity-50"
                       >
                         {props.t("dm.reject")}
                       </button>
@@ -175,7 +177,7 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
         </div>
       </Show>
       <Show when={props.memberActionError}>
-        <div class="px-4 py-2 text-sm text-red-400 bg-red-500/10">
+        <div role="alert" class="px-4 py-2 text-sm text-red-400 bg-red-500/10">
           {props.memberActionError}
         </div>
       </Show>
@@ -311,7 +313,7 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
                     }
                     // Dimmed by colour, not opacity, so the focus ring keeps
                     // its full strength while saving.
-                    class={`shrink-0 bg-neutral-900 border text-xs rounded-lg px-2 py-1.5 ${
+                    class={`shrink-0 min-h-11 md:min-h-0 bg-neutral-900 border text-xs rounded-lg px-2 py-2 md:py-1.5 ${
                       props.updatingMemberRole[member.ap_id]
                         ? "border-neutral-800 text-neutral-500"
                         : "border-neutral-700 text-white"
@@ -353,7 +355,7 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
                     aria-disabled={
                       props.removingMember[member.ap_id] ? "true" : undefined
                     }
-                    class={`-my-1 -mr-2.5 shrink-0 rounded-lg px-2.5 py-2 text-xs ${
+                    class={`-my-1 -mr-2.5 flex min-h-11 min-w-11 items-center justify-center shrink-0 rounded-lg px-2.5 py-2 text-xs md:min-h-0 md:min-w-0 ${
                       props.removingMember[member.ap_id]
                         ? "text-rose-400/50"
                         : "text-rose-400 hover:bg-rose-500/10 hover:text-rose-300"
@@ -374,9 +376,10 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
           </div>
           <div class="flex items-center gap-2 flex-wrap">
             <button
+              type="button"
               onClick={props.onCreateInvite}
               disabled={props.creatingInvite}
-              class="px-3 py-1 text-xs bg-accent text-white rounded-full transition-colors disabled:opacity-50"
+              class="min-h-11 md:min-h-0 px-3.5 py-2 md:px-3 md:py-1 text-xs bg-accent text-white rounded-full transition-colors disabled:opacity-50"
             >
               {props.creatingInvite
                 ? props.t("members.creatingInvite")
@@ -387,9 +390,10 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
                 {props.inviteCode}
               </span>
               <button
+                type="button"
                 onClick={copyInvite}
                 aria-label={props.t("members.copyInvite")}
-                class="px-3 py-1 text-xs bg-neutral-800 text-neutral-200 rounded-full hover:bg-neutral-700 transition-colors"
+                class="min-h-11 md:min-h-0 px-3.5 py-2 md:px-3 md:py-1 text-xs bg-neutral-800 text-neutral-200 rounded-full hover:bg-neutral-700 transition-colors"
               >
                 {inviteCopied()
                   ? props.t("members.inviteCopied")

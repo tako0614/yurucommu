@@ -286,12 +286,13 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
           {/* Modal Header */}
           <div class="flex shrink-0 items-center justify-between px-4 py-3 border-b border-neutral-800">
             <button
+              type="button"
               onClick={requestClose}
               disabled={
                 props.posting || props.uploading || props.draftRecoveryNeeded
               }
               aria-label={t("common.close")}
-              class="-ml-2 rounded-full p-2 text-white transition-colors hover:bg-neutral-800 hover:text-neutral-300 disabled:opacity-50"
+              class="-ml-2 flex min-h-11 min-w-11 items-center justify-center rounded-full p-2 md:min-h-0 md:min-w-0 text-white transition-colors hover:bg-neutral-800 hover:text-neutral-300 disabled:opacity-50"
             >
               <CloseIconLarge />
             </button>
@@ -422,7 +423,7 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
                         e.currentTarget.value as PostVisibility,
                       )
                     }
-                    class="bg-neutral-800 text-white text-sm rounded-full px-3 py-1.5 outline-none border border-neutral-700 focus:border-accent transition-colors"
+                    class="min-h-11 md:min-h-0 bg-neutral-800 text-white text-sm rounded-full px-3 py-2 md:py-1.5 outline-none border border-neutral-700 focus:border-accent transition-colors"
                   >
                     <For each={VISIBILITY_OPTIONS}>
                       {(opt) => (
@@ -645,19 +646,21 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
                 class="hidden"
               />
               <button
+                type="button"
                 onClick={() => fileInputRef?.click()}
                 disabled={props.uploading || props.uploadedMedia.length >= 4}
                 aria-label={t("compose.addMedia")}
-                class="p-2 text-accent hover:bg-[var(--accent)]/10 rounded-full disabled:opacity-50 transition-colors"
+                class="flex min-h-11 min-w-11 items-center justify-center p-2 md:min-h-0 md:min-w-0 text-accent hover:bg-[var(--accent)]/10 rounded-full disabled:opacity-50 transition-colors"
               >
                 <ImageIcon />
               </button>
               <button
+                type="button"
                 ref={emojiToggleRef}
                 onClick={() => setShowEmoji((v) => !v)}
                 aria-label={t("posts.addEmoji")}
                 aria-pressed={showEmoji()}
-                class={`p-2 rounded-full transition-colors disabled:opacity-50 ${
+                class={`flex min-h-11 min-w-11 items-center justify-center p-2 md:min-h-0 md:min-w-0 rounded-full transition-colors disabled:opacity-50 ${
                   showEmoji()
                     ? "text-accent bg-accent-soft"
                     : "text-accent hover:bg-[var(--accent)]/10"
@@ -666,10 +669,11 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
                 <span class="text-lg leading-none">{"\u{1F642}"}</span>
               </button>
               <button
+                type="button"
                 onClick={() => setShowCw((v) => !v)}
                 aria-label={t("posts.cwToggle")}
                 aria-pressed={showCw()}
-                class={`px-2 py-1 rounded-full text-sm font-bold transition-colors disabled:opacity-50 ${
+                class={`flex min-h-11 min-w-11 items-center justify-center px-2.5 py-2 md:min-h-0 md:min-w-0 md:px-2 md:py-1 rounded-full text-sm font-bold transition-colors disabled:opacity-50 ${
                   showCw()
                     ? "text-accent bg-accent-soft"
                     : "text-accent hover:bg-[var(--accent)]/10"
