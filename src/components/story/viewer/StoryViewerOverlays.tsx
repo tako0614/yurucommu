@@ -79,7 +79,8 @@ export function renderStoryOverlay(
 
                 return (
                   <button
-                    class={`flex-1 relative overflow-hidden text-white text-sm py-2 px-3 rounded-lg transition-colors ${
+                    type="button"
+                    class={`flex-1 relative min-h-11 md:min-h-0 overflow-hidden text-white text-sm py-2.5 md:py-2 px-3 rounded-lg transition-colors ${
                       isSelected ? "ring-2 ring-white" : ""
                     } ${hasUserVoted ? "cursor-default" : "hover:bg-white/30"}`}
                     style={{ "background-color": "rgba(255,255,255,0.2)" }}

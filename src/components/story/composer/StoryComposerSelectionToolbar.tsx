@@ -5,6 +5,9 @@ import { useI18n } from "../../../lib/i18n.tsx";
 interface StoryComposerSelectionToolbarProps {
   selectedLayer: Layer | null;
   onEditText: (layerId: string) => void;
+  onEnlarge: () => void;
+  onShrink: () => void;
+  onRotate: () => void;
   onBringToFront: () => void;
   onSendToBack: () => void;
   onDelete: () => void;
@@ -18,18 +21,26 @@ export function StoryComposerSelectionToolbar(
     <Show
       when={props.selectedLayer && props.selectedLayer.type !== "background"}
     >
-      <div class="absolute top-1/2 left-4 z-10 -translate-y-1/2 flex flex-col gap-2 bg-black/70 backdrop-blur-sm rounded-2xl p-2 shadow-lg">
+      <div
+        role="toolbar"
+        aria-label={t("story.layerControls")}
+        aria-orientation="vertical"
+        class="absolute top-1/2 left-4 z-10 -translate-y-1/2 flex max-h-[calc(100%-12rem)] flex-col gap-1 overflow-y-auto scrollbar-hide bg-black/70 backdrop-blur-sm rounded-2xl p-1.5 shadow-lg"
+      >
         <Show when={props.selectedLayer!.type === "text"}>
           <button
+            type="button"
             onClick={() => props.onEditText(props.selectedLayer!.id)}
-            class="p-3 text-white hover:bg-white/20 rounded-xl transition-colors"
+            aria-label={t("common.edit")}
             title={t("common.edit")}
+            class="flex h-11 w-11 shrink-0 items-center justify-center text-white hover:bg-white/20 rounded-xl transition-colors"
           >
             <svg
               class="w-5 h-5"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
+              aria-hidden="true"
             >
               <path
                 stroke-linecap="round"
@@ -41,15 +52,84 @@ export function StoryComposerSelectionToolbar(
           </button>
         </Show>
         <button
-          onClick={props.onBringToFront}
-          class="p-3 text-white hover:bg-white/20 rounded-xl transition-colors"
-          title={t("story.toFront")}
+          type="button"
+          onClick={props.onEnlarge}
+          aria-label={t("story.enlarge")}
+          title={t("story.enlarge")}
+          class="flex h-11 w-11 shrink-0 items-center justify-center text-white hover:bg-white/20 rounded-xl transition-colors"
         >
           <svg
             class="w-5 h-5"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width={2}
+              d="M12 5v14m7-7H5"
+            />
+          </svg>
+        </button>
+        <button
+          type="button"
+          onClick={props.onShrink}
+          aria-label={t("story.shrink")}
+          title={t("story.shrink")}
+          class="flex h-11 w-11 shrink-0 items-center justify-center text-white hover:bg-white/20 rounded-xl transition-colors"
+        >
+          <svg
+            class="w-5 h-5"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width={2}
+              d="M19 12H5"
+            />
+          </svg>
+        </button>
+        <button
+          type="button"
+          onClick={props.onRotate}
+          aria-label={t("story.rotate")}
+          title={t("story.rotate")}
+          class="flex h-11 w-11 shrink-0 items-center justify-center text-white hover:bg-white/20 rounded-xl transition-colors"
+        >
+          <svg
+            class="w-5 h-5"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width={2}
+              d="M4 4v5h5M20 20v-5h-5M5.64 17.36A9 9 0 0019.07 15M18.36 6.64A9 9 0 004.93 9"
+            />
+          </svg>
+        </button>
+        <button
+          type="button"
+          onClick={props.onBringToFront}
+          aria-label={t("story.toFront")}
+          title={t("story.toFront")}
+          class="flex h-11 w-11 shrink-0 items-center justify-center text-white hover:bg-white/20 rounded-xl transition-colors"
+        >
+          <svg
+            class="w-5 h-5"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
           >
             <path
               stroke-linecap="round"
@@ -60,15 +140,18 @@ export function StoryComposerSelectionToolbar(
           </svg>
         </button>
         <button
+          type="button"
           onClick={props.onSendToBack}
-          class="p-3 text-white hover:bg-white/20 rounded-xl transition-colors"
+          aria-label={t("story.toBack")}
           title={t("story.toBack")}
+          class="flex h-11 w-11 shrink-0 items-center justify-center text-white hover:bg-white/20 rounded-xl transition-colors"
         >
           <svg
             class="w-5 h-5"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
+            aria-hidden="true"
           >
             <path
               stroke-linecap="round"
@@ -79,15 +162,18 @@ export function StoryComposerSelectionToolbar(
           </svg>
         </button>
         <button
+          type="button"
           onClick={props.onDelete}
-          class="p-3 text-red-400 hover:bg-red-500/20 rounded-xl transition-colors"
+          aria-label={t("common.delete")}
           title={t("common.delete")}
+          class="flex h-11 w-11 shrink-0 items-center justify-center text-red-400 hover:bg-red-500/20 rounded-xl transition-colors"
         >
           <svg
             class="w-5 h-5"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
+            aria-hidden="true"
           >
             <path
               stroke-linecap="round"

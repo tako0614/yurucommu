@@ -9,10 +9,15 @@
  * the exported image — they ship as structured `StoryOverlay` data.
  */
 
-import { createEffect, For, onCleanup, Show } from "solid-js";
+import { createEffect, createMemo, For, onCleanup, Show } from "solid-js";
 import { useI18n } from "../../../lib/i18n.tsx";
+import { isComposingKey } from "../../ime.ts";
 import type { StoryOverlay } from "../../../types/index.ts";
-import type { OverlayItem } from "./useStoryOverlays.ts";
+import {
+  OVERLAY_MAX_WIDTH,
+  OVERLAY_MIN_WIDTH,
+  type OverlayItem,
+} from "./useStoryOverlays.ts";
 
 interface StoryComposerOverlayLayerProps {
   items: OverlayItem[];
@@ -22,6 +27,7 @@ interface StoryComposerOverlayLayerProps {
   onResize: (id: string, width: number) => void;
   onEdit: (id: string) => void;
   onRemove: (id: string) => void;
+  onRemoveFocusFallback?: () => void;
   disabled?: boolean;
 }
 
@@ -145,81 +151,236 @@ export function StoryComposerOverlayLayer(
     };
   };
 
+  const itemIds = createMemo(() => props.items.map((item) => item.id));
+  const itemById = (id: string) => props.items.find((item) => item.id === id);
+
+  const overlayLabel = (overlay: StoryOverlay): string => {
+    const kindLabel =
+      overlay.type === "Question"
+        ? t("story.overlay.poll")
+        : overlay.type === "Note"
+          ? t("story.overlay.note")
+          : t("story.overlay.link");
+    const summary = (overlay.name || overlay.href || "").trim().slice(0, 40);
+    const title = summary ? `${kindLabel}: ${summary}` : kindLabel;
+    return `${title} — ${t("story.overlayKeyboardHint")}`;
+  };
+
+  const removeAndRestoreFocus = (id: string) => {
+    const ids = itemIds();
+    const index = ids.indexOf(id);
+    const nextId = ids[index + 1] ?? ids[index - 1] ?? null;
+    props.onRemove(id);
+    queueMicrotask(() => {
+      if (nextId) {
+        const nextEl = layerRef?.querySelector<HTMLElement>(
+          `[data-overlay-id="${CSS.escape(nextId)}"]`,
+        );
+        if (nextEl) {
+          nextEl.focus();
+          return;
+        }
+      }
+      props.onRemoveFocusFallback?.();
+    });
+  };
+
+  const handleOverlayKeyDown = (e: KeyboardEvent, item: OverlayItem) => {
+    if (props.disabled || isComposingKey(e)) return;
+    // Let child buttons / resize slider handle their own keys.
+    if (e.target !== e.currentTarget) return;
+    const pos = item.overlay.position;
+    const moveStep = e.shiftKey ? 0.06 : 0.02;
+    const resizeStep = e.shiftKey ? 0.1 : 0.04;
+
+    switch (e.key) {
+      case "ArrowLeft":
+        e.preventDefault();
+        e.stopPropagation();
+        props.onMove(item.id, pos.x - moveStep, pos.y);
+        return;
+      case "ArrowRight":
+        e.preventDefault();
+        e.stopPropagation();
+        props.onMove(item.id, pos.x + moveStep, pos.y);
+        return;
+      case "ArrowUp":
+        e.preventDefault();
+        e.stopPropagation();
+        props.onMove(item.id, pos.x, pos.y - moveStep);
+        return;
+      case "ArrowDown":
+        e.preventDefault();
+        e.stopPropagation();
+        props.onMove(item.id, pos.x, pos.y + moveStep);
+        return;
+      case "+":
+      case "=":
+        e.preventDefault();
+        e.stopPropagation();
+        props.onResize(item.id, pos.width + resizeStep);
+        return;
+      case "-":
+      case "_":
+        e.preventDefault();
+        e.stopPropagation();
+        props.onResize(item.id, pos.width - resizeStep);
+        return;
+      case "Enter":
+        e.preventDefault();
+        e.stopPropagation();
+        props.onEdit(item.id);
+        return;
+      case "Delete":
+      case "Backspace":
+        e.preventDefault();
+        e.stopPropagation();
+        removeAndRestoreFocus(item.id);
+        return;
+    }
+  };
+
+  const handleResizeKeyDown = (e: KeyboardEvent, item: OverlayItem) => {
+    if (props.disabled || isComposingKey(e)) return;
+    const width = item.overlay.position.width;
+    const step = e.shiftKey ? 0.1 : 0.04;
+    switch (e.key) {
+      case "ArrowRight":
+      case "ArrowUp":
+        e.preventDefault();
+        e.stopPropagation();
+        props.onResize(item.id, width + step);
+        return;
+      case "ArrowLeft":
+      case "ArrowDown":
+        e.preventDefault();
+        e.stopPropagation();
+        props.onResize(item.id, width - step);
+        return;
+      case "PageUp":
+        e.preventDefault();
+        e.stopPropagation();
+        props.onResize(item.id, width + 0.1);
+        return;
+      case "PageDown":
+        e.preventDefault();
+        e.stopPropagation();
+        props.onResize(item.id, width - 0.1);
+        return;
+      case "Home":
+        e.preventDefault();
+        e.stopPropagation();
+        props.onResize(item.id, OVERLAY_MIN_WIDTH);
+        return;
+      case "End":
+        e.preventDefault();
+        e.stopPropagation();
+        props.onResize(item.id, OVERLAY_MAX_WIDTH);
+        return;
+    }
+  };
+
   return (
     // Container ignores pointer events so taps on empty space still reach the
-    // canvas; each overlay re-enables them for drag/select.
+    // canvas; each overlay re-enables them for drag/select. Iterate by stable
+    // string id (not item object) so move/resize never remounts the focused node.
     <div
       ref={(el) => (layerRef = el)}
       class="pointer-events-none absolute inset-0 z-[6]"
     >
-      <For each={props.items}>
-        {(item) => {
-          const pos = () => item.overlay.position;
-          const selected = () => props.selectedId === item.id;
+      <For each={itemIds()}>
+        {(id) => {
+          const item = () => itemById(id);
+          const pos = () => item()!.overlay.position;
+          const selected = () => props.selectedId === id;
+          const widthPercent = () => Math.round(pos().width * 100);
           return (
-            <div
-              class="pointer-events-auto absolute flex touch-none select-none items-center justify-center"
-              classList={{
-                "outline outline-2 outline-white/80 rounded-xl": selected(),
-              }}
-              style={{
-                left: `${(pos().x - pos().width / 2) * 100}%`,
-                top: `${(pos().y - pos().height / 2) * 100}%`,
-                width: `${pos().width * 100}%`,
-                "min-height": `${pos().height * 100}%`,
-                cursor: "move",
-              }}
-              onPointerDown={(e) => onPointerDown(e, item)}
-              onPointerMove={onPointerMove}
-              onPointerUp={endDrag}
-              onPointerCancel={endDrag}
-            >
-              <OverlayPreview overlay={item.overlay} />
-
-              <Show when={selected()}>
-                <div class="absolute -top-9 left-1/2 flex -translate-x-1/2 gap-1 rounded-full bg-neutral-900/95 px-1 py-1 shadow-lg">
-                  <button
-                    type="button"
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (props.disabled) return;
-                      props.onEdit(item.id);
-                    }}
-                    class="rounded-full px-3 py-1 text-xs text-white hover:bg-white/10"
-                  >
-                    {t("story.overlay.edit")}
-                  </button>
-                  <button
-                    type="button"
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (props.disabled) return;
-                      props.onRemove(item.id);
-                    }}
-                    aria-label={t("story.overlay.remove")}
-                    class="rounded-full px-3 py-1 text-xs text-red-400 hover:bg-white/10"
-                  >
-                    {t("story.overlay.remove")}
-                  </button>
-                </div>
-              </Show>
-
-              {/* Corner resize handle (adjusts normalized width; height scales
-                  to match). Federates via position.width/height. */}
-              <Show when={selected()}>
+            <Show when={item()}>
+              {(current) => (
                 <div
-                  role="slider"
-                  aria-label={t("story.overlay.resize")}
-                  class="absolute -bottom-2 -right-2 h-5 w-5 cursor-nwse-resize rounded-full border-2 border-neutral-900 bg-white shadow"
-                  onPointerDown={(e) => onResizeDown(e, item)}
+                  data-overlay-id={id}
+                  role="group"
+                  tabindex={props.disabled ? -1 : 0}
+                  aria-label={overlayLabel(current().overlay)}
+                  class="pointer-events-auto absolute flex touch-none select-none items-center justify-center rounded-xl"
+                  classList={{
+                    "outline outline-2 outline-white/80": selected(),
+                  }}
+                  style={{
+                    left: `${(pos().x - pos().width / 2) * 100}%`,
+                    top: `${(pos().y - pos().height / 2) * 100}%`,
+                    width: `${pos().width * 100}%`,
+                    "min-height": `${pos().height * 100}%`,
+                    cursor: "move",
+                  }}
+                  onFocus={() => {
+                    if (!props.disabled) props.onSelect(id);
+                  }}
+                  onKeyDown={(e) => handleOverlayKeyDown(e, current())}
+                  onPointerDown={(e) => onPointerDown(e, current())}
                   onPointerMove={onPointerMove}
                   onPointerUp={endDrag}
                   onPointerCancel={endDrag}
-                />
-              </Show>
-            </div>
+                >
+                  <OverlayPreview overlay={current().overlay} />
+
+                  <Show when={selected()}>
+                    <div class="absolute -top-13 md:-top-9 left-1/2 flex -translate-x-1/2 gap-1 rounded-full bg-neutral-900/95 px-1 py-0.5 md:py-1 shadow-lg">
+                      <button
+                        type="button"
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (props.disabled) return;
+                          props.onEdit(id);
+                        }}
+                        class="inline-flex min-h-11 md:min-h-0 items-center rounded-full px-3 py-2 md:py-1 text-xs text-white hover:bg-white/10"
+                      >
+                        {t("story.overlay.edit")}
+                      </button>
+                      <button
+                        type="button"
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (props.disabled) return;
+                          removeAndRestoreFocus(id);
+                        }}
+                        aria-label={t("story.overlay.remove")}
+                        class="inline-flex min-h-11 md:min-h-0 items-center rounded-full px-3 py-2 md:py-1 text-xs text-red-400 hover:bg-white/10"
+                      >
+                        {t("story.overlay.remove")}
+                      </button>
+                    </div>
+                  </Show>
+
+                  {/* Corner resize handle (adjusts normalized width; height scales
+                      to match). Federates via position.width/height. */}
+                  <Show when={selected()}>
+                    <div
+                      role="slider"
+                      tabindex={props.disabled ? -1 : 0}
+                      aria-label={t("story.overlay.resize")}
+                      aria-valuemin={Math.round(OVERLAY_MIN_WIDTH * 100)}
+                      aria-valuemax={Math.round(OVERLAY_MAX_WIDTH * 100)}
+                      aria-valuenow={widthPercent()}
+                      aria-valuetext={`${widthPercent()}%`}
+                      class="absolute -bottom-5 -right-5 md:-bottom-2.5 md:-right-2.5 flex min-h-11 min-w-11 md:min-h-0 md:min-w-0 md:h-6 md:w-6 cursor-nwse-resize items-center justify-center rounded-full"
+                      onKeyDown={(e) => handleResizeKeyDown(e, current())}
+                      onPointerDown={(e) => onResizeDown(e, current())}
+                      onPointerMove={onPointerMove}
+                      onPointerUp={endDrag}
+                      onPointerCancel={endDrag}
+                    >
+                      <span
+                        aria-hidden="true"
+                        class="h-5 w-5 rounded-full border-2 border-neutral-900 bg-white shadow"
+                      />
+                    </div>
+                  </Show>
+                </div>
+              )}
+            </Show>
           );
         }}
       </For>

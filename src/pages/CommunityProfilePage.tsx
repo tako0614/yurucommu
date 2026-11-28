@@ -1,4 +1,11 @@
-import { createEffect, createSignal, on, onCleanup, Show } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  on,
+  onCleanup,
+  Show,
+} from "solid-js";
 import { Portal } from "solid-js/web";
 import { useNavigate, useParams } from "@solidjs/router";
 import { useRequiredActor } from "../hooks/useRequiredActor.ts";
@@ -38,6 +45,10 @@ import { CommunityProfileSummary } from "../components/community/CommunityProfil
 import { CommunityAboutPanel } from "../components/community/CommunityAboutPanel.tsx";
 import { CommunityMembersPanel } from "../components/community/CommunityMembersPanel.tsx";
 import { CommunitySettingsPanel } from "../components/community/CommunitySettingsPanel.tsx";
+import {
+  initialCommunitySettingsForm,
+  isCommunitySettingsDirty,
+} from "../components/community/communitySettingsDirty.ts";
 import type { CommunityMember } from "../lib/api/communities.ts";
 
 export function CommunityProfilePage() {
@@ -106,13 +117,73 @@ export function CommunityProfilePage() {
   const [settingsError, setSettingsError] = createSignal<string | null>(null);
   const [uploadingIcon, setUploadingIcon] = createSignal(false);
   const [iconPreview, setIconPreview] = createSignal<string | null>(null);
+  // Tab switch or back navigation staged behind ConfirmSheet when the settings
+  // tab holds unsaved changes.
+  const [pendingSettingsLeave, setPendingSettingsLeave] = createSignal<
+    "about" | "members" | "back" | null
+  >(null);
 
-  // Cleanup iconPreview ObjectURL on unmount
-  onCleanup(() => {
+  const isSettingsDirty = createMemo(() =>
+    isCommunitySettingsDirty(
+      community(),
+      settingsForm(),
+      Boolean(iconPreview()),
+    ),
+  );
+
+  const clearIconPreview = () => {
     const preview = iconPreview();
     if (preview) {
       URL.revokeObjectURL(preview);
+      setIconPreview(null);
     }
+  };
+
+  const resetCommunitySettings = () => {
+    const comm = community();
+    if (comm) {
+      setSettingsForm(initialCommunitySettingsForm(comm));
+    }
+    clearIconPreview();
+    setSettingsError(null);
+  };
+
+  const requestTabChange = (next: "about" | "members" | "settings") => {
+    if (next === activeTab()) return;
+    if (activeTab() === "settings" && isSettingsDirty()) {
+      if (next !== "settings") setPendingSettingsLeave(next);
+      return;
+    }
+    setActiveTab(next);
+  };
+
+  const requestBack = () => {
+    if (activeTab() === "settings" && isSettingsDirty()) {
+      setPendingSettingsLeave("back");
+      return;
+    }
+    navigate(-1);
+  };
+
+  let tabsRef: HTMLDivElement | undefined;
+  const confirmLeaveSettings = () => {
+    const target = pendingSettingsLeave();
+    setPendingSettingsLeave(null);
+    resetCommunitySettings();
+    if (target === "back") {
+      navigate(-1);
+    } else if (target) {
+      setActiveTab(target);
+      queueMicrotask(() => {
+        const idx = target === "about" ? 0 : 1;
+        tabsRef?.querySelectorAll<HTMLElement>('[role="tab"]')[idx]?.focus();
+      });
+    }
+  };
+
+  // Cleanup iconPreview ObjectURL on unmount
+  onCleanup(() => {
+    clearIconPreview();
   });
 
   // Esc / backdrop handling for the invite-code prompt sheet.
@@ -138,6 +209,9 @@ export function CommunityProfilePage() {
         setMembers([]);
         setJoinRequests([]);
         setActiveTab("about");
+        setPendingSettingsLeave(null);
+        clearIconPreview();
+        setSettingsError(null);
         setError(null);
         setInviteCode(null);
         setLoading(true);
@@ -459,13 +533,7 @@ export function CommunityProfilePage() {
       () => {
         const comm = community();
         if (comm) {
-          setSettingsForm({
-            display_name: comm.display_name || comm.name,
-            summary: comm.summary || "",
-            visibility: comm.visibility,
-            join_policy: comm.join_policy,
-            post_policy: comm.post_policy,
-          });
+          setSettingsForm(initialCommunitySettingsForm(comm));
         }
       },
     ),
@@ -513,26 +581,31 @@ export function CommunityProfilePage() {
       };
       await updateCommunitySettings(comm.name, normalizedSettings);
       // Update local community state
+      const updatedComm: CommunityDetail = {
+        ...comm,
+        display_name: normalizedSettings.display_name ?? comm.display_name,
+        summary: normalizedSettings.summary ?? comm.summary,
+        icon_url: normalizedSettings.icon_url ?? comm.icon_url,
+        visibility: normalizedSettings.visibility ?? comm.visibility,
+        join_policy: normalizedSettings.join_policy ?? comm.join_policy,
+        post_policy: normalizedSettings.post_policy ?? comm.post_policy,
+      };
       setCommunity((prev) =>
         prev
           ? {
               ...prev,
-              display_name:
-                normalizedSettings.display_name ?? prev.display_name,
-              summary: normalizedSettings.summary ?? prev.summary,
-              icon_url: normalizedSettings.icon_url ?? prev.icon_url,
-              visibility: normalizedSettings.visibility ?? prev.visibility,
-              join_policy: normalizedSettings.join_policy ?? prev.join_policy,
-              post_policy: normalizedSettings.post_policy ?? prev.post_policy,
+              display_name: updatedComm.display_name,
+              summary: updatedComm.summary,
+              icon_url: updatedComm.icon_url,
+              visibility: updatedComm.visibility,
+              join_policy: updatedComm.join_policy,
+              post_policy: updatedComm.post_policy,
             }
           : null,
       );
+      setSettingsForm(initialCommunitySettingsForm(updatedComm));
       // Cleanup ObjectURL and clear preview after successful save
-      const preview = iconPreview();
-      if (preview) {
-        URL.revokeObjectURL(preview);
-      }
-      setIconPreview(null);
+      clearIconPreview();
       pushToast(setToasts, t("feedback.settingsSaved"), { kind: "success" });
     } catch {
       setSettingsError(t("feedback.settingsFailed"));
@@ -604,7 +677,7 @@ export function CommunityProfilePage() {
             "{count}",
             String(community()!.member_count),
           )}
-          onBack={() => navigate(-1)}
+          onBack={requestBack}
         />
 
         <div class="flex-1 overflow-y-auto">
@@ -617,6 +690,7 @@ export function CommunityProfilePage() {
           />
           {/* Tabs */}
           <div
+            ref={tabsRef}
             class="border-b border-neutral-800 flex"
             role="tablist"
             aria-label={t("community.tabsLabel")}
@@ -625,8 +699,26 @@ export function CommunityProfilePage() {
                 ? ["about", "members", "settings"]
                 : ["about", "members"];
               const cur = tabs.indexOf(activeTab());
-              handleTablistKeydown(e, tabs.length, cur < 0 ? 0 : cur, (i) =>
-                setActiveTab(tabs[i]),
+              const currentIndex = cur < 0 ? 0 : cur;
+              if (activeTab() === "settings" && isSettingsDirty()) {
+                let nextIndex: number | null = null;
+                if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+                  nextIndex = (currentIndex + 1) % tabs.length;
+                } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+                  nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+                } else if (e.key === "Home") {
+                  nextIndex = 0;
+                } else if (e.key === "End") {
+                  nextIndex = tabs.length - 1;
+                }
+                if (nextIndex !== null && tabs[nextIndex] !== "settings") {
+                  e.preventDefault();
+                  requestTabChange(tabs[nextIndex]);
+                }
+                return;
+              }
+              handleTablistKeydown(e, tabs.length, currentIndex, (i) =>
+                requestTabChange(tabs[i]),
               );
             }}
           >
@@ -635,7 +727,7 @@ export function CommunityProfilePage() {
               role="tab"
               aria-selected={activeTab() === "about"}
               tabindex={activeTab() === "about" ? 0 : -1}
-              onClick={() => setActiveTab("about")}
+              onClick={() => requestTabChange("about")}
               class={`flex-1 min-h-11 md:min-h-0 py-4 text-center font-bold transition-colors relative ${
                 activeTab() === "about"
                   ? "text-white"
@@ -652,7 +744,7 @@ export function CommunityProfilePage() {
               role="tab"
               aria-selected={activeTab() === "members"}
               tabindex={activeTab() === "members" ? 0 : -1}
-              onClick={() => setActiveTab("members")}
+              onClick={() => requestTabChange("members")}
               class={`flex-1 min-h-11 md:min-h-0 py-4 text-center font-bold transition-colors relative ${
                 activeTab() === "members"
                   ? "text-white"
@@ -670,14 +762,25 @@ export function CommunityProfilePage() {
                 role="tab"
                 aria-selected={activeTab() === "settings"}
                 tabindex={activeTab() === "settings" ? 0 : -1}
-                onClick={() => setActiveTab("settings")}
+                onClick={() => requestTabChange("settings")}
                 class={`flex-1 min-h-11 md:min-h-0 py-4 text-center font-bold transition-colors relative ${
                   activeTab() === "settings"
                     ? "text-white"
                     : "text-neutral-500 hover:bg-neutral-800/50"
                 }`}
               >
-                {t("nav.settings")}
+                <span class="inline-flex items-center justify-center gap-1.5">
+                  {t("nav.settings")}
+                  <Show when={isSettingsDirty()}>
+                    <span
+                      aria-hidden="true"
+                      class="h-2 w-2 rounded-full bg-amber-400"
+                    />
+                    <span class="sr-only">
+                      ({t("community.unsavedChanges")})
+                    </span>
+                  </Show>
+                </span>
                 <Show when={activeTab() === "settings"}>
                   <div class="absolute bottom-0 left-1/2 -translate-x-1/2 w-16 h-1 bg-accent rounded-full" />
                 </Show>
@@ -724,11 +827,13 @@ export function CommunityProfilePage() {
               savingSettings={savingSettings()}
               uploadingIcon={uploadingIcon()}
               iconPreview={iconPreview()}
+              isDirty={isSettingsDirty()}
               onChangeSettings={(updater) =>
                 setSettingsForm((prev) => updater(prev))
               }
               onUploadIcon={handleIconUpload}
               onSaveSettings={handleSaveSettings}
+              onDiscardSettings={resetCommunitySettings}
             />
           </Show>
         </div>
@@ -787,6 +892,16 @@ export function CommunityProfilePage() {
           if (member) void doRemoveMember(member);
         }}
         onCancel={() => setPendingMemberRemoval(null)}
+      />
+      <ConfirmSheet
+        open={pendingSettingsLeave() !== null}
+        title={t("community.discardTitle")}
+        body={t("community.discardBody")}
+        confirmLabel={t("community.discardChanges")}
+        cancelLabel={t("posts.keepEditing")}
+        destructive
+        onConfirm={confirmLeaveSettings}
+        onCancel={() => setPendingSettingsLeave(null)}
       />
       <Show when={invitePromptOpen()}>
         <Portal>

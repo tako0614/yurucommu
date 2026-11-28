@@ -360,8 +360,9 @@ export function TimelinePage() {
             <Show when={state.hasMore() && !state.loadingMore()}>
               <div class="flex justify-center py-4">
                 <button
+                  type="button"
                   onClick={() => state.loadMore()}
-                  class="px-4 py-2 text-sm text-neutral-400 hover:text-white rounded-full border border-neutral-800 hover:bg-neutral-800/50 transition-colors"
+                  class="min-h-11 md:min-h-0 px-4 py-2.5 md:py-2 text-sm text-neutral-400 hover:text-white rounded-full border border-neutral-800 hover:bg-neutral-800/50 transition-colors"
                 >
                   {state.t()("common.loadMore")}
                 </button>

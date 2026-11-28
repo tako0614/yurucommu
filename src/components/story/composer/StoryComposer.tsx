@@ -12,7 +12,9 @@
 
 import {
   createEffect,
+  createMemo,
   createSignal,
+  For,
   on,
   onCleanup,
   onMount,
@@ -21,12 +23,14 @@ import {
 } from "solid-js";
 import { useI18n } from "../../../lib/i18n.tsx";
 import { useDialog } from "../../../lib/useDialog.ts";
+import { isComposingKey } from "../../ime.ts";
 import { ConfirmSheet } from "../../ConfirmSheet.tsx";
 import {
   CANVAS_HEIGHT,
   CANVAS_WIDTH,
   StoryCanvas,
   type DrawingLayer,
+  type Layer,
 } from "../../../lib/story-canvas.ts";
 import { isPointInLayer } from "../../../lib/story-canvas-transforms.ts";
 import {
@@ -686,6 +690,123 @@ export function StoryComposer(props: StoryComposerProps) {
   // --- Derived state ---
 
   const selectedLayer = () => getSelectedLayer();
+  // Stable list of movable canvas layer IDs (text / sticker / media) so the
+  // keyboard proxy DOM nodes stay mounted while moving/resizing/rotating.
+  const editableLayerIds = createMemo(() => {
+    renderKey();
+    const sc = storyCanvas();
+    if (!sc) return [];
+    return sc
+      .getLayers()
+      .filter(
+        (layer) =>
+          layer.visible &&
+          !layer.locked &&
+          (layer.type === "text" ||
+            layer.type === "sticker" ||
+            layer.type === "media"),
+      )
+      .sort((a, b) => a.zIndex - b.zIndex)
+      .map((layer) => layer.id);
+  });
+  const canvasLayerById = (id: string): Layer | undefined => {
+    renderKey();
+    return storyCanvas()?.getLayer(id);
+  };
+  const canvasLayerAriaLabel = (layer: Layer): string => {
+    const base =
+      layer.type === "text"
+        ? layer.content.trim()
+          ? `${t("story.layerText")}: ${layer.content.trim().slice(0, 40)}`
+          : t("story.layerText")
+        : layer.type === "sticker"
+          ? `${t("story.layerSticker")}: ${layer.src}`
+          : t("story.layerImage");
+    return `${base} — ${t("story.layerKeyboardHint")}`;
+  };
+  const deleteCanvasLayerAndFocus = (layerId?: string) => {
+    const id = layerId ?? interactionState().selectedLayerId;
+    if (!id) return;
+    const ids = editableLayerIds();
+    const idx = ids.indexOf(id);
+    const nextId = ids[idx + 1] ?? ids[idx - 1] ?? null;
+    layerActions.handleDeleteLayer(id);
+    queueMicrotask(() => {
+      if (nextId) {
+        const nextProxy = composerRootRef?.querySelector<HTMLElement>(
+          `[data-canvas-layer-id="${CSS.escape(nextId)}"]`,
+        );
+        if (nextProxy) {
+          nextProxy.focus();
+          return;
+        }
+      }
+      focusHomeIfOutside();
+    });
+  };
+  const handleCanvasLayerKeyDown = (e: KeyboardEvent, layer: Layer) => {
+    if (postActions.editingLocked() || isComposingKey(e)) return;
+    const moveStep = e.shiftKey ? 72 : 24;
+    const scaleUp = e.shiftKey ? 1.15 : 1.08;
+    const rotateStep = e.shiftKey ? 5 : 15;
+    switch (e.key) {
+      case "ArrowLeft":
+        e.preventDefault();
+        e.stopPropagation();
+        layerActions.handleMoveLayer(-moveStep, 0, layer.id);
+        return;
+      case "ArrowRight":
+        e.preventDefault();
+        e.stopPropagation();
+        layerActions.handleMoveLayer(moveStep, 0, layer.id);
+        return;
+      case "ArrowUp":
+        e.preventDefault();
+        e.stopPropagation();
+        layerActions.handleMoveLayer(0, -moveStep, layer.id);
+        return;
+      case "ArrowDown":
+        e.preventDefault();
+        e.stopPropagation();
+        layerActions.handleMoveLayer(0, moveStep, layer.id);
+        return;
+      case "+":
+      case "=":
+        e.preventDefault();
+        e.stopPropagation();
+        layerActions.handleResizeLayer(scaleUp, layer.id);
+        return;
+      case "-":
+      case "_":
+        e.preventDefault();
+        e.stopPropagation();
+        layerActions.handleResizeLayer(1 / scaleUp, layer.id);
+        return;
+      case "]":
+        e.preventDefault();
+        e.stopPropagation();
+        layerActions.handleRotateLayer(rotateStep, layer.id);
+        return;
+      case "[":
+        e.preventDefault();
+        e.stopPropagation();
+        layerActions.handleRotateLayer(-rotateStep, layer.id);
+        return;
+      case "Enter":
+        if (layer.type === "text") {
+          e.preventDefault();
+          e.stopPropagation();
+          textEditor.handleEditText(layer.id);
+        }
+        return;
+      case "Delete":
+      case "Backspace":
+        e.preventDefault();
+        e.stopPropagation();
+        deleteCanvasLayerAndFocus(layer.id);
+        return;
+    }
+  };
   // canPost / isCanvasEmpty read the (non-reactive) layer array, so they take a
   // dependency on renderKey() — which bumps on every canvas mutation — to stay
   // in sync when layers are added or removed.
@@ -800,16 +921,63 @@ export function StoryComposer(props: StoryComposerProps) {
             onVideoTouchEnd={videoTransform.handleTouchEnd}
           />
 
+          {/* Keyboard-only proxies for canvas layers (text / sticker / photo).
+              pointer-events-none leaves pointer/touch/video/pinch gestures on
+              the canvas below completely unchanged while giving keyboard users
+              full focus, move (Arrow), resize (+/-), rotate ([/]), edit (Enter)
+              and delete (Delete/Backspace) control. */}
+          <Show when={interactionState().mode !== "draw"}>
+            <div class="pointer-events-none absolute inset-0 z-[5]">
+              <For each={editableLayerIds()}>
+                {(id) => {
+                  const layer = () => canvasLayerById(id);
+                  return (
+                    <Show when={layer()}>
+                      {(current) => (
+                        <div
+                          data-canvas-layer-id={id}
+                          role="group"
+                          tabindex={postActions.editingLocked() ? -1 : 0}
+                          aria-label={canvasLayerAriaLabel(current())}
+                          class="pointer-events-none absolute rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+                          style={{
+                            left: `${(current().x / CANVAS_WIDTH) * 100}%`,
+                            top: `${(current().y / CANVAS_HEIGHT) * 100}%`,
+                            width: `${(current().width / CANVAS_WIDTH) * 100}%`,
+                            height: `${(current().height / CANVAS_HEIGHT) * 100}%`,
+                            transform: `rotate(${current().rotation}deg)`,
+                          }}
+                          onFocus={() => {
+                            if (postActions.editingLocked()) return;
+                            overlayState.setSelectedId(null);
+                            selectLayer(id);
+                          }}
+                          onKeyDown={(e) =>
+                            handleCanvasLayerKeyDown(e, current())
+                          }
+                        />
+                      )}
+                    </Show>
+                  );
+                }}
+              </For>
+            </div>
+          </Show>
+
           {/* Interactive overlay layer (poll / note / link) over the canvas. */}
           <StoryComposerOverlayLayer
             disabled={postActions.editingLocked()}
             items={overlayState.items()}
             selectedId={overlayState.selectedId()}
-            onSelect={overlayState.setSelectedId}
+            onSelect={(id) => {
+              if (id !== null) selectLayer(null);
+              overlayState.setSelectedId(id);
+            }}
             onMove={overlayState.moveOverlay}
             onResize={overlayState.resizeOverlay}
             onEdit={openOverlayEdit}
             onRemove={overlayState.removeOverlay}
+            onRemoveFocusFallback={focusHomeIfOutside}
           />
 
           {/* Empty-canvas affordance — only a background, nothing placed yet. */}
@@ -844,9 +1012,12 @@ export function StoryComposer(props: StoryComposerProps) {
           <StoryComposerSelectionToolbar
             selectedLayer={selectedLayer()}
             onEditText={textEditor.handleEditText}
+            onEnlarge={() => layerActions.handleResizeLayer(1.1)}
+            onShrink={() => layerActions.handleResizeLayer(1 / 1.1)}
+            onRotate={() => layerActions.handleRotateLayer(15)}
             onBringToFront={layerActions.handleBringToFront}
             onSendToBack={layerActions.handleSendToBack}
-            onDelete={layerActions.handleDeleteLayer}
+            onDelete={() => deleteCanvasLayerAndFocus()}
           />
 
           <StoryComposerFooter

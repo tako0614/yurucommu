@@ -17,9 +17,14 @@ import { onSwatchKeyDown, swatchTabIndex } from "./swatchGroup.ts";
 
 // Text style presets (Instagram-like A, A, A buttons)
 const TEXT_STYLES = [
-  { id: "none", label: "A", bg: "transparent" },
-  { id: "semi", label: "A", bg: "rgba(0,0,0,0.5)" },
-  { id: "solid", label: "A", bg: "#000000" },
+  { id: "none", label: "A", labelKey: "story.textBgNone", bg: "transparent" },
+  {
+    id: "semi",
+    label: "A",
+    labelKey: "story.textBgSemi",
+    bg: "rgba(0,0,0,0.5)",
+  },
+  { id: "solid", label: "A", labelKey: "story.textBgSolid", bg: "#000000" },
 ] as const;
 
 // Color palette
@@ -192,14 +197,15 @@ export function TextEditorModal(props: TextEditorModalProps) {
       >
         {/* Header: stays at the top when the editor scrolls, with キャンセル
             and 完了. */}
-        <div class="sticky top-0 z-10 flex items-center justify-between bg-black px-4 py-3">
+        <div class="sticky top-0 z-10 flex items-center justify-between bg-black px-4 py-2 md:py-3">
           <button
+            type="button"
             onClick={props.onClose}
-            class="text-white text-lg font-medium"
+            class="inline-flex min-h-11 md:min-h-0 items-center px-1 text-white text-lg font-medium"
           >
             {t("common.cancel")}
           </button>
-          <div class="flex gap-2">
+          <div class="flex items-center gap-2">
             {/* Font picker toggle */}
             <button
               ref={fontToggleRef}
@@ -212,7 +218,7 @@ export function TextEditorModal(props: TextEditorModalProps) {
               // It read only 「Aa」.
               aria-label={t("story.font")}
               aria-expanded={showFontPicker()}
-              class={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
+              class={`flex min-h-11 min-w-11 md:min-h-0 md:min-w-0 items-center justify-center px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
                 showFontPicker()
                   ? "bg-white text-black"
                   : "bg-white/20 text-white"
@@ -232,13 +238,19 @@ export function TextEditorModal(props: TextEditorModalProps) {
               aria-label={t("story.textColor")}
               aria-haspopup="true"
               aria-expanded={showColorPicker()}
-              class="w-8 h-8 rounded-full border-2 border-white"
-              style={{ "background-color": text().color }}
-            />
+              class="flex h-11 w-11 md:h-8 md:w-8 items-center justify-center rounded-full"
+            >
+              <span
+                aria-hidden="true"
+                class="h-8 w-8 rounded-full border-2 border-white"
+                style={{ "background-color": text().color }}
+              />
+            </button>
           </div>
           <button
+            type="button"
             onClick={handleSave}
-            class="text-accent text-lg font-semibold"
+            class="inline-flex min-h-11 min-w-11 md:min-h-0 md:min-w-0 items-center justify-center px-1 text-accent text-lg font-semibold"
           >
             {t("story.done")}
           </button>
@@ -411,13 +423,27 @@ export function TextEditorModal(props: TextEditorModalProps) {
 
         {/* Bottom toolbar */}
         <div class="px-4 py-4 bg-black/50 space-y-4 [@media(max-height:700px)]:py-2 [@media(max-height:700px)]:space-y-2">
-          {/* Text style buttons (A, A, A) */}
-          <div class="flex justify-center gap-4">
+          {/* Text style buttons (A, A, A): one radio group with accessible names */}
+          <div
+            role="radiogroup"
+            aria-label={t("story.textBgStyle")}
+            onKeyDown={onSwatchKeyDown}
+            class="flex justify-center gap-4"
+          >
             <For each={TEXT_STYLES}>
-              {(style) => (
+              {(style, index) => (
                 <button
+                  type="button"
+                  role="radio"
+                  aria-label={t(style.labelKey)}
+                  aria-checked={getCurrentStyle() === style.id}
+                  tabIndex={swatchTabIndex(
+                    getCurrentStyle() === style.id,
+                    index(),
+                    true,
+                  )}
                   onClick={() => handleStyleChange(style.id)}
-                  class={`w-10 h-10 rounded-lg flex items-center justify-center font-bold text-lg transition-all ${
+                  class={`w-11 h-11 md:w-10 md:h-10 rounded-lg flex items-center justify-center font-bold text-lg transition-all ${
                     getCurrentStyle() === style.id
                       ? "ring-2 ring-white scale-110"
                       : ""
@@ -466,7 +492,7 @@ export function TextEditorModal(props: TextEditorModalProps) {
                   onClick={() =>
                     setText((prev) => ({ ...prev, textAlign: align }))
                   }
-                  class={`w-12 h-10 rounded-lg flex items-center justify-center transition-colors ${
+                  class={`w-12 h-11 md:h-10 rounded-lg flex items-center justify-center transition-colors ${
                     text().textAlign === align
                       ? "bg-white text-black"
                       : "bg-white/20 text-white"
@@ -545,6 +571,7 @@ export function TextEditorModal(props: TextEditorModalProps) {
             {/* Toggles: their state was only the colour. */}
             <button
               type="button"
+              aria-label={t("story.bold")}
               aria-pressed={text().fontWeight === "bold"}
               onClick={() =>
                 setText((prev) => ({
@@ -552,7 +579,7 @@ export function TextEditorModal(props: TextEditorModalProps) {
                   fontWeight: prev.fontWeight === "bold" ? "normal" : "bold",
                 }))
               }
-              class={`w-12 h-10 rounded-lg flex items-center justify-center font-bold transition-colors ${
+              class={`w-12 h-11 md:h-10 rounded-lg flex items-center justify-center font-bold transition-colors ${
                 text().fontWeight === "bold"
                   ? "bg-white text-black"
                   : "bg-white/20 text-white"
@@ -562,6 +589,7 @@ export function TextEditorModal(props: TextEditorModalProps) {
             </button>
             <button
               type="button"
+              aria-label={t("story.italic")}
               aria-pressed={text().fontStyle === "italic"}
               onClick={() =>
                 setText((prev) => ({
@@ -569,7 +597,7 @@ export function TextEditorModal(props: TextEditorModalProps) {
                   fontStyle: prev.fontStyle === "italic" ? "normal" : "italic",
                 }))
               }
-              class={`w-12 h-10 rounded-lg flex items-center justify-center italic transition-colors ${
+              class={`w-12 h-11 md:h-10 rounded-lg flex items-center justify-center italic transition-colors ${
                 text().fontStyle === "italic"
                   ? "bg-white text-black"
                   : "bg-white/20 text-white"
@@ -590,7 +618,7 @@ export function TextEditorModal(props: TextEditorModalProps) {
                     : { color: "#000000", width: 3 },
                 }))
               }
-              class={`w-12 h-10 rounded-lg flex items-center justify-center font-bold transition-colors ${
+              class={`w-12 h-11 md:h-10 rounded-lg flex items-center justify-center font-bold transition-colors ${
                 text().stroke ? "bg-white text-black" : "bg-white/20 text-white"
               }`}
               style={{

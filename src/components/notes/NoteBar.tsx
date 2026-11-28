@@ -174,7 +174,7 @@ export function NoteBar(props: NoteBarProps) {
                     <button
                       type="button"
                       onClick={() => props.onRetry?.()}
-                      class="shrink-0 text-accent hover:underline"
+                      class="inline-flex min-h-11 md:min-h-0 items-center shrink-0 text-accent hover:underline"
                     >
                       {t("common.retry")}
                     </button>
@@ -229,7 +229,7 @@ export function NoteBar(props: NoteBarProps) {
                 <button
                   type="button"
                   onClick={() => setEditorOpen(false)}
-                  class="rounded-full p-2 text-neutral-400 transition-colors hover:bg-neutral-800 hover:text-white"
+                  class="-mr-2 flex min-h-11 min-w-11 md:mr-0 md:min-h-0 md:min-w-0 items-center justify-center rounded-full p-2 text-neutral-400 transition-colors hover:bg-neutral-800 hover:text-white"
                   aria-label={t("common.close")}
                 >
                   <svg
@@ -291,7 +291,7 @@ export function NoteBar(props: NoteBarProps) {
                       type="button"
                       onClick={() => void remove()}
                       disabled={props.saving}
-                      class="rounded-full px-3 py-1.5 text-sm text-neutral-400 transition-colors hover:bg-neutral-800 hover:text-white disabled:opacity-50"
+                      class="min-h-11 md:min-h-0 rounded-full px-3 py-2.5 md:py-1.5 text-sm text-neutral-400 transition-colors hover:bg-neutral-800 hover:text-white disabled:opacity-50"
                     >
                       {t("common.delete")}
                     </button>
@@ -299,7 +299,7 @@ export function NoteBar(props: NoteBarProps) {
                   <button
                     type="submit"
                     disabled={!canSave()}
-                    class="rounded-full bg-white px-4 py-1.5 text-sm font-semibold text-black transition-opacity disabled:opacity-40"
+                    class="min-h-11 md:min-h-0 rounded-full bg-white px-4 py-2.5 md:py-1.5 text-sm font-semibold text-black transition-opacity disabled:opacity-40"
                   >
                     {props.saving ? t("common.saving") : t("common.save")}
                   </button>

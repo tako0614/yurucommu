@@ -123,14 +123,16 @@ function RequestItem(props: RequestItemProps) {
         <p class="text-xs text-neutral-500 mt-2">{t("dm.requestReplyHint")}</p>
         <div class="flex gap-2 mt-3">
           <button
+            type="button"
             onClick={props.onOpen}
-            class="px-4 py-1.5 bg-accent text-white text-sm font-medium rounded-full transition-colors"
+            class="min-h-11 md:min-h-0 px-4 py-2.5 md:py-1.5 bg-accent text-white text-sm font-medium rounded-full transition-colors"
           >
             {t("dm.openRequest")}
           </button>
           <button
+            type="button"
             onClick={props.onReject}
-            class="px-4 py-1.5 bg-neutral-700 text-white text-sm font-medium rounded-full hover:bg-neutral-600 transition-colors"
+            class="min-h-11 md:min-h-0 px-4 py-2.5 md:py-1.5 bg-neutral-700 text-white text-sm font-medium rounded-full hover:bg-neutral-600 transition-colors"
           >
             {t("dm.reject")}
           </button>
@@ -533,23 +535,33 @@ export function DMPage() {
     return result;
   });
 
-  // Lazy-load archived conversations when the archived tab opens. `on(activeTab)`
-  // tracks ONLY the tab — not `archived()`, which the callback sets — so this
-  // never self-retriggers.
+  // Lazy-load archived conversations when the archived tab opens or retries.
+  let archivedRead = 0;
+  const loadArchived = async () => {
+    if (disposed) return;
+    const ticket = ++archivedRead;
+    const isCurrent = () => !disposed && ticket === archivedRead;
+    setLoadingArchived(true);
+    setListError(null);
+    try {
+      const data = await fetchArchivedDMConversations();
+      if (!isCurrent()) return;
+      setArchived(data);
+    } catch (e) {
+      if (!isCurrent()) return;
+      console.error("Failed to load archived conversations:", e);
+      // Surface the failure instead of falling through to the empty-state,
+      // which would wrongly read as "no archived conversations".
+      if (activeTab() === "archived") setListError(t("common.error"));
+    } finally {
+      if (isCurrent()) setLoadingArchived(false);
+    }
+  };
+
   createEffect(
     on(activeTab, (tab) => {
       if (tab !== "archived") return;
-      setLoadingArchived(true);
-      setListError(null);
-      fetchArchivedDMConversations()
-        .then(setArchived)
-        .catch((e) => {
-          console.error("Failed to load archived conversations:", e);
-          // Surface the failure instead of falling through to the empty-state,
-          // which would wrongly read as "no archived conversations".
-          if (activeTab() === "archived") setListError(t("common.error"));
-        })
-        .finally(() => setLoadingArchived(false));
+      void loadArchived();
     }),
   );
 
@@ -678,8 +690,9 @@ export function DMPage() {
                     {t("dm.contactNotFoundHint")}
                   </p>
                   <button
+                    type="button"
                     onClick={handleBack}
-                    class="px-4 py-2 rounded-full bg-neutral-800 text-white text-sm font-medium hover:bg-neutral-700 transition-colors"
+                    class="min-h-11 md:min-h-0 px-5 py-2.5 md:px-4 md:py-2 rounded-full bg-neutral-800 text-white text-sm font-medium hover:bg-neutral-700 transition-colors"
                   >
                     {t("common.back")}
                   </button>
@@ -902,14 +915,19 @@ export function DMPage() {
                 onTouchEnd={handleTouchEnd}
               >
                 <Show when={listError()}>
-                  <div class="px-4 py-2 flex items-center justify-between gap-3 text-sm text-red-400 bg-red-500/10">
+                  <div
+                    role="alert"
+                    class="px-4 py-2 flex items-center justify-between gap-3 text-sm text-red-400 bg-red-500/10"
+                  >
                     <span>{listError()}</span>
                     <button
+                      type="button"
                       onClick={() => {
                         void loadContacts();
                         if (activeTab() === "requests") void loadRequests();
+                        if (activeTab() === "archived") void loadArchived();
                       }}
-                      class="shrink-0 px-3 py-1 rounded-full bg-red-500/20 text-red-200 hover:bg-red-500/30 transition-colors text-xs"
+                      class="inline-flex min-h-11 md:min-h-0 items-center shrink-0 px-4 py-2 md:px-3 md:py-1 rounded-full bg-red-500/20 text-red-200 hover:bg-red-500/30 transition-colors text-xs"
                     >
                       {t("common.retry")}
                     </button>

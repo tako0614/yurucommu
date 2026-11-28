@@ -596,9 +596,10 @@ export function DMChatPanel(props: DMChatPanelProps) {
                   <p class="text-sm text-red-400">{t("common.loadFailed")}</p>
                 </Show>
                 <button
+                  type="button"
                   onClick={loadOlder}
                   disabled={loadingOlder()}
-                  class="rounded-full bg-neutral-800 px-4 py-1.5 text-sm text-neutral-300 hover:bg-neutral-700 transition-colors disabled:opacity-50"
+                  class="min-h-11 md:min-h-0 rounded-full bg-neutral-800 px-4 py-2.5 md:py-1.5 text-sm text-neutral-300 hover:bg-neutral-700 transition-colors disabled:opacity-50"
                 >
                   {loadingOlder() ? t("common.loading") : t("dm.loadOlder")}
                 </button>

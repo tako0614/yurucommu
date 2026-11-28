@@ -70,7 +70,7 @@ export function StoryComposerStickerPanel(
             type="button"
             onClick={props.onClose}
             aria-label={t("common.close")}
-            class="text-white/60 hover:text-white p-1"
+            class="-mr-2 flex min-h-11 min-w-11 md:mr-0 md:min-h-0 md:min-w-0 items-center justify-center rounded-full text-white/60 hover:text-white p-1"
           >
             <CloseIcon />
           </button>

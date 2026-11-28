@@ -371,27 +371,29 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
                     <p class="text-sm text-neutral-300">
                       {t("compose.saveRecoveryHint")}
                     </p>
-                    <button
-                      type="button"
-                      onClick={props.onSaveRecoveryDraft}
-                      class="mr-4 text-sm text-accent hover:underline"
-                    >
-                      {t("compose.saveRecoveryDraft")}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={props.onRecoverDraft}
-                      class="mr-4 text-sm text-accent hover:underline"
-                    >
-                      {t("compose.reloadDraft")}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={props.onKeepDraftAndClose}
-                      class="text-sm text-accent hover:underline"
-                    >
-                      {t("compose.keepDraftAndClose")}
-                    </button>
+                    <div class="flex flex-wrap gap-x-4 gap-y-1">
+                      <button
+                        type="button"
+                        onClick={props.onSaveRecoveryDraft}
+                        class="inline-flex min-h-11 md:min-h-0 items-center text-sm text-accent hover:underline"
+                      >
+                        {t("compose.saveRecoveryDraft")}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={props.onRecoverDraft}
+                        class="inline-flex min-h-11 md:min-h-0 items-center text-sm text-accent hover:underline"
+                      >
+                        {t("compose.reloadDraft")}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={props.onKeepDraftAndClose}
+                        class="inline-flex min-h-11 md:min-h-0 items-center text-sm text-accent hover:underline"
+                      >
+                        {t("compose.keepDraftAndClose")}
+                      </button>
+                    </div>
                   </div>
                 </Show>
               </div>
@@ -543,11 +545,14 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
                                   />
                                 </Show>
                                 <button
+                                  type="button"
                                   onClick={() => props.onRemoveMedia(idx)}
                                   aria-label={t("compose.removeMedia")}
-                                  class="absolute -top-1 -right-1 bg-black/70 rounded-full p-0.5 hover:bg-neutral-800"
+                                  class="absolute -top-2.5 -right-2.5 flex min-h-11 min-w-11 items-center justify-center rounded-full md:-top-1 md:-right-1 md:min-h-0 md:min-w-0 md:p-0.5 md:bg-black/70 md:hover:bg-neutral-800"
                                 >
-                                  <CloseIcon />
+                                  <span class="flex items-center justify-center rounded-full bg-black/80 p-1 hover:bg-neutral-800 md:bg-transparent md:p-0">
+                                    <CloseIcon />
+                                  </span>
                                 </button>
                               </div>
                               <div class="flex-1">
@@ -596,7 +601,7 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
                                       type="button"
                                       disabled={props.uploading}
                                       onClick={() => props.onReuploadMedia(idx)}
-                                      class="mt-1 text-sm text-accent hover:underline disabled:opacity-50"
+                                      class="mt-1 inline-flex min-h-11 md:min-h-0 items-center text-sm text-accent hover:underline disabled:opacity-50"
                                     >
                                       {t("compose.mediaReupload")}
                                     </button>
