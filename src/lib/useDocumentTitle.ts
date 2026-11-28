@@ -16,19 +16,26 @@ export function formatDocumentTitle(section?: string | null): string {
 /**
  * Keep `document.title` in sync with the active screen (and active language /
  * loaded entity name). Restores the product title when the screen unmounts so
- * transient views never leave a stale title behind.
+ * transient views never leave a stale title behind, without clobbering a title
+ * already written by a newer view.
  */
 export function useDocumentTitle(
   section: () => string | null | undefined,
 ): void {
+  let lastSet: string | null = null;
   createEffect(() => {
     const next = formatDocumentTitle(section());
     if (typeof document !== "undefined") {
       document.title = next;
+      lastSet = next;
     }
   });
   onCleanup(() => {
-    if (typeof document !== "undefined") {
+    if (
+      typeof document !== "undefined" &&
+      lastSet !== null &&
+      document.title === lastSet
+    ) {
       document.title = APP_TITLE;
     }
   });

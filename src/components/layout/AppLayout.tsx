@@ -82,7 +82,7 @@ export function AppLayout(props: { children?: JSX.Element }) {
     <div class="flex justify-center h-screen h-[100dvh] bg-neutral-900 text-white">
       <a
         href="#main-content"
-        class="sr-only focus:not-sr-only focus:fixed focus:left-2 focus:top-2 focus:z-[100] focus:rounded-lg focus:bg-accent focus:px-4 focus:py-2 focus:text-sm focus:font-bold focus:text-white"
+        class="sr-only focus:not-sr-only focus:fixed focus:left-2 focus:top-2 focus:z-[100] focus:rounded-lg focus:bg-[var(--accent-fill)] focus:px-4 focus:py-2 focus:text-sm focus:font-bold focus:text-white"
       >
         {t("nav.skipToContent")}
       </a>

@@ -309,6 +309,7 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
                   .replace("{max}", String(MAX_CONTENT_LENGTH))}
               </span>
               <button
+                type="button"
                 onClick={async () => {
                   if (!canSubmit()) return;
                   const canClose = await props.onSubmit();
@@ -317,7 +318,7 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
                   }
                 }}
                 disabled={!canSubmit()}
-                class="px-4 py-1.5 bg-accent disabled:bg-neutral-700 disabled:text-neutral-500 rounded-full font-bold text-sm transition-colors"
+                class="min-h-11 md:min-h-0 px-4 py-1.5 bg-accent disabled:bg-neutral-700 disabled:text-neutral-500 rounded-full font-bold text-sm transition-colors"
               >
                 {props.posting ? props.submittingLabel : props.submitLabel}
               </button>

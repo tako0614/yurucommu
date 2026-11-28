@@ -243,7 +243,7 @@ export function SettingsAccountSection(props: SettingsAccountSectionProps) {
               type="button"
               onClick={() => setConfirmingMove(true)}
               disabled={moving() || moveTarget().trim().length === 0}
-              class="w-full py-2 bg-red-500/90 rounded-lg font-bold disabled:opacity-50"
+              class="w-full min-h-11 md:min-h-0 py-2 bg-red-500/90 rounded-lg font-bold disabled:opacity-50"
             >
               {/* The action, not the question: the confirm sheet asks it. */}
               {props.t("settings.moveAccount")}

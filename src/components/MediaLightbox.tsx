@@ -3,6 +3,7 @@ import {
   createMemo,
   createSignal,
   For,
+  on,
   onCleanup,
   Show,
 } from "solid-js";
@@ -74,7 +75,31 @@ export function MediaLightbox(props: MediaLightboxProps) {
   const active = createMemo<MediaAttachment | undefined>(
     () => props.attachments[clampedCurrent()],
   );
+  const canZoom = createMemo(() => {
+    const item = active();
+    return Boolean(item && !isVideo(item));
+  });
   const hasMultiple = createMemo(() => count() > 1);
+
+  // When stepping from an image to a video (e.g. via ArrowRight while the zoom
+  // button is focused), unmounting the zoom button drops focus to <body>.
+  // Restore focus to the close button so keyboard navigation stays inside the
+  // dialog.
+  createEffect(
+    on(canZoom, (allowed, prev) => {
+      if (prev && !allowed) {
+        queueMicrotask(() => {
+          if (
+            dialogRef?.isConnected &&
+            (!document.activeElement ||
+              !dialogRef.contains(document.activeElement))
+          ) {
+            closeButtonRef?.focus();
+          }
+        });
+      }
+    }),
+  );
 
   const goPrev = () => {
     setZoomed(false);
@@ -173,11 +198,10 @@ export function MediaLightbox(props: MediaLightboxProps) {
       >
         {/* Top-right controls: keyboard-accessible zoom toggle (images) + close */}
         <div class="absolute top-4 right-4 z-20 flex items-center gap-2">
-          <Show when={active() && !isVideo(active()!)}>
+          <Show when={canZoom()}>
             <button
               type="button"
               onClick={toggleZoom}
-              aria-pressed={zoomed()}
               aria-label={
                 zoomed() ? t("lightbox.zoomOut") : t("lightbox.zoomIn")
               }

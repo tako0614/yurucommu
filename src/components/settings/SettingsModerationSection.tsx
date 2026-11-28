@@ -307,7 +307,7 @@ export function SettingsModerationSection(
                           type="button"
                           onClick={() => handleResolve(r.id)}
                           disabled={isPending(`report:${r.id}`)}
-                          class="text-sm text-accent hover:underline shrink-0 disabled:opacity-50"
+                          class="min-h-11 md:min-h-0 text-sm text-accent hover:underline shrink-0 disabled:opacity-50"
                         >
                           {props.t("settings.resolveReport")}
                         </button>

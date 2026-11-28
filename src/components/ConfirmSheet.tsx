@@ -74,7 +74,7 @@ export function ConfirmSheet(props: ConfirmSheetProps) {
                 type="button"
                 onClick={props.onCancel}
                 disabled={props.busy && props.blockDismissWhileBusy}
-                class="flex-1 rounded-full bg-neutral-800 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-neutral-700 disabled:opacity-50"
+                class="flex-1 min-h-11 md:min-h-0 rounded-full bg-neutral-800 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-neutral-700 disabled:opacity-50"
               >
                 {props.cancelLabel ?? t("common.cancel")}
               </button>
@@ -82,7 +82,7 @@ export function ConfirmSheet(props: ConfirmSheetProps) {
                 type="button"
                 onClick={props.onConfirm}
                 disabled={props.busy}
-                class={`flex-1 rounded-full px-4 py-2.5 text-sm font-bold text-white transition-colors disabled:opacity-50 ${
+                class={`flex-1 min-h-11 md:min-h-0 rounded-full px-4 py-2.5 text-sm font-bold text-white transition-colors disabled:opacity-50 ${
                   props.destructive
                     ? "bg-red-600 hover:bg-red-700"
                     : "bg-accent"

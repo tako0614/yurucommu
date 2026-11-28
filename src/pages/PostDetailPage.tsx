@@ -1543,11 +1543,12 @@ export function PostDetailPage() {
                     </span>
                   </Show>
                   <button
+                    type="button"
                     onClick={handleReply}
                     disabled={
                       !replyContent().trim() || replying() || replyOverLimit()
                     }
-                    class="px-4 py-1.5 bg-accent disabled:bg-neutral-800 disabled:text-neutral-600 rounded-full text-sm font-bold transition-colors"
+                    class="min-h-11 md:min-h-0 px-4 py-1.5 bg-accent disabled:bg-neutral-800 disabled:text-neutral-600 rounded-full text-sm font-bold transition-colors"
                   >
                     {t("posts.reply")}
                   </button>

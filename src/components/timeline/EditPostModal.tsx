@@ -156,9 +156,10 @@ export function EditPostModal(props: EditPostModalProps) {
                   .replace("{max}", String(MAX_CONTENT_LENGTH))}
               </span>
               <button
+                type="button"
                 onClick={handleSave}
                 disabled={!canSave()}
-                class="whitespace-nowrap px-4 py-1.5 bg-accent disabled:bg-neutral-700 disabled:text-neutral-500 rounded-full font-bold text-sm transition-colors"
+                class="min-h-11 md:min-h-0 whitespace-nowrap px-4 py-1.5 bg-accent disabled:bg-neutral-700 disabled:text-neutral-500 rounded-full font-bold text-sm transition-colors"
               >
                 {props.saving ? t("common.saving") : t("common.save")}
               </button>

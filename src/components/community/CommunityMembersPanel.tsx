@@ -446,7 +446,7 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
                             type="button"
                             onClick={() => props.onRevokeInvite(invite)}
                             disabled={props.revokingInvite[invite.id]}
-                            class="ml-auto text-rose-400 hover:text-rose-300 disabled:opacity-50 shrink-0"
+                            class="ml-auto inline-flex min-h-11 min-w-11 md:min-h-0 md:min-w-0 items-center justify-end px-1 text-rose-400 hover:text-rose-300 disabled:opacity-50 shrink-0"
                           >
                             {props.t("members.revokeInvite")}
                           </button>
