@@ -238,7 +238,7 @@ export function BookmarksPage() {
                     type="button"
                     onClick={loadMore}
                     disabled={loadingMore()}
-                    class="text-sm text-accent hover:underline disabled:opacity-50"
+                    class="inline-flex min-h-11 md:min-h-0 items-center px-4 text-sm text-accent hover:underline disabled:opacity-50"
                   >
                     {loadingMore() ? t("common.loading") : t("common.loadMore")}
                   </button>

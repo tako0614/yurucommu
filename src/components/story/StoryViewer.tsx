@@ -862,7 +862,7 @@ export function StoryViewer(props: StoryViewerProps) {
           <Show when={isOwnStory()}>
             <button
               type="button"
-              class="absolute bottom-6 left-4 z-30 flex items-center gap-2 rounded-full bg-black/50 px-4 py-2 text-sm text-white backdrop-blur-sm"
+              class="absolute bottom-5 left-4 z-30 flex min-h-11 md:min-h-0 items-center gap-2 rounded-full bg-black/50 px-4 py-2.5 md:py-2 text-sm text-white backdrop-blur-sm"
               onClick={(e) => {
                 e.stopPropagation();
                 setIsPaused(true);

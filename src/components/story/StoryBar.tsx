@@ -110,8 +110,9 @@ export function StoryBar(props: StoryBarProps) {
                 </span>
                 <Show when={props.onRetry}>
                   <button
+                    type="button"
                     onClick={() => props.onRetry?.()}
-                    class="text-xs text-accent hover:underline"
+                    class="inline-flex min-h-11 md:min-h-0 items-center text-xs text-accent hover:underline"
                   >
                     {t("common.retry")}
                   </button>
@@ -153,12 +154,13 @@ export function StoryBar(props: StoryBarProps) {
           }
         >
           <div class="px-4 py-3 border-b border-neutral-800">
-            <div class="flex gap-4 overflow-x-auto scrollbar-hide -m-1 p-1">
+            <div class="flex gap-4 overflow-x-auto scrollbar-hide -m-2 p-2">
               {/* My story / Add story button (always first) */}
               <div class="flex flex-col items-center gap-1 flex-shrink-0">
                 <div class="relative">
                   {/* Avatar - click to view stories if any */}
                   <button
+                    type="button"
                     aria-label={
                       hasMyStories()
                         ? t("story.viewYourStory")
@@ -189,17 +191,21 @@ export function StoryBar(props: StoryBarProps) {
                       />
                     </div>
                   </button>
-                  {/* + button - always visible, always adds new story */}
+                  {/* + button - always visible, always adds new story. 44px touch
+                      hitbox on mobile wrapping the 28px visual badge. */}
                   <button
+                    type="button"
                     onClick={(e) => {
                       e.stopPropagation();
                       props.onAddStory();
                     }}
                     aria-label={t("story.addStory")}
                     title={t("story.addStory")}
-                    class="absolute -bottom-1 -right-1 w-7 h-7 bg-accent rounded-full flex items-center justify-center ring-2 ring-neutral-900 transition-colors hover:brightness-110"
+                    class="group absolute -bottom-3 -right-3 flex h-11 w-11 items-center justify-center rounded-full md:-bottom-1 md:-right-1 md:h-7 md:w-7"
                   >
-                    <PlusIcon />
+                    <span class="flex h-7 w-7 items-center justify-center rounded-full bg-accent ring-2 ring-neutral-900 transition-colors group-hover:brightness-110">
+                      <PlusIcon />
+                    </span>
                   </button>
                 </div>
                 <span class="w-16 text-center text-xs leading-tight text-neutral-400 line-clamp-2 break-keep wrap-anywhere">

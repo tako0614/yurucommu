@@ -52,14 +52,16 @@ export function StoryViewerDeleteDialog(props: StoryViewerDeleteDialogProps) {
           <div class="flex gap-3">
             <button
               ref={cancelRef}
+              type="button"
               onClick={props.onCancel}
-              class="flex-1 px-4 py-2 bg-neutral-700 hover:bg-neutral-600 rounded-lg text-white transition-colors"
+              class="flex-1 min-h-11 md:min-h-0 px-4 py-2.5 md:py-2 bg-neutral-700 hover:bg-neutral-600 rounded-lg text-white transition-colors"
             >
               {t("common.cancel")}
             </button>
             <button
+              type="button"
               onClick={props.onConfirm}
-              class="flex-1 px-4 py-2 bg-red-500 hover:bg-red-600 rounded-lg text-white transition-colors"
+              class="flex-1 min-h-11 md:min-h-0 px-4 py-2.5 md:py-2 bg-red-600 hover:bg-red-700 rounded-lg text-white transition-colors"
             >
               {t("common.delete")}
             </button>

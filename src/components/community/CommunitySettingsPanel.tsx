@@ -10,25 +10,61 @@ interface CommunitySettingsPanelProps {
   savingSettings: boolean;
   uploadingIcon: boolean;
   iconPreview: string | null;
+  isDirty: boolean;
   onChangeSettings: (
     updater: (prev: CommunitySettings) => CommunitySettings,
   ) => void;
   onUploadIcon: (event: Event & { currentTarget: HTMLInputElement }) => void;
   onSaveSettings: () => void;
+  onDiscardSettings: () => void;
 }
 
 export function CommunitySettingsPanel(props: CommunitySettingsPanelProps) {
   const { t } = useI18n();
   // On a phone the compose button sat over the 説明 field.
   markComposeAside();
+  let panelRef: HTMLDivElement | undefined;
+  let displayNameInputRef: HTMLInputElement | undefined;
+
+  const handleInlineDiscard = () => {
+    const active = document.activeElement;
+    const discardWasFocused =
+      active instanceof Node && (panelRef?.contains(active) ?? false);
+    props.onDiscardSettings();
+    if (discardWasFocused) {
+      queueMicrotask(() => {
+        if (!panelRef?.contains(document.activeElement)) {
+          displayNameInputRef?.focus();
+        }
+      });
+    }
+  };
+
   return (
-    <div class="p-4 space-y-6">
+    <div ref={panelRef} class="p-4 space-y-6">
       <Show when={props.settingsError}>
         <div
           role="alert"
           class="p-3 bg-red-500/20 border border-red-500 rounded-lg text-red-400 text-sm"
         >
           {props.settingsError}
+        </div>
+      </Show>
+
+      <Show when={props.isDirty}>
+        <div
+          role="status"
+          class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-200"
+        >
+          <span>{t("community.unsavedChanges")}</span>
+          <button
+            type="button"
+            onClick={handleInlineDiscard}
+            disabled={props.savingSettings || props.uploadingIcon}
+            class="inline-flex min-h-11 md:min-h-0 items-center rounded-full px-3 py-1.5 md:py-1 text-xs font-medium text-amber-100 underline underline-offset-2 hover:bg-amber-500/20 disabled:opacity-50 transition-colors"
+          >
+            {t("community.discardChanges")}
+          </button>
         </div>
       </Show>
 
@@ -90,6 +126,7 @@ export function CommunitySettingsPanel(props: CommunitySettingsPanelProps) {
           {t("settings.displayName")}
         </label>
         <input
+          ref={displayNameInputRef}
           id="community-display-name"
           type="text"
           value={props.settingsForm.display_name || ""}
@@ -353,8 +390,10 @@ export function CommunitySettingsPanel(props: CommunitySettingsPanelProps) {
         <button
           type="button"
           onClick={props.onSaveSettings}
-          disabled={props.savingSettings}
-          class="w-full min-h-11 md:min-h-0 px-6 py-3 bg-accent text-white rounded-full font-bold transition-colors disabled:opacity-50"
+          disabled={
+            props.savingSettings || props.uploadingIcon || !props.isDirty
+          }
+          class="w-full min-h-11 md:min-h-0 px-6 py-3 bg-accent text-white rounded-full font-bold transition-colors disabled:bg-neutral-700 disabled:text-neutral-400 disabled:opacity-70"
         >
           {props.savingSettings
             ? t("common.saving")

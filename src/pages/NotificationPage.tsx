@@ -812,18 +812,20 @@ export function NotificationPage() {
               }
             >
               <button
+                type="button"
                 onClick={handleArchiveAll}
                 disabled={notificationMutationPending()}
-                class="px-3 py-1.5 text-sm text-neutral-300 rounded-full hover:bg-neutral-800 transition-colors disabled:opacity-50"
+                class="min-h-11 md:min-h-0 px-3 py-2 md:py-1.5 text-sm text-neutral-300 rounded-full hover:bg-neutral-800 transition-colors disabled:opacity-50"
               >
                 {t("notifications.archiveAll")}
               </button>
             </Show>
             <button
+              type="button"
               onClick={() => setViewArchived((v) => !v)}
               disabled={notificationMutationPending()}
               aria-pressed={viewArchived()}
-              class={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-full transition-colors disabled:opacity-50 ${
+              class={`flex min-h-11 md:min-h-0 items-center gap-1.5 px-3 py-2 md:py-1.5 text-sm rounded-full transition-colors disabled:opacity-50 ${
                 viewArchived()
                   ? "bg-neutral-800 text-white"
                   : "text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200"
@@ -1040,9 +1042,10 @@ export function NotificationPage() {
               <Show when={hasMoreOlder()}>
                 <div class="flex justify-center py-4">
                   <button
+                    type="button"
                     onClick={loadOlder}
                     disabled={loadingOlder() || notificationMutationPending()}
-                    class="rounded-full bg-neutral-800 px-4 py-1.5 text-sm text-neutral-300 hover:bg-neutral-700 transition-colors disabled:opacity-50"
+                    class="min-h-11 md:min-h-0 rounded-full bg-neutral-800 px-4 py-2.5 md:py-1.5 text-sm text-neutral-300 hover:bg-neutral-700 transition-colors disabled:opacity-50"
                   >
                     {loadingOlder()
                       ? t("common.loading")

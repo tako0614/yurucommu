@@ -146,19 +146,23 @@ export function StoryOverlayEditorModal(props: StoryOverlayEditorModalProps) {
           <h2 class="mb-4 text-lg font-semibold">{title()}</h2>
 
           <Show when={props.kind === "Question"}>
-            <label class="mb-2 block text-sm text-white/70">
+            <label
+              for="overlay-poll-question"
+              class="mb-2 block text-sm text-white/70"
+            >
               {t("story.overlay.pollQuestion")}
             </label>
             <input
+              id="overlay-poll-question"
               value={question()}
               onInput={(e) => setQuestion(e.currentTarget.value)}
               maxLength={80}
               placeholder={t("story.overlay.pollQuestionPlaceholder")}
-              class="mb-3 w-full rounded-lg bg-white/10 px-3 py-2 text-white placeholder-white/40 outline-none focus:ring-2 focus:ring-white/40"
+              class="mb-3 w-full min-h-11 md:min-h-0 rounded-lg bg-white/10 px-3 py-2 text-white placeholder-white/40 outline-none focus:ring-2 focus:ring-white/40"
             />
-            <label class="mb-2 block text-sm text-white/70">
+            <span class="mb-2 block text-sm text-white/70">
               {t("story.overlay.pollOptions")}
-            </label>
+            </span>
             <div class="space-y-2">
               {/* Index (not For): the options are editable primitives, so the
                   inputs must stay mounted per slot — For would re-key by value
@@ -171,15 +175,16 @@ export function StoryOverlayEditorModal(props: StoryOverlayEditorModalProps) {
                       value={option()}
                       onInput={(e) => setOption(index, e.currentTarget.value)}
                       maxLength={30}
+                      aria-label={`${t("story.overlay.pollOption")} ${index + 1}`}
                       placeholder={`${t("story.overlay.pollOption")} ${index + 1}`}
-                      class="flex-1 rounded-lg bg-white/10 px-3 py-2 text-white placeholder-white/40 outline-none focus:ring-2 focus:ring-white/40"
+                      class="flex-1 min-h-11 md:min-h-0 rounded-lg bg-white/10 px-3 py-2 text-white placeholder-white/40 outline-none focus:ring-2 focus:ring-white/40"
                     />
                     <Show when={options().length > POLL_MIN_OPTIONS}>
                       <button
                         type="button"
                         onClick={() => removeOption(index)}
                         aria-label={t("story.overlay.remove")}
-                        class="rounded-lg px-2 py-2 text-white/60 hover:text-white"
+                        class="flex min-h-11 min-w-11 md:min-h-0 md:min-w-0 items-center justify-center rounded-lg px-2 py-2 text-white/60 hover:text-white"
                       >
                         ✕
                       </button>
@@ -192,7 +197,7 @@ export function StoryOverlayEditorModal(props: StoryOverlayEditorModalProps) {
               <button
                 type="button"
                 onClick={addOption}
-                class="mt-2 text-sm text-white/70 hover:text-white"
+                class="mt-2 inline-flex min-h-11 md:min-h-0 items-center text-sm text-white/70 hover:text-white"
               >
                 + {t("story.overlay.addOption")}
               </button>
@@ -200,10 +205,14 @@ export function StoryOverlayEditorModal(props: StoryOverlayEditorModalProps) {
           </Show>
 
           <Show when={props.kind === "Note"}>
-            <label class="mb-2 block text-sm text-white/70">
+            <label
+              for="overlay-note-text"
+              class="mb-2 block text-sm text-white/70"
+            >
               {t("story.overlay.noteText")}
             </label>
             <textarea
+              id="overlay-note-text"
               value={noteText()}
               onInput={(e) => setNoteText(e.currentTarget.value)}
               maxLength={120}
@@ -214,44 +223,56 @@ export function StoryOverlayEditorModal(props: StoryOverlayEditorModalProps) {
           </Show>
 
           <Show when={props.kind === "Link"}>
-            <label class="mb-2 block text-sm text-white/70">
+            <label
+              for="overlay-link-label"
+              class="mb-2 block text-sm text-white/70"
+            >
               {t("story.overlay.linkLabel")}
             </label>
             <input
+              id="overlay-link-label"
               value={linkLabel()}
               onInput={(e) => setLinkLabel(e.currentTarget.value)}
               maxLength={40}
               placeholder={t("story.overlay.linkLabelPlaceholder")}
-              class="mb-3 w-full rounded-lg bg-white/10 px-3 py-2 text-white placeholder-white/40 outline-none focus:ring-2 focus:ring-white/40"
+              class="mb-3 w-full min-h-11 md:min-h-0 rounded-lg bg-white/10 px-3 py-2 text-white placeholder-white/40 outline-none focus:ring-2 focus:ring-white/40"
             />
-            <label class="mb-2 block text-sm text-white/70">
+            <label
+              for="overlay-link-url"
+              class="mb-2 block text-sm text-white/70"
+            >
               {t("story.overlay.linkUrl")}
             </label>
             <input
+              id="overlay-link-url"
               value={linkUrl()}
               onInput={(e) => setLinkUrl(e.currentTarget.value)}
               type="url"
               inputmode="url"
               placeholder="https://…"
-              class="w-full rounded-lg bg-white/10 px-3 py-2 text-white placeholder-white/40 outline-none focus:ring-2 focus:ring-white/40"
+              class="w-full min-h-11 md:min-h-0 rounded-lg bg-white/10 px-3 py-2 text-white placeholder-white/40 outline-none focus:ring-2 focus:ring-white/40"
             />
           </Show>
 
           <Show when={error()}>
-            {(message) => <p class="mt-3 text-sm text-red-400">{message()}</p>}
+            {(message) => (
+              <p role="alert" class="mt-3 text-sm text-red-400">
+                {message()}
+              </p>
+            )}
           </Show>
 
           <div class="mt-5 flex justify-end gap-2">
             <button
               type="button"
               onClick={props.onClose}
-              class="rounded-lg px-4 py-2 text-sm text-white/70 hover:text-white"
+              class="min-h-11 md:min-h-0 rounded-lg px-4 py-2 text-sm text-white/70 hover:text-white"
             >
               {t("common.cancel")}
             </button>
             <button
               type="submit"
-              class="rounded-lg bg-white px-4 py-2 text-sm font-medium text-black hover:bg-white/90"
+              class="min-h-11 md:min-h-0 rounded-lg bg-white px-4 py-2 text-sm font-medium text-black hover:bg-white/90"
             >
               {t("story.done")}
             </button>

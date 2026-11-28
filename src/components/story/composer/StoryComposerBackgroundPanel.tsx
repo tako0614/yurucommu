@@ -71,7 +71,7 @@ export function StoryComposerBackgroundPanel(
             type="button"
             onClick={props.onClose}
             aria-label={t("common.close")}
-            class="p-1 text-white/60 hover:text-white"
+            class="-mr-2 flex min-h-11 min-w-11 md:mr-0 md:min-h-0 md:min-w-0 items-center justify-center rounded-full p-1 text-white/60 hover:text-white"
           >
             <CloseIcon />
           </button>
