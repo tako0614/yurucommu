@@ -25,7 +25,7 @@ export function StoryComposerSelectionToolbar(
         role="toolbar"
         aria-label={t("story.layerControls")}
         aria-orientation="vertical"
-        class="absolute top-1/2 left-4 z-10 -translate-y-1/2 flex max-h-[calc(100%-12rem)] flex-col gap-1 overflow-y-auto scrollbar-hide bg-black/70 backdrop-blur-sm rounded-2xl p-1.5 shadow-lg"
+        class="pointer-events-auto absolute top-1/2 left-4 z-10 -translate-y-1/2 flex max-h-[calc(100%-12rem)] flex-col gap-1 overflow-y-auto scrollbar-hide bg-black/70 backdrop-blur-sm rounded-2xl p-1.5 shadow-lg"
       >
         <Show when={props.selectedLayer!.type === "text"}>
           <button

@@ -744,8 +744,27 @@ export function StoryComposer(props: StoryComposerProps) {
       focusHomeIfOutside();
     });
   };
+  const reorderSelectedLayerPreservingFocus = (action: () => void) => {
+    const active = document.activeElement as HTMLElement | null;
+    action();
+    if (active && composerRootRef?.contains(active)) {
+      queueMicrotask(() => {
+        if (active.isConnected && document.activeElement !== active) {
+          active.focus();
+        }
+      });
+    }
+  };
   const handleCanvasLayerKeyDown = (e: KeyboardEvent, layer: Layer) => {
-    if (postActions.editingLocked() || isComposingKey(e)) return;
+    if (
+      postActions.editingLocked() ||
+      isComposingKey(e) ||
+      e.altKey ||
+      e.ctrlKey ||
+      e.metaKey
+    ) {
+      return;
+    }
     const moveStep = e.shiftKey ? 72 : 24;
     const scaleUp = e.shiftKey ? 1.15 : 1.08;
     const rotateStep = e.shiftKey ? 5 : 15;
@@ -925,42 +944,86 @@ export function StoryComposer(props: StoryComposerProps) {
               pointer-events-none leaves pointer/touch/video/pinch gestures on
               the canvas below completely unchanged while giving keyboard users
               full focus, move (Arrow), resize (+/-), rotate ([/]), edit (Enter)
-              and delete (Delete/Backspace) control. */}
+              and delete (Delete/Backspace) control. The selection toolbar mounts
+              immediately after the selected layer proxy so keyboard Tab enters
+              the layer's toolbar before advancing to the next layer or overlay. */}
           <Show when={interactionState().mode !== "draw"}>
-            <div class="pointer-events-none absolute inset-0 z-[5]">
+            <div class="pointer-events-none absolute inset-0">
               <For each={editableLayerIds()}>
                 {(id) => {
                   const layer = () => canvasLayerById(id);
+                  const isSelected = () =>
+                    interactionState().selectedLayerId === id;
                   return (
                     <Show when={layer()}>
                       {(current) => (
-                        <div
-                          data-canvas-layer-id={id}
-                          role="group"
-                          tabindex={postActions.editingLocked() ? -1 : 0}
-                          aria-label={canvasLayerAriaLabel(current())}
-                          class="pointer-events-none absolute rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
-                          style={{
-                            left: `${(current().x / CANVAS_WIDTH) * 100}%`,
-                            top: `${(current().y / CANVAS_HEIGHT) * 100}%`,
-                            width: `${(current().width / CANVAS_WIDTH) * 100}%`,
-                            height: `${(current().height / CANVAS_HEIGHT) * 100}%`,
-                            transform: `rotate(${current().rotation}deg)`,
-                          }}
-                          onFocus={() => {
-                            if (postActions.editingLocked()) return;
-                            overlayState.setSelectedId(null);
-                            selectLayer(id);
-                          }}
-                          onKeyDown={(e) =>
-                            handleCanvasLayerKeyDown(e, current())
-                          }
-                        />
+                        <>
+                          <div
+                            data-canvas-layer-id={id}
+                            role="group"
+                            tabindex={postActions.editingLocked() ? -1 : 0}
+                            aria-label={canvasLayerAriaLabel(current())}
+                            class="pointer-events-none absolute z-[5] rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+                            style={{
+                              left: `${(current().x / CANVAS_WIDTH) * 100}%`,
+                              top: `${(current().y / CANVAS_HEIGHT) * 100}%`,
+                              width: `${(current().width / CANVAS_WIDTH) * 100}%`,
+                              height: `${(current().height / CANVAS_HEIGHT) * 100}%`,
+                              transform: `rotate(${current().rotation}deg)`,
+                            }}
+                            onFocus={() => {
+                              if (postActions.editingLocked()) return;
+                              overlayState.setSelectedId(null);
+                              selectLayer(id);
+                            }}
+                            onKeyDown={(e) =>
+                              handleCanvasLayerKeyDown(e, current())
+                            }
+                          />
+                          <Show when={isSelected()}>
+                            <StoryComposerSelectionToolbar
+                              selectedLayer={current()}
+                              onEditText={textEditor.handleEditText}
+                              onEnlarge={() =>
+                                layerActions.handleResizeLayer(1.1)
+                              }
+                              onShrink={() =>
+                                layerActions.handleResizeLayer(1 / 1.1)
+                              }
+                              onRotate={() =>
+                                layerActions.handleRotateLayer(15)
+                              }
+                              onBringToFront={() =>
+                                reorderSelectedLayerPreservingFocus(
+                                  layerActions.handleBringToFront,
+                                )
+                              }
+                              onSendToBack={() =>
+                                reorderSelectedLayerPreservingFocus(
+                                  layerActions.handleSendToBack,
+                                )
+                              }
+                              onDelete={() => deleteCanvasLayerAndFocus(id)}
+                            />
+                          </Show>
+                        </>
                       )}
                     </Show>
                   );
                 }}
               </For>
+              <Show when={selectedLayer()?.type === "drawing"}>
+                <StoryComposerSelectionToolbar
+                  selectedLayer={selectedLayer()}
+                  onEditText={textEditor.handleEditText}
+                  onEnlarge={() => layerActions.handleResizeLayer(1.1)}
+                  onShrink={() => layerActions.handleResizeLayer(1 / 1.1)}
+                  onRotate={() => layerActions.handleRotateLayer(15)}
+                  onBringToFront={layerActions.handleBringToFront}
+                  onSendToBack={layerActions.handleSendToBack}
+                  onDelete={() => deleteCanvasLayerAndFocus()}
+                />
+              </Show>
             </div>
           </Show>
 
@@ -1007,17 +1070,6 @@ export function StoryComposer(props: StoryComposerProps) {
             onBackground={handleToggleBackground}
             backgroundActive={showBackgroundPanel()}
             uploading={uploading()}
-          />
-
-          <StoryComposerSelectionToolbar
-            selectedLayer={selectedLayer()}
-            onEditText={textEditor.handleEditText}
-            onEnlarge={() => layerActions.handleResizeLayer(1.1)}
-            onShrink={() => layerActions.handleResizeLayer(1 / 1.1)}
-            onRotate={() => layerActions.handleRotateLayer(15)}
-            onBringToFront={layerActions.handleBringToFront}
-            onSendToBack={layerActions.handleSendToBack}
-            onDelete={() => deleteCanvasLayerAndFocus()}
           />
 
           <StoryComposerFooter

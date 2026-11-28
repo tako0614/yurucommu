@@ -186,7 +186,15 @@ export function StoryComposerOverlayLayer(
   };
 
   const handleOverlayKeyDown = (e: KeyboardEvent, item: OverlayItem) => {
-    if (props.disabled || isComposingKey(e)) return;
+    if (
+      props.disabled ||
+      isComposingKey(e) ||
+      e.altKey ||
+      e.ctrlKey ||
+      e.metaKey
+    ) {
+      return;
+    }
     // Let child buttons / resize slider handle their own keys.
     if (e.target !== e.currentTarget) return;
     const pos = item.overlay.position;
@@ -241,7 +249,15 @@ export function StoryComposerOverlayLayer(
   };
 
   const handleResizeKeyDown = (e: KeyboardEvent, item: OverlayItem) => {
-    if (props.disabled || isComposingKey(e)) return;
+    if (
+      props.disabled ||
+      isComposingKey(e) ||
+      e.altKey ||
+      e.ctrlKey ||
+      e.metaKey
+    ) {
+      return;
+    }
     const width = item.overlay.position.width;
     const step = e.shiftKey ? 0.1 : 0.04;
     switch (e.key) {
@@ -291,95 +307,107 @@ export function StoryComposerOverlayLayer(
       <For each={itemIds()}>
         {(id) => {
           const item = () => itemById(id);
-          const pos = () => item()!.overlay.position;
           const selected = () => props.selectedId === id;
-          const widthPercent = () => Math.round(pos().width * 100);
           return (
             <Show when={item()}>
-              {(current) => (
-                <div
-                  data-overlay-id={id}
-                  role="group"
-                  tabindex={props.disabled ? -1 : 0}
-                  aria-label={overlayLabel(current().overlay)}
-                  class="pointer-events-auto absolute flex touch-none select-none items-center justify-center rounded-xl"
-                  classList={{
-                    "outline outline-2 outline-white/80": selected(),
-                  }}
-                  style={{
-                    left: `${(pos().x - pos().width / 2) * 100}%`,
-                    top: `${(pos().y - pos().height / 2) * 100}%`,
-                    width: `${pos().width * 100}%`,
-                    "min-height": `${pos().height * 100}%`,
-                    cursor: "move",
-                  }}
-                  onFocus={() => {
-                    if (!props.disabled) props.onSelect(id);
-                  }}
-                  onKeyDown={(e) => handleOverlayKeyDown(e, current())}
-                  onPointerDown={(e) => onPointerDown(e, current())}
-                  onPointerMove={onPointerMove}
-                  onPointerUp={endDrag}
-                  onPointerCancel={endDrag}
-                >
-                  <OverlayPreview overlay={current().overlay} />
+              {(current) => {
+                const pos = () => current().overlay.position;
+                const widthPercent = () => Math.round(pos().width * 100);
+                // Flip the action pill below the overlay when near the top of
+                // the stage so it never clips above the overflow-hidden stage.
+                const showActionsBelow = () =>
+                  pos().y - pos().height / 2 < 0.14;
+                return (
+                  <div
+                    data-overlay-id={id}
+                    role="group"
+                    tabindex={props.disabled ? -1 : 0}
+                    aria-label={overlayLabel(current().overlay)}
+                    class="pointer-events-auto absolute flex touch-none select-none items-center justify-center rounded-xl"
+                    classList={{
+                      "outline outline-2 outline-white/80": selected(),
+                    }}
+                    style={{
+                      left: `${(pos().x - pos().width / 2) * 100}%`,
+                      top: `${(pos().y - pos().height / 2) * 100}%`,
+                      width: `${pos().width * 100}%`,
+                      "min-height": `${pos().height * 100}%`,
+                      cursor: "move",
+                    }}
+                    onFocus={() => {
+                      if (!props.disabled) props.onSelect(id);
+                    }}
+                    onKeyDown={(e) => handleOverlayKeyDown(e, current())}
+                    onPointerDown={(e) => onPointerDown(e, current())}
+                    onPointerMove={onPointerMove}
+                    onPointerUp={endDrag}
+                    onPointerCancel={endDrag}
+                  >
+                    <OverlayPreview overlay={current().overlay} />
 
-                  <Show when={selected()}>
-                    <div class="absolute -top-13 md:-top-9 left-1/2 flex -translate-x-1/2 gap-1 rounded-full bg-neutral-900/95 px-1 py-0.5 md:py-1 shadow-lg">
-                      <button
-                        type="button"
-                        onPointerDown={(e) => e.stopPropagation()}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (props.disabled) return;
-                          props.onEdit(id);
-                        }}
-                        class="inline-flex min-h-11 md:min-h-0 items-center rounded-full px-3 py-2 md:py-1 text-xs text-white hover:bg-white/10"
+                    <Show when={selected()}>
+                      <div
+                        class={`absolute left-1/2 z-[1] flex w-max -translate-x-1/2 gap-1 rounded-full bg-neutral-900/95 px-1 py-0.5 md:py-1 shadow-lg ${
+                          showActionsBelow()
+                            ? "top-full mt-2"
+                            : "-top-13 md:-top-9"
+                        }`}
                       >
-                        {t("story.overlay.edit")}
-                      </button>
-                      <button
-                        type="button"
-                        onPointerDown={(e) => e.stopPropagation()}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (props.disabled) return;
-                          removeAndRestoreFocus(id);
-                        }}
-                        aria-label={t("story.overlay.remove")}
-                        class="inline-flex min-h-11 md:min-h-0 items-center rounded-full px-3 py-2 md:py-1 text-xs text-red-400 hover:bg-white/10"
-                      >
-                        {t("story.overlay.remove")}
-                      </button>
-                    </div>
-                  </Show>
+                        <button
+                          type="button"
+                          onPointerDown={(e) => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (props.disabled) return;
+                            props.onEdit(id);
+                          }}
+                          class="inline-flex min-h-11 min-w-11 md:min-h-0 md:min-w-0 items-center justify-center whitespace-nowrap rounded-full px-3 py-2 md:py-1 text-xs text-white hover:bg-white/10"
+                        >
+                          {t("story.overlay.edit")}
+                        </button>
+                        <button
+                          type="button"
+                          onPointerDown={(e) => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (props.disabled) return;
+                            removeAndRestoreFocus(id);
+                          }}
+                          aria-label={t("story.overlay.remove")}
+                          class="inline-flex min-h-11 min-w-11 md:min-h-0 md:min-w-0 items-center justify-center whitespace-nowrap rounded-full px-3 py-2 md:py-1 text-xs text-red-400 hover:bg-white/10"
+                        >
+                          {t("story.overlay.remove")}
+                        </button>
+                      </div>
+                    </Show>
 
-                  {/* Corner resize handle (adjusts normalized width; height scales
-                      to match). Federates via position.width/height. */}
-                  <Show when={selected()}>
-                    <div
-                      role="slider"
-                      tabindex={props.disabled ? -1 : 0}
-                      aria-label={t("story.overlay.resize")}
-                      aria-valuemin={Math.round(OVERLAY_MIN_WIDTH * 100)}
-                      aria-valuemax={Math.round(OVERLAY_MAX_WIDTH * 100)}
-                      aria-valuenow={widthPercent()}
-                      aria-valuetext={`${widthPercent()}%`}
-                      class="absolute -bottom-5 -right-5 md:-bottom-2.5 md:-right-2.5 flex min-h-11 min-w-11 md:min-h-0 md:min-w-0 md:h-6 md:w-6 cursor-nwse-resize items-center justify-center rounded-full"
-                      onKeyDown={(e) => handleResizeKeyDown(e, current())}
-                      onPointerDown={(e) => onResizeDown(e, current())}
-                      onPointerMove={onPointerMove}
-                      onPointerUp={endDrag}
-                      onPointerCancel={endDrag}
-                    >
-                      <span
-                        aria-hidden="true"
-                        class="h-5 w-5 rounded-full border-2 border-neutral-900 bg-white shadow"
-                      />
-                    </div>
-                  </Show>
-                </div>
-              )}
+                    {/* Corner resize handle (adjusts normalized width; height scales
+                        to match). Federates via position.width/height. */}
+                    <Show when={selected()}>
+                      <div
+                        role="slider"
+                        tabindex={props.disabled ? -1 : 0}
+                        aria-label={t("story.overlay.resize")}
+                        aria-valuemin={Math.round(OVERLAY_MIN_WIDTH * 100)}
+                        aria-valuemax={Math.round(OVERLAY_MAX_WIDTH * 100)}
+                        aria-valuenow={widthPercent()}
+                        aria-valuetext={`${widthPercent()}%`}
+                        class="absolute -bottom-5 -right-5 z-[2] md:-bottom-2.5 md:-right-2.5 flex min-h-11 min-w-11 md:min-h-0 md:min-w-0 md:h-6 md:w-6 cursor-nwse-resize items-center justify-center rounded-full"
+                        onKeyDown={(e) => handleResizeKeyDown(e, current())}
+                        onPointerDown={(e) => onResizeDown(e, current())}
+                        onPointerMove={onPointerMove}
+                        onPointerUp={endDrag}
+                        onPointerCancel={endDrag}
+                      >
+                        <span
+                          aria-hidden="true"
+                          class="h-5 w-5 rounded-full border-2 border-neutral-900 bg-white shadow"
+                        />
+                      </div>
+                    </Show>
+                  </div>
+                );
+              }}
             </Show>
           );
         }}

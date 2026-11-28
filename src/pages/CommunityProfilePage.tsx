@@ -542,8 +542,12 @@ export function CommunityProfilePage() {
   const handleIconUpload = async (
     e: Event & { currentTarget: HTMLInputElement },
   ) => {
-    const file = e.currentTarget.files?.[0];
-    if (!file || uploadingIcon()) return;
+    const input = e.currentTarget;
+    const file = input.files?.[0];
+    if (!file || uploadingIcon()) {
+      input.value = "";
+      return;
+    }
 
     setUploadingIcon(true);
     try {
@@ -558,6 +562,7 @@ export function CommunityProfilePage() {
     } catch {
       setSettingsError(t("community.iconUploadFailed"));
     } finally {
+      input.value = "";
       setUploadingIcon(false);
     }
   };
@@ -695,12 +700,14 @@ export function CommunityProfilePage() {
             role="tablist"
             aria-label={t("community.tabsLabel")}
             onKeyDown={(e) => {
+              if (e.altKey || e.ctrlKey || e.metaKey) return;
               const tabs: Array<"about" | "members" | "settings"> = canManage()
                 ? ["about", "members", "settings"]
                 : ["about", "members"];
               const cur = tabs.indexOf(activeTab());
               const currentIndex = cur < 0 ? 0 : cur;
               if (activeTab() === "settings" && isSettingsDirty()) {
+                if (e.isComposing || e.keyCode === 229) return;
                 let nextIndex: number | null = null;
                 if (e.key === "ArrowRight" || e.key === "ArrowDown") {
                   nextIndex = (currentIndex + 1) % tabs.length;

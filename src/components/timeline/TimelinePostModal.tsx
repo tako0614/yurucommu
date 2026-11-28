@@ -517,7 +517,7 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
                         the <input> on every keystroke and drop focus. */}
                         <Index each={props.uploadedMedia}>
                           {(media, idx) => (
-                            <div class="flex gap-2 items-start">
+                            <div class="flex gap-3 md:gap-2 items-start">
                               <div class="relative shrink-0">
                                 {/* Staged videos preview as a muted first-frame
                                 <video>; images keep the <img> path. */}
